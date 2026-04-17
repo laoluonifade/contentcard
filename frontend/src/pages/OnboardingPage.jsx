@@ -4,6 +4,7 @@ import { ArrowRight, Building2, Users, Palette, Check, Zap } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAppStore from '../stores/appStore'
+import { workspaceApi } from '../api'
 import useAuthStore from '../stores/authStore'
 
 const INDUSTRIES = [
@@ -22,7 +23,7 @@ const inp = "w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-
 
 export default function OnboardingPage() {
   const navigate = useNavigate()
-  const { createBrand, activeWorkspaceId, fetchBrands } = useAppStore()
+  const { createBrand, activeWorkspaceId, fetchWorkspaces } = useAppStore()
   const { user } = useAuthStore()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
@@ -56,6 +57,11 @@ export default function OnboardingPage() {
   const finish = async () => {
     setSaving(true)
     try {
+      // Create workspace first if none exists
+      if (!activeWorkspaceId) {
+        await workspaceApi.create({ name: form.name || 'My Workspace' })
+        await fetchWorkspaces()
+      }
       await createBrand({
         ...form,
         tone_tags: form.tone_tags.map(t => t.toLowerCase()),

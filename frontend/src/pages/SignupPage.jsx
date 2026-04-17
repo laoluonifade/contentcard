@@ -8,7 +8,7 @@ import useAppStore from '../stores/appStore'
 
 export default function SignupPage() {
   const [step, setStep]     = useState(1)
-  const [form, setForm]     = useState({ full_name: '', email: '', password: '', phone: '' })
+  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '' })
   const [showPw, setShowPw] = useState(false)
   const { signup, isLoading } = useAuthStore()
   const { fetchWorkspaces } = useAppStore()
@@ -17,7 +17,8 @@ export default function SignupPage() {
   const inp = "w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400 transition-all text-sm"
 
   const validateStep1 = () => {
-    if (!form.full_name.trim()) { toast('Enter your full name', 'error'); return false }
+    if (!form.first_name.trim()) { toast('Enter your first name', 'error'); return false }
+    if (!form.last_name.trim())  { toast('Enter your last name', 'error'); return false }
     if (!form.email.trim())     { toast('Enter your email', 'error'); return false }
     if (form.password.length < 8) { toast('Password must be at least 8 characters', 'error'); return false }
     return true
@@ -32,7 +33,7 @@ export default function SignupPage() {
     e.preventDefault()
     try {
       await signup({
-        full_name: form.full_name.trim(),
+        full_name: `${form.first_name.trim()} ${form.last_name.trim()}`,
         email: form.email.trim().toLowerCase(),
         password: form.password,
         phone: form.phone.trim() || undefined,
@@ -80,11 +81,19 @@ export default function SignupPage() {
             <h1 className="text-3xl font-bold text-white mb-1">Create account</h1>
             <p className="text-white/45 mb-8 text-sm">14-day free trial · No card required</p>
             <form onSubmit={nextStep} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">Full name</label>
-                <input autoFocus value={form.full_name}
-                  onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
-                  placeholder="Your name" className={inp} required />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">First name</label>
+                  <input autoFocus value={form.first_name}
+                    onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))}
+                    placeholder="Ada" className={inp} required />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">Last name</label>
+                  <input value={form.last_name}
+                    onChange={e => setForm(f => ({ ...f, last_name: e.target.value }))}
+                    placeholder="Okonkwo" className={inp} required />
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">Email</label>
@@ -133,7 +142,7 @@ export default function SignupPage() {
             <p className="text-white/45 mb-8 text-sm">Review your details and create your account.</p>
             <div className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-5 mb-6 space-y-3">
               {[
-                { label: 'Name', val: form.full_name },
+                { label: 'Name', val: `${form.first_name} ${form.last_name}` },
                 { label: 'Email', val: form.email },
                 { label: 'Phone', val: form.phone || 'Not provided' },
               ].map(({ label, val }) => (
