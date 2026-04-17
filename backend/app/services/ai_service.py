@@ -85,7 +85,7 @@ Return ONLY the raw JSON array. No explanation, no markdown fences, no preamble.
 
     try:
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=8000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -156,7 +156,7 @@ No markdown fences, no explanation, raw JSON only."""
 
     try:
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -216,7 +216,7 @@ Raw JSON only, no markdown fences."""
 
     try:
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=800,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -250,7 +250,7 @@ Return ONLY a raw JSON array, no markdown fences."""
 
     try:
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -259,4 +259,42 @@ Return ONLY a raw JSON array, no markdown fences."""
         return _parse_json_safe(raw)
     except Exception as e:
         logger.error(f"Error enhancing trends: {e}")
+        return []
+
+
+async def generate_fresh_trends(industry: str | None = None, country_code: str | None = None) -> list[dict]:
+    context_parts = []
+    if industry:
+        context_parts.append(f"industry: {industry}")
+    if country_code:
+        context_parts.append(f"country: {country_code}")
+    context = ", ".join(context_parts) if context_parts else "general business, global"
+
+    prompt = f"""You are a social media trend analyst. Today is {__import__('datetime').date.today().isoformat()}.
+
+Generate 10 trending social media content topics for businesses right now.
+Context: {context}
+
+For each topic return:
+- "topic": short catchy topic name (3-6 words max)
+- "description": why it's resonating now (max 12 words)
+- "badge": "viral" | "rising" | "steady"
+- "volume": realistic estimated engagement like "1.4M posts"
+
+Mix timely trends (events, seasons, cultural moments) with evergreen content themes.
+Return ONLY a raw JSON array, no markdown, no extra text."""
+
+    try:
+        message = await client.messages.create(
+            model="claude-3-5-sonnet-20241022",
+            max_tokens=1500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = message.content[0].text
+        results = _parse_json_safe(raw)
+        if isinstance(results, list):
+            return results[:10]
+        return []
+    except Exception as e:
+        logger.error(f"Error generating fresh trends: {e}")
         return []

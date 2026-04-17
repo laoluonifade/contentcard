@@ -32,11 +32,15 @@ class Brand(Base):
     # Visual identity
     brand_colors: Mapped[list | None] = mapped_column(JSON, default=list)
     design_style: Mapped[str | None] = mapped_column(String(50), default="bold")
+    brand_font: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Rules
     words_to_avoid: Mapped[list | None] = mapped_column(JSON, default=list)
     competitors: Mapped[str | None] = mapped_column(Text, nullable=True)
     guidelines: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Compliance
+    compliance_rules: Mapped[dict | None] = mapped_column(JSON, default=dict)
 
     # Social
     instagram_handle: Mapped[str | None] = mapped_column(String(100), nullable=True)

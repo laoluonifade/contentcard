@@ -7,6 +7,7 @@ class SignupRequest(BaseModel):
     email: EmailStr
     password: str
     phone: str | None = None
+    country_code: str | None = None  # Optional — user-selected; falls back to geo-detection
 
     @field_validator("password")
     @classmethod
