@@ -6,46 +6,44 @@ import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 
-const COUNTRIES = [
-  { code: 'NG', name: 'Nigeria' },
-  { code: 'GH', name: 'Ghana' },
-  { code: 'KE', name: 'Kenya' },
-  { code: 'ZA', name: 'South Africa' },
-  { code: 'TZ', name: 'Tanzania' },
-  { code: 'UG', name: 'Uganda' },
-  { code: 'RW', name: 'Rwanda' },
-  { code: 'ZW', name: 'Zimbabwe' },
-  { code: 'MW', name: 'Malawi' },
-  { code: 'ZM', name: 'Zambia' },
-  { code: 'CM', name: 'Cameroon' },
-  { code: 'ET', name: 'Ethiopia' },
-  { code: 'EG', name: 'Egypt' },
-  { code: 'US', name: 'United States' },
-  { code: 'GB', name: 'United Kingdom' },
-  { code: 'CA', name: 'Canada' },
-  { code: 'AU', name: 'Australia' },
-  { code: 'NZ', name: 'New Zealand' },
-  { code: 'IE', name: 'Ireland' },
-  { code: 'IN', name: 'India' },
-  { code: 'SG', name: 'Singapore' },
-  { code: 'PH', name: 'Philippines' },
-  { code: 'PK', name: 'Pakistan' },
-  { code: 'AE', name: 'United Arab Emirates' },
-  { code: 'SA', name: 'Saudi Arabia' },
-  { code: 'DE', name: 'Germany' },
-  { code: 'FR', name: 'France' },
-  { code: 'IT', name: 'Italy' },
-  { code: 'ES', name: 'Spain' },
-  { code: 'NL', name: 'Netherlands' },
-  { code: 'BR', name: 'Brazil' },
-  { code: 'MX', name: 'Mexico' },
-  { code: 'AR', name: 'Argentina' },
-  { code: 'CO', name: 'Colombia' },
-  { code: 'NA', name: 'Namibia' },
-  { code: 'BW', name: 'Botswana' },
+export const COUNTRIES_LIST = [
+  { code: 'NG', name: 'Nigeria',              dial: '+234', placeholder: '801 234 5678' },
+  { code: 'GH', name: 'Ghana',                dial: '+233', placeholder: '20 123 4567' },
+  { code: 'KE', name: 'Kenya',                dial: '+254', placeholder: '712 345 678' },
+  { code: 'ZA', name: 'South Africa',         dial: '+27',  placeholder: '71 234 5678' },
+  { code: 'TZ', name: 'Tanzania',             dial: '+255', placeholder: '712 345 678' },
+  { code: 'UG', name: 'Uganda',               dial: '+256', placeholder: '712 345 678' },
+  { code: 'RW', name: 'Rwanda',               dial: '+250', placeholder: '78 123 4567' },
+  { code: 'ZW', name: 'Zimbabwe',             dial: '+263', placeholder: '71 234 5678' },
+  { code: 'MW', name: 'Malawi',               dial: '+265', placeholder: '99 123 4567' },
+  { code: 'ZM', name: 'Zambia',               dial: '+260', placeholder: '97 123 4567' },
+  { code: 'CM', name: 'Cameroon',             dial: '+237', placeholder: '6 71 23 45 67' },
+  { code: 'ET', name: 'Ethiopia',             dial: '+251', placeholder: '91 123 4567' },
+  { code: 'EG', name: 'Egypt',                dial: '+20',  placeholder: '100 123 4567' },
+  { code: 'NA', name: 'Namibia',              dial: '+264', placeholder: '81 123 4567' },
+  { code: 'BW', name: 'Botswana',             dial: '+267', placeholder: '71 234 567' },
+  { code: 'US', name: 'United States',        dial: '+1',   placeholder: '(555) 234-5678' },
+  { code: 'GB', name: 'United Kingdom',       dial: '+44',  placeholder: '7700 900123' },
+  { code: 'CA', name: 'Canada',               dial: '+1',   placeholder: '(555) 234-5678' },
+  { code: 'AU', name: 'Australia',            dial: '+61',  placeholder: '412 345 678' },
+  { code: 'NZ', name: 'New Zealand',          dial: '+64',  placeholder: '21 234 5678' },
+  { code: 'IE', name: 'Ireland',              dial: '+353', placeholder: '87 123 4567' },
+  { code: 'IN', name: 'India',                dial: '+91',  placeholder: '98765 43210' },
+  { code: 'SG', name: 'Singapore',            dial: '+65',  placeholder: '8123 4567' },
+  { code: 'PH', name: 'Philippines',          dial: '+63',  placeholder: '917 123 4567' },
+  { code: 'PK', name: 'Pakistan',             dial: '+92',  placeholder: '301 234 5678' },
+  { code: 'AE', name: 'United Arab Emirates', dial: '+971', placeholder: '50 123 4567' },
+  { code: 'SA', name: 'Saudi Arabia',         dial: '+966', placeholder: '50 123 4567' },
+  { code: 'DE', name: 'Germany',              dial: '+49',  placeholder: '1512 3456789' },
+  { code: 'FR', name: 'France',               dial: '+33',  placeholder: '6 12 34 56 78' },
+  { code: 'IT', name: 'Italy',                dial: '+39',  placeholder: '312 345 6789' },
+  { code: 'ES', name: 'Spain',                dial: '+34',  placeholder: '612 345 678' },
+  { code: 'NL', name: 'Netherlands',          dial: '+31',  placeholder: '6 12345678' },
+  { code: 'BR', name: 'Brazil',               dial: '+55',  placeholder: '11 91234-5678' },
+  { code: 'MX', name: 'Mexico',               dial: '+52',  placeholder: '55 1234 5678' },
+  { code: 'AR', name: 'Argentina',            dial: '+54',  placeholder: '11 1234-5678' },
+  { code: 'CO', name: 'Colombia',             dial: '+57',  placeholder: '310 123 4567' },
 ]
-
-export const COUNTRIES_LIST = COUNTRIES
 
 export default function SignupPage() {
   const [step, setStep]     = useState(1)
@@ -57,6 +55,12 @@ export default function SignupPage() {
 
   const inp = "w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400 transition-all text-sm"
   const sel = `${inp} cursor-pointer`
+
+  const selectedCountry = COUNTRIES_LIST.find(c => c.code === form.country_code)
+
+  const handleCountryChange = (code) => {
+    setForm(f => ({ ...f, country_code: code, phone: '' }))
+  }
 
   const validateStep1 = () => {
     if (!form.first_name.trim()) { toast('Enter your first name', 'error'); return false }
@@ -73,12 +77,15 @@ export default function SignupPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    const fullPhone = selectedCountry && form.phone.trim()
+      ? `${selectedCountry.dial} ${form.phone.trim()}`
+      : form.phone.trim() || undefined
     try {
       await signup({
         full_name: `${form.first_name.trim()} ${form.last_name.trim()}`,
         email: form.email.trim().toLowerCase(),
         password: form.password,
-        phone: form.phone.trim() || undefined,
+        phone: fullPhone,
         country_code: form.country_code || undefined,
       })
       await fetchWorkspaces().catch(() => {})
@@ -96,8 +103,6 @@ export default function SignupPage() {
     return             { label: 'Strong',     color: '#43B89C', w: '100%' }
   }
   const strength = pwStrength()
-
-  const selectedCountry = COUNTRIES.find(c => c.code === form.country_code)
 
   return (
     <div className="min-h-screen bg-ink flex items-center justify-center p-4">
@@ -167,14 +172,10 @@ export default function SignupPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">
-                    Country
-                  </label>
-                  <select value={form.country_code}
-                    onChange={e => setForm(f => ({ ...f, country_code: e.target.value }))}
-                    className={sel}>
+                  <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">Country</label>
+                  <select value={form.country_code} onChange={e => handleCountryChange(e.target.value)} className={sel}>
                     <option value="">Select country</option>
-                    {COUNTRIES.map(c => (
+                    {COUNTRIES_LIST.map(c => (
                       <option key={c.code} value={c.code}>{c.name}</option>
                     ))}
                   </select>
@@ -183,9 +184,17 @@ export default function SignupPage() {
                   <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">
                     Phone <span className="text-white/25 font-normal normal-case">(optional)</span>
                   </label>
-                  <input type="tel" value={form.phone}
-                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                    placeholder="+234 800 000 0000" className={inp} />
+                  <div className="flex">
+                    {selectedCountry && (
+                      <span className="flex items-center px-3 bg-white/5 border border-r-0 border-white/10 rounded-l-xl text-white/50 text-sm whitespace-nowrap">
+                        {selectedCountry.dial}
+                      </span>
+                    )}
+                    <input type="tel" value={form.phone}
+                      onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                      placeholder={selectedCountry ? selectedCountry.placeholder : '+1 555 000 0000'}
+                      className={`${inp} ${selectedCountry ? 'rounded-l-none' : ''}`} />
+                  </div>
                 </div>
               </div>
               <button type="submit" className="btn-primary w-full justify-center py-3 text-sm mt-2">
@@ -203,8 +212,8 @@ export default function SignupPage() {
               {[
                 { label: 'Name',    val: `${form.first_name} ${form.last_name}` },
                 { label: 'Email',   val: form.email },
-                { label: 'Country', val: selectedCountry?.name || 'Auto-detect' },
-                { label: 'Phone',   val: form.phone || 'Not provided' },
+                { label: 'Country', val: selectedCountry?.name || 'Not specified' },
+                { label: 'Phone',   val: form.phone ? `${selectedCountry?.dial || ''} ${form.phone}`.trim() : 'Not provided' },
               ].map(({ label, val }) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-white/40 text-sm">{label}</span>

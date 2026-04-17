@@ -116,11 +116,19 @@ export const uploadApi = {
   },
 }
 
-// ─── Holidays ────────────────────────────────────────────────────
+// ─── Holidays ───────────────────────────────────────────────────
 export const holidaysApi = {
   list:      (year)       => api.get('/holidays', { params: { year } }).then(r => r.data),
   dismiss:   (date, name) => api.post('/holidays/dismiss', { date, name }),
   undismiss: (date, name) => api.delete('/holidays/dismiss', { data: { date, name } }),
+}
+
+// ─── Admin ──────────────────────────────────────────────────────
+export const adminApi = {
+  stats:      ()            => api.get('/admin/stats').then(r => r.data),
+  users:      (params)      => api.get('/admin/users', { params }).then(r => r.data),
+  workspaces: (params)      => api.get('/admin/workspaces', { params }).then(r => r.data),
+  content:    (params)      => api.get('/admin/content', { params }).then(r => r.data),
 }
 
 export default api

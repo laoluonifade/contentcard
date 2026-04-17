@@ -88,6 +88,34 @@
   }
 }
 
+/* ── Light mode overrides ── */
+[data-theme="light"] .dashboard-surface {
+  background-color: #ffffff !important;
+  border-color: #e5e7eb !important;
+}
+[data-theme="light"] .dashboard-bg {
+  background-color: #f9fafb !important;
+}
+[data-theme="light"] .dashboard-sidebar {
+  background-color: #ffffff !important;
+  border-color: #e5e7eb !important;
+}
+
+/* Tailwind dark-class overrides when light mode */
+[data-theme="light"] .bg-zinc-950 { background-color: #f9fafb !important; }
+[data-theme="light"] .bg-zinc-900 { background-color: #ffffff !important; }
+[data-theme="light"] .border-zinc-800 { border-color: #e5e7eb !important; }
+[data-theme="light"] .border-zinc-900 { border-color: #f3f4f6 !important; }
+[data-theme="light"] .bg-zinc-800 { background-color: #f3f4f6 !important; }
+[data-theme="light"] .bg-zinc-950\/30 { background-color: rgba(249,250,251,0.3) !important; }
+[data-theme="light"] .bg-zinc-950 .text-white { color: #111827 !important; }
+[data-theme="light"] .text-white { color: #111827; }
+[data-theme="light"] .text-zinc-300 { color: #374151 !important; }
+[data-theme="light"] .text-zinc-400 { color: #6b7280 !important; }
+[data-theme="light"] .text-zinc-500 { color: #9ca3af !important; }
+[data-theme="light"] .text-zinc-600 { color: #d1d5db !important; }
+[data-theme="light"] .bg-ink { background-color: #ffffff !important; }
+
 /* Loading shimmer */
 @keyframes shimmer {
   0% { background-position: -200% 0; }
