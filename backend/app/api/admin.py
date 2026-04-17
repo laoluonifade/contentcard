@@ -165,6 +165,39 @@ async def admin_workspaces(
     }
 
 
+@router.get("/brands")
+async def admin_brands(
+    page: int = 1,
+    limit: int = 50,
+    search: str | None = None,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    q = select(Brand).order_by(desc(Brand.created_at))
+    if search:
+        q = q.where(Brand.name.ilike(f"%{search}%"))
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar() or 0
+    result = await db.execute(q.offset((page - 1) * limit).limit(limit))
+    brands = result.scalars().all()
+    return {
+        "total": total,
+        "page": page,
+        "brands": [
+            {
+                "id": b.id,
+                "name": b.name,
+                "industry": b.industry,
+                "workspace_id": b.workspace_id,
+                "brand_colors": b.brand_colors or [],
+                "tone_tags": b.tone_tags or [],
+                "language_style": b.language_style,
+                "created_at": b.created_at.isoformat(),
+            }
+            for b in brands
+        ],
+    }
+
+
 @router.get("/content")
 async def admin_content(
     page: int = 1,
