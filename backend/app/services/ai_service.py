@@ -58,8 +58,31 @@ async def _generate_for_platform(
     topics_hint: str,
     posting_dates: list[str],
 ) -> list[dict]:
+    import datetime
+    today = datetime.date.today()
     dates_str = ', '.join(posting_dates)
-    prompt = f"""Generate social media content for {platform} for {month_name} {year}.
+    n = len(posting_dates)
+
+    content_types = [
+        "educational tip or industry insight",
+        "funny/relatable meme-style post with humour relevant to the brand's audience",
+        "strong CTA — drive DMs, website visits, or purchases",
+        "trending news or cultural moment relevant to the industry",
+        "behind-the-scenes or founder story",
+        "social proof — customer result, testimonial, or win",
+        "controversial opinion or hot take in the industry",
+        "engaging question to spark comments",
+        "product/service spotlight with benefits",
+        "motivational or inspiring post tied to brand values",
+    ]
+    import random, hashlib
+    seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(),16)
+    rng = random.Random(seed)
+    assigned_types = [content_types[rng.randint(0,len(content_types)-1)] for _ in posting_dates]
+    type_instructions = '\n'.join([f"- {d}: {t}" for d,t in zip(posting_dates, assigned_types)])
+
+    prompt = f"""You are a world-class social media strategist. Today is {today.isoformat()}.
+Generate {n} high-converting {platform} post(s) for {month_name} {year}.
 
 Brand profile:
 {brand_ctx}
@@ -68,18 +91,28 @@ Platform: {platform}
 Format preference: {format_mix}
 {topics_hint}
 
-Generate exactly one post for each of these dates: {dates_str}
+Generate exactly one post for each date below, using the assigned content type:
+{type_instructions}
+
+CONTENT RULES:
+- Each post MUST feel completely different from the others — vary tone, angle, and style
+- Captions must be short, punchy, and human (NOT generic AI text)
+- Mix humour, emotion, education, controversy, and CTAs naturally
+- Reference current cultural moments, industry trends, or {month_name} {year} events where relevant
+- Write for {platform}'s native style and audience behaviour
+- Carousel posts: write a caption that flows naturally across {2}-{4} slides
+- Quote posts: write one powerful quote from brand perspective
+- Single posts: punchy caption with a clear hook in the first line
 
 Return a JSON array where each element has exactly these fields:
 - "date": one of the dates above (YYYY-MM-DD)
 - "platform": "{platform}"
-- "topic": short topic title, max 6 words
+- "topic": short punchy topic title, max 6 words
 - "format": "single" or "carousel" or "quote"
-- "slide_count": 1 for single/quote, 2-4 for carousel
-- "caption": punchy, human-sounding caption that converts (max 150 words)
-- "hashtags": array of exactly 5 hashtag strings without the # symbol
+- "slide_count": 1 for single/quote, 2-5 for carousel
+- "caption": full caption, max 120 words, no hashtags in the caption
+- "hashtags": array of exactly 5 relevant hashtag strings without the # symbol
 
-Make each post feel fresh and different. Vary topics across the month.
 Return ONLY the raw JSON array. No explanation, no markdown, no preamble."""
 
     message = await client.messages.create(
