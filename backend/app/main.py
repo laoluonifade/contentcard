@@ -9,6 +9,7 @@ from app.db.database import Base
 from app.models import (  # noqa: F401
     User, Workspace, WorkspaceMember, WorkspaceInvite,
     Brand, ContentItem, ContentTemplate, TrendingTopic,
+    UserDismissedHoliday,
 )
 
 from app.api.auth import router as auth_router
@@ -20,6 +21,7 @@ from app.api.templates import router as templates_router
 from app.api.billing import router as billing_router
 from app.api.trends import router as trends_router
 from app.api.upload import router as upload_router
+from app.api.holidays import router as holidays_router
 
 
 async def seed_trends(db):
@@ -84,6 +86,7 @@ app.include_router(templates_router, prefix="/api/v1")
 app.include_router(billing_router, prefix="/api/v1")
 app.include_router(trends_router, prefix="/api/v1")
 app.include_router(upload_router, prefix="/api/v1")
+app.include_router(holidays_router, prefix="/api/v1")
 
 
 @app.get("/health")

@@ -1,17 +1,32 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Plus, RotateCcw, Check } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Plus, RotateCcw, Check, X } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
-import { contentApi } from '../api'
+import { contentApi, holidaysApi } from '../api'
 
-const MONTHS  = ['January','February','March','April','May','June','July','August','September','October','November','December']
-const WEEKDAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+const MONTHS   = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const WEEKDAYS  = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
 const PLAT_COLOR = { instagram: '#E1306C', facebook: '#1877F2', twitter: '#1DA1F2' }
 const PLAT_BG    = { instagram: '#E1306C15', facebook: '#1877F215', twitter: '#1DA1F215' }
 
+// Colour palette for holiday badges — cycles through a set
+const HOLIDAY_COLORS = [
+  { bg: 'rgba(250,204,21,0.12)',  text: '#facc15', border: 'rgba(250,204,21,0.3)' },  // yellow
+  { bg: 'rgba(52,211,153,0.12)', text: '#34d399', border: 'rgba(52,211,153,0.3)' },  // emerald
+  { bg: 'rgba(248,113,113,0.12)',text: '#f87171', border: 'rgba(248,113,113,0.3)' },  // red
+  { bg: 'rgba(167,139,250,0.12)',text: '#a78bfa', border: 'rgba(167,139,250,0.3)' },  // purple
+  { bg: 'rgba(56,189,248,0.12)', text: '#38bdf8', border: 'rgba(56,189,248,0.3)' },   // sky
+  { bg: 'rgba(251,146,60,0.12)', text: '#fb923c', border: 'rgba(251,146,60,0.3)' },   // orange
+]
+
+function holidayColor(name) {
+  let hash = 0
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash)
+  return HOLIDAY_COLORS[Math.abs(hash) % HOLIDAY_COLORS.length]
+}
+
 function parseLocalDate(dateStr) {
-  // Parse "YYYY-MM-DD" as local date (avoids UTC timezone shift)
   if (!dateStr) return null
   const [y, m, d] = dateStr.split('-').map(Number)
   return new Date(y, m - 1, d)
@@ -19,21 +34,28 @@ function parseLocalDate(dateStr) {
 
 export default function CalendarPage() {
   const navigate = useNavigate()
-  const { activeBrandId, brands, getMonthContent, fetchMonthContent } = useAppStore()
+  const { activeBrandId, brands, fetchMonthContent } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
   const [month, setMonth] = useState(now.getMonth() + 1)
   const [year, setYear]   = useState(now.getFullYear())
-  const [filter, setFilter] = useState('all')
-  const [posts, setPosts]   = useState([])
+  const [filter, setFilter]   = useState('all')
+  const [posts, setPosts]     = useState([])
   const [loading, setLoading] = useState(false)
-  const [selectedPost, setSelectedPost] = useState(null)
-  const [editCaption, setEditCaption] = useState('')
-  const [editHashtags, setEditHashtags] = useState([])
-  const [saving, setSaving]   = useState(false)
-  const [regen, setRegen]     = useState(false)
 
+  // Holidays state — keyed by "YYYY-MM-DD"
+  const [holidays, setHolidays]         = useState([])   // full list for the year
+  const [dismissingKey, setDismissingKey] = useState(null)
+
+  // Post editor
+  const [selectedPost, setSelectedPost] = useState(null)
+  const [editCaption, setEditCaption]   = useState('')
+  const [editHashtags, setEditHashtags] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [regen, setRegen]   = useState(false)
+
+  // Load posts
   useEffect(() => {
     if (!activeBrandId) return
     setLoading(true)
@@ -41,6 +63,22 @@ export default function CalendarPage() {
       .then(items => { setPosts(items); setLoading(false) })
       .catch(() => setLoading(false))
   }, [activeBrandId, month, year])
+
+  // Load holidays for the current year
+  useEffect(() => {
+    holidaysApi.list(year)
+      .then(data => setHolidays(data || []))
+      .catch(() => {})
+  }, [year])
+
+  // Build map of date → holidays for fast lookup
+  const holidaysByDate = {}
+  holidays.forEach(h => {
+    if (!h.dismissed) {
+      if (!holidaysByDate[h.date]) holidaysByDate[h.date] = []
+      holidaysByDate[h.date].push(h)
+    }
+  })
 
   const shiftMonth = (d) => {
     let m = month + d, y = year
@@ -73,18 +111,14 @@ export default function CalendarPage() {
     setSaving(true)
     try {
       const updated = await contentApi.update(selectedPost.id, {
-        caption: editCaption,
-        hashtags: editHashtags,
-        status: selectedPost.status,
+        caption: editCaption, hashtags: editHashtags, status: selectedPost.status,
       })
       setPosts(ps => ps.map(p => p.id === updated.id ? updated : p))
       setSelectedPost(updated)
       toast('Caption saved!')
     } catch (err) {
       toast(err.response?.data?.detail || 'Save failed', 'error')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   const markReady = async () => {
@@ -92,18 +126,14 @@ export default function CalendarPage() {
     setSaving(true)
     try {
       const updated = await contentApi.update(selectedPost.id, {
-        caption: editCaption,
-        hashtags: editHashtags,
-        status: 'ready',
+        caption: editCaption, hashtags: editHashtags, status: 'ready',
       })
       setPosts(ps => ps.map(p => p.id === updated.id ? updated : p))
       setSelectedPost(updated)
       toast('Marked as ready!')
     } catch (err) {
       toast(err.response?.data?.detail || 'Failed', 'error')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   const regenerate = async () => {
@@ -118,15 +148,29 @@ export default function CalendarPage() {
       toast('Caption regenerated!')
     } catch (err) {
       toast(err.response?.data?.detail || 'Regeneration failed', 'error')
-    } finally {
-      setRegen(false)
-    }
+    } finally { setRegen(false) }
   }
 
   const copyAll = () => {
     const text = editCaption + '\n\n' + editHashtags.map(h => `#${h}`).join(' ')
     navigator.clipboard?.writeText(text)
     toast('Caption + hashtags copied!')
+  }
+
+  const dismissHoliday = async (e, holidayDate, holidayName) => {
+    e.stopPropagation()
+    const key = `${holidayDate}|${holidayName}`
+    setDismissingKey(key)
+    try {
+      await holidaysApi.dismiss(holidayDate, holidayName)
+      setHolidays(hs => hs.map(h =>
+        h.date === holidayDate && h.name === holidayName ? { ...h, dismissed: true } : h
+      ))
+    } catch {
+      toast('Could not dismiss holiday', 'error')
+    } finally {
+      setDismissingKey(null)
+    }
   }
 
   const filteredDayPosts = (dayPosts) =>
@@ -193,23 +237,50 @@ export default function CalendarPage() {
         ) : (
           <div className="grid grid-cols-7">
             {Array.from({ length: firstDay }).map((_, i) => (
-              <div key={`empty-${i}`} className="min-h-[88px] border-b border-r border-zinc-800/30 bg-zinc-950/30" />
+              <div key={`empty-${i}`} className="min-h-[96px] border-b border-r border-zinc-800/30 bg-zinc-950/30" />
             ))}
             {Array.from({ length: daysInMonth }, (_, i) => {
               const d = i + 1
               const isToday = d === now.getDate() && month === now.getMonth() + 1 && year === now.getFullYear()
               const dayPosts = filteredDayPosts(postsByDay[d] || [])
               const col = (firstDay + i) % 7
+              const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(d).padStart(2,'0')}`
+              const dayHolidays = holidaysByDate[dateStr] || []
+
               return (
                 <div key={d}
                   onClick={() => dayPosts.length && openPost(dayPosts[0])}
-                  className={`min-h-[88px] p-2 border-b border-r border-zinc-800/30 flex flex-col gap-1.5 transition-all
+                  className={`min-h-[96px] p-1.5 border-b border-r border-zinc-800/30 flex flex-col gap-1 transition-all
                     ${col === 6 ? 'border-r-0' : ''}
                     ${isToday ? 'bg-violet-900/10' : ''}
                     ${dayPosts.length ? 'cursor-pointer hover:bg-zinc-800/30' : ''}`}>
+
+                  {/* Date number */}
                   <div className={`text-xs font-bold w-6 h-6 flex items-center justify-center rounded-full flex-shrink-0 ${isToday ? 'bg-violet-600 text-white' : 'text-zinc-600'}`}>
                     {d}
                   </div>
+
+                  {/* Holiday badges */}
+                  {dayHolidays.map((h) => {
+                    const c = holidayColor(h.name)
+                    const key = `${h.date}|${h.name}`
+                    return (
+                      <div key={h.name}
+                        className="group relative flex items-center gap-0.5 rounded px-1 py-0.5 text-[8px] font-bold leading-none border"
+                        style={{ background: c.bg, color: c.text, borderColor: c.border }}>
+                        <span className="truncate flex-1 leading-tight" title={h.name}>{h.name}</span>
+                        <button
+                          onClick={(e) => dismissHoliday(e, h.date, h.name)}
+                          disabled={dismissingKey === key}
+                          className="opacity-0 group-hover:opacity-100 ml-0.5 flex-shrink-0 rounded hover:bg-black/20 transition-opacity p-0.5"
+                          title="Remove from calendar">
+                          <X size={8} />
+                        </button>
+                      </div>
+                    )
+                  })}
+
+                  {/* Post badges */}
                   {dayPosts.slice(0, 3).map((post, pi) => (
                     <div key={pi}
                       className="rounded px-1.5 py-1 flex items-center gap-1 text-[9px] font-bold leading-none"

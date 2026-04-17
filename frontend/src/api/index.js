@@ -116,4 +116,11 @@ export const uploadApi = {
   },
 }
 
+// ─── Holidays ────────────────────────────────────────────────────
+export const holidaysApi = {
+  list:      (year)       => api.get('/holidays', { params: { year } }).then(r => r.data),
+  dismiss:   (date, name) => api.post('/holidays/dismiss', { date, name }),
+  undismiss: (date, name) => api.delete('/holidays/dismiss', { data: { date, name } }),
+}
+
 export default api

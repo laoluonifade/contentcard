@@ -5,6 +5,7 @@ import useAppStore from '../stores/appStore'
 import { authApi, workspaceApi, inviteApi } from '../api'
 import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
+import { COUNTRIES_LIST } from './SignupPage'
 
 const TABS = ['Profile','Company','Team','Notifications']
 const ROLES = ['admin','editor','viewer','approver']
@@ -32,7 +33,7 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState('editor')
   const [inviting, setInviting] = useState(false)
 
-  const [profileForm, setProfileForm] = useState({ full_name: user?.full_name || '', email: user?.email || '' })
+  const [profileForm, setProfileForm] = useState({ full_name: user?.full_name || '', email: user?.email || '', country_code: user?.country_code || '' })
   const [pwForm, setPwForm] = useState({ current_password: '', new_password: '' })
   const [notifs, setNotifs] = useState({ daily: true, weekly: true, trending: true, updates: true, marketing: false })
 
@@ -47,8 +48,11 @@ export default function SettingsPage() {
   const saveProfile = async () => {
     setSaving(true)
     try {
-      await authApi.updateProfile({ full_name: profileForm.full_name })
-      updateUser({ full_name: profileForm.full_name })
+      const updated = await authApi.updateProfile({
+        full_name: profileForm.full_name,
+        country_code: profileForm.country_code || null,
+      })
+      updateUser({ full_name: profileForm.full_name, country_code: profileForm.country_code || null })
       toast('Profile saved!')
     } catch (err) { toast(err.message, 'error') }
     finally { setSaving(false) }
@@ -126,6 +130,17 @@ export default function SettingsPage() {
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div><label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Full name</label><input value={profileForm.full_name} onChange={e => setProfileForm(f => ({ ...f, full_name: e.target.value }))} className={inputCls} /></div>
                   <div><label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Email</label><input value={profileForm.email} disabled className={`${inputCls} opacity-50 cursor-not-allowed`} /></div>
+                </div>
+                <div className="mb-4">
+                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Country</label>
+                  <select value={profileForm.country_code} onChange={e => setProfileForm(f => ({ ...f, country_code: e.target.value }))}
+                    className={`${inputCls} cursor-pointer`}>
+                    <option value="">Select your country</option>
+                    {COUNTRIES_LIST.map(c => (
+                      <option key={c.code} value={c.code}>{c.name}</option>
+                    ))}
+                  </select>
+                  <p className="text-zinc-600 text-xs mt-1.5">Used to show local public holidays on your content calendar.</p>
                 </div>
                 <div className="flex justify-end"><button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors"><Check size={14} />{saving ? 'Saving…' : 'Save changes'}</button></div>
               </div>

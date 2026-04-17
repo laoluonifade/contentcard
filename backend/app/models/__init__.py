@@ -4,6 +4,7 @@ from app.models.brand import Brand
 from app.models.content import ContentItem, ContentStatus, ContentPlatform, ContentFormat
 from app.models.template import ContentTemplate, TemplateCategory, TemplateRecurrence
 from app.models.trend import TrendingTopic
+from app.models.holiday import UserDismissedHoliday
 
 __all__ = [
     "User",
@@ -12,4 +13,5 @@ __all__ = [
     "ContentItem", "ContentStatus", "ContentPlatform", "ContentFormat",
     "ContentTemplate", "TemplateCategory", "TemplateRecurrence",
     "TrendingTopic",
+    "UserDismissedHoliday",
 ]

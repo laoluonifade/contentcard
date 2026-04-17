@@ -45,9 +45,10 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
         if existing_phone.scalar_one_or_none():
             raise HTTPException(status_code=409, detail="Phone number already registered")
 
-    # Geo detect
+    # Use user-selected country if provided, otherwise geo-detect
     client_ip = request.client.host if request.client else None
-    country_code = await get_country_from_ip(client_ip)
+    detected_country = await get_country_from_ip(client_ip)
+    country_code = (body.country_code or detected_country or "").upper() or None
     payment_provider = get_payment_provider(country_code)
 
     # Create user
@@ -113,7 +114,7 @@ async def update_profile(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    allowed = {"full_name", "phone"}
+    allowed = {"full_name", "phone", "country_code"}
     for key, val in body.items():
         if key in allowed:
             setattr(current_user, key, val)

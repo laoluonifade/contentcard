@@ -6,20 +6,62 @@ import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 
+const COUNTRIES = [
+  { code: 'NG', name: 'Nigeria' },
+  { code: 'GH', name: 'Ghana' },
+  { code: 'KE', name: 'Kenya' },
+  { code: 'ZA', name: 'South Africa' },
+  { code: 'TZ', name: 'Tanzania' },
+  { code: 'UG', name: 'Uganda' },
+  { code: 'RW', name: 'Rwanda' },
+  { code: 'ZW', name: 'Zimbabwe' },
+  { code: 'MW', name: 'Malawi' },
+  { code: 'ZM', name: 'Zambia' },
+  { code: 'CM', name: 'Cameroon' },
+  { code: 'ET', name: 'Ethiopia' },
+  { code: 'EG', name: 'Egypt' },
+  { code: 'US', name: 'United States' },
+  { code: 'GB', name: 'United Kingdom' },
+  { code: 'CA', name: 'Canada' },
+  { code: 'AU', name: 'Australia' },
+  { code: 'NZ', name: 'New Zealand' },
+  { code: 'IE', name: 'Ireland' },
+  { code: 'IN', name: 'India' },
+  { code: 'SG', name: 'Singapore' },
+  { code: 'PH', name: 'Philippines' },
+  { code: 'PK', name: 'Pakistan' },
+  { code: 'AE', name: 'United Arab Emirates' },
+  { code: 'SA', name: 'Saudi Arabia' },
+  { code: 'DE', name: 'Germany' },
+  { code: 'FR', name: 'France' },
+  { code: 'IT', name: 'Italy' },
+  { code: 'ES', name: 'Spain' },
+  { code: 'NL', name: 'Netherlands' },
+  { code: 'BR', name: 'Brazil' },
+  { code: 'MX', name: 'Mexico' },
+  { code: 'AR', name: 'Argentina' },
+  { code: 'CO', name: 'Colombia' },
+  { code: 'NA', name: 'Namibia' },
+  { code: 'BW', name: 'Botswana' },
+]
+
+export const COUNTRIES_LIST = COUNTRIES
+
 export default function SignupPage() {
   const [step, setStep]     = useState(1)
-  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '' })
+  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '' })
   const [showPw, setShowPw] = useState(false)
   const { signup, isLoading } = useAuthStore()
   const { fetchWorkspaces } = useAppStore()
   const navigate = useNavigate()
 
   const inp = "w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400 transition-all text-sm"
+  const sel = `${inp} cursor-pointer`
 
   const validateStep1 = () => {
     if (!form.first_name.trim()) { toast('Enter your first name', 'error'); return false }
     if (!form.last_name.trim())  { toast('Enter your last name', 'error'); return false }
-    if (!form.email.trim())     { toast('Enter your email', 'error'); return false }
+    if (!form.email.trim())      { toast('Enter your email', 'error'); return false }
     if (form.password.length < 8) { toast('Password must be at least 8 characters', 'error'); return false }
     return true
   }
@@ -37,8 +79,8 @@ export default function SignupPage() {
         email: form.email.trim().toLowerCase(),
         password: form.password,
         phone: form.phone.trim() || undefined,
+        country_code: form.country_code || undefined,
       })
-      // Load workspaces then redirect to onboarding
       await fetchWorkspaces().catch(() => {})
       navigate('/onboarding')
     } catch (err) {
@@ -54,6 +96,8 @@ export default function SignupPage() {
     return             { label: 'Strong',     color: '#43B89C', w: '100%' }
   }
   const strength = pwStrength()
+
+  const selectedCountry = COUNTRIES.find(c => c.code === form.country_code)
 
   return (
     <div className="min-h-screen bg-ink flex items-center justify-center p-4">
@@ -121,13 +165,28 @@ export default function SignupPage() {
                   </div>
                 )}
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">
-                  Phone <span className="text-white/25 font-normal normal-case">(optional)</span>
-                </label>
-                <input type="tel" value={form.phone}
-                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                  placeholder="+234 800 000 0000" className={inp} />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">
+                    Country
+                  </label>
+                  <select value={form.country_code}
+                    onChange={e => setForm(f => ({ ...f, country_code: e.target.value }))}
+                    className={sel}>
+                    <option value="">Select country</option>
+                    {COUNTRIES.map(c => (
+                      <option key={c.code} value={c.code}>{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-white/45 uppercase tracking-wider mb-2">
+                    Phone <span className="text-white/25 font-normal normal-case">(optional)</span>
+                  </label>
+                  <input type="tel" value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="+234 800 000 0000" className={inp} />
+                </div>
               </div>
               <button type="submit" className="btn-primary w-full justify-center py-3 text-sm mt-2">
                 Continue <ArrowRight size={15} />
@@ -142,9 +201,10 @@ export default function SignupPage() {
             <p className="text-white/45 mb-8 text-sm">Review your details and create your account.</p>
             <div className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-5 mb-6 space-y-3">
               {[
-                { label: 'Name', val: `${form.first_name} ${form.last_name}` },
-                { label: 'Email', val: form.email },
-                { label: 'Phone', val: form.phone || 'Not provided' },
+                { label: 'Name',    val: `${form.first_name} ${form.last_name}` },
+                { label: 'Email',   val: form.email },
+                { label: 'Country', val: selectedCountry?.name || 'Auto-detect' },
+                { label: 'Phone',   val: form.phone || 'Not provided' },
               ].map(({ label, val }) => (
                 <div key={label} className="flex items-center justify-between">
                   <span className="text-white/40 text-sm">{label}</span>
