@@ -47,6 +47,8 @@ class ContentOut(BaseModel):
     hashtags: list
     theme: dict | None
     slide_count: int
+    image_url: str | None = None
+    image_urls: list | None = None
     user_photo_url: str | None
     mood: str | None
     scheduled_date: date | None

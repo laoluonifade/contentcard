@@ -285,6 +285,7 @@ async def _do_generate_month(
     template_id: str | None,
 ):
     from app.db.database import AsyncSessionLocal
+    from app.services.bannerbear_service import generate_post_images
     async with AsyncSessionLocal() as db:
         try:
             posts = await generate_monthly_plan(
@@ -293,7 +294,7 @@ async def _do_generate_month(
                 posts_per_week=posts_per_week,
                 topic_override=topic_override, template_topics=template_topics,
             )
-            saved = 0
+            saved_items = []
             for post in posts:
                 try:
                     post_date = date.fromisoformat(post["date"])
@@ -328,10 +329,24 @@ async def _do_generate_month(
                     generation_year=year,
                 )
                 db.add(item)
-                saved += 1
+                saved_items.append((item, post))
 
             await db.commit()
-            logger.info(f"Generated {saved} posts for brand {brand_id} {month}/{year}")
+            logger.info(f"Generated {len(saved_items)} posts for brand {brand_id} {month}/{year}")
+
+            # Generate Bannerbear images (no-op if API key not configured)
+            for item, post_data in saved_items:
+                try:
+                    urls = await generate_post_images(post_data, brand_dict)
+                    if urls:
+                        item.image_url = urls[0]
+                        item.image_urls = urls
+                except Exception as e:
+                    logger.error(f"Bannerbear failed for post {item.id}: {e}")
+
+            if any(item.image_url for item, _ in saved_items):
+                await db.commit()
+
         except json.JSONDecodeError as e:
             logger.error(f"AI returned invalid JSON for brand {brand_id}: {e}")
             await db.rollback()
@@ -351,4 +366,5 @@ def _brand_to_dict(brand: Brand) -> dict:
         "personality_score": brand.personality_score or 50,
         "words_to_avoid": brand.words_to_avoid or [],
         "guidelines": brand.guidelines or "",
+        "colors": brand.brand_colors or [],
     }

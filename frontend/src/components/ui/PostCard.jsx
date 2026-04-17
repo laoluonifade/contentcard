@@ -405,14 +405,39 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
   }
 }
 
+// ── Helper: get image URL for a specific slide ────────────────────────────
+
+function getImageUrl(post, slideIndex) {
+  if (!post) return null
+  if (post.image_urls && Array.isArray(post.image_urls) && post.image_urls[slideIndex]) {
+    return post.image_urls[slideIndex]
+  }
+  if (slideIndex === 0 && post.image_url) return post.image_url
+  return null
+}
+
+// ── Helper: download a URL as a file ─────────────────────────────────────
+
+async function downloadUrl(url, filename) {
+  const resp = await fetch(url)
+  const blob = await resp.blob()
+  const a = document.createElement('a')
+  a.href = URL.createObjectURL(blob)
+  a.download = filename
+  a.click()
+}
+
 // ── PostCard component ─────────────────────────────────────────────────────
 
 const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIndex = 0, className = '' }, ref) {
   const canvasRef = useRef(null)
   const [rendering, setRendering] = useState(false)
+  const imageUrl = getImageUrl(post, slideIndex)
 
   useImperativeHandle(ref, () => ({
-    download(filename) {
+    async download(filename) {
+      const url = getImageUrl(post, slideIndex)
+      if (url) { await downloadUrl(url, filename || 'post.png'); return }
       const c = canvasRef.current; if (!c) return
       const a = document.createElement('a')
       a.download = filename || 'post.png'
@@ -421,36 +446,75 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
     },
     async downloadAll() {
       const count = Math.max(1, post?.slide_count || 1)
-      if (count === 1) {
-        const c = canvasRef.current; if (!c) return
-        const a = document.createElement('a')
-        a.download = `${post.platform}-${post.scheduled_date}.png`
-        a.href = c.toDataURL('image/png')
-        a.click()
+      const base = `${post.platform}-${post.scheduled_date}`
+
+      // All slides have Bannerbear URLs — ZIP them
+      const allUrls = Array.from({ length: count }, (_, i) => getImageUrl(post, i))
+      if (allUrls.every(Boolean)) {
+        if (count === 1) { await downloadUrl(allUrls[0], `${base}.png`); return }
+        const { default: JSZip } = await import('jszip')
+        const zip = new JSZip()
+        await Promise.all(allUrls.map(async (url, i) => {
+          const resp = await fetch(url)
+          const buf = await resp.arrayBuffer()
+          zip.file(`slide-${i+1}.png`, buf)
+        }))
+        const blob = await zip.generateAsync({ type: 'blob' })
+        const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+        a.download = `${base}-slides.zip`; a.click()
         return
+      }
+
+      // Fallback: render canvas for missing slides
+      if (count === 1) {
+        const url = getImageUrl(post, 0)
+        if (url) { await downloadUrl(url, `${base}.png`); return }
+        const c = canvasRef.current; if (!c) return
+        const a = document.createElement('a'); a.download = `${base}.png`
+        a.href = c.toDataURL('image/png'); a.click(); return
       }
       const { default: JSZip } = await import('jszip')
       const zip = new JSZip()
       for (let i = 0; i < count; i++) {
-        const c = document.createElement('canvas')
-        await renderSlideToCanvas(c, post, brand, i)
-        zip.file(`slide-${i+1}.png`, c.toDataURL('image/png').split(',')[1], { base64: true })
+        const url = getImageUrl(post, i)
+        if (url) {
+          const resp = await fetch(url); const buf = await resp.arrayBuffer()
+          zip.file(`slide-${i+1}.png`, buf)
+        } else {
+          const c = document.createElement('canvas')
+          await renderSlideToCanvas(c, post, brand, i)
+          zip.file(`slide-${i+1}.png`, c.toDataURL('image/png').split(',')[1], { base64: true })
+        }
       }
       const blob = await zip.generateAsync({ type: 'blob' })
-      const a = document.createElement('a')
-      a.href = URL.createObjectURL(blob)
-      a.download = `${post.platform}-${post.scheduled_date}-slides.zip`
-      a.click()
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
+      a.download = `${base}-slides.zip`; a.click()
     },
     getSlideCount() { return Math.max(1, post?.slide_count || 1) },
-    toDataURL() { return canvasRef.current?.toDataURL('image/png') },
+    toDataURL() {
+      const url = getImageUrl(post, slideIndex)
+      return url || canvasRef.current?.toDataURL('image/png')
+    },
   }))
 
   useEffect(() => {
+    if (imageUrl) return  // Bannerbear image available — no canvas needed
     const canvas = canvasRef.current; if (!canvas || !post) return
     setRendering(true)
     renderSlideToCanvas(canvas, post, brand, slideIndex).finally(() => setRendering(false))
-  }, [post, brand, slideIndex])
+  }, [post, brand, slideIndex, imageUrl])
+
+  if (imageUrl) {
+    return (
+      <div className={`relative ${className}`} style={{ width: size, height: size }}>
+        <img
+          src={imageUrl}
+          alt={post?.topic || 'Post'}
+          style={{ width: size, height: size, objectFit: 'cover', display: 'block', borderRadius: 12 }}
+        />
+      </div>
+    )
+  }
 
   return (
     <div className={`relative ${className}`} style={{ width: size, height: size }}>

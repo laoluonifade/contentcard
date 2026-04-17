@@ -52,6 +52,10 @@ class ContentItem(Base):
     user_photo_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     mood: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    # Generated images (Bannerbear)
+    image_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    image_urls: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     # Calendar
     scheduled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     generation_month: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-12
