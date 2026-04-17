@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.local
+
+# Uploads (user files, don't commit)
+backend/uploads/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Env files (never commit secrets)
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
