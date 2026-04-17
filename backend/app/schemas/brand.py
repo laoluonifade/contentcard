@@ -17,9 +17,11 @@ class BrandCreate(BaseModel):
     personality_score: int = 50
     brand_colors: list[str] = []
     design_style: str = "bold"
+    brand_font: str | None = None
     words_to_avoid: list[str] = []
     competitors: str | None = None
     guidelines: str | None = None
+    compliance_rules: dict = {}
     instagram_handle: str | None = None
     facebook_handle: str | None = None
     twitter_handle: str | None = None
@@ -47,9 +49,11 @@ class BrandOut(BaseModel):
     personality_score: int | None
     brand_colors: list
     design_style: str | None
+    brand_font: str | None
     words_to_avoid: list
     competitors: str | None
     guidelines: str | None
+    compliance_rules: dict | None
     instagram_handle: str | None
     facebook_handle: str | None
     twitter_handle: str | None

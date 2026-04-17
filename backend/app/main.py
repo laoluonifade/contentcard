@@ -22,6 +22,7 @@ from app.api.billing import router as billing_router
 from app.api.trends import router as trends_router
 from app.api.upload import router as upload_router
 from app.api.holidays import router as holidays_router
+from app.api.admin import router as admin_router
 
 
 async def seed_trends(db):
@@ -52,6 +53,16 @@ async def lifespan(app: FastAPI):
     # Create tables (use Alembic in production)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # Add new columns to existing tables without full migrations
+        for stmt in [
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS brand_font VARCHAR(100)",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS compliance_rules JSON",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS country_code VARCHAR(10)",
+        ]:
+            try:
+                await conn.execute(__import__('sqlalchemy').text(stmt))
+            except Exception:
+                pass
 
     # Seed default trending topics
     async with AsyncSessionLocal() as db:
@@ -87,6 +98,7 @@ app.include_router(billing_router, prefix="/api/v1")
 app.include_router(trends_router, prefix="/api/v1")
 app.include_router(upload_router, prefix="/api/v1")
 app.include_router(holidays_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")
 
 
 @app.get("/health")
