@@ -31,6 +31,49 @@ def _parse_json_safe(raw: str) -> dict | list:
     return json.loads(raw)
 
 
+async def _generate_for_platform(
+    brand_ctx: str,
+    month_name: str,
+    year: int,
+    platform: str,
+    format_mix: str,
+    topics_hint: str,
+) -> list[dict]:
+    prompt = f"""Generate a content calendar for {month_name} {year} for {platform}.
+
+Brand profile:
+{brand_ctx}
+
+Platform: {platform}
+Format preference: {format_mix}
+{topics_hint}
+
+Generate one post for every weekday (Monday–Friday) in {month_name} {year}.
+
+Return a JSON array where each element has exactly these fields:
+- "date": "YYYY-MM-DD" (must be a valid weekday in {month_name} {year})
+- "platform": "{platform}"
+- "topic": short topic title, max 6 words
+- "format": "single" or "carousel" or "quote"
+- "slide_count": integer 1 for single/quote, 2-4 for carousel
+- "caption": ready-to-post caption (max 200 words)
+- "hashtags": array of 5 hashtag strings without the # symbol
+
+Return ONLY the raw JSON array. No explanation, no markdown fences, no preamble."""
+
+    message = await client.messages.create(
+        model=MODEL,
+        max_tokens=8000,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    raw = message.content[0].text
+    result = _parse_json_safe(raw)
+    if not isinstance(result, list):
+        raise ValueError("Expected a JSON array")
+    return result
+
+
 async def generate_monthly_plan(
     brand: dict,
     month: int,
@@ -41,6 +84,7 @@ async def generate_monthly_plan(
     template_topics: list[str] | None = None,
 ) -> list[dict]:
     import calendar
+    import asyncio
     month_name = calendar.month_name[month]
 
     brand_ctx = f"""
@@ -61,50 +105,28 @@ Guidelines: {brand.get('guidelines', '')}
     if template_topics:
         topics_hint += f"\nRotate through these topics: {', '.join(template_topics)}"
 
-    prompt = f"""Generate a content calendar for {month_name} {year}.
-
-Brand profile:
-{brand_ctx}
-
-Platforms: {', '.join(platforms)}
-Format preference: {format_mix}
-{topics_hint}
-
-Generate content for every weekday (Monday–Saturday) in {month_name} {year}.
-For each day, create one post per platform requested.
-
-Return a JSON array where each element has exactly these fields:
-- "date": "YYYY-MM-DD" (must be a valid weekday in {month_name} {year})
-- "platform": one of [{', '.join(f'"{p}"' for p in platforms)}]
-- "topic": short topic title, max 6 words
-- "format": "single" or "carousel" or "quote"
-- "slide_count": integer 1 for single/quote, 2-4 for carousel
-- "caption": full ready-to-post caption text
-- "hashtags": array of 5-7 hashtag strings without the # symbol
-
-Return ONLY the raw JSON array. No explanation, no markdown fences, no preamble."""
-
+    # Generate each platform separately to stay within output token limits
+    tasks = [
+        _generate_for_platform(brand_ctx, month_name, year, p, format_mix, topics_hint)
+        for p in platforms
+    ]
     try:
-        message = await client.messages.create(
-            model=MODEL,
-            max_tokens=8000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        raw = message.content[0].text
-        result = _parse_json_safe(raw)
-        if not isinstance(result, list):
-            raise ValueError("Expected a JSON array")
-        return result
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.error(f"AI returned invalid JSON for monthly plan: {e}")
-        raise
-    except (APIError, APITimeoutError) as e:
-        logger.error(f"Anthropic API error during monthly plan: {e}")
-        raise
+        results = await asyncio.gather(*tasks, return_exceptions=True)
     except Exception as e:
         logger.error(f"Unexpected error during monthly plan generation: {e}")
         raise
+
+    all_posts = []
+    for platform, result in zip(platforms, results):
+        if isinstance(result, Exception):
+            logger.error(f"Failed to generate for platform {platform}: {result}")
+            continue
+        all_posts.extend(result)
+
+    if not all_posts:
+        raise ValueError("All platform generations failed")
+
+    return all_posts
 
 
 async def generate_single_caption(
