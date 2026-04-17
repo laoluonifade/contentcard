@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Check, Eye, EyeOff } from 'lucide-react'
+import { Check, Eye, EyeOff, Sun, Moon } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { authApi, workspaceApi, inviteApi } from '../api'
 import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
+import { COUNTRIES_LIST } from './SignupPage'
+import { useTheme } from '../hooks/useTheme'
 
 const TABS = ['Profile','Company','Team','Notifications']
 const ROLES = ['admin','editor','viewer','approver']
@@ -22,6 +24,7 @@ function Toggle({ on, onChange }) {
 export default function SettingsPage() {
   const { user, updateUser } = useAuthStore()
   const { activeWorkspace, activeWorkspaceId } = useAppStore()
+  const { theme, toggle: toggleTheme, isDark } = useTheme()
   const [tab, setTab] = useState('Profile')
   const [saving, setSaving] = useState(false)
   const [showPw, setShowPw] = useState(false)
@@ -32,7 +35,13 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState('editor')
   const [inviting, setInviting] = useState(false)
 
-  const [profileForm, setProfileForm] = useState({ full_name: user?.full_name || '', email: user?.email || '' })
+  const nameParts = (user?.full_name || '').split(' ')
+  const [profileForm, setProfileForm] = useState({
+    first_name: nameParts[0] || '',
+    last_name: nameParts.slice(1).join(' ') || '',
+    email: user?.email || '',
+    country_code: user?.country_code || '',
+  })
   const [pwForm, setPwForm] = useState({ current_password: '', new_password: '' })
   const [notifs, setNotifs] = useState({ daily: true, weekly: true, trending: true, updates: true, marketing: false })
 
@@ -45,10 +54,12 @@ export default function SettingsPage() {
   }
 
   const saveProfile = async () => {
+    const full_name = `${profileForm.first_name.trim()} ${profileForm.last_name.trim()}`.trim()
+    if (!full_name) { toast('Enter your name', 'error'); return }
     setSaving(true)
     try {
-      await authApi.updateProfile({ full_name: profileForm.full_name })
-      updateUser({ full_name: profileForm.full_name })
+      await authApi.updateProfile({ full_name, country_code: profileForm.country_code || null })
+      updateUser({ full_name, country_code: profileForm.country_code || null })
       toast('Profile saved!')
     } catch (err) { toast(err.message, 'error') }
     finally { setSaving(false) }
@@ -124,19 +135,59 @@ export default function SettingsPage() {
                   <div><div className="text-white font-bold">{user?.full_name}</div><div className="text-zinc-500 text-xs mt-0.5">{user?.email}</div></div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div><label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Full name</label><input value={profileForm.full_name} onChange={e => setProfileForm(f => ({ ...f, full_name: e.target.value }))} className={inputCls} /></div>
-                  <div><label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Email</label><input value={profileForm.email} disabled className={`${inputCls} opacity-50 cursor-not-allowed`} /></div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">First name</label>
+                    <input value={profileForm.first_name} onChange={e => setProfileForm(f => ({ ...f, first_name: e.target.value }))} placeholder="Ada" className={inputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Last name</label>
+                    <input value={profileForm.last_name} onChange={e => setProfileForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Okonkwo" className={inputCls} />
+                  </div>
                 </div>
-                <div className="flex justify-end"><button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors"><Check size={14} />{saving ? 'Saving…' : 'Save changes'}</button></div>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Email</label>
+                    <input value={profileForm.email} disabled className={`${inputCls} opacity-50 cursor-not-allowed`} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Country</label>
+                    <select value={profileForm.country_code} onChange={e => setProfileForm(f => ({ ...f, country_code: e.target.value }))}
+                      className={`${inputCls} cursor-pointer`}>
+                      <option value="">Select your country</option>
+                      {COUNTRIES_LIST.map(c => (
+                        <option key={c.code} value={c.code}>{c.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <p className="text-zinc-600 text-xs mb-4">Country is used to show local public holidays on your content calendar.</p>
+                <div className="flex justify-end">
+                  <button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
+                    <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
+                  </button>
+                </div>
               </div>
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
                 <h3 className="text-white font-bold text-sm mb-1">Change password</h3>
                 <p className="text-zinc-500 text-xs mb-5">Min. 8 characters</p>
                 <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div><label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Current password</label><div className="relative"><input type={showPw ? 'text' : 'password'} value={pwForm.current_password} onChange={e => setPwForm(f => ({ ...f, current_password: e.target.value }))} placeholder="Current password" className={`${inputCls} pr-12`} /><button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">{showPw ? <EyeOff size={15} /> : <Eye size={15} />}</button></div></div>
-                  <div><label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">New password</label><input type="password" value={pwForm.new_password} onChange={e => setPwForm(f => ({ ...f, new_password: e.target.value }))} placeholder="New password" className={inputCls} /></div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Current password</label>
+                    <div className="relative">
+                      <input type={showPw ? 'text' : 'password'} value={pwForm.current_password} onChange={e => setPwForm(f => ({ ...f, current_password: e.target.value }))} placeholder="Current password" className={`${inputCls} pr-12`} />
+                      <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">{showPw ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">New password</label>
+                    <input type="password" value={pwForm.new_password} onChange={e => setPwForm(f => ({ ...f, new_password: e.target.value }))} placeholder="New password" className={inputCls} />
+                  </div>
                 </div>
-                <div className="flex justify-end"><button onClick={changePw} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors"><Check size={14} />Update password</button></div>
+                <div className="flex justify-end">
+                  <button onClick={changePw} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
+                    <Check size={14} />Update password
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -211,6 +262,22 @@ export default function SettingsPage() {
           )}
 
           {tab === 'Notifications' && (
+            <div className="space-y-4">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+              <h3 className="text-white font-bold text-sm mb-1">Appearance</h3>
+              <p className="text-zinc-500 text-xs mb-5">Choose your preferred interface theme</p>
+              <div className="flex gap-3">
+                {[
+                  { value: 'dark',  label: 'Dark',  icon: Moon },
+                  { value: 'light', label: 'Light', icon: Sun  },
+                ].map(({ value, label, icon: Icon }) => (
+                  <button key={value} onClick={() => { if (theme !== value) toggleTheme() }}
+                    className={`flex-1 flex items-center gap-2 py-3 px-4 rounded-xl border-2 font-semibold text-sm transition-all ${theme === value ? 'border-violet-500 bg-violet-500/5 text-violet-300' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+                    <Icon size={16} /> {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
               <h3 className="text-white font-bold text-sm mb-1">Notification preferences</h3>
               <p className="text-zinc-500 text-xs mb-5">Control what you hear about</p>
@@ -229,6 +296,7 @@ export default function SettingsPage() {
               <div className="flex justify-end mt-4">
                 <button onClick={() => toast('Preferences saved!')} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold rounded-xl transition-colors"><Check size={14} />Save preferences</button>
               </div>
+            </div>
             </div>
           )}
         </div>

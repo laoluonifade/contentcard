@@ -76,13 +76,25 @@ export default function GeneratePage() {
   const handleGenerate = async () => {
     if (!activeBrandId) { toast('Select or create a brand first', 'error'); return }
     const platforms = Object.keys(selPlatforms).filter(p => selPlatforms[p])
+
+    // Check for existing content
+    try {
+      const status = await contentApi.getStatus(activeBrandId, selYear, selMonth)
+      if (status.count > 0) {
+        const confirmed = window.confirm(
+          `You already have ${status.count} post${status.count !== 1 ? 's' : ''} for ${MONTHS_LIST[selMonth - 1]} ${selYear}.\n\nGenerating again will add more posts. Continue?`
+        )
+        if (!confirmed) return
+      }
+    } catch {}
+
     try {
       await generateMonth({
         month: selMonth, year: selYear,
         platforms, format_mix: selFormat,
         topic_override: topic.trim() || null,
       })
-      toast(`${MONTHS_LIST[selMonth - 1]} ${selYear} — ${generationPollCount > 0 ? 'posts' : 'content'} generated!`)
+      toast(`${MONTHS_LIST[selMonth - 1]} ${selYear} — content generated!`)
       navigate('/dashboard/calendar')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Generation failed', 'error')
@@ -118,10 +130,17 @@ export default function GeneratePage() {
 
   const progressLabel = () => {
     if (!generatingMonth) return null
-    if (generationPollCount === 0) return 'Sending to AI…'
-    if (generationPollCount < 3)  return 'Claude is writing your captions…'
-    if (generationPollCount < 6)  return 'Almost there — designing posts…'
-    return `Still working… (check ${1}-min)`
+    if (generationPollCount === 0) return 'Sending to Claude…'
+    if (generationPollCount < 3)  return 'Writing captions and headlines…'
+    if (generationPollCount < 6)  return 'Structuring posts for each platform…'
+    if (generationPollCount < 10) return 'Finalising content…'
+    return 'Almost done — saving posts…'
+  }
+
+  const progressPercent = () => {
+    if (!generatingMonth) return 0
+    // poll every ~8s, generation takes ~60-90s (8-12 polls)
+    return Math.min(95, Math.round((generationPollCount / 11) * 100))
   }
 
   const inpCls = "w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all text-sm"
@@ -252,9 +271,17 @@ export default function GeneratePage() {
                 )}
             </button>
             {generatingMonth && (
-              <p className="text-center text-zinc-600 text-xs">
-                This usually takes 15–30 seconds. Don't close the tab.
-              </p>
+              <div className="space-y-2">
+                <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-full bg-violet-500 rounded-full transition-all duration-700"
+                    style={{ width: `${progressPercent()}%` }}
+                  />
+                </div>
+                <p className="text-center text-zinc-500 text-xs">
+                  Usually takes 1–2 minutes. You'll be taken to the calendar when done.
+                </p>
+              </div>
             )}
           </div>
 

@@ -570,6 +570,9 @@ export default function LandingPage() {
                 <div className="text-white/60 text-xs font-bold uppercase tracking-widest mb-4">{heading}</div>
                 <div className="space-y-2.5">
                   {links.map(([l, h]) => <Link key={l} to={h} className="block text-white/30 hover:text-white/60 text-sm transition-colors">{l}</Link>)}
+                  {heading === 'Company' && (
+                    <a href="/contentcard-pitch-deck.pdf" target="_blank" rel="noopener noreferrer" className="block text-white/30 hover:text-white/60 text-sm transition-colors">Pitch Deck ↗</a>
+                  )}
                 </div>
               </div>
             ))}
