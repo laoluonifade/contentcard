@@ -6,6 +6,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
+MODEL = "claude-haiku-4-5-20251001"
 
 SYSTEM_PROMPT = """You are ContentCard's AI content strategist. You generate high-converting social media content for businesses.
 
@@ -85,7 +86,7 @@ Return ONLY the raw JSON array. No explanation, no markdown fences, no preamble.
 
     try:
         message = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=MODEL,
             max_tokens=8000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -156,7 +157,7 @@ No markdown fences, no explanation, raw JSON only."""
 
     try:
         message = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=MODEL,
             max_tokens=1000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -216,7 +217,7 @@ Raw JSON only, no markdown fences."""
 
     try:
         message = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=MODEL,
             max_tokens=800,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -250,7 +251,7 @@ Return ONLY a raw JSON array, no markdown fences."""
 
     try:
         message = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=MODEL,
             max_tokens=1000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -286,7 +287,7 @@ Return ONLY a raw JSON array, no markdown, no extra text."""
 
     try:
         message = await client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+            model=MODEL,
             max_tokens=1500,
             messages=[{"role": "user", "content": prompt}],
         )
