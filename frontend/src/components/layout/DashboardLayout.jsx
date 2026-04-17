@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet, NavLink, Link, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Layers, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
@@ -22,13 +22,19 @@ export default function DashboardLayout() {
           fetchWorkspaces, setActiveWorkspace,
           fetchTrends }                           = useAppStore()
   const navigate = useNavigate()
+  const [booting, setBooting] = useState(!workspaces.length)
 
   useEffect(() => {
-    // Only fetch if we haven't loaded workspaces yet
-    if (!workspaces.length) {
-      fetchWorkspaces().catch(() => {})
+    const init = async () => {
+      try {
+        if (!workspaces.length) {
+          await fetchWorkspaces()
+        }
+      } catch {}
+      setBooting(false)
+      fetchTrends().catch(() => {})
     }
-    fetchTrends().catch(() => {})
+    init()
   }, [])
 
   const handleLogout = () => {
@@ -130,7 +136,14 @@ export default function DashboardLayout() {
       </aside>
 
       <main className="flex-1 overflow-y-auto bg-zinc-950 min-w-0">
-        <Outlet />
+        {booting
+          ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="w-6 h-6 border-2 border-white/10 border-t-violet-500 rounded-full animate-spin" />
+            </div>
+          )
+          : <Outlet />
+        }
       </main>
     </div>
   )

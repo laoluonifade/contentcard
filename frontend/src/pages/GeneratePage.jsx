@@ -131,7 +131,11 @@ export default function GeneratePage() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>Generate content</h1>
         <p className="text-zinc-500 text-sm">
-          {activeBrand ? `Generating for: ${activeBrand.name}` : 'Select or create a brand to get started.'}
+          {activeBrand
+            ? `Generating for: ${activeBrand.name}`
+            : activeBrandId
+              ? 'Loading your brand…'
+              : 'Select or create a brand to get started.'}
         </p>
       </div>
 

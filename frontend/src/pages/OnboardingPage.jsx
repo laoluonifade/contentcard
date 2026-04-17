@@ -57,8 +57,10 @@ export default function OnboardingPage() {
   const finish = async () => {
     setSaving(true)
     try {
-      // Create workspace first if none exists
-      if (!activeWorkspaceId) {
+      // Always fetch workspaces first — signup creates one automatically
+      const workspaces = await fetchWorkspaces().catch(() => [])
+      // Only create a workspace if none exist at all
+      if (!workspaces?.length) {
         await workspaceApi.create({ name: form.name || 'My Workspace' })
         await fetchWorkspaces()
       }
