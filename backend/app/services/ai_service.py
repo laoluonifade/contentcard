@@ -31,6 +31,24 @@ def _parse_json_safe(raw: str) -> dict | list:
     return json.loads(raw)
 
 
+def _get_posting_dates(year: int, month: int, posts_per_week: int) -> list[str]:
+    from datetime import date as date_cls
+    weekdays = []
+    for day in range(1, 32):
+        try:
+            d = date_cls(year, month, day)
+            if d.weekday() < 5:  # Mon–Fri only
+                weekdays.append(d)
+        except ValueError:
+            break
+    num_weeks = len(weekdays) / 5
+    total = max(1, round(posts_per_week * num_weeks))
+    if total >= len(weekdays):
+        return [d.isoformat() for d in weekdays]
+    step = len(weekdays) / total
+    return [weekdays[int(i * step)].isoformat() for i in range(total)]
+
+
 async def _generate_for_platform(
     brand_ctx: str,
     month_name: str,
@@ -38,8 +56,10 @@ async def _generate_for_platform(
     platform: str,
     format_mix: str,
     topics_hint: str,
+    posting_dates: list[str],
 ) -> list[dict]:
-    prompt = f"""Generate a content calendar for {month_name} {year} for {platform}.
+    dates_str = ', '.join(posting_dates)
+    prompt = f"""Generate social media content for {platform} for {month_name} {year}.
 
 Brand profile:
 {brand_ctx}
@@ -48,18 +68,19 @@ Platform: {platform}
 Format preference: {format_mix}
 {topics_hint}
 
-Generate one post for every weekday (Monday–Friday) in {month_name} {year}.
+Generate exactly one post for each of these dates: {dates_str}
 
 Return a JSON array where each element has exactly these fields:
-- "date": "YYYY-MM-DD" (must be a valid weekday in {month_name} {year})
+- "date": one of the dates above (YYYY-MM-DD)
 - "platform": "{platform}"
 - "topic": short topic title, max 6 words
 - "format": "single" or "carousel" or "quote"
-- "slide_count": integer 1 for single/quote, 2-4 for carousel
-- "caption": ready-to-post caption (max 200 words)
-- "hashtags": array of 5 hashtag strings without the # symbol
+- "slide_count": 1 for single/quote, 2-4 for carousel
+- "caption": punchy, human-sounding caption that converts (max 150 words)
+- "hashtags": array of exactly 5 hashtag strings without the # symbol
 
-Return ONLY the raw JSON array. No explanation, no markdown fences, no preamble."""
+Make each post feel fresh and different. Vary topics across the month.
+Return ONLY the raw JSON array. No explanation, no markdown, no preamble."""
 
     message = await client.messages.create(
         model=MODEL,
@@ -80,11 +101,11 @@ async def generate_monthly_plan(
     year: int,
     platforms: list[str],
     format_mix: str,
+    posts_per_week: int = 3,
     topic_override: str | None = None,
     template_topics: list[str] | None = None,
 ) -> list[dict]:
     import calendar
-    import asyncio
     month_name = calendar.month_name[month]
 
     brand_ctx = f"""
@@ -101,30 +122,26 @@ Guidelines: {brand.get('guidelines', '')}
 
     topics_hint = ""
     if topic_override:
-        topics_hint = f"\nFocus primarily on this topic: {topic_override}"
+        topics_hint = f"Focus primarily on this topic: {topic_override}"
     if template_topics:
         topics_hint += f"\nRotate through these topics: {', '.join(template_topics)}"
 
-    # Generate each platform separately to stay within output token limits
-    tasks = [
-        _generate_for_platform(brand_ctx, month_name, year, p, format_mix, topics_hint)
-        for p in platforms
-    ]
-    try:
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-    except Exception as e:
-        logger.error(f"Unexpected error during monthly plan generation: {e}")
-        raise
+    posting_dates = _get_posting_dates(year, month, posts_per_week)
+    logger.info(f"Generating {len(posting_dates)} posts for {len(platforms)} platform(s) in {month_name} {year}")
 
     all_posts = []
-    for platform, result in zip(platforms, results):
-        if isinstance(result, Exception):
-            logger.error(f"Failed to generate for platform {platform}: {result}")
-            continue
-        all_posts.extend(result)
+    for platform in platforms:
+        try:
+            posts = await _generate_for_platform(
+                brand_ctx, month_name, year, platform,
+                format_mix, topics_hint, posting_dates,
+            )
+            all_posts.extend(posts)
+        except Exception as e:
+            logger.error(f"Failed to generate for platform {platform}: {e}")
 
     if not all_posts:
-        raise ValueError("All platform generations failed")
+        raise ValueError("Content generation failed for all platforms")
 
     return all_posts
 

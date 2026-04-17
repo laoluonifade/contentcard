@@ -93,6 +93,7 @@ async def generate_month(
         year=body.year,
         platforms=[p.value for p in body.platforms],
         format_mix=body.format_mix,
+        posts_per_week=max(1, min(7, body.posts_per_week)),
         topic_override=body.topic_override,
         template_topics=template_topics,
         template_id=body.template_id,
@@ -279,8 +280,9 @@ async def delete_content(
 
 async def _do_generate_month(
     brand_id: str, brand_dict: dict, month: int, year: int,
-    platforms: list[str], format_mix: str, topic_override: str | None,
-    template_topics: list[str] | None, template_id: str | None,
+    platforms: list[str], format_mix: str, posts_per_week: int,
+    topic_override: str | None, template_topics: list[str] | None,
+    template_id: str | None,
 ):
     from app.db.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
@@ -288,6 +290,7 @@ async def _do_generate_month(
             posts = await generate_monthly_plan(
                 brand=brand_dict, month=month, year=year,
                 platforms=platforms, format_mix=format_mix,
+                posts_per_week=posts_per_week,
                 topic_override=topic_override, template_topics=template_topics,
             )
             saved = 0

@@ -9,6 +9,7 @@ class GenerateMonthRequest(BaseModel):
     year: int
     platforms: list[ContentPlatform]
     format_mix: str = "mixed"  # single | carousel | quote | mixed
+    posts_per_week: int = 3   # 1-7
     topic_override: str | None = None
     template_id: str | None = None
 

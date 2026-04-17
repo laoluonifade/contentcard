@@ -65,13 +65,14 @@ const useAppStore = create(
       },
 
       // ── Content ─────────────────────────────────────────────────
-      generateMonth: async ({ month, year, platforms, format_mix, topic_override, template_id }) => {
+      generateMonth: async ({ month, year, platforms, format_mix, posts_per_week, topic_override, template_id }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
         set({ generatingMonth: true, generationPollCount: 0 })
         try {
           await contentApi.generateMonth({
             brand_id: brandId, month, year, platforms, format_mix,
+            posts_per_week: posts_per_week || 3,
             topic_override: topic_override || null, template_id: template_id || null,
           })
           // Poll the status endpoint until content appears (max 60 seconds)
