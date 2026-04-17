@@ -77,13 +77,17 @@ export default function GeneratePage() {
     if (!activeBrandId) { toast('Select or create a brand first', 'error'); return }
     const platforms = Object.keys(selPlatforms).filter(p => selPlatforms[p])
     try {
-      await generateMonth({
+      const count = await generateMonth({
         month: selMonth, year: selYear,
         platforms, format_mix: selFormat,
         topic_override: topic.trim() || null,
       })
-      toast(`${MONTHS_LIST[selMonth - 1]} ${selYear} — ${generationPollCount > 0 ? 'posts' : 'content'} generated!`)
-      navigate('/dashboard/calendar')
+      if (count > 0) {
+        toast(`${count} posts generated for ${MONTHS_LIST[selMonth - 1]} ${selYear}!`)
+        navigate('/dashboard/calendar')
+      } else {
+        toast('Generation completed but no posts were saved — please try again', 'error')
+      }
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Generation failed', 'error')
     }

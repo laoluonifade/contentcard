@@ -75,13 +75,14 @@ const useAppStore = create(
             topic_override: topic_override || null, template_id: template_id || null,
           })
           // Poll the status endpoint until content appears (max 60 seconds)
-          await get()._pollForContent(brandId, month, year)
+          const count = await get()._pollForContent(brandId, month, year)
+          return count
         } finally {
           set({ generatingMonth: false })
         }
       },
 
-      // Poll with exponential backoff
+      // Poll with exponential backoff — returns number of posts found
       _pollForContent: async (brandId, month, year) => {
         const maxAttempts = 20
         const delays = [3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
@@ -94,17 +95,18 @@ const useAppStore = create(
           try {
             const status = await contentApi.getStatus(brandId, year, month)
             if (status.ready && status.count > 0) {
-              await get().fetchMonthContent(month, year)
-              return
+              const items = await get().fetchMonthContent(month, year)
+              return items.length
             }
           } catch {
             // status endpoint failed — try fetching directly
             const items = await get().fetchMonthContent(month, year)
-            if (items.length > 0) return
+            if (items.length > 0) return items.length
           }
         }
         // Final attempt: fetch whatever's there
-        await get().fetchMonthContent(month, year)
+        const items = await get().fetchMonthContent(month, year)
+        return items.length
       },
 
       fetchMonthContent: async (month, year) => {

@@ -85,7 +85,7 @@ Return ONLY the raw JSON array. No explanation, no markdown fences, no preamble.
 
     try:
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=8000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -156,7 +156,7 @@ No markdown fences, no explanation, raw JSON only."""
 
     try:
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -216,7 +216,7 @@ Raw JSON only, no markdown fences."""
 
     try:
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=800,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
@@ -250,7 +250,7 @@ Return ONLY a raw JSON array, no markdown fences."""
 
     try:
         message = await client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1000,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": prompt}],
