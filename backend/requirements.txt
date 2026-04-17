@@ -8,6 +8,7 @@ pydantic==2.7.1
 pydantic-settings==2.3.0
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+bcrypt==3.2.2
 python-multipart==0.0.9
 anthropic==0.28.0
 stripe==9.12.0
