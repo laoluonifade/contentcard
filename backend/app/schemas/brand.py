@@ -84,6 +84,8 @@ class BrandOut(BaseModel):
     twitter_handle: str | None
     linkedin_handle: str | None
     brand_kit: dict | None
+    openai_assistant_id: str | None
+    openai_vector_store_id: str | None
     created_at: datetime
     updated_at: datetime
 

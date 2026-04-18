@@ -77,6 +77,7 @@ async def _generate_for_platform(
     format_mix: str,
     topics_hint: str,
     posting_dates: list[str],
+    assistant_id: str | None = None,
 ) -> list[dict]:
     import datetime
     today = datetime.date.today()
@@ -162,12 +163,25 @@ CRITICAL RULES:
 - topic = content_idea (set both identically)
 - Return ONLY the raw JSON array. No markdown, no explanation, no preamble."""
 
-    raw = await _openai_chat([
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": brand_system},
-        {"role": "assistant", "content": f"Understood. I have memorised the {brand_name} brand context. I will ensure every post reflects the brand's identity, voice, audience, visual guidelines, and guardrails. Ready to generate."},
-        {"role": "user", "content": creative_brief},
-    ], max_tokens=12000)
+    if assistant_id:
+        # Use the brand's persistent OpenAI Assistant which has the full brand kit
+        # loaded into a Vector Store — only the creative brief needs to be sent.
+        try:
+            from app.services.openai_assistant_service import generate_with_assistant
+            raw = await generate_with_assistant(assistant_id, creative_brief)
+        except Exception as e:
+            logger.warning(f"Assistant generation failed ({e}), falling back to chat completions")
+            assistant_id = None  # trigger fallback below
+
+    if not assistant_id:
+        # Fallback: 4-message chat completions with full brand context in the prompt
+        raw = await _openai_chat([
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": brand_system},
+            {"role": "assistant", "content": f"Understood. I have memorised the {brand_name} brand context. I will ensure every post reflects the brand's identity, voice, audience, visual guidelines, and guardrails. Ready to generate."},
+            {"role": "user", "content": creative_brief},
+        ], max_tokens=12000)
+
     result = _parse_json_safe(raw)
     if not isinstance(result, list):
         raise ValueError("Expected a JSON array")
@@ -278,6 +292,8 @@ Bad examples: {_fmt(brand.get('bad_examples'))}
     posting_dates = _get_posting_dates(year, month, posts_per_week)
     logger.info(f"Generating {len(posting_dates)} posts for {len(platforms)} platform(s) in {month_name} {year}")
 
+    assistant_id = brand.get("openai_assistant_id")
+
     all_posts = []
     for platform in platforms:
         try:
@@ -285,6 +301,7 @@ Bad examples: {_fmt(brand.get('bad_examples'))}
                 brand_ctx, brand_name, industry,
                 month_name, year, platform,
                 format_mix, topics_hint, posting_dates,
+                assistant_id=assistant_id,
             )
             all_posts.extend(posts)
         except Exception as e:

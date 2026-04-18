@@ -1,7 +1,9 @@
+import asyncio
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, delete
-from app.db.database import get_db
+from app.db.database import get_db, AsyncSessionLocal
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
@@ -9,6 +11,8 @@ from app.models.brand import Brand
 from app.models.content import ContentItem
 from datetime import datetime, timezone, timedelta
 import os
+
+logger = logging.getLogger(__name__)
 
 # Claude Haiku 4.5 pricing: $0.80/M input + $4/M output
 # Estimate per post: ~1200 input tokens + 400 output tokens
@@ -281,6 +285,61 @@ async def delete_content_by_user(
     return {"deleted": result.rowcount, "message": f"Deleted {result.rowcount} content items for {email}"}
 
 
+async def _bg_sync_assistant(brand_id: str) -> None:
+    """Background coroutine: creates or refreshes the OpenAI Assistant for a brand."""
+    from app.services import openai_assistant_service as oas
+    try:
+        async with AsyncSessionLocal() as db:
+            r = await db.execute(select(Brand).where(Brand.id == brand_id))
+            brand = r.scalar_one_or_none()
+            if not brand:
+                return
+            if brand.openai_assistant_id:
+                await oas.update_brand_assistant(brand)
+            else:
+                assistant_id, vs_id = await oas.create_brand_assistant(brand)
+                brand.openai_assistant_id = assistant_id
+                brand.openai_vector_store_id = vs_id
+                await db.commit()
+        logger.info(f"Brand assistant synced for {brand_id}")
+    except Exception as e:
+        logger.error(f"Brand assistant sync failed for {brand_id}: {e}")
+
+
+@router.post("/sync-assistant/{brand_id}")
+async def sync_brand_assistant(
+    brand_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Manually create or refresh the OpenAI Assistant for a brand."""
+    r = await db.execute(select(Brand).where(Brand.id == brand_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    asyncio.create_task(_bg_sync_assistant(brand.id))
+    return {"brand_id": brand_id, "message": "Assistant sync started in background"}
+
+
+@router.post("/sync-all-assistants")
+async def sync_all_brand_assistants(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    One-time migration: create OpenAI Assistants for all existing brands that
+    don't have one yet. Runs async in the background — returns immediately with
+    a count of brands queued.
+    """
+    r = await db.execute(
+        select(Brand.id).where(Brand.openai_assistant_id.is_(None))
+    )
+    brand_ids = [row[0] for row in r.fetchall()]
+    for bid in brand_ids:
+        asyncio.create_task(_bg_sync_assistant(bid))
+    return {"queued": len(brand_ids), "message": f"Queued assistant creation for {len(brand_ids)} brands"}
+
+
 PIGGYVEST_KIT = {
     "mission_statement": "To make financial freedom accessible to every African by building the best savings and investment platform on the continent.",
     "value_proposition": "PiggyVest helps young Nigerians save and invest money effortlessly — starting from as little as ₦100 — with zero hidden fees and guaranteed returns.",
@@ -380,6 +439,9 @@ async def seed_piggyvest(
         brand.brand_kit = PIGGYVEST_KIT
         await db.commit()
         await db.refresh(brand)
+        await db.commit()
+        await db.refresh(brand)
+        asyncio.create_task(_bg_sync_assistant(brand.id))
         return {"created": False, "brand_id": brand.id, "message": "PiggyVest brand updated"}
     else:
         brand = Brand(
@@ -408,4 +470,5 @@ async def seed_piggyvest(
         db.add(brand)
         await db.commit()
         await db.refresh(brand)
+        asyncio.create_task(_bg_sync_assistant(brand.id))
         return {"created": True, "brand_id": brand.id, "message": "PiggyVest brand created"}

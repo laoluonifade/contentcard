@@ -1,7 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+import asyncio
+import logging
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.db.database import get_db
+from app.db.database import get_db, AsyncSessionLocal
 from app.models.brand import Brand
 from app.models.workspace import WorkspaceMember, WorkspaceRole
 from app.models.user import User
@@ -11,6 +13,8 @@ import cloudinary
 import cloudinary.uploader
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
 cloudinary.config(
     cloud_name=settings.CLOUDINARY_CLOUD_NAME,
     api_key=settings.CLOUDINARY_API_KEY,
@@ -18,6 +22,30 @@ cloudinary.config(
 )
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/brands", tags=["brands"])
+
+
+async def _sync_brand_assistant(brand_id: str) -> None:
+    """
+    Background task: creates or updates the OpenAI Assistant + Vector Store for a brand.
+    Opens its own DB session so it can run after the request session closes.
+    """
+    from app.services import openai_assistant_service as oas
+    try:
+        async with AsyncSessionLocal() as db:
+            r = await db.execute(select(Brand).where(Brand.id == brand_id))
+            brand = r.scalar_one_or_none()
+            if not brand:
+                return
+            if brand.openai_assistant_id:
+                await oas.update_brand_assistant(brand)
+            else:
+                assistant_id, vs_id = await oas.create_brand_assistant(brand)
+                brand.openai_assistant_id = assistant_id
+                brand.openai_vector_store_id = vs_id
+                await db.commit()
+            logger.info(f"Brand assistant synced for {brand.name} ({brand_id})")
+    except Exception as e:
+        logger.error(f"Brand assistant sync failed for {brand_id}: {e}")
 
 
 async def _check_member(workspace_id: str, user_id: str, db: AsyncSession) -> WorkspaceMember:
@@ -46,6 +74,7 @@ async def list_brands(
 async def create_brand(
     workspace_id: str,
     body: BrandCreate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -57,6 +86,7 @@ async def create_brand(
     db.add(brand)
     await db.commit()
     await db.refresh(brand)
+    background_tasks.add_task(_sync_brand_assistant, brand.id)
     return BrandOut.model_validate(brand)
 
 
@@ -77,6 +107,7 @@ async def get_brand(
 @router.put("/{brand_id}", response_model=BrandOut)
 async def update_brand(
     workspace_id: str, brand_id: str, body: BrandUpdate,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -94,12 +125,14 @@ async def update_brand(
 
     await db.commit()
     await db.refresh(brand)
+    background_tasks.add_task(_sync_brand_assistant, brand.id)
     return BrandOut.model_validate(brand)
 
 
 @router.delete("/{brand_id}", status_code=204)
 async def delete_brand(
     workspace_id: str, brand_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -111,8 +144,15 @@ async def delete_brand(
     brand = r.scalar_one_or_none()
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
+
+    assistant_id = brand.openai_assistant_id
+    vs_id = brand.openai_vector_store_id
     await db.delete(brand)
     await db.commit()
+
+    if assistant_id or vs_id:
+        from app.services.openai_assistant_service import delete_brand_assistant
+        background_tasks.add_task(delete_brand_assistant, assistant_id, vs_id)
 
 
 @router.post("/{brand_id}/ai-insights", response_model=dict)
