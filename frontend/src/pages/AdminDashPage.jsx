@@ -61,7 +61,7 @@ export default function AdminDashPage() {
     return (
       <AdminLayout>
         <div className="flex items-center justify-center h-64">
-          <div className="w-8 h-8 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-brand-500/30 border-t-brand-500 rounded-full animate-spin" />
         </div>
       </AdminLayout>
     )
@@ -76,8 +76,8 @@ export default function AdminDashPage() {
       delta: s.user_delta != null ? `${s.user_delta >= 0 ? '+' : ''}${s.user_delta} this week` : null,
       up: (s.user_delta || 0) >= 0,
       icon: Users,
-      color: 'text-violet-400',
-      bg: 'bg-violet-500/10',
+      color: 'text-brand-400',
+      bg: 'bg-brand-500/10',
     },
     {
       label: 'Workspaces',
@@ -135,7 +135,7 @@ export default function AdminDashPage() {
               <div className="text-white font-semibold text-sm">New signups</div>
               <div className="text-white/30 text-xs mt-0.5">Last 7 days</div>
             </div>
-            <div className="text-2xl font-bold text-violet-400">
+            <div className="text-2xl font-bold text-brand-400">
               {(s.daily_signups || []).reduce((a, b) => a + b, 0)}
             </div>
           </div>
@@ -158,7 +158,7 @@ export default function AdminDashPage() {
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
           <div className="text-white font-semibold text-sm">Recent signups</div>
-          <a href="/admindash/users" className="text-violet-400 text-xs font-semibold hover:text-violet-300 transition-colors">View all →</a>
+          <a href="/admindash/users" className="text-brand-400 text-xs font-semibold hover:text-brand-300 transition-colors">View all →</a>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">

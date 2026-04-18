@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Building2, Users, Palette, Check, Zap } from 'lucide-react'
-import { LogoFull } from '../components/ui/Logo'
+import { LogoMark } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAppStore from '../stores/appStore'
 import { workspaceApi } from '../api'
@@ -18,8 +18,6 @@ const TONES = [
   'Bold','Authentic','Energetic','Playful','Luxury','Minimal',
   'Warm','Professional','Witty','Inspirational','Confident','Friendly',
 ]
-
-const inp = "w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400 transition-all text-sm"
 
 export default function OnboardingPage() {
   const navigate = useNavigate()
@@ -49,17 +47,15 @@ export default function OnboardingPage() {
   }
 
   const next = () => {
-    if (step === 1 && !form.name.trim()) { toast('Enter your brand name', 'error'); return }
-    if (step === 1 && !form.industry) { toast('Select your industry', 'error'); return }
+    if (step === 1 && !form.name.trim()) { toast('Please enter your brand name.', 'error'); return }
+    if (step === 1 && !form.industry) { toast('Please select your industry.', 'error'); return }
     setStep(s => s + 1)
   }
 
   const finish = async () => {
     setSaving(true)
     try {
-      // Always fetch workspaces first — signup creates one automatically
       const workspaces = await fetchWorkspaces().catch(() => [])
-      // Only create a workspace if none exist at all
       if (!workspaces?.length) {
         await workspaceApi.create({ name: form.name || 'My Workspace' })
         await fetchWorkspaces()
@@ -68,10 +64,10 @@ export default function OnboardingPage() {
         ...form,
         tone_tags: form.tone_tags.map(t => t.toLowerCase()),
       })
-      toast('Brand created! You\'re ready to generate content.')
+      toast('Brand profile created. You\'re ready to generate content.')
       navigate('/dashboard/generate')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Failed to create brand', 'error')
+      toast(err.response?.data?.detail || err.message || 'Something went wrong. Please try again.', 'error')
     } finally {
       setSaving(false)
     }
@@ -83,165 +79,283 @@ export default function OnboardingPage() {
     { icon: Palette,   label: 'Brand voice' },
   ]
 
+  const firstName = user?.full_name?.split(' ')[0] || ''
+
   return (
-    <div className="min-h-screen bg-ink flex flex-col items-center justify-center p-6">
-      {/* Logo */}
-      <div className="mb-8"><LogoFull size={30} /></div>
-
-      <div className="w-full max-w-xl">
-        {/* Progress steps */}
-        <div className="flex items-center gap-2 mb-8">
-          {STEPS.map((s, i) => {
-            const n = i + 1
-            const done = step > n
-            const active = step === n
-            return (
-              <div key={s.label} className="flex items-center gap-2 flex-1">
-                <div className={`flex items-center gap-2 flex-1 ${i > 0 ? '' : ''}`}>
-                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-all ${done ? 'bg-teal text-white' : active ? 'bg-brand-500 text-white' : 'bg-white/10 text-white/30'}`}
-                    style={{ background: done ? '#43B89C' : active ? '#6C63FF' : undefined }}>
-                    {done ? <Check size={13} /> : n}
-                  </div>
-                  <span className={`text-xs font-semibold whitespace-nowrap ${active ? 'text-white' : 'text-white/30'}`}>{s.label}</span>
-                  {i < STEPS.length - 1 && <div className={`flex-1 h-px mx-2 ${step > n ? 'bg-teal' : 'bg-white/10'}`} style={{ background: step > n ? '#43B89C' : undefined }} />}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="bg-white/[0.04] border border-white/[0.08] rounded-2xl p-7">
-
-          {/* Step 1: Brand basics */}
-          {step === 1 && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-xl font-bold text-white mb-1">Tell us about your brand</h2>
-                <p className="text-white/40 text-sm">This shapes every piece of content we generate for you.</p>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-white/40 mb-2">Brand / Business name *</label>
-                <input value={form.name} onChange={e => set('name', e.target.value)} placeholder="e.g. Nova Studio, Grace Foods, TechBridge" className={inp} />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-white/40 mb-2">Industry *</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {INDUSTRIES.map(ind => (
-                    <button key={ind} type="button" onClick={() => set('industry', ind)}
-                      className={`px-3 py-2.5 rounded-xl text-xs font-semibold text-left border transition-all ${form.industry === ind ? 'border-brand-400 bg-brand-500/10 text-brand-300' : 'border-white/10 text-white/50 hover:border-white/20 hover:text-white/70'}`}>
-                      {ind}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-white/40 mb-2">What you do <span className="text-white/25 font-normal normal-case">(optional)</span></label>
-                <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={3}
-                  placeholder="We help Lagos-based SMEs grow their online presence through strategic content marketing and design…"
-                  className={`${inp} resize-none`} />
-              </div>
-            </div>
-          )}
-
-          {/* Step 2: Audience */}
-          {step === 2 && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-xl font-bold text-white mb-1">Who are your customers?</h2>
-                <p className="text-white/40 text-sm">Your audience shapes every caption and caption tone we write.</p>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-white/40 mb-2">Target audience <span className="text-white/25 font-normal normal-case">(optional)</span></label>
-                <textarea value={form.target_audience} onChange={e => set('target_audience', e.target.value)} rows={3}
-                  placeholder="Young Nigerian professionals aged 22–35, mostly in Lagos and Abuja, earning ₦200k+/month, interested in lifestyle and growth…"
-                  className={`${inp} resize-none`} />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-white/40 mb-2">Social handles <span className="text-white/25 font-normal normal-case">(optional)</span></label>
-                <div className="space-y-2">
-                  <input value={form.instagram_handle} onChange={e => set('instagram_handle', e.target.value)} placeholder="@yourbrand (Instagram)" className={inp} />
-                  <input value={form.facebook_handle} onChange={e => set('facebook_handle', e.target.value)} placeholder="Your Facebook page name" className={inp} />
-                  <input value={form.twitter_handle} onChange={e => set('twitter_handle', e.target.value)} placeholder="@yourbrand (Twitter/X)" className={inp} />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Voice */}
-          {step === 3 && (
-            <div className="space-y-5">
-              <div>
-                <h2 className="text-xl font-bold text-white mb-1">Your brand voice</h2>
-                <p className="text-white/40 text-sm">Pick words that describe how your brand sounds. You can edit this anytime.</p>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-white/40 mb-3">Tone tags <span className="text-white/25 font-normal normal-case">(pick all that apply)</span></label>
-                <div className="flex flex-wrap gap-2">
-                  {TONES.map(t => {
-                    const on = form.tone_tags.includes(t)
-                    return (
-                      <button key={t} type="button" onClick={() => toggleTone(t)}
-                        className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${on ? 'bg-brand-500 border-brand-500 text-white' : 'border-white/10 text-white/50 hover:border-white/20'}`}>
-                        {t}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-white/40 mb-3">
-                  Personality — {form.personality_score < 35 ? 'Serious & corporate' : form.personality_score > 65 ? 'Casual & fun' : 'Balanced'}
-                </label>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-white/30">Serious</span>
-                  <input type="range" min="0" max="100" value={form.personality_score}
-                    onChange={e => set('personality_score', Number(e.target.value))}
-                    className="flex-1 accent-brand-500" />
-                  <span className="text-xs text-white/30">Casual</span>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-white/40 mb-3">Language style</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    ['english',          'English'],
-                    ['nigerian_english',  'Nigerian English'],
-                    ['pidgin',           'Nigerian Pidgin'],
-                    ['mix',              'Mix (code-switching)'],
-                  ].map(([val, label]) => (
-                    <button key={val} type="button" onClick={() => set('language_style', val)}
-                      className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${form.language_style === val ? 'border-brand-400 bg-brand-500/10 text-brand-300' : 'border-white/10 text-white/50 hover:border-white/20'}`}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Footer buttons */}
-          <div className="flex items-center justify-between mt-7 pt-5 border-t border-white/[0.06]">
-            {step > 1
-              ? <button onClick={() => setStep(s => s - 1)} className="text-white/40 hover:text-white text-sm transition-colors">← Back</button>
-              : <div />}
-            {step < 3
-              ? (
-                <button onClick={next} className="btn-primary px-6 py-2.5 text-sm">
-                  Continue <ArrowRight size={15} />
-                </button>
-              ) : (
-                <button onClick={finish} disabled={saving} className="btn-primary px-6 py-2.5 text-sm">
-                  {saving
-                    ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating brand…</>
-                    : <><Zap size={15} /> Create brand & generate</>}
-                </button>
-              )}
+    <div className="min-h-screen bg-mist flex">
+      {/* Left panel — form */}
+      <div className="flex-1 flex flex-col items-center justify-center p-6 lg:p-12">
+        {/* Logo */}
+        <div className="w-full max-w-xl mb-8">
+          <div className="flex items-center gap-2.5">
+            <LogoMark size={28} />
+            <span className="font-bold text-ink text-[15px]" style={{ letterSpacing: '-0.02em' }}>ContentCard</span>
           </div>
         </div>
 
-        <p className="text-center text-white/25 text-xs mt-5">
-          You can update all of this later in your Brand Kit.
-        </p>
+        <div className="w-full max-w-xl">
+          {/* Step indicator */}
+          <div className="flex items-center gap-2 mb-8">
+            {STEPS.map((s, i) => {
+              const n = i + 1
+              const done = step > n
+              const active = step === n
+              return (
+                <div key={s.label} className="flex items-center gap-2 flex-1">
+                  <div className="flex items-center gap-2 flex-1">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-all ${
+                      done ? 'bg-brand-500 text-white' : active ? 'bg-ink text-white' : 'bg-fog text-ink/30'
+                    }`}>
+                      {done ? <Check size={13} /> : n}
+                    </div>
+                    <span className={`text-xs font-semibold whitespace-nowrap ${active ? 'text-ink' : 'text-ink/30'}`}>{s.label}</span>
+                    {i < STEPS.length - 1 && <div className={`flex-1 h-px mx-2 transition-all ${step > n ? 'bg-brand-300' : 'bg-fog'}`} />}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="bg-white border border-fog rounded-2xl p-7 shadow-sm">
+
+            {/* Step 1: Brand basics */}
+            {step === 1 && (
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-xl font-bold text-ink mb-1">
+                    {firstName ? `Welcome, ${firstName}. Let's set up your brand.` : 'Set up your brand profile'}
+                  </h2>
+                  <p className="text-ink/50 text-sm">This information shapes every piece of content we generate for you.</p>
+                </div>
+                <div>
+                  <label className="label">Brand or business name <span className="text-red-400">*</span></label>
+                  <input value={form.name} onChange={e => set('name', e.target.value)}
+                    placeholder="e.g. Nova Studio, Grace Foods, TechBridge"
+                    className="input" autoFocus />
+                </div>
+                <div>
+                  <label className="label">Industry <span className="text-red-400">*</span></label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {INDUSTRIES.map(ind => (
+                      <button key={ind} type="button" onClick={() => set('industry', ind)}
+                        className={`px-3 py-2.5 rounded-xl text-xs font-semibold text-left border transition-all ${
+                          form.industry === ind
+                            ? 'border-brand-400 bg-brand-50 text-brand-700'
+                            : 'border-fog text-ink/50 hover:border-brand-200 hover:text-ink/70'
+                        }`}>
+                        {ind}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="label">What your business does <span className="text-ink/30 font-normal normal-case">— optional</span></label>
+                  <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={3}
+                    placeholder="Briefly describe your products, services, or what makes your brand distinctive."
+                    className="input resize-none" />
+                </div>
+              </div>
+            )}
+
+            {/* Step 2: Audience */}
+            {step === 2 && (
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-xl font-bold text-ink mb-1">Describe your target audience</h2>
+                  <p className="text-ink/50 text-sm">Understanding your audience helps us write captions that resonate and convert.</p>
+                </div>
+                <div>
+                  <label className="label">Who are your customers? <span className="text-ink/30 font-normal normal-case">— optional</span></label>
+                  <textarea value={form.target_audience} onChange={e => set('target_audience', e.target.value)} rows={4}
+                    placeholder="e.g. Young professionals aged 25–35 in Lagos and Abuja, interested in career growth and lifestyle, earning ₦200k+ per month."
+                    className="input resize-none" />
+                </div>
+                <div>
+                  <label className="label">Social media handles <span className="text-ink/30 font-normal normal-case">— optional</span></label>
+                  <div className="space-y-2">
+                    <input value={form.instagram_handle} onChange={e => set('instagram_handle', e.target.value)}
+                      placeholder="Instagram — @yourbrand" className="input" />
+                    <input value={form.facebook_handle} onChange={e => set('facebook_handle', e.target.value)}
+                      placeholder="Facebook — Your page name" className="input" />
+                    <input value={form.twitter_handle} onChange={e => set('twitter_handle', e.target.value)}
+                      placeholder="Twitter / X — @yourbrand" className="input" />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Step 3: Voice */}
+            {step === 3 && (
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-xl font-bold text-ink mb-1">Define your brand voice</h2>
+                  <p className="text-ink/50 text-sm">Select the tone that best reflects how your brand communicates. You can refine this at any time in your Brand Kit.</p>
+                </div>
+                <div>
+                  <label className="label">Tone <span className="text-ink/30 font-normal normal-case">— select all that apply</span></label>
+                  <div className="flex flex-wrap gap-2">
+                    {TONES.map(t => {
+                      const on = form.tone_tags.includes(t)
+                      return (
+                        <button key={t} type="button" onClick={() => toggleTone(t)}
+                          className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
+                            on ? 'bg-brand-500 border-brand-500 text-white' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink/70'
+                          }`}>
+                          {t}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <label className="label">
+                    Personality — <span className="font-normal normal-case text-ink/60">
+                      {form.personality_score < 35 ? 'Formal and corporate' : form.personality_score > 65 ? 'Casual and conversational' : 'Balanced'}
+                    </span>
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-ink/40">Formal</span>
+                    <input type="range" min="0" max="100" value={form.personality_score}
+                      onChange={e => set('personality_score', Number(e.target.value))}
+                      className="flex-1 accent-brand-500" />
+                    <span className="text-xs text-ink/40">Casual</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="label">Language style</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      ['english',         'Standard English'],
+                      ['nigerian_english', 'Nigerian English'],
+                      ['pidgin',          'Nigerian Pidgin'],
+                      ['mix',             'Mixed (code-switching)'],
+                    ].map(([val, label]) => (
+                      <button key={val} type="button" onClick={() => set('language_style', val)}
+                        className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${
+                          form.language_style === val
+                            ? 'border-brand-400 bg-brand-50 text-brand-700'
+                            : 'border-fog text-ink/50 hover:border-brand-200'
+                        }`}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="flex items-center justify-between mt-7 pt-5 border-t border-fog">
+              {step > 1
+                ? <button onClick={() => setStep(s => s - 1)} className="text-ink/40 hover:text-ink text-sm transition-colors">← Back</button>
+                : <div />}
+              {step < 3
+                ? (
+                  <button onClick={next} className="btn-primary px-6 py-2.5 text-sm">
+                    Continue <ArrowRight size={15} />
+                  </button>
+                ) : (
+                  <button onClick={finish} disabled={saving} className="btn-primary px-6 py-2.5 text-sm">
+                    {saving
+                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating brand profile…</>
+                      : <><Zap size={15} /> Create brand profile</>}
+                  </button>
+                )}
+            </div>
+          </div>
+
+          <p className="text-center text-ink/30 text-xs mt-5">
+            All settings can be updated later in your Brand Kit.
+          </p>
+        </div>
+      </div>
+
+      {/* Right panel — app preview (desktop only) */}
+      <div className="hidden lg:flex flex-1 bg-[#0F172A] items-center justify-center p-12 relative overflow-hidden">
+        {/* Background glow */}
+        <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-brand-500/20 rounded-full blur-[80px] pointer-events-none" />
+        <div className="absolute bottom-1/4 left-1/4 w-48 h-48 bg-brand-400/10 rounded-full blur-[60px] pointer-events-none" />
+
+        <div className="relative z-10 w-full max-w-sm">
+          {/* Mini dashboard preview */}
+          <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-white/10">
+            {/* Mini sidebar + content */}
+            <div className="flex" style={{ height: 420 }}>
+              {/* Sidebar */}
+              <div className="w-[120px] bg-white border-r border-[#E5E7EB] flex flex-col flex-shrink-0">
+                <div className="flex items-center gap-1.5 px-3 py-3 border-b border-[#E5E7EB]">
+                  <div className="w-5 h-5 rounded-md bg-brand-500 flex-shrink-0" />
+                  <span className="text-[8px] font-bold text-[#0F172A]" style={{ letterSpacing: '-0.01em' }}>ContentCard</span>
+                </div>
+                <nav className="flex-1 px-1.5 py-2 space-y-0.5">
+                  {[
+                    { label: 'Dashboard', active: true },
+                    { label: 'Calendar', active: false },
+                    { label: 'Templates', active: false },
+                    { label: 'Brand Kit', active: false },
+                  ].map(({ label, active }) => (
+                    <div key={label} className={`px-2 py-1.5 rounded-lg text-[7px] font-semibold ${active ? 'bg-[#10A37F]/10 text-[#10A37F]' : 'text-[#6B7280]'}`}>
+                      {label}
+                    </div>
+                  ))}
+                </nav>
+                <div className="px-1.5 py-2 border-t border-[#E5E7EB]">
+                  <div className="flex items-center gap-1.5 px-2 py-1.5">
+                    <div className="w-4 h-4 rounded-full bg-brand-500 flex-shrink-0" />
+                    <div>
+                      <div className="text-[6px] font-semibold text-[#0F172A] leading-none">Your Brand</div>
+                      <div className="text-[5px] text-[#6B7280] leading-none mt-0.5">Pro plan</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Main content */}
+              <div className="flex-1 bg-[#F7F7F8] p-3 overflow-hidden">
+                <div className="text-[8px] font-bold text-[#0F172A] mb-1">Good morning 👋</div>
+                <div className="text-[6px] text-[#6B7280] mb-3">18 posts generated for April</div>
+
+                {/* Green banner */}
+                <div className="rounded-xl p-2.5 mb-2.5 relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #10A37F, #34d399)' }}>
+                  <div className="text-[6px] text-white/70 font-semibold uppercase tracking-widest mb-0.5">April 2026</div>
+                  <div className="text-[9px] font-bold text-white">14 / 18 posts ready</div>
+                  <div className="text-[6px] text-white/70 mt-0.5">Keep posting to grow your audience.</div>
+                </div>
+
+                {/* Stat cards */}
+                <div className="grid grid-cols-2 gap-1.5 mb-2.5">
+                  {[['18', 'Total posts'], ['14', 'Ready'], ['4', 'Drafts'], ['12', 'Instagram']].map(([n, l]) => (
+                    <div key={l} className="bg-white rounded-xl p-2 border border-[#E5E7EB]">
+                      <div className="text-[10px] font-bold text-[#0F172A]">{n}</div>
+                      <div className="text-[6px] text-[#6B7280]">{l}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Trending */}
+                <div className="bg-white rounded-xl p-2 border border-[#E5E7EB]">
+                  <div className="text-[6px] font-bold text-[#0F172A] mb-1.5 flex items-center gap-1">
+                    <div className="w-2 h-2 rounded-sm bg-brand-500/20 flex items-center justify-center">
+                      <div className="w-1 h-1 rounded-full bg-brand-500" />
+                    </div>
+                    Trending topics
+                  </div>
+                  {['AI in content marketing', 'Founder-led brand strategy', 'Q2 social media playbook'].map(t => (
+                    <div key={t} className="text-[5.5px] text-[#6B7280] py-0.5 border-b border-[#F7F7F8] last:border-0 truncate">{t}</div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Caption below mockup */}
+          <div className="text-center mt-6">
+            <p className="text-white/50 text-xs leading-relaxed">
+              Your entire content calendar, ready in seconds.<br />
+              <span className="text-brand-400 font-semibold">One brand profile. Unlimited content.</span>
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   )

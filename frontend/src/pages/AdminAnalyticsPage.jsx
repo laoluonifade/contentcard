@@ -44,7 +44,7 @@ export default function AdminAnalyticsPage() {
             </div>
             <div className="text-2xl font-bold text-brand-400">227</div>
           </div>
-          <BarChart data={SIGNUPS} color="#6C63FF" />
+          <BarChart data={SIGNUPS} color="#10A37F" />
         </div>
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-5">
           <div className="flex items-center justify-between mb-4">

@@ -6,7 +6,7 @@ import { adminApi } from '../api'
 const PLAN_STYLE = {
   trial:      'bg-amber-500/10 text-amber-400 border border-amber-500/20',
   starter:    'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20',
-  business:   'bg-violet-500/10 text-violet-400 border border-violet-500/20',
+  business:   'bg-brand-500/10 text-brand-400 border border-brand-500/20',
   enterprise: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
 }
 
@@ -40,7 +40,7 @@ export default function AdminWorkspacesPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search workspaces..."
-            className="pl-8 pr-4 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-white text-sm placeholder-white/25 focus:outline-none focus:border-violet-500/40 w-56" />
+            className="pl-8 pr-4 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-500/40 w-56" />
         </div>
       </div>
 

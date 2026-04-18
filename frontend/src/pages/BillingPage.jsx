@@ -79,7 +79,7 @@ export default function BillingPage() {
       {subscription && (
         <div className={`rounded-2xl p-6 mb-8 flex items-center justify-between ${subscription.plan !== 'trial' ? 'bg-brand-500 border border-brand-400' : 'bg-white border border-fog'}`}>
           <div>
-            <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${subscription.plan !== 'trial' ? 'text-violet-200' : 'text-ink/40'}`}>Current plan</p>
+            <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${subscription.plan !== 'trial' ? 'text-white/70' : 'text-ink/40'}`}>Current plan</p>
             <p className={`text-2xl font-bold capitalize ${subscription.plan !== 'trial' ? 'text-ink' : 'text-ink'}`}>{subscription.plan === 'trial' ? 'Free trial' : subscription.plan}</p>
             {days !== null && subscription.plan === 'trial' && (
               <p className={`text-sm mt-1 ${days === 0 ? 'text-red-400' : 'text-ink/50'}`}>
@@ -87,7 +87,7 @@ export default function BillingPage() {
               </p>
             )}
             {subscription.plan !== 'trial' && (
-              <p className="text-violet-200 text-sm mt-1">
+              <p className="text-white/70 text-sm mt-1">
                 {isNigeria ? 'Paystack · auto-renews monthly' : 'Stripe · auto-renews monthly'}
               </p>
             )}
@@ -111,7 +111,7 @@ export default function BillingPage() {
         {PLANS.map(plan => {
           const isCurrent = subscription?.plan === plan.id
           return (
-            <div key={plan.id} className={`rounded-2xl p-6 flex flex-col relative ${plan.featured ? 'border-2 border-brand-400 bg-violet-500/5' : 'border border-fog bg-white'}`}>
+            <div key={plan.id} className={`rounded-2xl p-6 flex flex-col relative ${plan.featured ? 'border-2 border-brand-400 bg-brand-500/5' : 'border border-fog bg-white'}`}>
               {plan.featured && (
                 <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-500 text-ink text-xs font-bold px-3 py-1 rounded-full">Most popular</div>
               )}
@@ -127,7 +127,7 @@ export default function BillingPage() {
               <div className="flex-1 mb-5 space-y-2.5">
                 {plan.features.map(f => (
                   <div key={f} className="flex items-center gap-2 text-xs text-ink/70">
-                    <div className="w-4 h-4 bg-violet-500/15 border border-brand-400/25 rounded flex items-center justify-center flex-shrink-0">
+                    <div className="w-4 h-4 bg-brand-500/15 border border-brand-500/25 rounded flex items-center justify-center flex-shrink-0">
                       <Check size={9} className="text-brand-500" />
                     </div>
                     {f}

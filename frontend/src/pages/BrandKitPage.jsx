@@ -80,7 +80,7 @@ function Section({ title, children }) {
 function MultiChip({ options, selected = [], onChange, color = 'violet' }) {
   const toggle = (opt) => onChange(selected.includes(opt) ? selected.filter(x => x !== opt) : [...selected, opt])
   const colors = {
-    violet: ['border-brand-400 bg-violet-500/15 text-brand-600', 'border-fog text-ink/40 hover:border-zinc-600'],
+    violet: ['border-brand-400 bg-brand-500/15 text-brand-600', 'border-fog text-ink/40 hover:border-zinc-600'],
     amber:  ['border-amber-500 bg-amber-500/15 text-amber-300',   'border-fog text-ink/40 hover:border-zinc-600'],
     emerald:['border-emerald-500 bg-emerald-500/15 text-emerald-300','border-fog text-ink/40 hover:border-zinc-600'],
   }
@@ -118,7 +118,7 @@ function TagInput({ tags = [], onChange, placeholder = 'Type and press Enter…'
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {tags.map((t, i) => (
-            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-violet-500/15 text-brand-600 text-xs rounded-lg border border-brand-400/20">
+            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-500/15 text-brand-600 text-xs rounded-lg border border-brand-400/20">
               {t}
               <button type="button" onClick={() => onChange(tags.filter((_, j) => j !== i))}
                 className="hover:text-ink ml-0.5 text-sm leading-none">×</button>
@@ -454,7 +454,7 @@ export default function BrandKitPage() {
                 <span className="text-ink/40 text-xs">Serious</span>
                 <input type="range" min={0} max={100} value={form.personality_score ?? 50}
                   onChange={e => set('personality_score', Number(e.target.value))}
-                  className="flex-1 accent-violet-500"/>
+                  className="flex-1 accent-brand-500"/>
                 <span className="text-ink/40 text-xs">Casual</span>
                 <span className="text-brand-500 text-xs font-bold w-8 text-right">{form.personality_score ?? 50}</span>
               </div>
@@ -824,9 +824,9 @@ export default function BrandKitPage() {
 
               {/* Brand personality */}
               {aiInsights.brand_personality_summary && (
-                <div className="bg-violet-500/8 border border-brand-400/20 rounded-2xl p-5">
+                <div className="bg-brand-500/8 border border-brand-400/20 rounded-2xl p-5">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-500/70 mb-2">Brand Personality</p>
-                  <p className="text-violet-100 text-sm leading-relaxed">{aiInsights.brand_personality_summary}</p>
+                  <p className="text-ink text-sm leading-relaxed">{aiInsights.brand_personality_summary}</p>
                 </div>
               )}
 

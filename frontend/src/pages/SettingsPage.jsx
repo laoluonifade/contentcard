@@ -231,7 +231,7 @@ export default function SettingsPage() {
                       <p className="text-ink/40 text-xs">{m.user_email}</p>
                     </div>
                     {m.role === 'owner' ? (
-                      <span className="text-xs font-bold px-2 py-1 bg-violet-500/15 text-brand-600 rounded-full">Owner</span>
+                      <span className="text-xs font-bold px-2 py-1 bg-brand-500/15 text-brand-600 rounded-full">Owner</span>
                     ) : (
                       <>
                         <select value={m.role} onChange={e => updateRole(m.id, e.target.value)} className="px-2 py-1 bg-mist border border-fog rounded-lg text-ink text-xs capitalize cursor-pointer outline-none">
@@ -272,7 +272,7 @@ export default function SettingsPage() {
                   { value: 'light', label: 'Light', icon: Sun  },
                 ].map(({ value, label, icon: Icon }) => (
                   <button key={value} onClick={() => { if (theme !== value) toggleTheme() }}
-                    className={`flex-1 flex items-center gap-2 py-3 px-4 rounded-xl border-2 font-semibold text-sm transition-all ${theme === value ? 'border-brand-400 bg-violet-500/5 text-brand-600' : 'border-fog text-ink/50 hover:border-fog'}`}>
+                    className={`flex-1 flex items-center gap-2 py-3 px-4 rounded-xl border-2 font-semibold text-sm transition-all ${theme === value ? 'border-brand-400 bg-brand-500/5 text-brand-600' : 'border-fog text-ink/50 hover:border-fog'}`}>
                     <Icon size={16} /> {label}
                   </button>
                 ))}

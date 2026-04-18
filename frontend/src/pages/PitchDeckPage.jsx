@@ -12,7 +12,7 @@ const SLIDE_STYLES = `
   }
 `
 
-const BRAND = '#6C63FF'
+const BRAND = '#10A37F'
 const TEAL  = '#43B89C'
 const DARK  = '#0D0D1A'
 const CARD  = '#13131F'
