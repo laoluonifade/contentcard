@@ -22,9 +22,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/content", tags=["content"])
 
-# In-memory error store: key = "brand_id/year/month"
-_generation_errors: dict[str, str] = {}
-
 THEMES = [
     {"bg": "#7C3AED", "fg": "#fff", "ac": "#E1306C", "pattern": "circles"},
     {"bg": "#09090b", "fg": "#E1306C", "ac": "#7C3AED", "pattern": "lines"},
@@ -145,10 +142,8 @@ async def generation_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Poll for content count — frontend polls this until count > 0 or error."""
+    """Poll for content count — frontend polls this until count > 0."""
     await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
-    error_key = f"{brand_id}/{year}/{month}"
-    error_msg = _generation_errors.pop(error_key, None)
     result = await db.execute(
         select(ContentItem).where(
             ContentItem.brand_id == brand_id,
@@ -157,7 +152,7 @@ async def generation_status(
         )
     )
     items = result.scalars().all()
-    return {"count": len(items), "ready": len(items) > 0, "error": error_msg}
+    return {"count": len(items), "ready": len(items) > 0}
 
 
 
@@ -244,11 +239,10 @@ async def regenerate_caption(
     if not item:
         raise HTTPException(status_code=404, detail="Content not found")
     brand = await _get_brand_and_check_access(item.brand_id, current_user.id, db)
-    brand_dict = _brand_to_dict(brand)
 
     try:
         result = await generate_single_caption(
-            brand=brand_dict,
+            brand=_brand_to_dict(brand),
             topic=item.topic,
             platform=item.platform.value,
             mood=body.mood,
@@ -260,28 +254,6 @@ async def regenerate_caption(
     except Exception as e:
         logger.error(f"Regenerate error for {content_id}: {e}")
         raise HTTPException(status_code=502, detail="AI generation failed — please try again")
-
-    # Regenerate image on redraft — clear cached URL so a fresh DALL-E image is generated
-    from app.services.image_service import generate_post_image
-    item.image_url = None
-    item.image_urls = []
-    await db.commit()
-    try:
-        post_dict = {
-            "platform": item.platform.value,
-            "content_type": item.content_type,
-            "content_idea": item.content_idea or item.topic,
-            "description": item.description,
-            "visual_direction": item.visual_direction,
-            "image_prompt": item.image_prompt,
-            "format": item.format.value if item.format else "single",
-        }
-        url = await generate_post_image(post_dict, brand_dict)
-        if url:
-            item.image_url = url
-            item.image_urls = [url]
-    except Exception as e:
-        logger.error(f"Image regen failed for {content_id}: {e}")
 
     await db.commit()
     await db.refresh(item)
@@ -353,14 +325,9 @@ async def _do_generate_month(
                 item = ContentItem(
                     brand_id=brand_id,
                     template_id=template_id,
-                    topic=str(post.get("content_idea") or post.get("topic", ""))[:500],
+                    topic=str(post.get("topic", ""))[:500],
                     content_type=str(post.get("content_type", ""))[:100] or None,
-                    content_idea=str(post.get("content_idea", ""))[:300] or None,
                     description=post.get("description") or None,
-                    cta=str(post.get("cta", ""))[:300] or None,
-                    visual_direction=post.get("visual_direction") or None,
-                    image_prompt=post.get("image_prompt") or None,
-                    image_prompt_explanation=post.get("image_prompt_explanation") or None,
                     platform=platform,
                     format=fmt,
                     status=ContentStatus.DRAFT,
@@ -378,120 +345,64 @@ async def _do_generate_month(
             await db.commit()
             logger.info(f"Generated {len(saved_items)} posts for brand {brand_id} {month}/{year}")
 
-            # Generate DALL-E 3 images — skip if already cached
+            # ── Phase 1: DALL-E background generation ──────────────────────────────
+            # Generate one photorealistic background image per post.
+            # These are NOT the final post images — they are background layers
+            # that the canvas layout system and Bannerbear will composite text onto.
             any_images = False
             for item, post_data in saved_items:
-                if item.image_url:
-                    continue  # already has a permanent image, never regenerate
                 try:
-                    url = await generate_post_image(post_data, brand_dict)
-                    if url:
-                        item.image_url = url
-                        item.image_urls = [url]
+                    bg_url = await generate_post_image(post_data, brand_dict)
+                    if bg_url:
+                        item.image_url = bg_url  # raw DALL-E background
                         any_images = True
                 except Exception as e:
-                    logger.error(f"DALL-E failed for post {item.id}: {e}")
+                    logger.error(f"DALL-E background failed for post {item.id}: {e}")
 
             if any_images:
                 await db.commit()
 
+            # ── Phase 2: Bannerbear final render ───────────────────────────────────
+            # Pass each post + its DALL-E background to Bannerbear to produce
+            # fully branded, text-composited slide images stored in image_urls.
+            any_bb = False
+            for item, post_data in saved_items:
+                try:
+                    bb_urls = await generate_post_images(
+                        post_data, brand_dict,
+                        background_image_url=item.image_url or None,
+                    )
+                    if bb_urls:
+                        item.image_urls = bb_urls
+                        any_bb = True
+                except Exception as e:
+                    logger.error(f"Bannerbear failed for post {item.id}: {e}")
+
+            if any_bb:
+                await db.commit()
+
         except json.JSONDecodeError as e:
             logger.error(f"AI returned invalid JSON for brand {brand_id}: {e}")
-            _generation_errors[f"{brand_id}/{year}/{month}"] = "AI returned invalid data — please try again"
             await db.rollback()
         except Exception as e:
             logger.error(f"Generation error for brand {brand_id}: {e}")
-            err_str = str(e)
-            if "401" in err_str or "Unauthorized" in err_str or "authentication" in err_str.lower():
-                msg = "OpenAI API key is invalid or missing — check your OPENAI_API_KEY in Render"
-            elif "429" in err_str or "rate limit" in err_str.lower():
-                msg = "OpenAI rate limit hit — please wait a moment and try again"
-            elif "insufficient_quota" in err_str or "billing" in err_str.lower():
-                msg = "OpenAI account has no credits — top up at platform.openai.com"
-            else:
-                msg = f"Generation failed: {err_str[:120]}"
-            _generation_errors[f"{brand_id}/{year}/{month}"] = msg
             await db.rollback()
 
 
 def _brand_to_dict(brand: Brand) -> dict:
-    kit = brand.brand_kit or {}
     return {
-        # Core identity
-        "logo_url": brand.logo_url or "",
         "name": brand.name or "My Brand",
         "industry": brand.industry or "General",
         "description": brand.description or "",
-        "mission_statement": kit.get("mission_statement", ""),
-        "value_proposition": kit.get("value_proposition", ""),
-        "tagline": kit.get("tagline", ""),
-        "business_model": kit.get("business_model", ""),
-        "target_markets": kit.get("target_markets", []),
-
-        # Audience
         "target_audience": brand.target_audience or "",
-        "audience_age_range": brand.audience_age_range or kit.get("demographics", {}).get("age_range", ""),
-        "income_level": kit.get("demographics", {}).get("income_level", ""),
-        "occupation": kit.get("demographics", {}).get("occupation", []),
-        "psychographics": kit.get("psychographics", []),
-        "pain_points": brand.pain_point or kit.get("pain_points", ""),
-        "objections": kit.get("objections", []),
-        "aspirations": kit.get("aspirations", ""),
-
-        # Voice & tone
         "tone_tags": brand.tone_tags or [],
-        "writing_style": kit.get("writing_style", ""),
-        "communication_style": kit.get("communication_style", ""),
-        "emotional_tone": kit.get("emotional_tone", ""),
-        "verbosity_level": kit.get("verbosity_level", "medium"),
-        "clarity_level": kit.get("clarity_level", "balanced"),
         "language_style": brand.language_style or "english",
         "personality_score": brand.personality_score or 50,
-
-        # Visual identity
-        "colors": brand.brand_colors or [],
-        "secondary_colors": kit.get("secondary_colors", []),
-        "design_style": brand.design_style or "",
-        "brand_font": brand.brand_font or "",
-        "typography_style": kit.get("typography_style", ""),
-        "imagery_style": kit.get("imagery_style", ""),
-        "lighting_style": kit.get("lighting_style", ""),
-        "brand_motifs": kit.get("brand_motifs", []),
-        "logo_description": kit.get("logo_description", ""),
-
-        # Messaging
-        "key_messages": kit.get("key_messages", []),
-        "value_pillars": kit.get("value_pillars", []),
-        "cta_style": kit.get("cta_style", ""),
-        "brand_narratives": kit.get("brand_narratives", []),
-        "forbidden_claims": kit.get("forbidden_claims", ""),
-
-        # Strategy
-        "strategy_note": kit.get("strategy_note", ""),
-        "content_types_supported": kit.get("content_types_supported", []),
-        "funnel_stages": kit.get("funnel_stages", []),
-        "content_goals": kit.get("content_goals", []),
-        "platform_styles": kit.get("platform_styles", []),
-
-        # Campaign context
-        "campaign_name": kit.get("campaign_name", ""),
-        "campaign_theme": kit.get("campaign_theme", ""),
-        "seasonal_context": kit.get("seasonal_context", ""),
-        "campaign_angle": kit.get("campaign_angle", ""),
-
-        # Guardrails
         "words_to_avoid": brand.words_to_avoid or [],
-        "required_keywords": kit.get("required_keywords", []),
-        "tone_restrictions": kit.get("tone_restrictions", []),
         "guidelines": brand.guidelines or "",
-        "regulatory_constraints": kit.get("regulatory_constraints", ""),
-        "brand_safety_rules": kit.get("brand_safety_rules", ""),
-
-        # Examples & references
-        "good_examples": kit.get("good_examples", ""),
-        "bad_examples": kit.get("bad_examples", ""),
-        "competitor_references": kit.get("competitor_references", []),
-
-        # OpenAI Assistant IDs — used for persistent brand memory generation
-        "openai_assistant_id": brand.openai_assistant_id or None,
+        "colors": brand.brand_colors or [],
+        # Visual identity — used by canvas layout system and Bannerbear
+        "design_style": brand.design_style or "bold",
+        "brand_font": brand.brand_font or None,
+        "logo_url": brand.logo_url or None,
     }

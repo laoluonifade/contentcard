@@ -7,14 +7,21 @@ logger = logging.getLogger(__name__)
 DALLE_URL = "https://api.openai.com/v1/images/generations"
 
 PLATFORM_FORMAT = {
-    "instagram": "Instagram square 1:1",
-    "facebook": "Facebook post 1:1",
-    "twitter": "Twitter/X landscape 16:9",
-    "linkedin": "LinkedIn professional post 1:1",
+    "instagram": "square Instagram post 1:1 (1080×1080)",
+    "facebook": "Facebook post image, square or 1.91:1",
+    "twitter": "Twitter/X post image, landscape 16:9 or square",
+    "linkedin": "LinkedIn post image, landscape or square",
 }
 
 
-def _build_combined_prompt(post: dict, brand: dict) -> str:
+def _build_image_prompt(post: dict, brand: dict) -> str:
+    """
+    Build a photorealistic background-only prompt for DALL-E 3.
+
+    Reads the full brand kit for visual identity signals, but never asks DALL-E
+    to render text, logos, UI elements, or graphic design — all of that is handled
+    post-generation by the canvas layout system and Bannerbear templates.
+    """
     brand_name = brand.get("name", "the brand")
     industry = (brand.get("industry") or "General").lower()
     colors = brand.get("colors") or brand.get("brand_colors") or []
@@ -24,17 +31,14 @@ def _build_combined_prompt(post: dict, brand: dict) -> str:
     target_audience = brand.get("target_audience", "")
     audience_age_range = brand.get("audience_age_range", "")
 
-    # Visual identity from brand kit — these replace generic hardcoded descriptions
-    logo_description = brand.get("logo_description", "")
+    # Visual identity from brand kit
     imagery_style = brand.get("imagery_style", "")
     lighting_style = brand.get("lighting_style", "")
     brand_motifs = brand.get("brand_motifs") or []
-    design_style = brand.get("design_style", "")
-    typography_style = brand.get("typography_style") or brand.get("brand_font", "")
+    design_style = brand.get("design_style", "bold")
     strategy_note = brand.get("strategy_note", "")
 
     platform = (post.get("platform") or "instagram").lower()
-    content_type = post.get("content_type", "")
     content_idea = post.get("content_idea") or post.get("topic", "")
     description = post.get("description", "")
     visual_direction = post.get("visual_direction", "")
@@ -45,73 +49,90 @@ def _build_combined_prompt(post: dict, brand: dict) -> str:
 
     all_colors = colors[:4] + secondary_colors[:2]
     color_str = ", ".join(all_colors) if all_colors else "bold vibrant brand colors"
-    tone_str = ", ".join(tone_tags) if tone_tags else "modern, energetic, aspirational"
+    tone_str = ", ".join(tone_tags) if tone_tags else "premium, modern, confident"
 
-    # Build brand visual identity block strictly from the kit
-    identity_lines = []
-    if logo_description:
-        identity_lines.append(f"Logo: {logo_description}")
-    if imagery_style:
-        identity_lines.append(f"Imagery style: {imagery_style}")
+    # Lighting: use brand kit value if set, else derive from design_style
     if lighting_style:
-        identity_lines.append(f"Lighting: {lighting_style}")
-    if brand_motifs:
-        identity_lines.append(f"Brand motifs: {', '.join(brand_motifs)}")
-    if design_style:
-        identity_lines.append(f"Design style: {design_style}")
-    if typography_style:
-        identity_lines.append(f"Typography: {typography_style}")
-    brand_identity_block = "\n".join(identity_lines)
+        lighting = lighting_style
+    elif design_style in ("minimal", "clean"):
+        lighting = "soft even natural light from a large window, clean white or light grey background"
+    else:
+        lighting = "warm golden-hour backlight, soft diffused fill, slight rim light on subject"
 
-    # Cultural note derived from language style — enriches but never overrides kit values
+    # Subject: ground in cultural context
     nigerian = "nigerian" in language.lower() or "pidgin" in language.lower()
-    cultural_note = (
-        "Cultural energy: Lagos meets luxury — African excellence, aspirational, modern. NOT Western stock photo."
-        if nigerian else ""
-    )
+    if nigerian:
+        cultural_note = (
+            "Cultural energy: Lagos meets luxury — African excellence, aspirational, modern. "
+            "NOT Western stock photography aesthetic."
+        )
+        subject_default = (
+            "a young Nigerian professional, age 24–32, natural skin, "
+            "styled casually but aspirationally, photographed on location in Lagos"
+        )
+    else:
+        cultural_note = ""
+        subject_default = (
+            "a confident young professional, age 24–32, "
+            "photographed in a clean modern urban environment"
+        )
 
-    # Audience description from kit fields
+    # Audience note
     audience_parts = [p for p in [target_audience, f"age {audience_age_range}" if audience_age_range else ""] if p]
     audience_note = f"Target audience: {', '.join(audience_parts)}." if audience_parts else ""
 
+    # Format note — composition guidance only, no typography or layout direction
     if fmt == "carousel":
-        format_note = "Bold editorial first-frame hero shot. Strong visual hierarchy suggesting a series."
+        format_note = "Strong first-frame hero composition. Negative space in upper third for text overlay."
     elif fmt == "quote":
-        format_note = "Striking visual with prominent space for text overlay. Magazine editorial style."
+        format_note = "Wide open scene with prominent negative space for text overlay. Editorial magazine style."
     else:
-        format_note = "Single full-bleed hero image. Maximum visual impact."
+        format_note = (
+            "Subject occupies lower two-thirds of frame. "
+            "Upper third is clean negative space suitable for text overlay."
+        )
+
+    # Brand motifs block — environment/props only, never text or graphic elements
+    motif_note = f"Environment/props can subtly reference: {', '.join(brand_motifs)}." if brand_motifs else ""
+    imagery_note = f"Visual style reference: {imagery_style}." if imagery_style else ""
+
+    # Hard negative constraints — appended to every prompt regardless of input
+    negative = (
+        "No text, no words, no letters, no logos, no watermarks, no UI elements, "
+        "no overlays, no graphic design elements, no illustration, no 3D render, "
+        "no CGI, no cartoon, no vector art, no typography, no captions, "
+        "no borders, no frames, no badges, no icons, no unrealistic lighting, "
+        "no floating objects, no abstract art."
+    )
 
     if ai_image_prompt and len(ai_image_prompt) > 50:
-        # AI-generated prompt is primary; append brand identity enforcement
-        prompt = f"""{ai_image_prompt}
-
-=== BRAND IDENTITY ENFORCEMENT ===
-Brand: {brand_name} ({industry})
-Colors (dominant palette): {color_str}
-{brand_identity_block}
-{audience_note}
-{f'Post strategy: {description}' if description else ''}
-{f'Visual direction: {visual_direction}' if visual_direction else ''}
-{f'Strategy context: {strategy_note}' if strategy_note else ''}
-{cultural_note}
-Format: {platform_note}. Photorealistic, 8K, magazine-cover production value. NOT generic stock photo."""
+        # AI-generated prompt is primary; append brand enforcement and negatives
+        prompt = (
+            f"{ai_image_prompt}\n\n"
+            f"Brand context: {brand_name} ({industry}). "
+            f"Color palette: {color_str}. Tone: {tone_str}. "
+            f"{audience_note} {cultural_note} {motif_note}\n"
+            f"Camera: Canon EOS R5, 85mm f/1.4, shallow depth of field, subject sharp. "
+            f"{lighting}. {format_note} "
+            f"Photorealistic editorial photograph, not stock photography. "
+            f"{negative}"
+        )
     else:
-        prompt = f"""A high-impact {platform_note} image for {brand_name}, a {industry} brand.
-
-POST CONCEPT: "{content_idea}"{f' ({content_type})' if content_type else ''}
-{f'Post goal: {description}' if description else ''}
-{f'Visual direction: {visual_direction}' if visual_direction else ''}
-
-BRAND IDENTITY (strictly enforce):
-Brand colors: {color_str} — use as dominant palette
-{brand_identity_block}
-Tone: {tone_str}
-{audience_note}
-{f'Strategy context: {strategy_note}' if strategy_note else ''}
-{cultural_note}
-
-{format_note}
-Photorealistic, 8K, magazine-cover production value. NOT generic, NOT stock photo, NOT flat."""
+        prompt = (
+            f"Photorealistic lifestyle photograph for {brand_name}, a {industry} brand. "
+            f"Scene naturally relates to: {content_idea}. "
+            f"{f'Post goal: {description} ' if description else ''}"
+            f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
+            f"Mood: {tone_str}. Color palette: {color_str}. "
+            f"{audience_note} {cultural_note} {motif_note} {imagery_note} "
+            f"{f'Strategy context: {strategy_note} ' if strategy_note else ''}"
+            f"Camera: Canon EOS R5, 85mm f/1.4 lens, shallow depth of field, subject sharp and in focus. "
+            f"{lighting}. {format_note} "
+            f"Environment: modern, uncluttered, premium. "
+            f"Shot feel: high-end editorial campaign photograph, not stock photography. "
+            f"Platform: {platform_note}. "
+            f"{negative}"
+        )
 
     return prompt.strip()
 
@@ -196,23 +217,16 @@ async def _upload_to_cloudinary(image_bytes: bytes, post_topic: str) -> str | No
 
 
 async def generate_post_image(post: dict, brand: dict) -> str | None:
-    """
-    Generate a DALL-E 3 image for a post.
-    Downloads the result and re-uploads to Cloudinary for a permanent URL.
-    Returns the permanent Cloudinary URL, or the temporary DALL-E URL as fallback.
-    """
+    """Generate a DALL-E 3 background image for a post. Returns a permanent URL or None."""
     if not settings.OPENAI_API_KEY:
-        logger.warning("OPENAI_API_KEY not set — skipping image generation")
         return None
 
-    prompt = _build_combined_prompt(post, brand)
-    topic = post.get("content_idea") or post.get("topic", "post")
-    logger.info(f"DALL-E generating image for: '{topic}'\nPrompt preview: {prompt[:500]}…")
-
+    topic = post.get("topic", "")
+    prompt = _build_image_prompt(post, brand)
     logo_url = brand.get("logo_url", "")
 
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
+        async with httpx.AsyncClient(timeout=60) as client:
             resp = await client.post(
                 DALLE_URL,
                 headers={
@@ -228,10 +242,7 @@ async def generate_post_image(post: dict, brand: dict) -> str | None:
                     "response_format": "url",
                 },
             )
-            if resp.status_code != 200:
-                logger.error(f"DALL-E API error {resp.status_code}: {resp.text[:500]}")
-                return None
-
+            resp.raise_for_status()
             data = resp.json()
             temp_url = data["data"][0]["url"]
             revised_prompt = data["data"][0].get("revised_prompt", "")
@@ -242,28 +253,27 @@ async def generate_post_image(post: dict, brand: dict) -> str | None:
             # Download image bytes
             img_resp = await client.get(temp_url)
             if img_resp.status_code != 200:
-                logger.warning(f"Could not download DALL-E image, returning temp URL")
+                logger.warning("Could not download DALL-E image, returning temp URL")
                 return temp_url
 
             image_bytes = img_resp.content
 
-            # Composite brand logo onto the generated image
+            # Composite brand logo onto the generated background
             if logo_url:
                 logo_bytes = await _fetch_logo_bytes(logo_url, client)
                 if logo_bytes:
                     image_bytes = _composite_logo(image_bytes, logo_bytes)
-                    logger.info(f"Logo composited onto image for '{topic}'")
+                    logger.info(f"Logo composited onto background image for '{topic}'")
 
-        # Re-upload to Cloudinary for a permanent URL
+        # Upload to Cloudinary for a permanent URL (DALL-E URLs expire after ~1h)
         permanent_url = await _upload_to_cloudinary(image_bytes, topic)
         if permanent_url:
             logger.info(f"Image permanently stored at Cloudinary: {permanent_url}")
             return permanent_url
 
-        # Cloudinary not configured — return temp URL with a warning
-        logger.warning(f"Using temporary DALL-E URL (expires in ~1h): {temp_url[:80]}…")
+        logger.warning(f"Using temporary DALL-E URL (expires ~1h): {temp_url[:80]}…")
         return temp_url
 
     except Exception as e:
-        logger.error(f"Image generation failed for '{topic}': {e}")
+        logger.error(f"DALL-E generation failed for '{topic}': {e}")
         return None
