@@ -157,7 +157,7 @@ export default function DashboardPage() {
              `No content yet for ${now.toLocaleString('default', { month: 'long' })} — generate your first month.`}
           </p>
         </div>
-        <button onClick={() => navigate('/dashboard/generate')}
+        <button onClick={() => navigate('/dashboard/calendar')}
           className="btn-primary text-sm px-4 py-2.5 flex-shrink-0">
           <Layers size={15} /> Generate content
         </button>
@@ -322,7 +322,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="flex gap-1.5">
                     <button
-                      onClick={() => navigate('/dashboard/generate', { state: { topic: t.topic } })}
+                      onClick={() => navigate('/dashboard/calendar', { state: { topic: t.topic } })}
                       className="flex-1 py-1.5 text-[10px] font-medium text-ink/50 hover:text-ink border border-fog hover:border-ink/20 rounded-lg transition-colors flex items-center justify-center gap-1">
                       <Layers size={10} /> Use topic
                     </button>
@@ -400,7 +400,7 @@ export default function DashboardPage() {
                       className="flex-1 py-2 border border-fog rounded-xl text-xs font-semibold text-ink/60 hover:bg-mist transition-colors flex items-center justify-center gap-1.5">
                       <Copy size={12} /> {copied ? 'Copied!' : 'Copy'}
                     </button>
-                    <button onClick={() => { closeGenModal(); navigate('/dashboard/generate', { state: { topic: genModal.topic } }) }}
+                    <button onClick={() => { closeGenModal(); navigate('/dashboard/calendar', { state: { topic: genModal.topic } }) }}
                       className="flex-1 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5">
                       <Layers size={12} /> Full month
                     </button>

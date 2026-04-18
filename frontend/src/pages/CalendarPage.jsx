@@ -124,6 +124,16 @@ export default function CalendarPage() {
     if (modal) { setEditCaption(modal.caption||''); setEditHashtags(modal.hashtags||[]); setSlideIdx(0) }
   }, [modal?.id])
 
+  // Lock body scroll when modal is open so background page doesn't scroll
+  useEffect(() => {
+    if (modal) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+    return () => { document.body.style.overflow = '' }
+  }, [!!modal])
+
   const shiftMonth = (d) => {
     let m=month+d, y=year
     if (m<1){m=12;y--} if (m>12){m=1;y++}
