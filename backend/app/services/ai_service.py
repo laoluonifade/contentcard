@@ -6,7 +6,7 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 client = AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-MODEL = "claude-haiku-4-5-20251001"
+MODEL = "claude-opus-4-7"
 
 SYSTEM_PROMPT = """You are ContentCard's AI content strategist. You generate high-converting social media content for businesses.
 

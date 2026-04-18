@@ -8,6 +8,11 @@ from app.models.workspace import Workspace
 from app.models.brand import Brand
 from app.models.content import ContentItem
 from datetime import datetime, timezone, timedelta
+import os
+
+# Claude Opus 4.7 pricing: $15/M input + $75/M output
+# Estimate per post: ~1200 input tokens + 400 output tokens
+COST_PER_POST_USD = (1200 * 15.0 / 1_000_000) + (400 * 75.0 / 1_000_000)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -89,6 +94,19 @@ async def admin_stats(
     content_delta_pct = round(((content_this_week - content_prev_week) / max(content_prev_week, 1)) * 100)
     user_delta = users_this_week - users_prev_week
 
+    # Spend estimation — content per workspace via brand join
+    ws_content_rows = (await db.execute(
+        select(Brand.workspace_id, func.count(ContentItem.id).label("cnt"))
+        .join(ContentItem, ContentItem.brand_id == Brand.id, isouter=True)
+        .group_by(Brand.workspace_id)
+    )).all()
+
+    ws_counts = [row.cnt or 0 for row in ws_content_rows]
+    total_estimated_spend = round(total_content * COST_PER_POST_USD, 4)
+    avg_spend_per_workspace = round(
+        (sum(c * COST_PER_POST_USD for c in ws_counts) / max(len(ws_counts), 1)), 4
+    ) if ws_counts else 0.0
+
     return {
         "total_users": total_users,
         "users_this_week": users_this_week,
@@ -100,6 +118,8 @@ async def admin_stats(
         "total_brands": total_brands,
         "daily_signups": daily_signups,
         "daily_content": daily_content,
+        "total_estimated_spend": total_estimated_spend,
+        "avg_spend_per_workspace": avg_spend_per_workspace,
     }
 
 
