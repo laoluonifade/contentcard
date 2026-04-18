@@ -181,6 +181,13 @@ const useAppStore = create(
         return trends
       },
 
+      refreshTrends: async () => {
+        await trendsApi.refresh()
+        const trends = await trendsApi.list()
+        set({ trends })
+        return trends
+      },
+
       // ── Billing ─────────────────────────────────────────────────
       fetchSubscription: async () => {
         const wsId = get().activeWorkspaceId

@@ -295,12 +295,20 @@ async def _do_generate_month(
                 posts_per_week=posts_per_week,
                 topic_override=topic_override, template_topics=template_topics,
             )
+            # Build a flat list of posting dates across all platforms for positional fallback
+            from app.services.ai_service import _get_posting_dates
+            fallback_dates = _get_posting_dates(year, month, posts_per_week) * len(platforms)
+
             saved_items = []
-            for post in posts:
+            for idx, post in enumerate(posts):
                 try:
                     post_date = date.fromisoformat(post["date"])
                 except Exception:
-                    continue
+                    # AI omitted the date field — assign by position
+                    try:
+                        post_date = date.fromisoformat(fallback_dates[idx % len(fallback_dates)])
+                    except Exception:
+                        continue
 
                 platform_val = post.get("platform", platforms[0] if platforms else "instagram").lower()
                 try:
