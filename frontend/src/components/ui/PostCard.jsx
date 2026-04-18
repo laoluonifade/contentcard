@@ -622,7 +622,7 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
   // post.image_url holds the raw background; post.image_urls holds Bannerbear
   // final renders (never used here — PostCard shows those as <img> directly).
   // Only slide 0 gets the background; content slides use plain brand-color fills.
-  const bgUrl = slideIndex === 0 ? (post?.image_url || null) : null
+  const bgUrl = post?.image_url || null
   let bgImage = null
   if (bgUrl) {
     try { bgImage = await loadImage(bgUrl) } catch (_) { /* fallback */ }
