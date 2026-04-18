@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Users, Layers, Zap, TrendingUp, TrendingDown, Building2 } from 'lucide-react'
+import { Users, Layers, Zap, TrendingUp, TrendingDown, Building2, DollarSign } from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
 import { adminApi } from '../api'
 
@@ -106,6 +106,15 @@ export default function AdminDashPage() {
       color: 'text-pink-400',
       bg: 'bg-pink-500/10',
     },
+    {
+      label: 'Avg Spend / Company',
+      value: s.avg_spend_per_workspace != null ? `$${s.avg_spend_per_workspace.toFixed(3)}` : '—',
+      delta: s.total_estimated_spend != null ? `$${s.total_estimated_spend.toFixed(3)} total` : null,
+      up: true,
+      icon: DollarSign,
+      color: 'text-orange-400',
+      bg: 'bg-orange-500/10',
+    },
   ]
 
   return (
@@ -115,7 +124,7 @@ export default function AdminDashPage() {
         <p className="text-white/35 text-sm mt-0.5">ContentCard platform at a glance</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {statCards.map(card => <Stat key={card.label} {...card} />)}
       </div>
 
