@@ -80,7 +80,7 @@ function Section({ title, children }) {
 function MultiChip({ options, selected = [], onChange, color = 'violet' }) {
   const toggle = (opt) => onChange(selected.includes(opt) ? selected.filter(x => x !== opt) : [...selected, opt])
   const colors = {
-    violet: ['border-brand-400 bg-violet-500/15 text-brand-600', 'border-fog text-ink/40 hover:border-zinc-600'],
+    violet: ['border-brand-400 bg-brand-500/15 text-brand-600', 'border-fog text-ink/40 hover:border-zinc-600'],
     amber:  ['border-amber-500 bg-amber-500/15 text-amber-300',   'border-fog text-ink/40 hover:border-zinc-600'],
     emerald:['border-emerald-500 bg-emerald-500/15 text-emerald-300','border-fog text-ink/40 hover:border-zinc-600'],
   }
@@ -118,7 +118,7 @@ function TagInput({ tags = [], onChange, placeholder = 'Type and press Enter…'
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {tags.map((t, i) => (
-            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-violet-500/15 text-brand-600 text-xs rounded-lg border border-brand-400/20">
+            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-brand-500/15 text-brand-600 text-xs rounded-lg border border-brand-400/20">
               {t}
               <button type="button" onClick={() => onChange(tags.filter((_, j) => j !== i))}
                 className="hover:text-ink ml-0.5 text-sm leading-none">×</button>
@@ -146,7 +146,7 @@ function ColorSwatch({ color, onRemove, onEdit }) {
 }
 
 function ScoreBar({ label, score }) {
-  const color = score >= 70 ? 'bg-emerald-500' : score >= 40 ? 'bg-amber-500' : 'bg-red-500'
+  const color = score >= 70 ? 'bg-brand-500' : score >= 40 ? 'bg-ink/40' : 'bg-fog'
   return (
     <div>
       <div className="flex justify-between mb-1">
@@ -454,7 +454,7 @@ export default function BrandKitPage() {
                 <span className="text-ink/40 text-xs">Serious</span>
                 <input type="range" min={0} max={100} value={form.personality_score ?? 50}
                   onChange={e => set('personality_score', Number(e.target.value))}
-                  className="flex-1 accent-violet-500"/>
+                  className="flex-1 accent-brand-500"/>
                 <span className="text-ink/40 text-xs">Casual</span>
                 <span className="text-brand-500 text-xs font-bold w-8 text-right">{form.personality_score ?? 50}</span>
               </div>
@@ -810,7 +810,7 @@ export default function BrandKitPage() {
                 <div className="bg-white border border-fog rounded-2xl p-5">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-ink font-bold text-sm">Brand Kit Score</h3>
-                    <span className={`text-2xl font-black ${aiInsights.overall_score>=70?'text-emerald-400':aiInsights.overall_score>=40?'text-amber-400':'text-red-400'}`}>
+                    <span className={`text-2xl font-semibold ${aiInsights.overall_score>=70?'text-brand-500':'text-ink/50'}`}>
                       {aiInsights.overall_score}/100
                     </span>
                   </div>
@@ -824,9 +824,9 @@ export default function BrandKitPage() {
 
               {/* Brand personality */}
               {aiInsights.brand_personality_summary && (
-                <div className="bg-violet-500/8 border border-brand-400/20 rounded-2xl p-5">
+                <div className="bg-brand-500/8 border border-brand-400/20 rounded-2xl p-5">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-500/70 mb-2">Brand Personality</p>
-                  <p className="text-violet-100 text-sm leading-relaxed">{aiInsights.brand_personality_summary}</p>
+                  <p className="text-ink text-sm leading-relaxed">{aiInsights.brand_personality_summary}</p>
                 </div>
               )}
 
@@ -851,9 +851,9 @@ export default function BrandKitPage() {
                   <h3 className="text-ink font-bold text-sm mb-3">Audience Segments</h3>
                   <div className="space-y-3">
                     {aiInsights.audience_segments.map((s, i) => (
-                      <div key={i} className="px-3 py-2.5 bg-amber-500/8 rounded-xl border border-amber-500/20">
-                        <p className="text-amber-300 text-xs font-bold mb-0.5">{s.name}</p>
-                        <p className="text-amber-100/70 text-xs leading-relaxed">{s.insight}</p>
+                      <div key={i} className="px-3 py-2.5 bg-mist rounded-xl border border-fog">
+                        <p className="text-ink text-xs font-semibold mb-0.5">{s.name}</p>
+                        <p className="text-ink/50 text-xs leading-relaxed">{s.insight}</p>
                       </div>
                     ))}
                   </div>
@@ -867,7 +867,7 @@ export default function BrandKitPage() {
                   <div className="space-y-2">
                     {aiInsights.recommended_improvements.map((r, i) => (
                       <div key={i} className="flex items-start gap-2.5 px-3 py-2 bg-mist rounded-xl border border-fog">
-                        <span className="text-amber-400 mt-0.5 flex-shrink-0">→</span>
+                        <span className="text-ink/30 mt-0.5 flex-shrink-0">→</span>
                         <p className="text-ink/70 text-xs leading-relaxed">{r}</p>
                       </div>
                     ))}
@@ -877,11 +877,11 @@ export default function BrandKitPage() {
 
               {/* Missing fields */}
               {aiInsights.missing_fields?.length > 0 && (
-                <div className="bg-red-500/8 border border-red-500/20 rounded-2xl p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-red-400/70 mb-2">Missing / Incomplete Fields</p>
+                <div className="bg-mist border border-fog rounded-2xl p-4">
+                  <p className="label mb-2">Incomplete fields</p>
                   <div className="flex flex-wrap gap-2">
                     {aiInsights.missing_fields.map((f, i) => (
-                      <span key={i} className="px-2 py-0.5 bg-red-500/15 text-red-300 text-xs rounded-lg border border-red-500/20">{f}</span>
+                      <span key={i} className="px-2 py-0.5 bg-white text-ink/50 text-xs rounded-lg border border-fog">{f}</span>
                     ))}
                   </div>
                 </div>
@@ -894,7 +894,7 @@ export default function BrandKitPage() {
       {/* Floating save */}
       <div className="fixed bottom-6 right-6 lg:hidden z-50">
         <button onClick={save} disabled={saving}
-          className="flex items-center gap-2 px-5 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-ink text-sm font-bold rounded-2xl shadow-lg transition-colors">
+          className="flex items-center gap-2 px-5 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-2xl shadow-lg transition-colors">
           <Check size={14}/>{saving ? 'Saving…' : 'Save'}
         </button>
       </div>

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, ArrowRight, Check } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Check, BarChart2, Calendar, Layers, Zap } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
@@ -45,6 +45,58 @@ export const COUNTRIES_LIST = [
   { code: 'CO', name: 'Colombia',             dial: '+57',  placeholder: '310 123 4567' },
 ]
 
+function AppPreview() {
+  return (
+    <div className="w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl border border-white/10">
+      <div className="flex h-72">
+        {/* Sidebar */}
+        <div className="w-14 bg-white/5 border-r border-white/10 flex flex-col items-center py-3 gap-3">
+          <div className="w-7 h-7 rounded-lg bg-[#10A37F] flex items-center justify-center mb-1">
+            <span className="text-white font-bold text-xs">C</span>
+          </div>
+          {[BarChart2, Zap, Calendar, Layers].map((Icon, i) => (
+            <div key={i} className={`w-8 h-8 rounded-lg flex items-center justify-center ${i === 1 ? 'bg-[#10A37F]/20' : ''}`}>
+              <Icon size={14} className={i === 1 ? 'text-[#10A37F]' : 'text-white/30'} />
+            </div>
+          ))}
+        </div>
+        {/* Main */}
+        <div className="flex-1 bg-[#0c1220] p-3 space-y-2">
+          <div className="rounded-xl h-14 bg-gradient-to-r from-[#10A37F] to-[#0d8f6e] p-3 flex items-center justify-between">
+            <div>
+              <div className="text-white text-[9px] font-bold">Generate content</div>
+              <div className="text-white/70 text-[7px] mt-0.5">Start with a topic or prompt</div>
+            </div>
+            <div className="w-5 h-5 rounded-lg bg-white/20 flex items-center justify-center">
+              <Zap size={9} className="text-white" />
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-1.5">
+            {[['48', 'Posts'], ['12.4k', 'Reach'], ['94%', 'On-brand']].map(([val, lbl]) => (
+              <div key={lbl} className="bg-white/5 rounded-lg p-2">
+                <div className="text-white text-[10px] font-bold">{val}</div>
+                <div className="text-white/40 text-[7px]">{lbl}</div>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-1">
+            {[
+              { dot: '#10A37F', text: 'LinkedIn — Product launch thread' },
+              { dot: '#f59e0b', text: 'Instagram — Brand story carousel' },
+              { dot: '#6366f1', text: 'Twitter — Weekly insights post' },
+            ].map(({ dot, text }) => (
+              <div key={text} className="flex items-center gap-2 bg-white/3 rounded-lg px-2 py-1.5">
+                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dot }} />
+                <span className="text-white/60 text-[8px] truncate">{text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SignupPage() {
   const [step, setStep]     = useState(1)
   const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '' })
@@ -60,10 +112,10 @@ export default function SignupPage() {
   }
 
   const validateStep1 = () => {
-    if (!form.first_name.trim()) { toast('Enter your first name', 'error'); return false }
-    if (!form.last_name.trim())  { toast('Enter your last name', 'error'); return false }
-    if (!form.email.trim())      { toast('Enter your email', 'error'); return false }
-    if (form.password.length < 8) { toast('Password must be at least 8 characters', 'error'); return false }
+    if (!form.first_name.trim()) { toast('Please enter your first name.', 'error'); return false }
+    if (!form.last_name.trim())  { toast('Please enter your last name.', 'error'); return false }
+    if (!form.email.trim())      { toast('Please enter your email address.', 'error'); return false }
+    if (form.password.length < 8) { toast('Password must be at least 8 characters.', 'error'); return false }
     return true
   }
 
@@ -88,7 +140,7 @@ export default function SignupPage() {
       await fetchWorkspaces().catch(() => {})
       navigate('/onboarding')
     } catch (err) {
-      toast(err.message || 'Signup failed', 'error')
+      toast(err.message || 'Account creation failed. Please try again.', 'error')
     }
   }
 
@@ -102,12 +154,15 @@ export default function SignupPage() {
   const strength = pwStrength()
 
   return (
-    <div className="min-h-screen bg-mist flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="mb-10"><LogoFull size={32} /></div>
+    <div className="min-h-screen flex">
+      {/* Left — form */}
+      <div className="flex-1 lg:max-w-lg bg-mist flex flex-col justify-center px-8 py-12 lg:px-16 overflow-y-auto">
+        <div className="mb-8">
+          <LogoFull size={32} />
+        </div>
 
         {/* Step indicator */}
-        <div className="flex items-center gap-3 mb-8">
+        <div className="flex items-center gap-3 mb-6">
           {[1, 2].map((s, i) => (
             <div key={s} className="flex items-center gap-3">
               <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
@@ -118,15 +173,15 @@ export default function SignupPage() {
               <span className={`text-xs font-semibold ${step === s ? 'text-ink' : 'text-ink/30'}`}>
                 {s === 1 ? 'Account details' : 'Confirm'}
               </span>
-              {i === 0 && <div className={`h-px w-8 bg-fog transition-all ${step > 1 ? 'bg-brand-300' : ''}`} />}
+              {i === 0 && <div className={`h-px w-8 transition-all ${step > 1 ? 'bg-brand-300' : 'bg-fog'}`} />}
             </div>
           ))}
         </div>
 
         {step === 1 && (
           <>
-            <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Create account</h1>
-            <p className="text-ink/50 mb-8 text-sm">14-day free trial · No card required</p>
+            <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Create your account</h1>
+            <p className="text-ink/50 mb-6 text-sm">14-day free trial · No credit card required.</p>
             <form onSubmit={nextStep} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -143,10 +198,10 @@ export default function SignupPage() {
                 </div>
               </div>
               <div>
-                <label className="label">Email</label>
+                <label className="label">Work email</label>
                 <input type="email" value={form.email}
                   onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  placeholder="you@example.com" className="input" required />
+                  placeholder="you@company.com" className="input" required />
               </div>
               <div>
                 <label className="label">Password</label>
@@ -204,8 +259,8 @@ export default function SignupPage() {
 
         {step === 2 && (
           <>
-            <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>All set!</h1>
-            <p className="text-ink/50 mb-8 text-sm">Review your details and create your account.</p>
+            <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Almost there</h1>
+            <p className="text-ink/50 mb-6 text-sm">Review your details, then create your account.</p>
             <div className="bg-white border border-fog rounded-2xl p-5 mb-6 space-y-3">
               {[
                 { label: 'Name',    val: `${form.first_name} ${form.last_name}` },
@@ -238,6 +293,31 @@ export default function SignupPage() {
           Already have an account?{' '}
           <Link to="/login" className="text-brand-500 hover:text-brand-600 font-semibold transition-colors">Sign in</Link>
         </p>
+      </div>
+
+      {/* Right — app preview */}
+      <div className="hidden lg:flex flex-1 bg-[#0F172A] items-center justify-center p-12 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_60%_40%,rgba(16,163,127,0.15)_0%,transparent_70%)]" />
+        <div className="relative z-10 flex flex-col items-center gap-8">
+          <div className="text-center">
+            <p className="text-white/50 text-sm font-medium mb-1">ContentCard</p>
+            <h2 className="text-white text-2xl font-bold" style={{ letterSpacing: '-0.02em' }}>Everything in one place</h2>
+            <p className="text-white/40 text-sm mt-2">Plan, generate, and publish — your entire content workflow.</p>
+          </div>
+          <AppPreview />
+          <div className="flex items-center gap-2">
+            {[
+              'LinkedIn posts',
+              'Instagram carousels',
+              'Twitter threads',
+              'Brand kit',
+            ].map((tag) => (
+              <span key={tag} className="text-[10px] font-medium text-white/40 bg-white/5 border border-white/10 rounded-full px-3 py-1">
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )

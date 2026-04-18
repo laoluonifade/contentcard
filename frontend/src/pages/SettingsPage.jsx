@@ -15,7 +15,7 @@ const inputCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink
 
 function Toggle({ on, onChange }) {
   return (
-    <button onClick={() => onChange(!on)} className={`w-11 h-6 rounded-full relative transition-colors flex-shrink-0 ${on ? 'bg-brand-500' : 'bg-zinc-600'}`}>
+    <button onClick={() => onChange(!on)} className={`w-11 h-6 rounded-full relative transition-colors flex-shrink-0 ${on ? 'bg-brand-500' : 'bg-fog'}`}>
       <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${on ? 'left-6' : 'left-1'}`} />
     </button>
   )
@@ -116,7 +116,7 @@ export default function SettingsPage() {
         <nav className="bg-white border border-fog rounded-2xl p-2">
           {TABS.map(t => (
             <button key={t} onClick={() => { setTab(t); if (t === 'Team') loadTeam() }}
-              className={clsx('flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left mb-0.5', tab === t ? 'bg-brand-500 text-white' : 'text-ink/50 hover:text-ink hover:bg-mist')}>
+              className={clsx('flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left mb-0.5', tab === t ? 'bg-mist text-ink' : 'text-ink/40 hover:text-ink hover:bg-mist')}>
               {t}
             </button>
           ))}
@@ -129,7 +129,7 @@ export default function SettingsPage() {
                 <h3 className="text-ink font-bold text-sm mb-1">Your profile</h3>
                 <p className="text-ink/40 text-xs mb-5">Update your personal information</p>
                 <div className="flex items-center gap-4 mb-5 pb-5 border-b border-fog">
-                  <div className="w-12 h-12 rounded-full bg-brand-500 flex items-center justify-center text-ink font-bold text-lg flex-shrink-0">
+                  <div className="w-12 h-12 rounded-full bg-mist border border-fog flex items-center justify-center text-ink/60 font-semibold text-base flex-shrink-0">
                     {user?.full_name?.slice(0, 2).toUpperCase() || 'NS'}
                   </div>
                   <div><div className="text-ink font-bold">{user?.full_name}</div><div className="text-ink/40 text-xs mt-0.5">{user?.email}</div></div>
@@ -162,7 +162,7 @@ export default function SettingsPage() {
                 </div>
                 <p className="text-ink/30 text-xs mb-4">Country is used to show local public holidays on your content calendar.</p>
                 <div className="flex justify-end">
-                  <button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-ink text-sm font-bold rounded-xl transition-colors">
+                  <button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors">
                     <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
                   </button>
                 </div>
@@ -184,7 +184,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <button onClick={changePw} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-ink text-sm font-bold rounded-xl transition-colors">
+                  <button onClick={changePw} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors">
                     <Check size={14} />Update password
                   </button>
                 </div>
@@ -213,7 +213,7 @@ export default function SettingsPage() {
                   <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} className="px-3 py-3 bg-mist border border-fog rounded-xl text-sm capitalize cursor-pointer outline-none">
                     {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
-                  <button onClick={sendInvite} disabled={inviting} className="px-4 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-ink text-sm font-bold rounded-xl transition-colors whitespace-nowrap">
+                  <button onClick={sendInvite} disabled={inviting} className="px-4 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap">
                     {inviting ? '…' : 'Send invite'}
                   </button>
                 </div>
@@ -223,7 +223,7 @@ export default function SettingsPage() {
                 <h3 className="text-ink font-bold text-sm mb-4">Members</h3>
                 {members.length === 0 ? <p className="text-ink/30 text-sm">No members loaded yet.</p> : members.map(m => (
                   <div key={m.id} className="flex items-center gap-3 py-3 border-b border-fog last:border-0">
-                    <div className="w-8 h-8 rounded-full bg-brand-500/30 flex items-center justify-center text-brand-600 text-xs font-bold flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-mist border border-fog flex items-center justify-center text-ink/50 text-xs font-semibold flex-shrink-0">
                       {(m.user_name || m.user_email || '?').slice(0, 2).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -231,7 +231,7 @@ export default function SettingsPage() {
                       <p className="text-ink/40 text-xs">{m.user_email}</p>
                     </div>
                     {m.role === 'owner' ? (
-                      <span className="text-xs font-bold px-2 py-1 bg-violet-500/15 text-brand-600 rounded-full">Owner</span>
+                      <span className="text-xs font-medium px-2 py-1 bg-mist text-ink/50 rounded-full border border-fog">Owner</span>
                     ) : (
                       <>
                         <select value={m.role} onChange={e => updateRole(m.id, e.target.value)} className="px-2 py-1 bg-mist border border-fog rounded-lg text-ink text-xs capitalize cursor-pointer outline-none">
@@ -252,7 +252,7 @@ export default function SettingsPage() {
                           <p className="text-ink/70 text-sm truncate">{inv.email}</p>
                           <p className="text-ink/30 text-xs capitalize">{inv.role} · invited</p>
                         </div>
-                        <span className="text-xs font-bold px-2 py-1 bg-amber-500/10 text-amber-400 rounded-full">Pending</span>
+                        <span className="text-xs font-medium px-2 py-1 bg-mist text-ink/40 rounded-full border border-fog">Pending</span>
                       </div>
                     ))}
                   </>
@@ -272,7 +272,7 @@ export default function SettingsPage() {
                   { value: 'light', label: 'Light', icon: Sun  },
                 ].map(({ value, label, icon: Icon }) => (
                   <button key={value} onClick={() => { if (theme !== value) toggleTheme() }}
-                    className={`flex-1 flex items-center gap-2 py-3 px-4 rounded-xl border-2 font-semibold text-sm transition-all ${theme === value ? 'border-brand-400 bg-violet-500/5 text-brand-600' : 'border-fog text-ink/50 hover:border-fog'}`}>
+                    className={`flex-1 flex items-center gap-2 py-3 px-4 rounded-xl border font-medium text-sm transition-all ${theme === value ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}>
                     <Icon size={16} /> {label}
                   </button>
                 ))}
@@ -289,12 +289,12 @@ export default function SettingsPage() {
                 ['marketing','Marketing emails','Tips, case studies and inspiration'],
               ].map(([key, label, sub]) => (
                 <div key={key} className="flex items-center justify-between py-3.5 border-b border-fog last:border-0">
-                  <div><p className="text-zinc-200 text-sm font-semibold">{label}</p><p className="text-ink/40 text-xs mt-0.5">{sub}</p></div>
+                  <div><p className="text-ink text-sm font-semibold">{label}</p><p className="text-ink/40 text-xs mt-0.5">{sub}</p></div>
                   <Toggle on={notifs[key]} onChange={v => setNotifs(n => ({ ...n, [key]: v }))} />
                 </div>
               ))}
               <div className="flex justify-end mt-4">
-                <button onClick={() => toast('Preferences saved!')} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-ink text-sm font-bold rounded-xl transition-colors"><Check size={14} />Save preferences</button>
+                <button onClick={() => toast('Preferences saved!')} className="btn-primary text-sm"><Check size={14} />Save preferences</button>
               </div>
             </div>
             </div>

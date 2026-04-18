@@ -141,7 +141,7 @@ function buildSlides(post) {
 // Solid brand color bg, giant headline top-left, decorative shapes bottom half
 
 function renderCover(ctx, post, slide, brand, platLabel, platColor, totalSlides) {
-  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
+  const brandColor = brand?.colors?.[0] || platColor || '#10A37F'
   const accentColor = brand?.colors?.[1] || lighten(brandColor, 0.3)
   const light = isLight(brandColor)
   const textColor = light ? '#111111' : '#ffffff'
@@ -218,7 +218,7 @@ function renderCover(ctx, post, slide, brand, platLabel, platColor, totalSlides)
 // White/cream bg, thick accent border, headline in brand color, dark body text
 
 function renderContent(ctx, post, slide, brand, platLabel, platColor, slideIdx, totalSlides) {
-  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
+  const brandColor = brand?.colors?.[0] || platColor || '#10A37F'
   const accentColor = brand?.colors?.[1] || darken(brandColor, 0.1)
   const ff = `'Inter', system-ui, -apple-system, sans-serif`
 
@@ -312,7 +312,7 @@ function renderContent(ctx, post, slide, brand, platLabel, platColor, slideIdx, 
 // Used for single "quote" format posts
 
 function renderQuote(ctx, post, slide, brand, platLabel, platColor) {
-  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
+  const brandColor = brand?.colors?.[0] || platColor || '#10A37F'
   const light = isLight(brandColor)
   const textColor = light ? '#111111' : '#ffffff'
   const ff = `'Inter', system-ui, -apple-system, sans-serif`
@@ -392,7 +392,7 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
   const slide = slides[Math.min(slideIndex, slides.length - 1)]
   const totalSlides = slides.length
   const platLabel = PLAT_LABEL[post?.platform] || post?.platform || ''
-  const platColor = PLAT_COLOR[post?.platform] || '#6C63FF'
+  const platColor = PLAT_COLOR[post?.platform] || '#10A37F'
 
   const format = post?.format || 'single'
 
@@ -521,7 +521,7 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
       <canvas ref={canvasRef} style={{ width: size, height: size, display: 'block', borderRadius: 12 }} />
       {rendering && (
         <div className="absolute inset-0 flex items-center justify-center bg-zinc-800/60 rounded-xl">
-          <div className="w-6 h-6 border-2 border-zinc-600 border-t-violet-400 rounded-full animate-spin" />
+          <div className="w-6 h-6 border-2 border-brand-500 border-t-brand-500 rounded-full animate-spin" />
         </div>
       )}
     </div>
