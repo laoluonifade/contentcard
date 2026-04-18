@@ -11,7 +11,6 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/contentcard"
 
-    ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
 
     STRIPE_SECRET_KEY: str = ""
