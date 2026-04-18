@@ -29,8 +29,31 @@ class BrandCreate(BaseModel):
     brand_kit: dict = {}
 
 
-class BrandUpdate(BrandCreate):
+class BrandUpdate(BaseModel):
     name: str | None = None
+    industry: str | None = None
+    description: str | None = None
+    website: str | None = None
+    location: str | None = None
+    target_audience: str | None = None
+    audience_age_range: str | None = None
+    audience_location: str | None = None
+    pain_point: str | None = None
+    tone_tags: list[str] | None = None
+    language_style: str | None = None
+    personality_score: int | None = None
+    brand_colors: list[str] | None = None
+    design_style: str | None = None
+    brand_font: str | None = None
+    words_to_avoid: list[str] | None = None
+    competitors: str | None = None
+    guidelines: str | None = None
+    compliance_rules: dict | None = None
+    instagram_handle: str | None = None
+    facebook_handle: str | None = None
+    twitter_handle: str | None = None
+    linkedin_handle: str | None = None
+    brand_kit: dict | None = None
 
 
 class BrandOut(BaseModel):

@@ -110,48 +110,63 @@ async def _generate_for_platform(
     }
     platform_format = platform_notes.get(platform.lower(), "social media post 1:1")
 
-    prompt = f"""You are a world-class social media strategist and creative director. Today is {today.isoformat()}.
-Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
+    brand_system = f"""You are a world-class social media strategist and creative director working exclusively for {brand_name}. Today is {today.isoformat()}.
 
-Brand profile:
+=== BRAND CONTEXT (memorise this — every post must reflect it) ===
 {brand_ctx}
 
-Platform: {platform}
+=== YOUR ROLE ===
+You generate complete, structured social media posts that are deeply on-brand. Every caption, CTA, image prompt, and visual direction must reflect the brand's identity, voice, audience psychology, and visual guidelines above.
+
+When writing image_prompt fields:
+- ALWAYS name the brand ({brand_name}) and reference its primary colors from the Visual Identity section
+- ALWAYS describe a real-looking person matching the audience demographics
+- ALWAYS reference the brand motifs and imagery style from the brand kit
+- ALWAYS reference the lighting style and design style from the brand kit
+- NEVER use generic stock-photo descriptions
+
+When writing captions:
+- Match the language style and tone tags exactly
+- Respect all words_to_avoid
+- Use the writing style and emotional tone specified
+- Incorporate key messages and value pillars naturally where relevant
+- Honour all guardrails and regulatory constraints"""
+
+    creative_brief = f"""Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
+
+Platform: {platform} ({platform_format})
 Format preference: {format_mix}
 {topics_hint}
 
-Generate exactly one post for each date below using the assigned content type:
+Assign one post to each date using the content type specified:
 {type_instructions}
 
-For EACH post, generate ALL of the following fields:
+For EACH post return ALL these fields:
 
-1. content_type — the category exactly as assigned (e.g. "Monday Motivation", "Customer Testimonial")
-2. content_idea — a short punchy title for the post concept, max 8 words
-3. description — 2-3 sentences explaining the intent and strategy of this post, written for a social media manager. What is this post trying to achieve? Why this angle? Who specifically is it speaking to?
-4. caption — full ready-to-post caption, engaging and platform-native, max 100 words, NO hashtags inside
-5. cta — a short standalone call to action, max 12 words (e.g. "Book your free call today →", "Save this for later 🔖")
+1. content_type — exactly as assigned
+2. content_idea — punchy post title, max 8 words
+3. description — 2-3 sentences: what this post achieves, why this angle, who it's speaking to
+4. caption — full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption
+5. cta — standalone call to action, max 12 words
 6. hashtags — array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction — 3-4 sentences describing the visual design for a designer: scene, composition, lighting, people/product, mood, typography placement
-8. image_prompt — a sharp, art-directed prompt for DALL-E 3 that will generate a scroll-stopping image. Structure it like this example:
-   "A vibrant, eye-catching {platform_format} for [brand name], a [industry] brand. [Brand colors] with electric accents. [Headline concept from content_idea]. Feature [person description — real, not stock]. [Composition and lighting details]. [Typography element]. [Cultural/lifestyle energy]. [Platform format]. [Style reference]. Aspirational, modern."
-   Make every prompt this specific and visual. Reference the brand name, colors, topic, person, composition, lighting, and cultural energy. NOT generic.
-9. image_prompt_explanation — 2 sentences explaining why this visual direction was chosen based on the content_description and target audience
+7. visual_direction — 3-4 sentences for a designer: scene, composition, lighting, people/product, mood, typography placement. Must be consistent with the brand's visual identity.
+8. image_prompt — art-directed DALL-E 3 prompt. Use this structure: "A [adjective] {platform_format} for {brand_name}, a {industry} brand. Brand colors: [use exact hex colors from brand kit]. [Post concept from content_idea]. Feature [real person matching brand's target audience — specific age, style, energy]. [Composition and lighting from brand kit's lighting_style]. [Typography note]. [Cultural/lifestyle energy matching brand voice]. [Design style from brand kit]. [Brand motifs if relevant]. Photorealistic, high-production, aspirational. NOT stock photo."
+9. image_prompt_explanation — 2 sentences: why this visual was chosen for the target audience and content goal
 10. format — "single", "carousel", or "quote"
 11. slide_count — 1 for single/quote, 2-5 for carousel
 
-Return a JSON array where each element has exactly these fields:
-"date", "platform", "content_type", "content_idea", "description", "caption", "cta", "hashtags", "visual_direction", "image_prompt", "image_prompt_explanation", "format", "slide_count"
-
-IMPORTANT:
-- topic = content_idea (use content_idea as the topic too)
-- Each post must feel completely different — vary tone, angle, format, and style
-- Captions must be human, punchy, and platform-native. First line must be a strong hook
-- image_prompt must be as sharp and specific as the example above — name the brand, describe a real person, specify lighting, colors, composition
-- Return ONLY the raw JSON array. No explanation, no markdown, no preamble."""
+CRITICAL RULES:
+- Each post must feel distinctly different — vary tone, angle, format, and style across the month
+- Captions must be human, punchy, platform-native. First line = strong hook
+- image_prompt must name the brand, reference exact brand colors, describe a real person, specify composition and lighting
+- topic = content_idea (set both identically)
+- Return ONLY the raw JSON array. No markdown, no explanation, no preamble."""
 
     raw = await _openai_chat([
         {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": prompt},
+        {"role": "user", "content": brand_system},
+        {"role": "assistant", "content": f"Understood. I have memorised the {brand_name} brand context. I will ensure every post reflects the brand's identity, voice, audience, visual guidelines, and guardrails. Ready to generate."},
+        {"role": "user", "content": creative_brief},
     ], max_tokens=12000)
     result = _parse_json_safe(raw)
     if not isinstance(result, list):
