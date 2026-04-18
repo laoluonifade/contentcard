@@ -163,17 +163,21 @@ CRITICAL RULES:
 - topic = content_idea (set both identically)
 - Return ONLY the raw JSON array. No markdown, no explanation, no preamble."""
 
+    result = None
     if assistant_id:
-        # Use the brand's persistent OpenAI Assistant which has the full brand kit
-        # loaded into a Vector Store — only the creative brief needs to be sent.
+        # Use the brand's persistent OpenAI Assistant — brand context retrieved from Vector Store.
         try:
             from app.services.openai_assistant_service import generate_with_assistant
             raw = await generate_with_assistant(assistant_id, creative_brief)
+            logger.info(f"Assistant raw response (first 200 chars): {raw[:200]}")
+            result = _parse_json_safe(raw)
+            if not isinstance(result, list):
+                raise ValueError(f"Assistant returned non-list JSON: {type(result)}")
         except Exception as e:
             logger.warning(f"Assistant generation failed ({e}), falling back to chat completions")
-            assistant_id = None  # trigger fallback below
+            result = None
 
-    if not assistant_id:
+    if result is None:
         # Fallback: 4-message chat completions with full brand context in the prompt
         raw = await _openai_chat([
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -181,8 +185,7 @@ CRITICAL RULES:
             {"role": "assistant", "content": f"Understood. I have memorised the {brand_name} brand context. I will ensure every post reflects the brand's identity, voice, audience, visual guidelines, and guardrails. Ready to generate."},
             {"role": "user", "content": creative_brief},
         ], max_tokens=12000)
-
-    result = _parse_json_safe(raw)
+        result = _parse_json_safe(raw)
     if not isinstance(result, list):
         raise ValueError("Expected a JSON array")
     # Ensure topic field matches content_idea for backwards compat
