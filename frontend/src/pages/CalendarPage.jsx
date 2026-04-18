@@ -59,15 +59,21 @@ function drawThumb(canvas, post, brand) {
 function PostThumb({ post, brand, onClick }) {
   const canvasRef = useRef(null)
   const isCarousel = (post?.slide_count||1) > 1
+  const imageUrl = post?.image_url || (post?.image_urls?.[0])
+
   useEffect(() => {
+    if (imageUrl) return
     if (canvasRef.current && post) drawThumb(canvasRef.current, post, brand)
-  }, [post, brand])
+  }, [post, brand, imageUrl])
 
   return (
     <button onClick={onClick}
       className="group relative bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-600 transition-all hover:scale-[1.02] active:scale-[0.98] text-left w-full">
       <div className="relative" style={{ aspectRatio:'1' }}>
-        <canvas ref={canvasRef} style={{ width:'100%', height:'100%', display:'block' }} />
+        {imageUrl
+          ? <img src={imageUrl} alt={post.topic} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+          : <canvas ref={canvasRef} style={{ width:'100%', height:'100%', display:'block' }} />
+        }
         {isCarousel && (
           <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/60 backdrop-blur-sm px-2 py-1 rounded-lg">
             <Layers size={10} className="text-white" />
@@ -77,7 +83,7 @@ function PostThumb({ post, brand, onClick }) {
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-all rounded-t-xl" />
       </div>
       <div className="p-2.5 bg-zinc-900">
-        <p className="text-white text-xs font-semibold truncate">{post.topic}</p>
+        <p className="text-white text-xs font-semibold truncate">{post.content_idea || post.topic}</p>
         <p className="text-zinc-500 text-[10px] mt-0.5">{fmtDate(post.scheduled_date)}</p>
       </div>
     </button>
