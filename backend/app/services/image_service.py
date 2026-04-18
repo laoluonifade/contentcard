@@ -116,6 +116,57 @@ Photorealistic, 8K, magazine-cover production value. NOT generic, NOT stock phot
     return prompt.strip()
 
 
+async def _fetch_logo_bytes(logo_url: str, client: httpx.AsyncClient) -> bytes | None:
+    try:
+        resp = await client.get(logo_url, timeout=15, follow_redirects=True)
+        if resp.status_code == 200:
+            return resp.content
+    except Exception as e:
+        logger.warning(f"Could not fetch logo from {logo_url}: {e}")
+    return None
+
+
+def _composite_logo(image_bytes: bytes, logo_bytes: bytes) -> bytes:
+    from PIL import Image
+    import io
+
+    base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
+    w, h = base.size
+
+    try:
+        logo = Image.open(io.BytesIO(logo_bytes)).convert("RGBA")
+    except Exception as e:
+        logger.warning(f"Could not open logo image: {e}")
+        return image_bytes
+
+    # Remove near-white background for logos without transparency
+    pixels = logo.getdata()
+    cleaned = []
+    for r, g, b, a in pixels:
+        if a > 10 and r > 230 and g > 230 and b > 230:
+            cleaned.append((r, g, b, 0))
+        else:
+            cleaned.append((r, g, b, a))
+    logo.putdata(cleaned)
+
+    # Resize to 18% of image width, preserving aspect ratio
+    logo_max_w = max(80, int(w * 0.18))
+    lw, lh = logo.size
+    scale = logo_max_w / lw
+    logo = logo.resize((int(lw * scale), int(lh * scale)), Image.LANCZOS)
+
+    # Place in bottom-right with 3% padding
+    pad = max(16, int(w * 0.03))
+    x = w - logo.width - pad
+    y = h - logo.height - pad
+
+    base.paste(logo, (x, y), logo)
+
+    out = io.BytesIO()
+    base.convert("RGB").save(out, format="JPEG", quality=95)
+    return out.getvalue()
+
+
 async def _upload_to_cloudinary(image_bytes: bytes, post_topic: str) -> str | None:
     """Upload raw image bytes to Cloudinary and return the permanent secure URL."""
     if not all([settings.CLOUDINARY_CLOUD_NAME, settings.CLOUDINARY_API_KEY, settings.CLOUDINARY_API_SECRET]):
@@ -158,6 +209,8 @@ async def generate_post_image(post: dict, brand: dict) -> str | None:
     topic = post.get("content_idea") or post.get("topic", "post")
     logger.info(f"DALL-E generating image for: '{topic}'\nPrompt preview: {prompt[:500]}…")
 
+    logo_url = brand.get("logo_url", "")
+
     try:
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
@@ -193,6 +246,13 @@ async def generate_post_image(post: dict, brand: dict) -> str | None:
                 return temp_url
 
             image_bytes = img_resp.content
+
+            # Composite brand logo onto the generated image
+            if logo_url:
+                logo_bytes = await _fetch_logo_bytes(logo_url, client)
+                if logo_bytes:
+                    image_bytes = _composite_logo(image_bytes, logo_bytes)
+                    logger.info(f"Logo composited onto image for '{topic}'")
 
         # Re-upload to Cloudinary for a permanent URL
         permanent_url = await _upload_to_cloudinary(image_bytes, topic)
