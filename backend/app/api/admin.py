@@ -321,6 +321,32 @@ async def sync_brand_assistant(
     return {"brand_id": brand_id, "message": "Assistant sync started in background"}
 
 
+@router.post("/sync-assistant-now/{brand_id}")
+async def sync_brand_assistant_now(
+    brand_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Synchronous version — runs inline and returns the result or the exact error."""
+    from app.services import openai_assistant_service as oas
+    r = await db.execute(select(Brand).where(Brand.id == brand_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    try:
+        if brand.openai_assistant_id:
+            await oas.update_brand_assistant(brand)
+            return {"brand_id": brand_id, "assistant_id": brand.openai_assistant_id, "action": "updated"}
+        else:
+            assistant_id, vs_id = await oas.create_brand_assistant(brand)
+            brand.openai_assistant_id = assistant_id
+            brand.openai_vector_store_id = vs_id
+            await db.commit()
+            return {"brand_id": brand_id, "assistant_id": assistant_id, "vector_store_id": vs_id, "action": "created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/sync-all-assistants")
 async def sync_all_brand_assistants(
     _: User = Depends(require_admin),
