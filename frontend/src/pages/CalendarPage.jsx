@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
 import { contentApi } from '../api'
@@ -92,12 +92,19 @@ function PostThumb({ post, brand, onClick }) {
 
 export default function CalendarPage() {
   const navigate = useNavigate()
-  const { activeBrandId, brands, fetchMonthContent } = useAppStore()
+  const { activeBrandId, brands, fetchMonthContent, generateMonth, generatingMonth, generationPollCount } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
-  const [month, setMonth]   = useState(now.getMonth()+1)
-  const [year, setYear]     = useState(now.getFullYear())
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [month, setMonth] = useState(() => {
+    const m = parseInt(searchParams.get('m'))
+    return m >= 1 && m <= 12 ? m : now.getMonth() + 1
+  })
+  const [year, setYear] = useState(() => {
+    const y = parseInt(searchParams.get('y'))
+    return y >= 2024 && y <= 2035 ? y : now.getFullYear()
+  })
   const [posts, setPosts]   = useState([])
   const [loading, setLoading] = useState(false)
   const [modal, setModal]   = useState(null)
@@ -107,6 +114,10 @@ export default function CalendarPage() {
   const [saving, setSaving]   = useState(false)
   const [regen, setRegen]     = useState(false)
   const [filterPlat, setFilterPlat] = useState('all')
+  const [showGenPanel, setShowGenPanel] = useState(false)
+  const [genPlatform, setGenPlatform]   = useState('instagram')
+  const [genPPW, setGenPPW]             = useState(3)
+  const [genTopic, setGenTopic]         = useState('')
   const cardRef = useRef(null)
 
   useEffect(() => {
@@ -125,6 +136,7 @@ export default function CalendarPage() {
     let m=month+d, y=year
     if (m<1){m=12;y--} if (m>12){m=1;y++}
     setMonth(m); setYear(y); setModal(null)
+    setSearchParams({ m, y }, { replace: true })
   }
 
   const totalSlides = Math.max(1, modal?.slide_count||1)
@@ -176,6 +188,26 @@ export default function CalendarPage() {
     } catch { toast('Delete failed','error') }
   }
 
+  const handleGenerate = async () => {
+    if (!activeBrandId) { toast('Select a brand first', 'error'); return }
+    try {
+      const status = await contentApi.getStatus(activeBrandId, year, month)
+      if (status.count > 0) {
+        const ok = window.confirm(`${status.count} posts already exist for ${MONTHS[month-1]} ${year}. Add more?`)
+        if (!ok) return
+      }
+    } catch {}
+    try {
+      await generateMonth({ month, year, platforms: [genPlatform], format_mix: 'mixed', posts_per_week: genPPW, topic_override: genTopic.trim() || null })
+      toast(`${MONTHS[month-1]} ${year} — content ready!`)
+      setShowGenPanel(false)
+      setLoading(true)
+      fetchMonthContent(month, year).then(items => { setPosts(items); setLoading(false) }).catch(() => setLoading(false))
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Generation failed', 'error')
+    }
+  }
+
   const filtered = filterPlat==='all' ? posts : posts.filter(p=>p.platform===filterPlat)
   const byPlatform = {}
   filtered.forEach(p => { if (!byPlatform[p.platform]) byPlatform[p.platform]=[]; byPlatform[p.platform].push(p) })
@@ -197,7 +229,7 @@ export default function CalendarPage() {
             <span className="text-white text-sm font-semibold px-2 whitespace-nowrap">{MONTHS[month-1].slice(0,3)} {year}</span>
             <button onClick={()=>shiftMonth(1)}  className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors"><ChevronRight size={16}/></button>
           </div>
-          <button onClick={()=>navigate('/dashboard/generate')}
+          <button onClick={()=>setShowGenPanel(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold rounded-xl transition-colors">
             <Plus size={14}/><span className="hidden sm:inline">Generate</span>
           </button>
@@ -237,7 +269,7 @@ export default function CalendarPage() {
         <div className="bg-zinc-900 border border-dashed border-zinc-700 rounded-2xl p-16 text-center">
           <p className="text-zinc-400 font-semibold mb-2">No content for {MONTHS[month-1]} {year}</p>
           <p className="text-zinc-600 text-sm mb-6">Generate a month of posts to get started.</p>
-          <button onClick={()=>navigate('/dashboard/generate')}
+          <button onClick={()=>setShowGenPanel(true)}
             className="inline-flex items-center gap-2 px-5 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors">
             <Plus size={14}/> Generate content
           </button>
@@ -260,6 +292,68 @@ export default function CalendarPage() {
           </div>
         </div>
       ))}
+
+      {/* ── Generate panel ── */}
+      {showGenPanel && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
+          onClick={e=>e.target===e.currentTarget&&setShowGenPanel(false)}>
+          <div className="bg-zinc-900 border border-zinc-800 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-white font-bold text-base">Generate {MONTHS[month-1]} {year}</h3>
+                <p className="text-zinc-500 text-xs mt-0.5">AI will create a full month of content</p>
+              </div>
+              <button onClick={()=>setShowGenPanel(false)} className="text-zinc-500 hover:text-white p-1.5 -mr-1"><X size={18}/></button>
+            </div>
+
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Platform</p>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { id:'instagram', label:'Instagram', color:'#E1306C' },
+                  { id:'facebook',  label:'Facebook',  color:'#1877F2' },
+                  { id:'twitter',   label:'Twitter/X', color:'#1DA1F2' },
+                  { id:'linkedin',  label:'LinkedIn',  color:'#0A66C2' },
+                ].map(pl=>(
+                  <button key={pl.id} onClick={()=>setGenPlatform(pl.id)}
+                    className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${genPlatform===pl.id?'border-violet-500 bg-violet-500/10':'border-zinc-800 hover:border-zinc-700'}`}>
+                    <span style={{color:pl.color}} className="flex-shrink-0">{PLATFORM_LOGO[pl.id]}</span>
+                    <span className={`text-[10px] font-bold ${genPlatform===pl.id?'text-violet-300':'text-zinc-500'}`}>{pl.label.split('/')[0]}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Posts per week</p>
+              <div className="flex gap-2">
+                {[1,2,3,4,5].map(n=>(
+                  <button key={n} onClick={()=>setGenPPW(n)}
+                    className={`flex-1 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${genPPW===n?'border-violet-500 bg-violet-500/10 text-violet-300':'border-zinc-800 text-zinc-500 hover:border-zinc-700'}`}>
+                    {n}×
+                  </button>
+                ))}
+              </div>
+              <p className="text-zinc-600 text-[11px] mt-1.5">≈ {Math.round(genPPW * 4.3)} posts total</p>
+            </div>
+
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Focus topic <span className="text-zinc-700 font-normal normal-case">— optional</span></p>
+              <input value={genTopic} onChange={e=>setGenTopic(e.target.value)}
+                placeholder="Leave blank for varied topics…"
+                className="w-full px-3 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-sm placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all"/>
+            </div>
+
+            <button onClick={handleGenerate} disabled={generatingMonth}
+              className="w-full py-3.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all">
+              {generatingMonth
+                ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                    {generationPollCount < 3 ? 'Writing captions…' : generationPollCount < 7 ? 'Crafting posts…' : 'Almost done…'}</>
+                : <><Zap size={15}/>Generate {MONTHS[month-1]} {year}</>}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Post modal ── */}
       {modal && (

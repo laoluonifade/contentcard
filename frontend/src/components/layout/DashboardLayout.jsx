@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Layers, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X } from 'lucide-react'
+import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
@@ -8,7 +8,6 @@ import useAppStore from '../../stores/appStore'
 
 const NAV = [
   { to: '/dashboard',           icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/dashboard/generate',  icon: Layers,           label: 'Generate'   },
   { to: '/dashboard/calendar',  icon: Calendar,         label: 'Calendar'   },
   { to: '/dashboard/templates', icon: LayoutTemplate,   label: 'Templates'  },
   { to: '/dashboard/brand-kit', icon: Heart,            label: 'Brand Kit'  },
@@ -19,7 +18,6 @@ const NAV = [
 // Bottom nav shows only the most important items on mobile
 const MOBILE_NAV = [
   { to: '/dashboard',           icon: LayoutDashboard, label: 'Home'     },
-  { to: '/dashboard/generate',  icon: Layers,           label: 'Generate' },
   { to: '/dashboard/calendar',  icon: Calendar,         label: 'Calendar' },
   { to: '/dashboard/brand-kit', icon: Heart,            label: 'Brand'    },
   { to: '/dashboard/settings',  icon: Settings,         label: 'Settings' },

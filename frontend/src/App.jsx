@@ -23,7 +23,6 @@ import LegalPage            from './pages/LegalPage'
 import PitchDeckPage        from './pages/PitchDeckPage'
 import DashboardLayout      from './components/layout/DashboardLayout'
 import DashboardPage        from './pages/DashboardPage'
-import GeneratePage         from './pages/GeneratePage'
 import CalendarPage         from './pages/CalendarPage'
 import BrandKitPage         from './pages/BrandKitPage'
 import TemplatesPage        from './pages/TemplatesPage'
@@ -92,7 +91,6 @@ export default function App() {
         {/* Dashboard */}
         <Route path="/dashboard" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
           <Route index             element={<DashboardPage />} />
-          <Route path="generate"   element={<GeneratePage />} />
           <Route path="calendar"   element={<CalendarPage />} />
           <Route path="templates"  element={<TemplatesPage />} />
           <Route path="brand-kit"  element={<BrandKitPage />} />
