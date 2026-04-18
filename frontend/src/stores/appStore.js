@@ -95,18 +95,21 @@ const useAppStore = create(
 
           try {
             const status = await contentApi.getStatus(brandId, year, month)
+            if (status.error) throw new Error(status.error)
             if (status.ready && status.count > 0) {
               const items = await get().fetchMonthContent(month, year)
               return items.length
             }
-          } catch {
-            // status endpoint failed — try fetching directly
+          } catch (e) {
+            if (e.message && !e.message.includes('fetch') && !e.message.includes('Network')) throw e
+            // status endpoint network failure — try fetching directly
             const items = await get().fetchMonthContent(month, year)
             if (items.length > 0) return items.length
           }
         }
-        // Final attempt: fetch whatever's there
+        // Final attempt: fetch whatever's there, throw if still empty
         const items = await get().fetchMonthContent(month, year)
+        if (items.length === 0) throw new Error('Generation timed out — no posts were created. Check your OpenAI API key in Render and try again.')
         return items.length
       },
 

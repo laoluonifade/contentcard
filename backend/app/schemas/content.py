@@ -47,6 +47,15 @@ class ContentOut(BaseModel):
     hashtags: list
     theme: dict | None
     slide_count: int
+    # Content engine fields
+    content_type: str | None = None
+    content_idea: str | None = None
+    description: str | None = None
+    cta: str | None = None
+    visual_direction: str | None = None
+    image_prompt: str | None = None
+    image_prompt_explanation: str | None = None
+    # Images
     image_url: str | None = None
     image_urls: list | None = None
     user_photo_url: str | None
