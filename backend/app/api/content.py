@@ -22,6 +22,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/content", tags=["content"])
 
+# In-memory error store: key = "brand_id/year/month"
+_generation_errors: dict[str, str] = {}
+
 THEMES = [
     {"bg": "#7C3AED", "fg": "#fff", "ac": "#E1306C", "pattern": "circles"},
     {"bg": "#09090b", "fg": "#E1306C", "ac": "#7C3AED", "pattern": "lines"},
@@ -142,8 +145,10 @@ async def generation_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Poll for content count — frontend polls this until count > 0."""
+    """Poll for content count — frontend polls this until count > 0 or error."""
     await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
+    error_key = f"{brand_id}/{year}/{month}"
+    error_msg = _generation_errors.pop(error_key, None)
     result = await db.execute(
         select(ContentItem).where(
             ContentItem.brand_id == brand_id,
@@ -152,7 +157,7 @@ async def generation_status(
         )
     )
     items = result.scalars().all()
-    return {"count": len(items), "ready": len(items) > 0}
+    return {"count": len(items), "ready": len(items) > 0, "error": error_msg}
 
 
 
@@ -352,9 +357,20 @@ async def _do_generate_month(
 
         except json.JSONDecodeError as e:
             logger.error(f"AI returned invalid JSON for brand {brand_id}: {e}")
+            _generation_errors[f"{brand_id}/{year}/{month}"] = "AI returned invalid data — please try again"
             await db.rollback()
         except Exception as e:
             logger.error(f"Generation error for brand {brand_id}: {e}")
+            err_str = str(e)
+            if "401" in err_str or "Unauthorized" in err_str or "authentication" in err_str.lower():
+                msg = "OpenAI API key is invalid or missing — check your OPENAI_API_KEY in Render"
+            elif "429" in err_str or "rate limit" in err_str.lower():
+                msg = "OpenAI rate limit hit — please wait a moment and try again"
+            elif "insufficient_quota" in err_str or "billing" in err_str.lower():
+                msg = "OpenAI account has no credits — top up at platform.openai.com"
+            else:
+                msg = f"Generation failed: {err_str[:120]}"
+            _generation_errors[f"{brand_id}/{year}/{month}"] = msg
             await db.rollback()
 
 
