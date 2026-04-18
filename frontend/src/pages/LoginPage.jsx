@@ -24,36 +24,34 @@ export default function LoginPage() {
 
   const fillDemo = () => setForm({ email: 'demo@contentcard.io', password: 'demo1234' })
 
-  const inp = "w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-white/25 focus:outline-none focus:ring-2 focus:ring-brand-400 focus:border-brand-400 transition-all text-sm"
-
   return (
-    <div className="min-h-screen bg-ink flex items-center justify-center p-4">
+    <div className="min-h-screen bg-mist flex items-center justify-center p-4">
       <div className="w-full max-w-md animate-slide-up">
         <div className="mb-10">
           <LogoFull size={32} />
         </div>
 
-        <h1 className="text-3xl font-bold text-white mb-2">Welcome back</h1>
-        <p className="text-white/50 mb-8 text-sm">Sign in to your ContentCard account</p>
+        <h1 className="text-3xl font-bold text-ink mb-2" style={{ letterSpacing: '-0.02em' }}>Welcome back</h1>
+        <p className="text-ink/50 mb-8 text-sm">Sign in to your ContentCard account</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-white/50 uppercase tracking-wider mb-2">Email</label>
+            <label className="label">Email</label>
             <input type="email" required value={form.email}
               onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-              placeholder="you@example.com" className={inp} />
+              placeholder="you@example.com" className="input" />
           </div>
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-semibold text-white/50 uppercase tracking-wider">Password</label>
-              <Link to="/forgot-password" className="text-xs text-brand-400 hover:text-brand-300 transition-colors">Forgot?</Link>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="label" style={{ marginBottom: 0 }}>Password</label>
+              <Link to="/forgot-password" className="text-xs text-brand-500 hover:text-brand-600 transition-colors font-medium">Forgot?</Link>
             </div>
             <div className="relative">
               <input type={showPw ? 'text' : 'password'} required value={form.password}
                 onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                placeholder="••••••••" className={`${inp} pr-12`} />
+                placeholder="••••••••" className="input pr-12" />
               <button type="button" onClick={() => setShowPw(v => !v)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors">
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/30 hover:text-ink/60 transition-colors">
                 {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
@@ -68,13 +66,13 @@ export default function LoginPage() {
         </form>
 
         <button onClick={fillDemo}
-          className="w-full mt-3 py-3 rounded-xl border border-white/10 text-white/45 hover:text-white hover:border-white/25 text-sm font-semibold transition-all">
+          className="w-full mt-3 py-3 rounded-xl border border-fog bg-white text-ink/50 hover:text-ink hover:border-fog/80 text-sm font-semibold transition-all">
           Use demo account
         </button>
 
-        <p className="text-center text-white/40 text-sm mt-6">
+        <p className="text-center text-ink/40 text-sm mt-6">
           No account?{' '}
-          <Link to="/signup" className="text-brand-400 hover:text-brand-300 font-semibold transition-colors">Create one</Link>
+          <Link to="/signup" className="text-brand-500 hover:text-brand-600 font-semibold transition-colors">Create one</Link>
         </p>
       </div>
     </div>
