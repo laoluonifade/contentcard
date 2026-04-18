@@ -7,7 +7,7 @@ import { toast } from '../components/ui/Toast'
 import { brandApi } from '../api'
 
 // ── Styling constants ─────────────────────────────────────────────────────────
-const inp  = "w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all text-sm"
+const inp  = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 const ta   = `${inp} resize-none`
 const sel  = `${inp} cursor-pointer`
 const TABS = ['Identity','Audience','Voice','Visual','Messaging','Strategy','Guardrails','Examples','AI Insights']
@@ -62,16 +62,16 @@ const LANG_BY_COUNTRY = {
 function Label({ children, hint }) {
   return (
     <div className="mb-1.5">
-      <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500">{children}</label>
-      {hint && <p className="text-zinc-600 text-[11px] mt-0.5">{hint}</p>}
+      <label className="block text-[11px] font-bold uppercase tracking-widest text-ink/40">{children}</label>
+      {hint && <p className="text-ink/30 text-[11px] mt-0.5">{hint}</p>}
     </div>
   )
 }
 
 function Section({ title, children }) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-      <h3 className="text-white font-bold text-sm">{title}</h3>
+    <div className="bg-white border border-fog rounded-2xl p-5 space-y-4">
+      <h3 className="text-ink font-bold text-sm">{title}</h3>
       {children}
     </div>
   )
@@ -80,9 +80,9 @@ function Section({ title, children }) {
 function MultiChip({ options, selected = [], onChange, color = 'violet' }) {
   const toggle = (opt) => onChange(selected.includes(opt) ? selected.filter(x => x !== opt) : [...selected, opt])
   const colors = {
-    violet: ['border-violet-500 bg-violet-500/15 text-violet-300', 'border-zinc-800 text-zinc-500 hover:border-zinc-600'],
-    amber:  ['border-amber-500 bg-amber-500/15 text-amber-300',   'border-zinc-800 text-zinc-500 hover:border-zinc-600'],
-    emerald:['border-emerald-500 bg-emerald-500/15 text-emerald-300','border-zinc-800 text-zinc-500 hover:border-zinc-600'],
+    violet: ['border-brand-400 bg-violet-500/15 text-brand-600', 'border-fog text-ink/40 hover:border-zinc-600'],
+    amber:  ['border-amber-500 bg-amber-500/15 text-amber-300',   'border-fog text-ink/40 hover:border-zinc-600'],
+    emerald:['border-emerald-500 bg-emerald-500/15 text-emerald-300','border-fog text-ink/40 hover:border-zinc-600'],
   }
   const [on, off] = colors[color] || colors.violet
   return (
@@ -111,17 +111,17 @@ function TagInput({ tags = [], onChange, placeholder = 'Type and press Enter…'
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
           placeholder={placeholder} className={inp} />
         <button type="button" onClick={add}
-          className="px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors">
+          className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
           <Plus size={14}/>
         </button>
       </div>
       {tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {tags.map((t, i) => (
-            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-violet-500/15 text-violet-300 text-xs rounded-lg border border-violet-500/20">
+            <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 bg-violet-500/15 text-brand-600 text-xs rounded-lg border border-brand-400/20">
               {t}
               <button type="button" onClick={() => onChange(tags.filter((_, j) => j !== i))}
-                className="hover:text-white ml-0.5 text-sm leading-none">×</button>
+                className="hover:text-ink ml-0.5 text-sm leading-none">×</button>
             </span>
           ))}
         </div>
@@ -134,11 +134,11 @@ function ColorSwatch({ color, onRemove, onEdit }) {
   const ref = useRef()
   return (
     <div className="relative group flex flex-col items-center gap-1">
-      <div className="w-9 h-9 rounded-xl border-2 border-zinc-700 cursor-pointer hover:border-violet-500 transition-colors"
+      <div className="w-9 h-9 rounded-xl border-2 border-fog cursor-pointer hover:border-brand-400 transition-colors"
         style={{ background: color }} onClick={() => ref.current?.click()} title="Click to edit"/>
       <input ref={ref} type="color" defaultValue={color}
         onChange={e => onEdit(e.target.value)} className="sr-only"/>
-      <span className="text-[9px] text-zinc-500 font-mono">{color}</span>
+      <span className="text-[9px] text-ink/40 font-mono">{color}</span>
       <button onClick={onRemove}
         className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-[9px] items-center justify-center hidden group-hover:flex">×</button>
     </div>
@@ -150,10 +150,10 @@ function ScoreBar({ label, score }) {
   return (
     <div>
       <div className="flex justify-between mb-1">
-        <span className="text-zinc-400 text-xs">{label}</span>
-        <span className="text-zinc-400 text-xs font-bold">{score}/100</span>
+        <span className="text-ink/50 text-xs">{label}</span>
+        <span className="text-ink/50 text-xs font-bold">{score}/100</span>
       </div>
-      <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-fog rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${score}%` }}/>
       </div>
     </div>
@@ -238,13 +238,13 @@ export default function BrandKitPage() {
 
   if (!brand) return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
-      <p className="text-zinc-500 text-sm mb-8">Your brand intelligence layer — shapes every generated post, caption, and visual.</p>
-      <div className="bg-zinc-900 border border-dashed border-zinc-700 rounded-2xl p-12 text-center">
-        <h2 className="text-white font-bold text-lg mb-2">No brand yet</h2>
-        <p className="text-zinc-500 text-sm mb-6 max-w-sm mx-auto">Create your brand profile so ContentCard knows your tone, audience, and voice.</p>
+      <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
+      <p className="text-ink/40 text-sm mb-8">Your brand intelligence layer — shapes every generated post, caption, and visual.</p>
+      <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
+        <h2 className="text-ink font-bold text-lg mb-2">No brand yet</h2>
+        <p className="text-ink/40 text-sm mb-6 max-w-sm mx-auto">Create your brand profile so ContentCard knows your tone, audience, and voice.</p>
         <button onClick={() => navigate('/onboarding')}
-          className="inline-flex items-center gap-2 px-6 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors">
+          className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
           Create brand <ArrowRight size={15}/>
         </button>
       </div>
@@ -257,11 +257,11 @@ export default function BrandKitPage() {
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-0.5" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
-          <p className="text-zinc-500 text-sm">{brand.name} · {brand.industry || 'No industry set'}</p>
+          <h1 className="text-2xl font-bold text-ink mb-0.5" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
+          <p className="text-ink/40 text-sm">{brand.name} · {brand.industry || 'No industry set'}</p>
         </div>
         <button onClick={save} disabled={saving}
-          className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-ink text-sm font-bold rounded-xl transition-colors">
           <Check size={14}/>{saving ? 'Saving…' : 'Save Brand Kit'}
         </button>
       </div>
@@ -271,7 +271,7 @@ export default function BrandKitPage() {
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition-all flex-shrink-0 ${
-              tab === t ? 'bg-violet-600 border-violet-500 text-white' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300'
+              tab === t ? 'bg-brand-500 border-brand-400 text-white' : 'border-fog text-ink/40 hover:text-ink/70'
             }`}>
             {t === 'AI Insights' ? '✦ ' : ''}{t}
           </button>
@@ -285,17 +285,17 @@ export default function BrandKitPage() {
           {/* Logo upload */}
           <Section title="Brand Logo">
             <div className="flex items-center gap-5">
-              <div className="w-20 h-20 rounded-2xl border-2 border-dashed border-zinc-700 bg-zinc-950 flex items-center justify-center overflow-hidden flex-shrink-0">
+              <div className="w-20 h-20 rounded-2xl border-2 border-dashed border-fog bg-mist flex items-center justify-center overflow-hidden flex-shrink-0">
                 {form.logo_url
                   ? <img src={form.logo_url} alt="Logo" className="w-full h-full object-contain p-1"/>
-                  : <span className="text-zinc-600 text-xs text-center leading-tight px-2">No logo</span>}
+                  : <span className="text-ink/30 text-xs text-center leading-tight px-2">No logo</span>}
               </div>
               <div>
-                <p className="text-zinc-400 text-xs mb-2">Upload your brand logo. Used in AI-generated image prompts.</p>
+                <p className="text-ink/50 text-xs mb-2">Upload your brand logo. Used in AI-generated image prompts.</p>
                 <input ref={logoInputRef} type="file" accept="image/*" className="hidden"
                   onChange={e => e.target.files?.[0] && uploadLogo(e.target.files[0])}/>
                 <button type="button" onClick={() => logoInputRef.current?.click()} disabled={logoUploading}
-                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl border border-zinc-700 transition-colors">
+                  className="px-4 py-2 bg-fog hover:bg-mist disabled:opacity-50 text-ink text-xs font-bold rounded-xl border border-fog transition-colors">
                   {logoUploading ? 'Uploading…' : form.logo_url ? 'Replace Logo' : 'Upload Logo'}
                 </button>
               </div>
@@ -451,12 +451,12 @@ export default function BrandKitPage() {
             <div>
               <Label hint="0 = very formal and serious · 100 = very casual and fun">Personality Slider</Label>
               <div className="flex items-center gap-4">
-                <span className="text-zinc-500 text-xs">Serious</span>
+                <span className="text-ink/40 text-xs">Serious</span>
                 <input type="range" min={0} max={100} value={form.personality_score ?? 50}
                   onChange={e => set('personality_score', Number(e.target.value))}
                   className="flex-1 accent-violet-500"/>
-                <span className="text-zinc-500 text-xs">Casual</span>
-                <span className="text-violet-400 text-xs font-bold w-8 text-right">{form.personality_score ?? 50}</span>
+                <span className="text-ink/40 text-xs">Casual</span>
+                <span className="text-brand-500 text-xs font-bold w-8 text-right">{form.personality_score ?? 50}</span>
               </div>
             </div>
           </Section>
@@ -524,11 +524,11 @@ export default function BrandKitPage() {
               </div>
               <div className="flex items-center gap-2">
                 <input type="color" value={newColorHex} onChange={e => setNewColorHex(e.target.value)}
-                  className="w-10 h-10 rounded-lg border border-zinc-700 cursor-pointer bg-transparent"/>
+                  className="w-10 h-10 rounded-lg border border-fog cursor-pointer bg-transparent"/>
                 <input value={newColorHex} onChange={e => setNewColorHex(e.target.value)}
                   placeholder="#6C63FF" className={`${inp} flex-1`}/>
                 <button onClick={() => { if(/^#[0-9A-Fa-f]{6}$/.test(newColorHex)) set('brand_colors',[...(form.brand_colors||[]),newColorHex]) }}
-                  className="px-3 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors">
+                  className="px-3 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
                   <Plus size={14}/>
                 </button>
               </div>
@@ -544,11 +544,11 @@ export default function BrandKitPage() {
               </div>
               <div className="flex items-center gap-2">
                 <input type="color" value={newColorHex2} onChange={e => setNewColorHex2(e.target.value)}
-                  className="w-10 h-10 rounded-lg border border-zinc-700 cursor-pointer bg-transparent"/>
+                  className="w-10 h-10 rounded-lg border border-fog cursor-pointer bg-transparent"/>
                 <input value={newColorHex2} onChange={e => setNewColorHex2(e.target.value)}
                   placeholder="#FFFFFF" className={`${inp} flex-1`}/>
                 <button onClick={() => { if(/^#[0-9A-Fa-f]{6}$/.test(newColorHex2)) setK('secondary_colors',[...(kit.secondary_colors||[]),newColorHex2]) }}
-                  className="px-3 py-2.5 bg-zinc-700 hover:bg-zinc-600 text-white rounded-xl text-sm font-bold transition-colors">
+                  className="px-3 py-2.5 bg-fog hover:bg-mist text-ink rounded-xl text-sm font-bold transition-colors">
                   <Plus size={14}/>
                 </button>
               </div>
@@ -721,7 +721,7 @@ export default function BrandKitPage() {
                 {Object.keys(COMPLIANCE_PRESETS).map(p => (
                   <button key={p} type="button"
                     onClick={() => set('compliance_rules', { ...(form.compliance_rules||{}), ...COMPLIANCE_PRESETS[p] })}
-                    className="px-3 py-1.5 border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 rounded-xl text-xs font-semibold transition-all capitalize">
+                    className="px-3 py-1.5 border border-fog text-ink/50 hover:text-white hover:border-zinc-500 rounded-xl text-xs font-semibold transition-all capitalize">
                     {p.replace('_', ' ')}
                   </button>
                 ))}
@@ -779,14 +779,14 @@ export default function BrandKitPage() {
       {/* ── AI INSIGHTS ── */}
       {tab === 'AI Insights' && (
         <div className="space-y-4">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+          <div className="bg-white border border-fog rounded-2xl p-5">
             <div className="flex items-start justify-between gap-4 flex-wrap">
               <div>
-                <h3 className="text-white font-bold text-sm mb-0.5">AI Brand Intelligence</h3>
-                <p className="text-zinc-500 text-xs">Analysed from your completed brand kit. Save your kit first, then generate.</p>
+                <h3 className="text-ink font-bold text-sm mb-0.5">AI Brand Intelligence</h3>
+                <p className="text-ink/40 text-xs">Analysed from your completed brand kit. Save your kit first, then generate.</p>
               </div>
               <button onClick={generateInsights} disabled={aiLoading}
-                className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
+                className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-ink text-sm font-bold rounded-xl transition-colors">
                 {aiLoading
                   ? <><RefreshCw size={13} className="animate-spin"/> Analysing…</>
                   : <><Sparkles size={13}/> {aiInsights ? 'Refresh Insights' : 'Generate Insights'}</>
@@ -796,10 +796,10 @@ export default function BrandKitPage() {
           </div>
 
           {!aiInsights && !aiLoading && (
-            <div className="bg-zinc-900 border border-dashed border-zinc-700 rounded-2xl p-12 text-center">
-              <Sparkles size={32} className="text-violet-400 mx-auto mb-3"/>
-              <p className="text-zinc-400 font-semibold mb-1">No insights yet</p>
-              <p className="text-zinc-600 text-sm">Complete your brand kit and click Generate Insights.</p>
+            <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
+              <Sparkles size={32} className="text-brand-500 mx-auto mb-3"/>
+              <p className="text-ink/50 font-semibold mb-1">No insights yet</p>
+              <p className="text-ink/30 text-sm">Complete your brand kit and click Generate Insights.</p>
             </div>
           )}
 
@@ -807,9 +807,9 @@ export default function BrandKitPage() {
             <div className="space-y-4">
               {/* Overall score */}
               {aiInsights.overall_score !== undefined && (
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
+                <div className="bg-white border border-fog rounded-2xl p-5">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-white font-bold text-sm">Brand Kit Score</h3>
+                    <h3 className="text-ink font-bold text-sm">Brand Kit Score</h3>
                     <span className={`text-2xl font-black ${aiInsights.overall_score>=70?'text-emerald-400':aiInsights.overall_score>=40?'text-amber-400':'text-red-400'}`}>
                       {aiInsights.overall_score}/100
                     </span>
@@ -824,21 +824,21 @@ export default function BrandKitPage() {
 
               {/* Brand personality */}
               {aiInsights.brand_personality_summary && (
-                <div className="bg-violet-500/8 border border-violet-500/20 rounded-2xl p-5">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-violet-400/70 mb-2">Brand Personality</p>
+                <div className="bg-violet-500/8 border border-brand-400/20 rounded-2xl p-5">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-500/70 mb-2">Brand Personality</p>
                   <p className="text-violet-100 text-sm leading-relaxed">{aiInsights.brand_personality_summary}</p>
                 </div>
               )}
 
               {/* Tone variants */}
               {aiInsights.tone_variants?.length > 0 && (
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-                  <h3 className="text-white font-bold text-sm mb-3">Tone Variants</h3>
+                <div className="bg-white border border-fog rounded-2xl p-5">
+                  <h3 className="text-ink font-bold text-sm mb-3">Tone Variants</h3>
                   <div className="space-y-3">
                     {aiInsights.tone_variants.map((v, i) => (
-                      <div key={i} className="px-3 py-2.5 bg-zinc-950 rounded-xl border border-zinc-800">
-                        <p className="text-violet-300 text-xs font-bold mb-0.5">{v.name}</p>
-                        <p className="text-zinc-400 text-xs leading-relaxed">{v.description}</p>
+                      <div key={i} className="px-3 py-2.5 bg-mist rounded-xl border border-fog">
+                        <p className="text-brand-600 text-xs font-bold mb-0.5">{v.name}</p>
+                        <p className="text-ink/50 text-xs leading-relaxed">{v.description}</p>
                       </div>
                     ))}
                   </div>
@@ -847,8 +847,8 @@ export default function BrandKitPage() {
 
               {/* Audience segments */}
               {aiInsights.audience_segments?.length > 0 && (
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-                  <h3 className="text-white font-bold text-sm mb-3">Audience Segments</h3>
+                <div className="bg-white border border-fog rounded-2xl p-5">
+                  <h3 className="text-ink font-bold text-sm mb-3">Audience Segments</h3>
                   <div className="space-y-3">
                     {aiInsights.audience_segments.map((s, i) => (
                       <div key={i} className="px-3 py-2.5 bg-amber-500/8 rounded-xl border border-amber-500/20">
@@ -862,13 +862,13 @@ export default function BrandKitPage() {
 
               {/* Improvements */}
               {aiInsights.recommended_improvements?.length > 0 && (
-                <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-                  <h3 className="text-white font-bold text-sm mb-3">Recommended Improvements</h3>
+                <div className="bg-white border border-fog rounded-2xl p-5">
+                  <h3 className="text-ink font-bold text-sm mb-3">Recommended Improvements</h3>
                   <div className="space-y-2">
                     {aiInsights.recommended_improvements.map((r, i) => (
-                      <div key={i} className="flex items-start gap-2.5 px-3 py-2 bg-zinc-950 rounded-xl border border-zinc-800">
+                      <div key={i} className="flex items-start gap-2.5 px-3 py-2 bg-mist rounded-xl border border-fog">
                         <span className="text-amber-400 mt-0.5 flex-shrink-0">→</span>
-                        <p className="text-zinc-300 text-xs leading-relaxed">{r}</p>
+                        <p className="text-ink/70 text-xs leading-relaxed">{r}</p>
                       </div>
                     ))}
                   </div>
@@ -894,7 +894,7 @@ export default function BrandKitPage() {
       {/* Floating save */}
       <div className="fixed bottom-6 right-6 lg:hidden z-50">
         <button onClick={save} disabled={saving}
-          className="flex items-center gap-2 px-5 py-3 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-2xl shadow-lg transition-colors">
+          className="flex items-center gap-2 px-5 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-ink text-sm font-bold rounded-2xl shadow-lg transition-colors">
           <Check size={14}/>{saving ? 'Saving…' : 'Save'}
         </button>
       </div>

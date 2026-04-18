@@ -68,7 +68,7 @@ function PostThumb({ post, brand, onClick }) {
 
   return (
     <button onClick={onClick}
-      className="group relative bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden hover:border-zinc-600 transition-all hover:scale-[1.02] active:scale-[0.98] text-left w-full">
+      className="group relative bg-white border border-fog rounded-xl overflow-hidden hover:border-brand-300 transition-all hover:scale-[1.02] active:scale-[0.98] text-left w-full">
       <div className="relative" style={{ aspectRatio:'1' }}>
         {imageUrl
           ? <img src={imageUrl} alt={post.topic} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
@@ -82,9 +82,9 @@ function PostThumb({ post, brand, onClick }) {
         )}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/15 transition-all rounded-t-xl" />
       </div>
-      <div className="p-2.5 bg-zinc-900">
-        <p className="text-white text-xs font-semibold truncate">{post.content_idea || post.topic}</p>
-        <p className="text-zinc-500 text-[10px] mt-0.5">{fmtDate(post.scheduled_date)}</p>
+      <div className="p-2.5 bg-white">
+        <p className="text-ink text-xs font-semibold truncate">{post.content_idea || post.topic}</p>
+        <p className="text-ink/40 text-[10px] mt-0.5">{fmtDate(post.scheduled_date)}</p>
       </div>
     </button>
   )
@@ -220,17 +220,17 @@ export default function CalendarPage() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-0.5" style={{letterSpacing:'-0.02em'}}>Content Calendar</h1>
-          <p className="text-zinc-500 text-sm">{activeBrand?.name||'No brand'} · {posts.length} posts in {MONTHS[month-1]} {year}</p>
+          <h1 className="text-2xl font-bold text-ink mb-0.5" style={{letterSpacing:'-0.02em'}}>Content Calendar</h1>
+          <p className="text-ink/40 text-sm">{activeBrand?.name||'No brand'} · {posts.length} posts in {MONTHS[month-1]} {year}</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-0.5 bg-zinc-900 border border-zinc-800 rounded-xl p-1">
-            <button onClick={()=>shiftMonth(-1)} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors"><ChevronLeft size={16}/></button>
-            <span className="text-white text-sm font-semibold px-2 whitespace-nowrap">{MONTHS[month-1].slice(0,3)} {year}</span>
-            <button onClick={()=>shiftMonth(1)}  className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 transition-colors"><ChevronRight size={16}/></button>
+          <div className="flex items-center gap-0.5 bg-white border border-fog rounded-xl p-1">
+            <button onClick={()=>shiftMonth(-1)} className="p-2 hover:bg-mist rounded-lg text-ink/50 transition-colors"><ChevronLeft size={16}/></button>
+            <span className="text-ink text-sm font-semibold px-2 whitespace-nowrap">{MONTHS[month-1].slice(0,3)} {year}</span>
+            <button onClick={()=>shiftMonth(1)}  className="p-2 hover:bg-mist rounded-lg text-ink/50 transition-colors"><ChevronRight size={16}/></button>
           </div>
           <button onClick={()=>setShowGenPanel(true)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold rounded-xl transition-colors">
+            className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-ink text-sm font-bold rounded-xl transition-colors">
             <Plus size={14}/><span className="hidden sm:inline">Generate</span>
           </button>
         </div>
@@ -240,13 +240,13 @@ export default function CalendarPage() {
       {posts.length>0 && (
         <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
           <button onClick={()=>setFilterPlat('all')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold border whitespace-nowrap transition-all flex-shrink-0 ${filterPlat==='all'?'bg-zinc-700 border-zinc-600 text-white':'border-zinc-800 text-zinc-500'}`}>
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold border whitespace-nowrap transition-all flex-shrink-0 ${filterPlat==='all'?'bg-ink text-white border-ink':'border-fog text-ink/40'}`}>
             All ({posts.length})
           </button>
           {PLATFORMS.filter(pl=>posts.some(p=>p.platform===pl.id)).map(pl=>(
             <button key={pl.id} onClick={()=>setFilterPlat(pl.id)}
               style={filterPlat===pl.id?{borderColor:pl.color,background:pl.color+'18',color:pl.color}:{}}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border whitespace-nowrap transition-all flex-shrink-0 ${filterPlat!==pl.id?'border-zinc-800 text-zinc-500':''}`}>
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border whitespace-nowrap transition-all flex-shrink-0 ${filterPlat!==pl.id?'border-fog text-ink/40':''}`}>
               {PLATFORM_LOGO[pl.id]} {pl.label} ({posts.filter(p=>p.platform===pl.id).length})
             </button>
           ))}
@@ -254,23 +254,23 @@ export default function CalendarPage() {
       )}
 
       {!activeBrandId && (
-        <div className="bg-zinc-900 border border-dashed border-zinc-700 rounded-2xl p-12 text-center">
-          <p className="text-zinc-500 text-sm">Select a brand to view your content calendar.</p>
+        <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
+          <p className="text-ink/40 text-sm">Select a brand to view your content calendar.</p>
         </div>
       )}
 
       {loading && (
         <div className="flex items-center justify-center py-24">
-          <div className="w-8 h-8 border-2 border-zinc-700 border-t-violet-500 rounded-full animate-spin"/>
+          <div className="w-8 h-8 border-2 border-fog border-t-violet-500 rounded-full animate-spin"/>
         </div>
       )}
 
       {!loading && activeBrandId && posts.length===0 && (
-        <div className="bg-zinc-900 border border-dashed border-zinc-700 rounded-2xl p-16 text-center">
-          <p className="text-zinc-400 font-semibold mb-2">No content for {MONTHS[month-1]} {year}</p>
-          <p className="text-zinc-600 text-sm mb-6">Generate a month of posts to get started.</p>
+        <div className="bg-white border border-dashed border-fog rounded-2xl p-16 text-center">
+          <p className="text-ink/50 font-semibold mb-2">No content for {MONTHS[month-1]} {year}</p>
+          <p className="text-ink/30 text-sm mb-6">Generate a month of posts to get started.</p>
           <button onClick={()=>setShowGenPanel(true)}
-            className="inline-flex items-center gap-2 px-5 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors">
+            className="inline-flex items-center gap-2 px-5 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
             <Plus size={14}/> Generate content
           </button>
         </div>
@@ -281,9 +281,9 @@ export default function CalendarPage() {
         <div key={pl.id} className="mb-10">
           <div className="flex items-center gap-3 mb-4">
             <span style={{color:pl.color}} className="flex-shrink-0">{PLATFORM_LOGO[pl.id]}</span>
-            <h2 className="text-white font-bold text-base">{pl.label}</h2>
-            <span className="text-zinc-600 text-sm">{byPlatform[pl.id].length} posts</span>
-            <div className="flex-1 h-px bg-zinc-800"/>
+            <h2 className="text-ink font-bold text-base">{pl.label}</h2>
+            <span className="text-ink/30 text-sm">{byPlatform[pl.id].length} posts</span>
+            <div className="flex-1 h-px bg-fog"/>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {byPlatform[pl.id].map(post=>(
@@ -297,17 +297,17 @@ export default function CalendarPage() {
       {showGenPanel && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
           onClick={e=>e.target===e.currentTarget&&setShowGenPanel(false)}>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-5">
+          <div className="bg-white border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 space-y-5">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-white font-bold text-base">Generate {MONTHS[month-1]} {year}</h3>
-                <p className="text-zinc-500 text-xs mt-0.5">AI will create a full month of content</p>
+                <h3 className="text-ink font-bold text-base">Generate {MONTHS[month-1]} {year}</h3>
+                <p className="text-ink/40 text-xs mt-0.5">AI will create a full month of content</p>
               </div>
-              <button onClick={()=>setShowGenPanel(false)} className="text-zinc-500 hover:text-white p-1.5 -mr-1"><X size={18}/></button>
+              <button onClick={()=>setShowGenPanel(false)} className="text-ink/40 hover:text-ink p-1.5 -mr-1"><X size={18}/></button>
             </div>
 
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Platform</p>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-ink/40 mb-2">Platform</p>
               <div className="grid grid-cols-4 gap-2">
                 {[
                   { id:'instagram', label:'Instagram', color:'#E1306C' },
@@ -316,36 +316,36 @@ export default function CalendarPage() {
                   { id:'linkedin',  label:'LinkedIn',  color:'#0A66C2' },
                 ].map(pl=>(
                   <button key={pl.id} onClick={()=>setGenPlatform(pl.id)}
-                    className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${genPlatform===pl.id?'border-violet-500 bg-violet-500/10':'border-zinc-800 hover:border-zinc-700'}`}>
+                    className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border-2 transition-all ${genPlatform===pl.id?'border-brand-400 bg-brand-500/10':'border-fog hover:border-fog'}`}>
                     <span style={{color:pl.color}} className="flex-shrink-0">{PLATFORM_LOGO[pl.id]}</span>
-                    <span className={`text-[10px] font-bold ${genPlatform===pl.id?'text-violet-300':'text-zinc-500'}`}>{pl.label.split('/')[0]}</span>
+                    <span className={`text-[10px] font-bold ${genPlatform===pl.id?'text-brand-600':'text-ink/40'}`}>{pl.label.split('/')[0]}</span>
                   </button>
                 ))}
               </div>
             </div>
 
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Posts per week</p>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-ink/40 mb-2">Posts per week</p>
               <div className="flex gap-2">
                 {[1,2,3,4,5].map(n=>(
                   <button key={n} onClick={()=>setGenPPW(n)}
-                    className={`flex-1 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${genPPW===n?'border-violet-500 bg-violet-500/10 text-violet-300':'border-zinc-800 text-zinc-500 hover:border-zinc-700'}`}>
+                    className={`flex-1 py-2.5 rounded-xl border-2 text-sm font-bold transition-all ${genPPW===n?'border-brand-400 bg-brand-500/10 text-brand-600':'border-fog text-ink/40 hover:border-fog'}`}>
                     {n}×
                   </button>
                 ))}
               </div>
-              <p className="text-zinc-600 text-[11px] mt-1.5">≈ {Math.round(genPPW * 4.3)} posts total</p>
+              <p className="text-ink/30 text-[11px] mt-1.5">≈ {Math.round(genPPW * 4.3)} posts total</p>
             </div>
 
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-2">Focus topic <span className="text-zinc-700 font-normal normal-case">— optional</span></p>
+              <p className="text-[11px] font-bold uppercase tracking-widest text-ink/40 mb-2">Focus topic <span className="text-ink/20 font-normal normal-case">— optional</span></p>
               <input value={genTopic} onChange={e=>setGenTopic(e.target.value)}
                 placeholder="Leave blank for varied topics…"
-                className="w-full px-3 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-sm placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all"/>
+                className="w-full px-3 py-2.5 bg-mist border border-fog rounded-xl text-ink text-sm placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all"/>
             </div>
 
             <button onClick={handleGenerate} disabled={generatingMonth}
-              className="w-full py-3.5 rounded-xl bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all">
+              className="w-full py-3.5 rounded-xl bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all">
               {generatingMonth
                 ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
                     {generationPollCount < 3 ? 'Writing captions…' : generationPollCount < 7 ? 'Crafting posts…' : 'Almost done…'}</>
@@ -359,21 +359,21 @@ export default function CalendarPage() {
       {modal && (
         <div className="fixed inset-0 bg-black/85 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
           onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-          <div className="bg-zinc-900 border border-zinc-800 rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl max-h-[94vh] overflow-y-auto">
+          <div className="bg-white border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl max-h-[94vh] overflow-y-auto">
 
             {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 sticky top-0 bg-zinc-900 z-10">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-fog sticky top-0 bg-white z-10">
               <div>
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                   {(() => { const pl = PLATFORMS.find(p=>p.id===modal.platform); return pl ? <span style={{color:pl.color}}>{PLATFORM_LOGO[pl.id]}</span> : null })()}
-                  <p className="text-zinc-400 text-xs font-medium capitalize">{modal.platform} · {fmtDate(modal.scheduled_date)}</p>
+                  <p className="text-ink/50 text-xs font-medium capitalize">{modal.platform} · {fmtDate(modal.scheduled_date)}</p>
                   {modal.content_type && (
-                    <span className="px-2 py-0.5 bg-violet-500/15 text-violet-300 text-[10px] font-bold rounded-lg uppercase tracking-wide">{modal.content_type}</span>
+                    <span className="px-2 py-0.5 bg-brand-500/15 text-brand-600 text-[10px] font-bold rounded-lg uppercase tracking-wide">{modal.content_type}</span>
                   )}
                 </div>
-                <p className="text-white font-bold text-sm truncate max-w-[400px]">{modal.content_idea || modal.topic}</p>
+                <p className="text-ink font-bold text-sm truncate max-w-[400px]">{modal.content_idea || modal.topic}</p>
               </div>
-              <button onClick={()=>setModal(null)} className="text-zinc-500 hover:text-white p-1.5 transition-colors -mr-1">
+              <button onClick={()=>setModal(null)} className="text-ink/40 hover:text-ink p-1.5 transition-colors -mr-1">
                 <X size={20}/>
               </button>
             </div>
@@ -389,44 +389,44 @@ export default function CalendarPage() {
                   {totalSlides > 1 && (
                     <div className="flex items-center gap-3 w-full justify-center">
                       <button onClick={()=>setSlideIdx(i=>Math.max(0,i-1))} disabled={slideIdx===0}
-                        className="p-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 rounded-lg transition-colors">
-                        <ChevronLeft size={14} className="text-white"/>
+                        className="p-2 bg-fog hover:bg-mist/80 disabled:opacity-30 rounded-lg transition-colors">
+                        <ChevronLeft size={14} className="text-ink"/>
                       </button>
                       <div className="flex gap-1.5">
                         {Array.from({length:totalSlides}).map((_,i)=>(
                           <button key={i} onClick={()=>setSlideIdx(i)}
-                            className={`w-2 h-2 rounded-full transition-all ${i===slideIdx?'bg-violet-400 w-4':'bg-zinc-600'}`}/>
+                            className={`w-2 h-2 rounded-full transition-all ${i===slideIdx?'bg-brand-500 w-4':'bg-fog'}`}/>
                         ))}
                       </div>
                       <button onClick={()=>setSlideIdx(i=>Math.min(totalSlides-1,i+1))} disabled={slideIdx===totalSlides-1}
-                        className="p-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 rounded-lg transition-colors">
-                        <ChevronRight size={14} className="text-white"/>
+                        className="p-2 bg-fog hover:bg-mist/80 disabled:opacity-30 rounded-lg transition-colors">
+                        <ChevronRight size={14} className="text-ink"/>
                       </button>
                     </div>
                   )}
-                  {totalSlides>1 && <p className="text-zinc-600 text-[11px]">Slide {slideIdx+1} of {totalSlides}</p>}
+                  {totalSlides>1 && <p className="text-ink/30 text-[11px]">Slide {slideIdx+1} of {totalSlides}</p>}
 
                   {/* Download buttons */}
                   <div className="flex gap-2 w-full">
                     {totalSlides > 1 ? (
                       <>
                         <button onClick={downloadSlide}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold rounded-xl border border-zinc-700 transition-colors">
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-fog hover:bg-mist/80 text-ink text-xs font-bold rounded-xl border border-fog transition-colors">
                           <Download size={12}/> This slide
                         </button>
                         <button onClick={downloadAll}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold rounded-xl border border-zinc-700 transition-colors">
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-fog hover:bg-mist/80 text-ink text-xs font-bold rounded-xl border border-fog transition-colors">
                           <Layers size={12}/> All slides
                         </button>
                       </>
                     ) : (
                       <button onClick={downloadSlide}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold rounded-xl border border-zinc-700 transition-colors">
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-fog hover:bg-mist/80 text-ink text-xs font-bold rounded-xl border border-fog transition-colors">
                         <Download size={12}/> Download image
                       </button>
                     )}
                     <button onClick={copyCaption}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold rounded-xl transition-colors">
+                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold rounded-xl transition-colors">
                       <Copy size={12}/> Copy caption
                     </button>
                   </div>
@@ -439,7 +439,7 @@ export default function CalendarPage() {
                   {modal.description && (
                     <div className="px-3 py-2.5 bg-amber-500/8 border border-amber-500/20 rounded-xl">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400/70 mb-1">Strategy Note</p>
-                      <p className="text-amber-200/80 text-xs leading-relaxed">{modal.description}</p>
+                      <p className="text-amber-700 text-xs leading-relaxed">{modal.description}</p>
                     </div>
                   )}
 
@@ -447,22 +447,22 @@ export default function CalendarPage() {
                   {modal.visual_direction && (
                     <div className="px-3 py-2.5 bg-blue-500/8 border border-blue-500/20 rounded-xl">
                       <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70 mb-1">Visual Direction</p>
-                      <p className="text-blue-200/80 text-xs leading-relaxed">{modal.visual_direction}</p>
+                      <p className="text-blue-700 text-xs leading-relaxed">{modal.visual_direction}</p>
                     </div>
                   )}
 
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">Caption</label>
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-ink/40 mb-1.5">Caption</label>
                     <textarea value={editCaption} onChange={e=>setEditCaption(e.target.value)} rows={7}
-                      className="w-full px-3 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all"/>
+                      className="w-full px-3 py-3 bg-mist border border-fog rounded-xl text-ink text-sm leading-relaxed resize-none focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all"/>
                   </div>
                   <div>
-                    <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">Hashtags</label>
-                    <div className="flex flex-wrap gap-1.5 p-2.5 bg-zinc-950 border border-zinc-800 rounded-xl min-h-[42px]">
+                    <label className="block text-[11px] font-bold uppercase tracking-widest text-ink/40 mb-1.5">Hashtags</label>
+                    <div className="flex flex-wrap gap-1.5 p-2.5 bg-mist border border-fog rounded-xl min-h-[42px]">
                       {editHashtags.map((h,i)=>(
-                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-500/15 text-violet-300 text-xs rounded-lg">
+                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-brand-500/15 text-brand-600 text-xs rounded-lg">
                           #{h}
-                          <button onClick={()=>setEditHashtags(hs=>hs.filter((_,j)=>j!==i))} className="hover:text-white ml-0.5 text-base leading-none">×</button>
+                          <button onClick={()=>setEditHashtags(hs=>hs.filter((_,j)=>j!==i))} className="hover:text-ink ml-0.5 text-base leading-none">×</button>
                         </span>
                       ))}
                     </div>
@@ -472,7 +472,7 @@ export default function CalendarPage() {
                   {modal.cta && (
                     <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/8 border border-emerald-500/20 rounded-xl">
                       <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400/70 whitespace-nowrap">CTA</span>
-                      <span className="text-emerald-200/90 text-xs font-medium">{modal.cta}</span>
+                      <span className="text-emerald-700 text-xs font-medium">{modal.cta}</span>
                     </div>
                   )}
 
@@ -480,20 +480,20 @@ export default function CalendarPage() {
                   {modal.image_prompt && (
                     <details className="group">
                       <summary className="flex items-center gap-2 cursor-pointer list-none select-none py-1">
-                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Image Prompt</span>
-                        <span className="text-zinc-600 text-[10px] group-open:rotate-180 transition-transform inline-block">▾</span>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-ink/40">Image Prompt</span>
+                        <span className="text-ink/30 text-[10px] group-open:rotate-180 transition-transform inline-block">▾</span>
                       </summary>
                       <div className="mt-2 space-y-2">
-                        <div className="px-3 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl relative">
-                          <p className="text-zinc-400 text-xs leading-relaxed pr-8">{modal.image_prompt}</p>
+                        <div className="px-3 py-2.5 bg-mist border border-fog rounded-xl relative">
+                          <p className="text-ink/50 text-xs leading-relaxed pr-8">{modal.image_prompt}</p>
                           <button
                             onClick={()=>{ navigator.clipboard?.writeText(modal.image_prompt); toast('Image prompt copied!') }}
-                            className="absolute top-2 right-2 text-zinc-600 hover:text-zinc-300 transition-colors">
+                            className="absolute top-2 right-2 text-ink/30 hover:text-ink/70 transition-colors">
                             <Copy size={11}/>
                           </button>
                         </div>
                         {modal.image_prompt_explanation && (
-                          <p className="text-zinc-600 text-[11px] leading-relaxed italic px-1">{modal.image_prompt_explanation}</p>
+                          <p className="text-ink/30 text-[11px] leading-relaxed italic px-1">{modal.image_prompt_explanation}</p>
                         )}
                       </div>
                     </details>
@@ -501,11 +501,11 @@ export default function CalendarPage() {
 
                   <div className="flex gap-2 flex-wrap pt-1">
                     <button onClick={saveEdits} disabled={saving}
-                      className="flex items-center gap-1.5 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-colors">
+                      className="flex items-center gap-1.5 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-colors">
                       <Check size={12}/>{saving?'Saving…':'Save'}
                     </button>
                     <button onClick={regenPost} disabled={regen}
-                      className="flex items-center gap-1.5 px-4 py-2.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-60 text-zinc-300 text-xs font-bold rounded-xl border border-zinc-700 transition-colors">
+                      className="flex items-center gap-1.5 px-4 py-2.5 bg-fog hover:bg-mist/80 disabled:opacity-60 text-ink/70 text-xs font-bold rounded-xl border border-fog transition-colors">
                       <RotateCcw size={12}/>{regen?'Working…':'Redraft'}
                     </button>
                     <button onClick={deletePost}
