@@ -87,12 +87,8 @@ export default function DashboardLayout() {
       )}
 
       {days !== null && (
-        <div className={`mx-3 mt-2 px-3 py-2 rounded-lg text-xs font-semibold flex-shrink-0 ${
-          days === 0
-            ? 'bg-red-50 border border-red-200 text-red-600'
-            : 'bg-amber-50 border border-amber-200 text-amber-700'
-        }`}>
-          {days === 0 ? '⚠ Trial expired — upgrade to continue' : `${days} day${days !== 1 ? 's' : ''} left in trial`}
+        <div className="mx-3 mt-2 px-3 py-2 rounded-lg text-xs font-medium flex-shrink-0 bg-mist border border-fog text-ink/60">
+          {days === 0 ? 'Trial expired — upgrade to continue' : `${days} day${days !== 1 ? 's' : ''} left in trial`}
         </div>
       )}
 

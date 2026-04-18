@@ -4,13 +4,24 @@ import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight,
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 
-const PLAT_COLOR = { instagram: '#E1306C', facebook: '#1877F2', twitter: '#1DA1F2' }
-const PLAT_BG    = { instagram: '#E1306C15', facebook: '#1877F215', twitter: '#1DA1F215' }
-
 function parseLocalDate(str) {
   if (!str) return null
   const [y, m, d] = str.split('-').map(Number)
   return new Date(y, m - 1, d)
+}
+
+function StatCard({ icon: Icon, val, lbl, loading }) {
+  return (
+    <div className="bg-white border border-fog rounded-2xl p-5">
+      <div className="w-8 h-8 rounded-xl bg-mist flex items-center justify-center mb-4">
+        <Icon size={15} className="text-ink/40" />
+      </div>
+      <div className="text-2xl font-semibold text-ink mb-0.5" style={{ letterSpacing: '-0.02em' }}>
+        {loading ? <div className="h-7 w-10 bg-mist rounded shimmer" /> : val}
+      </div>
+      <div className="text-xs text-ink/40">{lbl}</div>
+    </div>
+  )
 }
 
 export default function DashboardPage() {
@@ -56,104 +67,93 @@ export default function DashboardPage() {
   }
 
   const firstName = user?.full_name?.split(' ')[0] || 'there'
+  const monthLabel = now.toLocaleString('default', { month: 'long', year: 'numeric' })
 
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
-            {greet()}, {firstName} 👋
+          <h1 className="text-2xl font-semibold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
+            {greet()}, {firstName}
           </h1>
-          <p className="text-ink/50 text-sm">
-            {loading ? 'Loading your content…' :
+          <p className="text-ink/40 text-sm">
+            {loading ? 'Loading…' :
              !activeBrandId ? 'Set up your brand to get started.' :
              stats.total > 0 ? `${stats.total} posts generated for ${now.toLocaleString('default', { month: 'long' })}` :
-             `No content yet for ${now.toLocaleString('default', { month: 'long' })} — generate your first month!`}
+             `No content yet for ${now.toLocaleString('default', { month: 'long' })} — generate your first month.`}
           </p>
         </div>
         <button onClick={() => navigate('/dashboard/generate')}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0">
+          className="btn-primary text-sm px-4 py-2.5 flex-shrink-0">
           <Layers size={15} /> Generate content
         </button>
       </div>
 
       {/* No brand CTA */}
       {!activeBrandId && !loading && (
-        <div className="bg-brand-50 border border-brand-200 rounded-2xl p-8 text-center mb-6">
-          <div className="w-12 h-12 bg-brand-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Sparkles size={22} className="text-brand-500" />
+        <div className="bg-mist border border-fog rounded-2xl p-10 text-center mb-8">
+          <div className="w-10 h-10 bg-white border border-fog rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Sparkles size={18} className="text-brand-500" />
           </div>
-          <h2 className="text-ink font-bold text-lg mb-2">Let's set up your brand</h2>
-          <p className="text-ink/50 text-sm mb-5 max-w-sm mx-auto">Before generating content, tell us about your brand so every post sounds exactly like you.</p>
-          <button onClick={() => navigate('/onboarding')}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
-            Set up my brand <ArrowRight size={15} />
+          <h2 className="text-ink font-semibold text-base mb-2">Set up your brand</h2>
+          <p className="text-ink/40 text-sm mb-5 max-w-sm mx-auto">Tell us about your brand so every post sounds exactly like you.</p>
+          <button onClick={() => navigate('/onboarding')} className="btn-primary text-sm">
+            Get started <ArrowRight size={14} />
           </button>
         </div>
       )}
 
-      {/* Banner */}
+      {/* Month summary bar */}
       {activeBrandId && (
-        <div className="relative rounded-2xl p-6 mb-6 overflow-hidden gradient-hero">
-          <div className="absolute top-0 right-0 w-48 h-48 bg-white/10 rounded-full blur-2xl translate-x-12 -translate-y-12 pointer-events-none" />
-          <div className="relative flex items-center justify-between gap-4">
-            <div>
-              <p className="text-white/70 text-xs font-semibold uppercase tracking-widest mb-1">{now.toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
-              <h2 className="text-white text-xl font-bold mb-1" style={{ letterSpacing: '-0.02em' }}>
-                {loading ? '…' : stats.total > 0 ? `${stats.ready} / ${stats.total} posts ready` : 'No content yet'}
-              </h2>
-              <p className="text-white/70 text-sm">
-                {stats.total > 0 ? 'Keep posting consistently to grow your audience.' : 'Hit Generate to fill your entire month in seconds.'}
-              </p>
-            </div>
-            <div className="w-14 h-14 bg-white/15 rounded-2xl flex items-center justify-center flex-shrink-0">
-              <Layers size={24} className="text-white" />
-            </div>
+        <div className="flex items-center justify-between bg-white border border-fog rounded-2xl px-5 py-4 mb-6">
+          <div>
+            <p className="text-xs text-ink/40 font-medium mb-0.5">{monthLabel}</p>
+            <p className="text-ink font-semibold text-sm">
+              {loading ? 'Loading…' : stats.total > 0 ? `${stats.ready} of ${stats.total} posts ready` : 'No content generated yet'}
+            </p>
           </div>
+          <button onClick={() => navigate('/dashboard/calendar')}
+            className="text-xs text-brand-500 hover:text-brand-600 font-medium flex items-center gap-1 transition-colors">
+            View calendar <ArrowRight size={12} />
+          </button>
         </div>
       )}
 
       {/* Stats */}
       {activeBrandId && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {[
-            { icon: FileText,    bg: '#10A37F12', color: '#10A37F', val: loading ? '—' : stats.total,  lbl: 'Total posts' },
-            { icon: CheckCircle, bg: 'rgba(16,185,129,.12)', color: '#10b981', val: loading ? '—' : stats.ready,  lbl: 'Ready to post' },
-            { icon: Clock,       bg: 'rgba(245,158,11,.12)', color: '#f59e0b', val: loading ? '—' : stats.drafts, lbl: 'Drafts' },
-            { icon: Calendar,    bg: 'rgba(225,48,108,.12)', color: '#E1306C', val: loading ? '—' : stats.ig,     lbl: 'Instagram' },
-          ].map(({ icon: Icon, bg, color, val, lbl }) => (
-            <div key={lbl} className="bg-white border border-fog rounded-2xl p-5">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-4" style={{ background: bg }}>
-                <Icon size={16} style={{ color }} />
-              </div>
-              <div className="text-2xl font-bold text-ink mb-1">{val}</div>
-              <div className="text-xs text-ink/40 font-medium">{lbl}</div>
-            </div>
-          ))}
+          <StatCard icon={FileText}    val={stats.total}  lbl="Total posts"    loading={loading} />
+          <StatCard icon={CheckCircle} val={stats.ready}  lbl="Ready to post"  loading={loading} />
+          <StatCard icon={Clock}       val={stats.drafts} lbl="Drafts"         loading={loading} />
+          <StatCard icon={Calendar}    val={stats.ig}     lbl="Instagram"      loading={loading} />
         </div>
       )}
 
       {activeBrandId && (
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
+
           {/* Platform breakdown */}
           <div className="bg-white border border-fog rounded-2xl p-6">
-            <h3 className="text-ink font-semibold mb-5">Platform breakdown</h3>
+            <h3 className="text-sm font-semibold text-ink mb-5">Platform breakdown</h3>
             {loading || stats.total === 0
               ? <p className="text-ink/30 text-sm">{loading ? 'Loading…' : 'Generate content to see breakdown.'}</p>
               : (
                 <div className="space-y-4">
-                  {[['instagram', stats.ig], ['facebook', stats.fb], ['twitter', stats.tw]].map(([p, count]) => (
-                    <div key={p} className="flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex justify-between mb-1.5">
-                          <span className="text-sm text-ink/70 font-medium capitalize">{p}</span>
-                          <span className="text-sm font-bold text-ink">{count}</span>
-                        </div>
-                        <div className="h-1.5 bg-fog rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all duration-700"
-                            style={{ width: `${stats.total ? Math.round(count / stats.total * 100) : 0}%`, background: PLAT_COLOR[p] }} />
-                        </div>
+                  {[
+                    { id: 'instagram', label: 'Instagram', count: stats.ig },
+                    { id: 'facebook',  label: 'Facebook',  count: stats.fb },
+                    { id: 'twitter',   label: 'Twitter/X', count: stats.tw },
+                  ].map(({ label, count }) => (
+                    <div key={label}>
+                      <div className="flex justify-between mb-1.5">
+                        <span className="text-sm text-ink/60">{label}</span>
+                        <span className="text-sm font-semibold text-ink">{count}</span>
+                      </div>
+                      <div className="h-1 bg-mist rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-brand-500 transition-all duration-700"
+                          style={{ width: `${stats.total ? Math.round(count / stats.total * 100) : 0}%` }} />
                       </div>
                     </div>
                   ))}
@@ -164,10 +164,10 @@ export default function DashboardPage() {
           {/* Upcoming posts */}
           <div className="bg-white border border-fog rounded-2xl p-6">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-ink font-semibold">Upcoming posts</h3>
+              <h3 className="text-sm font-semibold text-ink">Upcoming posts</h3>
               <button onClick={() => navigate('/dashboard/calendar')}
-                className="text-xs text-brand-500 hover:text-brand-600 font-semibold flex items-center gap-1 transition-colors">
-                View calendar <ArrowRight size={12} />
+                className="text-xs text-brand-500 hover:text-brand-600 font-medium flex items-center gap-1 transition-colors">
+                View all <ArrowRight size={12} />
               </button>
             </div>
             {loading
@@ -178,24 +178,20 @@ export default function DashboardPage() {
                     const d = parseLocalDate(post.scheduled_date)
                     return (
                       <div key={post.id}
-                        className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-mist transition-colors cursor-pointer mb-1.5"
+                        className="flex items-center gap-3 py-2.5 border-b border-fog last:border-0 cursor-pointer hover:opacity-70 transition-opacity"
                         onClick={() => navigate('/dashboard/calendar')}>
-                        <div className="w-10 h-10 rounded-xl flex flex-col items-center justify-center flex-shrink-0 bg-brand-50">
+                        <div className="w-9 h-9 rounded-xl flex flex-col items-center justify-center flex-shrink-0 bg-mist">
                           {d && <>
-                            <span className="text-brand-500 text-[8px] font-bold uppercase">{d.toLocaleString('default', { month: 'short' })}</span>
-                            <span className="text-brand-600 text-sm font-bold leading-none">{d.getDate()}</span>
+                            <span className="text-ink/40 text-[8px] font-semibold uppercase">{d.toLocaleString('default', { month: 'short' })}</span>
+                            <span className="text-ink text-xs font-bold leading-none">{d.getDate()}</span>
                           </>}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-ink text-xs font-semibold truncate">{post.topic}</p>
-                          <p className="text-ink/40 text-[10px] mt-0.5 capitalize">{post.format}</p>
+                          <p className="text-ink text-xs font-medium truncate">{post.topic}</p>
+                          <p className="text-ink/40 text-[10px] mt-0.5 capitalize">{post.platform} · {post.format}</p>
                         </div>
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 capitalize"
-                          style={{ background: PLAT_BG[post.platform], color: PLAT_COLOR[post.platform] }}>
-                          {post.platform.slice(0,2).toUpperCase()}
-                        </span>
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 capitalize ${
-                          post.status === 'ready' ? 'bg-brand-50 text-brand-600' : 'bg-fog text-ink/50'
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                          post.status === 'ready' ? 'bg-brand-50 text-brand-600' : 'bg-mist text-ink/40'
                         }`}>
                           {post.status}
                         </span>
@@ -209,29 +205,27 @@ export default function DashboardPage() {
 
       {/* Trending topics */}
       <div className="bg-white border border-fog rounded-2xl p-6">
-        <div className="flex items-center gap-2 mb-5">
-          <TrendingUp size={16} className="text-brand-500" />
-          <h3 className="text-ink font-semibold">Trending topics</h3>
-          <span className="text-xs text-ink/30">· Click to use as your next post topic</span>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2">
+            <TrendingUp size={15} className="text-ink/40" />
+            <h3 className="text-sm font-semibold text-ink">Trending topics</h3>
+          </div>
+          <p className="text-ink/30 text-xs">Click to generate with this topic</p>
         </div>
         {trends.length === 0
           ? <p className="text-ink/30 text-sm">Loading trends…</p>
           : (
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {trends.slice(0, 6).map((t, i) => (
                 <button key={t.id}
                   onClick={() => navigate('/dashboard/generate', { state: { topic: t.topic } })}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-fog hover:border-brand-300 hover:bg-brand-50/50 text-left transition-all group">
-                  <span className="text-ink/25 text-xs font-bold w-5 flex-shrink-0">{String(i + 1).padStart(2,'0')}</span>
+                  className="flex items-center gap-3 p-3 rounded-xl border border-fog hover:border-ink/20 hover:bg-mist text-left transition-all group">
+                  <span className="text-ink/20 text-xs font-medium w-5 flex-shrink-0 tabular-nums">{String(i + 1).padStart(2,'0')}</span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-ink/80 text-xs font-semibold truncate group-hover:text-ink transition-colors">{t.topic}</p>
+                    <p className="text-ink/70 text-xs font-medium truncate group-hover:text-ink transition-colors">{t.topic}</p>
                     <p className="text-ink/30 text-[10px] mt-0.5">{t.volume}</p>
                   </div>
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
-                    t.badge === 'viral'   ? 'bg-red-50 text-red-500' :
-                    t.badge === 'rising'  ? 'bg-brand-50 text-brand-600' :
-                                           'bg-sky-50 text-sky-500'
-                  }`}>
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-mist text-ink/40 flex-shrink-0 capitalize">
                     {t.badge}
                   </span>
                 </button>

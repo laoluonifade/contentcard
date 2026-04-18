@@ -77,26 +77,28 @@ export default function BillingPage() {
 
       {/* Current plan */}
       {subscription && (
-        <div className={`rounded-2xl p-6 mb-8 flex items-center justify-between ${subscription.plan !== 'trial' ? 'bg-brand-500 border border-brand-400' : 'bg-white border border-fog'}`}>
+        <div className="rounded-2xl p-6 mb-8 flex items-center justify-between bg-white border border-fog">
           <div>
-            <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${subscription.plan !== 'trial' ? 'text-white/70' : 'text-ink/40'}`}>Current plan</p>
-            <p className={`text-2xl font-bold capitalize ${subscription.plan !== 'trial' ? 'text-ink' : 'text-ink'}`}>{subscription.plan === 'trial' ? 'Free trial' : subscription.plan}</p>
+            <p className="text-xs font-medium uppercase tracking-widest mb-1 text-ink/40">Current plan</p>
+            <p className="text-2xl font-semibold capitalize text-ink" style={{ letterSpacing: '-0.02em' }}>
+              {subscription.plan === 'trial' ? 'Free trial' : subscription.plan}
+            </p>
             {days !== null && subscription.plan === 'trial' && (
-              <p className={`text-sm mt-1 ${days === 0 ? 'text-red-400' : 'text-ink/50'}`}>
+              <p className="text-sm mt-1 text-ink/40">
                 {days === 0 ? 'Trial expired — subscribe to continue' : `${days} day${days !== 1 ? 's' : ''} remaining`}
               </p>
             )}
             {subscription.plan !== 'trial' && (
-              <p className="text-white/70 text-sm mt-1">
+              <p className="text-ink/40 text-sm mt-1">
                 {isNigeria ? 'Paystack · auto-renews monthly' : 'Stripe · auto-renews monthly'}
               </p>
             )}
           </div>
-          <div>
-            <span className={`inline-block px-3 py-1.5 rounded-full text-xs font-bold ${subscription.plan !== 'trial' ? 'bg-brand-50 text-brand-600' : days === 0 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/15 text-amber-400'}`}>
-              {subscription.plan !== 'trial' ? 'Active' : days === 0 ? 'Expired' : 'Trial'}
-            </span>
-          </div>
+          <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium border ${
+            subscription.plan !== 'trial' ? 'bg-brand-50 text-brand-600 border-brand-100' : 'bg-mist text-ink/40 border-fog'
+          }`}>
+            {subscription.plan !== 'trial' ? 'Active' : days === 0 ? 'Expired' : 'Trial'}
+          </span>
         </div>
       )}
 
@@ -113,10 +115,10 @@ export default function BillingPage() {
           return (
             <div key={plan.id} className={`rounded-2xl p-6 flex flex-col relative ${plan.featured ? 'border-2 border-brand-400 bg-brand-500/5' : 'border border-fog bg-white'}`}>
               {plan.featured && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-500 text-ink text-xs font-bold px-3 py-1 rounded-full">Most popular</div>
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-500 text-white text-xs font-medium px-3 py-1 rounded-full">Most popular</div>
               )}
               {isCurrent && (
-                <div className="absolute -top-3 right-4 bg-emerald-500 text-ink text-xs font-bold px-3 py-1 rounded-full">Current plan</div>
+                <div className="absolute -top-3 right-4 bg-ink text-white text-xs font-medium px-3 py-1 rounded-full">Current plan</div>
               )}
               <div className="mb-5">
                 <div className="text-ink/50 text-xs font-bold uppercase tracking-widest mb-2">{plan.name}</div>
@@ -143,7 +145,7 @@ export default function BillingPage() {
               <button
                 onClick={() => !isCurrent && handleSubscribe(plan.id)}
                 disabled={isCurrent || loading === plan.id}
-                className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${isCurrent ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-default' : plan.featured ? 'bg-brand-500 hover:bg-brand-600 text-white' : 'bg-fog hover:bg-mist text-ink border border-fog'}`}
+                className={`w-full py-3 rounded-xl text-sm font-medium transition-all ${isCurrent ? 'bg-mist text-ink/40 border border-fog cursor-default' : plan.featured ? 'bg-brand-500 hover:bg-brand-600 text-white' : 'bg-white hover:bg-mist text-ink border border-fog'}`}
               >
                 {loading === plan.id ? (
                   <div className="flex items-center justify-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Redirecting…</div>
