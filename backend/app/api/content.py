@@ -392,19 +392,47 @@ async def _do_generate_month(
 
 
 def _brand_to_dict(brand: Brand) -> dict:
-    return {
+    """
+    Serialise a Brand model into a flat dict for AI generation.
+
+    Individual columns are merged with the brand_kit JSON so every field the
+    AI prompt templates and image prompt builder reference is actually present.
+    Individual columns win over brand_kit values when both exist.
+    """
+    kit = brand.brand_kit or {}
+
+    base = {
+        # ── Core identity ──────────────────────────────────────────────
         "name": brand.name or "My Brand",
         "industry": brand.industry or "General",
         "description": brand.description or "",
+        "website": brand.website or "",
+        "location": brand.location or "",
+        "logo_url": brand.logo_url or None,
+
+        # ── Audience ───────────────────────────────────────────────────
         "target_audience": brand.target_audience or "",
+        "audience_age_range": brand.audience_age_range or "",
+        "audience_location": brand.audience_location or "",
+        "pain_point": brand.pain_point or "",
+
+        # ── Brand voice ────────────────────────────────────────────────
         "tone_tags": brand.tone_tags or [],
         "language_style": brand.language_style or "english",
         "personality_score": brand.personality_score or 50,
         "words_to_avoid": brand.words_to_avoid or [],
         "guidelines": brand.guidelines or "",
+        "competitors": brand.competitors or "",
+
+        # ── Visual identity ────────────────────────────────────────────
         "colors": brand.brand_colors or [],
-        # Visual identity — used by canvas layout system and Bannerbear
         "design_style": brand.design_style or "bold",
         "brand_font": brand.brand_font or None,
-        "logo_url": brand.logo_url or None,
     }
+
+    # Merge every key from brand_kit — these supply the extended fields that
+    # ai_service.py and image_service.py reference (imagery_style, lighting_style,
+    # brand_motifs, mission_statement, value_proposition, key_messages, etc.)
+    # Individual column values above take priority over kit values.
+    merged = {**kit, **base}
+    return merged
