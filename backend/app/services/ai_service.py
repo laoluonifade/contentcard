@@ -120,11 +120,12 @@ async def _generate_for_platform(
 You generate complete, structured social media posts that are deeply on-brand. Every caption, CTA, image prompt, and visual direction must reflect the brand's identity, voice, audience psychology, and visual guidelines above.
 
 When writing image_prompt fields:
-- ALWAYS name the brand ({brand_name}) and reference its primary colors from the Visual Identity section
-- ALWAYS describe a real-looking person matching the audience demographics
-- ALWAYS reference the brand motifs and imagery style from the brand kit
-- ALWAYS reference the lighting style and design style from the brand kit
-- NEVER use generic stock-photo descriptions
+- ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colors from the VISUAL IDENTITY section
+- ALWAYS describe the logo's visual appearance using logo_description from VISUAL IDENTITY (never skip this)
+- ALWAYS use imagery_style, lighting_style, design_style, typography, and brand_motifs verbatim from VISUAL IDENTITY
+- ALWAYS describe subjects/people using the target_audience demographics (age range, occupation, lifestyle) — NOT generic stock people
+- NEVER invent visual details that contradict the brand kit
+- NEVER use generic "vibrant colors", "dramatic lighting", or "modern design" — use the kit's exact language
 
 When writing captions:
 - Match the language style and tone tags exactly
@@ -151,7 +152,7 @@ For EACH post return ALL these fields:
 5. cta — standalone call to action, max 12 words
 6. hashtags — array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
 7. visual_direction — 3-4 sentences for a designer: scene, composition, lighting, people/product, mood, typography placement. Must be consistent with the brand's visual identity.
-8. image_prompt — art-directed DALL-E 3 prompt. Use this structure: "A [adjective] {platform_format} for {brand_name}, a {industry} brand. Brand colors: [use exact hex colors from brand kit]. [Post concept from content_idea]. Feature [real person matching brand's target audience — specific age, style, energy]. [Composition and lighting from brand kit's lighting_style]. [Typography note]. [Cultural/lifestyle energy matching brand voice]. [Design style from brand kit]. [Brand motifs if relevant]. Photorealistic, high-production, aspirational. NOT stock photo."
+8. image_prompt — art-directed DALL-E 3 prompt. You MUST use the brand kit values from the VISUAL IDENTITY section above. Structure: "A [adjective] {platform_format} for {brand_name}, a {industry} brand. Brand colors: [exact primary + secondary hex colors from VISUAL IDENTITY]. [Post concept from content_idea]. [Scene/subject description using the imagery_style from VISUAL IDENTITY]. [Lighting exactly as described in lighting_style from VISUAL IDENTITY]. [Include brand motifs from VISUAL IDENTITY if listed]. [Typography placement using typography style from VISUAL IDENTITY]. [Logo: describe the logo's visual appearance from logo_description in VISUAL IDENTITY]. [Design style from VISUAL IDENTITY]. [Cultural/lifestyle energy matching brand tone and audience]. Photorealistic, 8K, magazine-cover production value. NOT stock photo, NOT generic, NOT off-brand." — If logo_description, imagery_style, lighting_style, or brand_motifs are blank, infer them from the brand's industry and tone rather than using generic defaults.
 9. image_prompt_explanation — 2 sentences: why this visual was chosen for the target audience and content goal
 10. format — "single", "carousel", or "quote"
 11. slide_count — 1 for single/quote, 2-5 for carousel
@@ -266,6 +267,7 @@ Brand narratives: {_lst(brand.get('brand_narratives'))}
 Forbidden claims: {_fmt(brand.get('forbidden_claims'))}
 
 === CONTENT STRATEGY ===
+Strategy note: {_fmt(brand.get('strategy_note'))}
 Content goals: {_lst(brand.get('content_goals'))}
 Funnel stages: {_lst(brand.get('funnel_stages'))}
 Platforms: {_lst(brand.get('platform_styles'))}

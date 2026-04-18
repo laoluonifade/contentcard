@@ -467,6 +467,7 @@ def _brand_to_dict(brand: Brand) -> dict:
         "forbidden_claims": kit.get("forbidden_claims", ""),
 
         # Strategy
+        "strategy_note": kit.get("strategy_note", ""),
         "content_types_supported": kit.get("content_types_supported", []),
         "funnel_stages": kit.get("funnel_stages", []),
         "content_goals": kit.get("content_goals", []),
