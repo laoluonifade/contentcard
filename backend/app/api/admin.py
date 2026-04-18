@@ -321,6 +321,25 @@ async def sync_brand_assistant(
     return {"brand_id": brand_id, "message": "Assistant sync started in background"}
 
 
+@router.post("/sync-all-assistants")
+async def sync_all_brand_assistants(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    One-time migration: create OpenAI Assistants for all existing brands that
+    don't have one yet. Runs async in the background — returns immediately with
+    a count of brands queued.
+    """
+    r = await db.execute(
+        select(Brand.id).where(Brand.openai_assistant_id.is_(None))
+    )
+    brand_ids = [row[0] for row in r.fetchall()]
+    for bid in brand_ids:
+        asyncio.create_task(_bg_sync_assistant(bid))
+    return {"queued": len(brand_ids), "message": f"Queued assistant creation for {len(brand_ids)} brands"}
+
+
 PIGGYVEST_KIT = {
     "mission_statement": "To make financial freedom accessible to every African by building the best savings and investment platform on the continent.",
     "value_proposition": "PiggyVest helps young Nigerians save and invest money effortlessly — starting from as little as ₦100 — with zero hidden fees and guaranteed returns.",
