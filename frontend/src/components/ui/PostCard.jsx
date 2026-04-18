@@ -3,8 +3,8 @@ import { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 're
 const W = 1080
 const H = 1080
 const PAD = 72  // left/right padding
-const PLAT_LABEL = { instagram: 'Instagram', facebook: 'Facebook', twitter: 'Twitter/X' }
-const PLAT_COLOR = { instagram: '#E1306C', facebook: '#1877F2', twitter: '#1DA1F2' }
+const PLAT_LABEL = { instagram: 'Instagram', facebook: 'Facebook', twitter: 'Twitter/X', linkedin: 'LinkedIn' }
+const PLAT_COLOR = { instagram: '#E1306C', facebook: '#1877F2', twitter: '#1DA1F2', linkedin: '#0A66C2' }
 
 // ── Colour helpers ─────────────────────────────────────────────────────────
 
