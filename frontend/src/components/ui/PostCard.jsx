@@ -419,20 +419,13 @@ async function renderOverlay(ctx, post, slide, brand, platLabel, platColor, tota
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, W, H)
 
-  // Brand name — top left, small, white
-  ctx.font = `600 26px ${ff}`
-  ctx.fillStyle = 'rgba(255,255,255,0.72)'
-  ctx.fillText((brand?.name || '').toUpperCase(), PAD, PAD + 26)
-
-  // Platform badge — top right
-  drawPlatBadge(ctx, platLabel, platColor, W - PAD, PAD, ff)
-
   // Logo — top left, if present
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
-      const lh = 52, lw = Math.round((logo.naturalWidth / logo.naturalHeight) * lh)
-      ctx.drawImage(logo, PAD, PAD + 54, lw, lh)
+      const lh = 130
+      const lw = Math.min(320, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
+      ctx.drawImage(logo, PAD, PAD + 16, lw, lh)
     } catch (_) { /* logo unavailable — skip */ }
   }
 
@@ -502,17 +495,13 @@ async function renderSplit(ctx, post, slide, brand, platLabel, platColor, totalS
   ctx.fillStyle = light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'
   ctx.fillRect(SPLIT - 2, 0, 4, H)
 
-  // Brand name — top left
-  ctx.font = `600 24px ${ff}`
-  ctx.fillStyle = mutedColor
-  ctx.fillText((brand?.name || '').toUpperCase(), PAD, PAD + 24)
-
-  // Logo — below brand name
+  // Logo — top left of left panel
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
-      const lh = 48, lw = Math.round((logo.naturalWidth / logo.naturalHeight) * lh)
-      ctx.drawImage(logo, PAD, PAD + 52, lw, lh)
+      const lh = 110
+      const lw = Math.min(280, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
+      ctx.drawImage(logo, PAD, PAD + 24, lw, lh)
     } catch (_) { /* skip */ }
   }
 
@@ -521,7 +510,7 @@ async function renderSplit(ctx, post, slide, brand, platLabel, platColor, totalS
   const headSize = headline.length > 32 ? 68 : headline.length > 20 ? 82 : 96
   ctx.font = `900 ${headSize}px ${ff}`
   ctx.fillStyle = textColor
-  const hY = PAD + 140
+  const hY = PAD + 210
   const hBottom = drawWrapped(ctx, headline, PAD, hY, SPLIT - PAD * 1.5, headSize * 1.1, 4)
 
   // Thin accent rule
@@ -579,14 +568,6 @@ async function renderEditorial(ctx, post, slide, brand, platLabel, platColor, sl
   ctx.fillStyle = brandColor
   ctx.fillRect(0, IMG_H, W, 6)
 
-  // Platform badge — top right of image
-  drawPlatBadge(ctx, platLabel, platColor, W - PAD, PAD, ff)
-
-  // Brand name — top left of image
-  ctx.font = `600 24px ${ff}`
-  ctx.fillStyle = 'rgba(255,255,255,0.72)'
-  ctx.fillText((brand?.name || '').toUpperCase(), PAD, PAD + 24)
-
   const textTop = IMG_H + 56
 
   // Headline in brand color
@@ -611,7 +592,8 @@ async function renderEditorial(ctx, post, slide, brand, platLabel, platColor, sl
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
-      const lh = 48, lw = Math.round((logo.naturalWidth / logo.naturalHeight) * lh)
+      const lh = 110
+      const lw = Math.min(280, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
       ctx.drawImage(logo, W - PAD - lw, H - PAD - lh, lw, lh)
     } catch (_) { /* skip */ }
   }
