@@ -244,10 +244,11 @@ async def regenerate_caption(
     if not item:
         raise HTTPException(status_code=404, detail="Content not found")
     brand = await _get_brand_and_check_access(item.brand_id, current_user.id, db)
+    brand_dict = _brand_to_dict(brand)
 
     try:
         result = await generate_single_caption(
-            brand=_brand_to_dict(brand),
+            brand=brand_dict,
             topic=item.topic,
             platform=item.platform.value,
             mood=body.mood,
@@ -259,6 +260,28 @@ async def regenerate_caption(
     except Exception as e:
         logger.error(f"Regenerate error for {content_id}: {e}")
         raise HTTPException(status_code=502, detail="AI generation failed — please try again")
+
+    # Regenerate image on redraft — clear cached URL so a fresh DALL-E image is generated
+    from app.services.image_service import generate_post_image
+    item.image_url = None
+    item.image_urls = []
+    await db.commit()
+    try:
+        post_dict = {
+            "platform": item.platform.value,
+            "content_type": item.content_type,
+            "content_idea": item.content_idea or item.topic,
+            "description": item.description,
+            "visual_direction": item.visual_direction,
+            "image_prompt": item.image_prompt,
+            "format": item.format.value if item.format else "single",
+        }
+        url = await generate_post_image(post_dict, brand_dict)
+        if url:
+            item.image_url = url
+            item.image_urls = [url]
+    except Exception as e:
+        logger.error(f"Image regen failed for {content_id}: {e}")
 
     await db.commit()
     await db.refresh(item)
@@ -347,9 +370,11 @@ async def _do_generate_month(
             await db.commit()
             logger.info(f"Generated {len(saved_items)} posts for brand {brand_id} {month}/{year}")
 
-            # Generate DALL-E 3 images (no-op if OPENAI_API_KEY not configured)
+            # Generate DALL-E 3 images — skip if already cached
             any_images = False
             for item, post_data in saved_items:
+                if item.image_url:
+                    continue  # already has a permanent image, never regenerate
                 try:
                     url = await generate_post_image(post_data, brand_dict)
                     if url:
@@ -385,6 +410,7 @@ def _brand_to_dict(brand: Brand) -> dict:
     kit = brand.brand_kit or {}
     return {
         # Core identity
+        "logo_url": brand.logo_url or "",
         "name": brand.name or "My Brand",
         "industry": brand.industry or "General",
         "description": brand.description or "",

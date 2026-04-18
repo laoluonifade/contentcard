@@ -151,12 +151,14 @@ adminAxios.interceptors.response.use(
 )
 
 export const adminApi = {
-  login:      (data)        => axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api/v1' }).post('/auth/login', data).then(r => r.data),
-  stats:      ()            => adminAxios.get('/admin/stats').then(r => r.data),
-  users:      (params)      => adminAxios.get('/admin/users', { params }).then(r => r.data),
-  workspaces: (params)      => adminAxios.get('/admin/workspaces', { params }).then(r => r.data),
-  brands:     (params)      => adminAxios.get('/admin/brands', { params }).then(r => r.data),
-  content:    (params)      => adminAxios.get('/admin/content', { params }).then(r => r.data),
+  login:              (data)    => axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api/v1' }).post('/auth/login', data).then(r => r.data),
+  stats:              ()        => adminAxios.get('/admin/stats').then(r => r.data),
+  users:              (params)  => adminAxios.get('/admin/users', { params }).then(r => r.data),
+  workspaces:         (params)  => adminAxios.get('/admin/workspaces', { params }).then(r => r.data),
+  brands:             (params)  => adminAxios.get('/admin/brands', { params }).then(r => r.data),
+  content:            (params)  => adminAxios.get('/admin/content', { params }).then(r => r.data),
+  deleteContentByUser:(email)   => adminAxios.delete(`/admin/content/by-user/${encodeURIComponent(email)}`).then(r => r.data),
+  seedPiggyVest:      (email)   => adminAxios.post(`/admin/seed-piggyvest/${encodeURIComponent(email)}`).then(r => r.data),
 }
 
 export default api

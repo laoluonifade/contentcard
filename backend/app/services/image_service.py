@@ -70,6 +70,9 @@ def _build_combined_prompt(post: dict, brand: dict) -> str:
         format_note = "Single full-bleed hero image. Maximum visual impact."
 
     # If AI generated a specific image_prompt, use it as the foundation and enrich it
+    logo_url = brand.get("logo_url", "")
+    logo_note = f"Brand logo URL for reference: {logo_url}. Incorporate the brand's visual identity consistently." if logo_url else ""
+
     if ai_image_prompt and len(ai_image_prompt) > 50:
         prompt = f"""{ai_image_prompt}
 
@@ -77,6 +80,7 @@ Brand identity reinforcement: {brand_name} ({industry}). Brand colors: {color_st
 {f'Target audience: {target_audience}.' if target_audience else ''}
 {f'Post strategy: {description}' if description else ''}
 {f'Visual direction: {visual_direction}' if visual_direction else ''}
+{logo_note}
 {cultural_note}
 Format: {platform_note}. Photorealistic, 8K quality, magazine-cover production value. NOT stock photo, NOT minimalist, NOT flat."""
     else:
