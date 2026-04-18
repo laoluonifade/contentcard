@@ -264,14 +264,14 @@ export default function CalendarPage() {
             {/* Modal header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 sticky top-0 bg-zinc-900 z-10">
               <div>
-                <div className="flex items-center gap-2 mb-0.5">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                   {(() => { const pl = PLATFORMS.find(p=>p.id===modal.platform); return pl ? <span style={{color:pl.color}}>{PLATFORM_LOGO[pl.id]}</span> : null })()}
-                  <p className="text-white font-bold capitalize text-sm">{modal.platform} · {fmtDate(modal.scheduled_date)}</p>
+                  <p className="text-zinc-400 text-xs font-medium capitalize">{modal.platform} · {fmtDate(modal.scheduled_date)}</p>
                   {modal.content_type && (
                     <span className="px-2 py-0.5 bg-violet-500/15 text-violet-300 text-[10px] font-bold rounded-lg uppercase tracking-wide">{modal.content_type}</span>
                   )}
                 </div>
-                <p className="text-zinc-500 text-xs truncate max-w-[360px]">{modal.topic}</p>
+                <p className="text-white font-bold text-sm truncate max-w-[400px]">{modal.content_idea || modal.topic}</p>
               </div>
               <button onClick={()=>setModal(null)} className="text-zinc-500 hover:text-white p-1.5 transition-colors -mr-1">
                 <X size={20}/>
@@ -334,12 +334,23 @@ export default function CalendarPage() {
 
                 {/* Caption editor */}
                 <div className="space-y-3">
+
+                  {/* Strategy note */}
                   {modal.description && (
                     <div className="px-3 py-2.5 bg-amber-500/8 border border-amber-500/20 rounded-xl">
-                      <p className="text-[10px] font-bold uppercase tracking-widest text-amber-500/70 mb-1">Strategy Note</p>
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400/70 mb-1">Strategy Note</p>
                       <p className="text-amber-200/80 text-xs leading-relaxed">{modal.description}</p>
                     </div>
                   )}
+
+                  {/* Visual direction */}
+                  {modal.visual_direction && (
+                    <div className="px-3 py-2.5 bg-blue-500/8 border border-blue-500/20 rounded-xl">
+                      <p className="text-[10px] font-bold uppercase tracking-widest text-blue-400/70 mb-1">Visual Direction</p>
+                      <p className="text-blue-200/80 text-xs leading-relaxed">{modal.visual_direction}</p>
+                    </div>
+                  )}
+
                   <div>
                     <label className="block text-[11px] font-bold uppercase tracking-widest text-zinc-500 mb-1.5">Caption</label>
                     <textarea value={editCaption} onChange={e=>setEditCaption(e.target.value)} rows={7}
@@ -356,6 +367,38 @@ export default function CalendarPage() {
                       ))}
                     </div>
                   </div>
+
+                  {/* CTA */}
+                  {modal.cta && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-emerald-500/8 border border-emerald-500/20 rounded-xl">
+                      <span className="text-[10px] font-bold uppercase tracking-widest text-emerald-400/70 whitespace-nowrap">CTA</span>
+                      <span className="text-emerald-200/90 text-xs font-medium">{modal.cta}</span>
+                    </div>
+                  )}
+
+                  {/* Image prompt + explanation */}
+                  {modal.image_prompt && (
+                    <details className="group">
+                      <summary className="flex items-center gap-2 cursor-pointer list-none select-none py-1">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500">Image Prompt</span>
+                        <span className="text-zinc-600 text-[10px] group-open:rotate-180 transition-transform inline-block">▾</span>
+                      </summary>
+                      <div className="mt-2 space-y-2">
+                        <div className="px-3 py-2.5 bg-zinc-950 border border-zinc-800 rounded-xl relative">
+                          <p className="text-zinc-400 text-xs leading-relaxed pr-8">{modal.image_prompt}</p>
+                          <button
+                            onClick={()=>{ navigator.clipboard?.writeText(modal.image_prompt); toast('Image prompt copied!') }}
+                            className="absolute top-2 right-2 text-zinc-600 hover:text-zinc-300 transition-colors">
+                            <Copy size={11}/>
+                          </button>
+                        </div>
+                        {modal.image_prompt_explanation && (
+                          <p className="text-zinc-600 text-[11px] leading-relaxed italic px-1">{modal.image_prompt_explanation}</p>
+                        )}
+                      </div>
+                    </details>
+                  )}
+
                   <div className="flex gap-2 flex-wrap pt-1">
                     <button onClick={saveEdits} disabled={saving}
                       className="flex items-center gap-1.5 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-xs font-bold rounded-xl transition-colors">

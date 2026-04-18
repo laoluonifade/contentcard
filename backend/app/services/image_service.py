@@ -139,8 +139,9 @@ async def generate_post_image(post: dict, brand: dict) -> str | None:
     if not settings.OPENAI_API_KEY:
         return None
 
-    prompt = _build_image_prompt(post, brand)
-    logger.info(f"DALL-E prompt for '{post.get('topic')}':\n{prompt[:300]}…")
+    # Use AI-generated image_prompt if available, otherwise build from brand context
+    prompt = post.get("image_prompt") or _build_image_prompt(post, brand)
+    logger.info(f"DALL-E prompt for '{post.get('topic')}':\n{prompt[:400]}…")
 
     try:
         async with httpx.AsyncClient(timeout=60) as client:

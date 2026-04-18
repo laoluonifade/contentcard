@@ -9,17 +9,16 @@ logger = logging.getLogger(__name__)
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 TEXT_MODEL = "gpt-4o"
 
-SYSTEM_PROMPT = """You are ContentCard's AI content strategist. You generate high-converting social media content for businesses.
+SYSTEM_PROMPT = """You are an AI content engine inside ContentCard. You generate complete, structured social media posts that power a content calendar and a detailed content view.
 
 Rules:
-- Always match the brand's voice, tone, and language style exactly
+- Match the brand's voice, tone, and language style exactly
 - Never use words the brand has marked to avoid
-- Captions should feel human, not AI-generated
-- Include a clear CTA in most posts
-- Hashtags should be relevant and a mix of popular + niche
+- Captions must feel human, punchy, and platform-native — NOT generic AI text
+- Maximum 1-2 hashtags per post
+- Always include a clear CTA
 - For Nigerian English or Pidgin, use authentic local expressions naturally
-- Always return valid JSON when asked for structured output
-- NEVER include markdown code fences in your response — return raw JSON only"""
+- Always return valid JSON — NEVER include markdown code fences"""
 
 
 def _parse_json_safe(raw: str) -> dict | list:
@@ -70,6 +69,8 @@ async def _openai_chat(messages: list[dict], max_tokens: int = 8000) -> str:
 
 async def _generate_for_platform(
     brand_ctx: str,
+    brand_name: str,
+    industry: str,
     month_name: str,
     year: int,
     platform: str,
@@ -82,16 +83,18 @@ async def _generate_for_platform(
     n = len(posting_dates)
 
     content_types = [
-        "educational tip or industry insight",
-        "funny/relatable meme-style post with humour relevant to the brand's audience",
-        "strong CTA — drive DMs, website visits, or purchases",
-        "trending news or cultural moment relevant to the industry",
-        "behind-the-scenes or founder story",
-        "social proof — customer result, testimonial, or win",
-        "controversial opinion or hot take in the industry",
-        "engaging question to spark comments",
-        "product/service spotlight with benefits",
-        "motivational or inspiring post tied to brand values",
+        "Educational Tip",
+        "Meme / Relatable Humour",
+        "CTA / Promotion",
+        "Trending Moment",
+        "Behind the Scenes",
+        "Customer Testimonial",
+        "Hot Take",
+        "Engagement Question",
+        "Product Spotlight",
+        "Monday Motivation",
+        "Founder Story",
+        "Industry Insight",
     ]
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
@@ -99,8 +102,16 @@ async def _generate_for_platform(
     assigned_types = [content_types[rng.randint(0, len(content_types) - 1)] for _ in posting_dates]
     type_instructions = '\n'.join([f"- {d}: {t}" for d, t in zip(posting_dates, assigned_types)])
 
-    prompt = f"""You are a world-class social media strategist. Today is {today.isoformat()}.
-Generate {n} high-converting {platform} post(s) for {month_name} {year}.
+    platform_notes = {
+        "instagram": "Instagram square 1:1",
+        "facebook": "Facebook post 1:1",
+        "twitter": "Twitter/X landscape 16:9",
+        "linkedin": "LinkedIn professional post 1:1",
+    }
+    platform_format = platform_notes.get(platform.lower(), "social media post 1:1")
+
+    prompt = f"""You are a world-class social media strategist and creative director. Today is {today.isoformat()}.
+Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
 
 Brand profile:
 {brand_ctx}
@@ -109,37 +120,46 @@ Platform: {platform}
 Format preference: {format_mix}
 {topics_hint}
 
-Generate exactly one post for each date below, using the assigned content type:
+Generate exactly one post for each date below using the assigned content type:
 {type_instructions}
 
-CONTENT RULES:
-- Each post MUST feel completely different from the others — vary tone, angle, and style
-- Captions must be short, punchy, and human (NOT generic AI text)
-- Mix humour, emotion, education, controversy, and CTAs naturally
-- Reference current cultural moments, industry trends, or {month_name} {year} events where relevant
-- Write for {platform}'s native style and audience behaviour
-- Carousel posts: write a caption that flows naturally across 2-4 slides
-- Quote posts: write one powerful quote from brand perspective
-- Single posts: punchy caption with a clear hook in the first line
+For EACH post, generate ALL of the following fields:
+
+1. content_type — the category exactly as assigned (e.g. "Monday Motivation", "Customer Testimonial")
+2. content_idea — a short punchy title for the post concept, max 8 words
+3. description — 2-3 sentences explaining the intent and strategy of this post, written for a social media manager. What is this post trying to achieve? Why this angle? Who specifically is it speaking to?
+4. caption — full ready-to-post caption, engaging and platform-native, max 100 words, NO hashtags inside
+5. cta — a short standalone call to action, max 12 words (e.g. "Book your free call today →", "Save this for later 🔖")
+6. hashtags — array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
+7. visual_direction — 3-4 sentences describing the visual design for a designer: scene, composition, lighting, people/product, mood, typography placement
+8. image_prompt — a sharp, art-directed prompt for DALL-E 3 that will generate a scroll-stopping image. Structure it like this example:
+   "A vibrant, eye-catching {platform_format} for [brand name], a [industry] brand. [Brand colors] with electric accents. [Headline concept from content_idea]. Feature [person description — real, not stock]. [Composition and lighting details]. [Typography element]. [Cultural/lifestyle energy]. [Platform format]. [Style reference]. Aspirational, modern."
+   Make every prompt this specific and visual. Reference the brand name, colors, topic, person, composition, lighting, and cultural energy. NOT generic.
+9. image_prompt_explanation — 2 sentences explaining why this visual direction was chosen based on the content_description and target audience
+10. format — "single", "carousel", or "quote"
+11. slide_count — 1 for single/quote, 2-5 for carousel
 
 Return a JSON array where each element has exactly these fields:
-- "date": one of the dates above (YYYY-MM-DD)
-- "platform": "{platform}"
-- "topic": short punchy topic title, max 6 words
-- "format": "single" or "carousel" or "quote"
-- "slide_count": 1 for single/quote, 2-5 for carousel
-- "caption": full caption, max 120 words, no hashtags in the caption
-- "hashtags": array of exactly 5 relevant hashtag strings without the # symbol
+"date", "platform", "content_type", "content_idea", "description", "caption", "cta", "hashtags", "visual_direction", "image_prompt", "image_prompt_explanation", "format", "slide_count"
 
-Return ONLY the raw JSON array. No explanation, no markdown, no preamble."""
+IMPORTANT:
+- topic = content_idea (use content_idea as the topic too)
+- Each post must feel completely different — vary tone, angle, format, and style
+- Captions must be human, punchy, and platform-native. First line must be a strong hook
+- image_prompt must be as sharp and specific as the example above — name the brand, describe a real person, specify lighting, colors, composition
+- Return ONLY the raw JSON array. No explanation, no markdown, no preamble."""
 
     raw = await _openai_chat([
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
-    ])
+    ], max_tokens=12000)
     result = _parse_json_safe(raw)
     if not isinstance(result, list):
         raise ValueError("Expected a JSON array")
+    # Ensure topic field matches content_idea for backwards compat
+    for post in result:
+        if not post.get("topic"):
+            post["topic"] = post.get("content_idea", "")
     return result
 
 
@@ -156,14 +176,18 @@ async def generate_monthly_plan(
     import calendar
     month_name = calendar.month_name[month]
 
+    brand_name = brand.get('name', 'My Brand')
+    industry = brand.get('industry', 'General')
+
     brand_ctx = f"""
-Brand: {brand.get('name', 'My Brand')}
-Industry: {brand.get('industry', 'General')}
+Brand: {brand_name}
+Industry: {industry}
 Description: {brand.get('description', '')}
 Target audience: {brand.get('target_audience', '')}
 Tone tags: {', '.join(brand.get('tone_tags') or [])}
 Language style: {brand.get('language_style', 'english')}
 Personality (0=serious, 100=casual): {brand.get('personality_score', 50)}
+Brand colors: {', '.join(brand.get('colors') or [])}
 Words to avoid: {', '.join(brand.get('words_to_avoid') or [])}
 Guidelines: {brand.get('guidelines', '')}
 """.strip()
@@ -181,7 +205,8 @@ Guidelines: {brand.get('guidelines', '')}
     for platform in platforms:
         try:
             posts = await _generate_for_platform(
-                brand_ctx, month_name, year, platform,
+                brand_ctx, brand_name, industry,
+                month_name, year, platform,
                 format_mix, topics_hint, posting_dates,
             )
             all_posts.extend(posts)
@@ -218,14 +243,15 @@ Brand profile: {brand_ctx}
 Topic: {topic}
 Mood: {mood or 'same as original'}
 Original: {existing_caption}
-Return JSON: {{"caption": "...", "hashtags": ["...", "...", "...", "...", "..."]}}"""
+Return JSON: {{"caption": "...", "hashtags": ["...", "..."]}}"""
     else:
         prompt = f"""Write one high-converting {platform} caption for {brand.get('name', 'the brand')}.
 Brand profile: {brand_ctx}
 Topic: {topic}
 {f'Mood: {mood}' if mood else ''}
 {f'Context: {description}' if description else ''}
-Return JSON: {{"caption": "...", "hashtags": ["...", "...", "...", "...", "..."]}}"""
+Max 1-2 hashtags.
+Return JSON: {{"caption": "...", "hashtags": ["...", "..."]}}"""
 
     raw = await _openai_chat([
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -251,7 +277,8 @@ Audience: {brand.get('target_audience', '')}
 Brand: {brand_ctx}
 Photo description: {description}
 {f'Mood: {mood}' if mood else ''}
-Return JSON: {{"caption": "...", "hashtags": ["...", "...", "...", "...", "..."]}}"""
+Max 1-2 hashtags.
+Return JSON: {{"caption": "...", "hashtags": ["...", "..."]}}"""
 
     raw = await _openai_chat([
         {"role": "system", "content": SYSTEM_PROMPT},

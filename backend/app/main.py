@@ -60,6 +60,14 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS country_code VARCHAR(10)",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_url VARCHAR(1000)",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_urls JSON",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS content_type VARCHAR(100)",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS content_idea VARCHAR(300)",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS description TEXT",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS cta VARCHAR(300)",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS visual_direction TEXT",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_prompt TEXT",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_prompt_explanation TEXT",
+            "ALTER TYPE contentplatform ADD VALUE IF NOT EXISTS 'linkedin'",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))
