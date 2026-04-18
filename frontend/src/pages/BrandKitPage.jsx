@@ -170,11 +170,13 @@ export default function BrandKitPage() {
   const [tab, setTab] = useState('Identity')
   const [saving, setSaving] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
   const [newColorHex, setNewColorHex] = useState('#6C63FF')
   const [newColorHex2, setNewColorHex2] = useState('#FFFFFF')
   const [form, setForm] = useState({})
   const [kit, setKit] = useState({})   // brand_kit (extended fields)
   const [aiInsights, setAiInsights] = useState(null)
+  const logoInputRef = useRef()
 
   const langOptions = LANG_BY_COUNTRY[user?.country_code] || LANG_BY_COUNTRY.default
 
@@ -204,6 +206,19 @@ export default function BrandKitPage() {
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Save failed', 'error')
     } finally { setSaving(false) }
+  }
+
+  const uploadLogo = async (file) => {
+    if (!file || !activeBrandId || !activeWorkspaceId) return
+    setLogoUploading(true)
+    try {
+      const result = await brandApi.uploadLogo(activeWorkspaceId, activeBrandId, file)
+      setForm(f => ({ ...f, logo_url: result.logo_url }))
+      await updateBrand(activeBrandId, { ...form, logo_url: result.logo_url, brand_kit: kit })
+      toast('Logo uploaded!')
+    } catch (err) {
+      toast(err.response?.data?.detail || 'Logo upload failed', 'error')
+    } finally { setLogoUploading(false) }
   }
 
   const generateInsights = async () => {
@@ -266,6 +281,27 @@ export default function BrandKitPage() {
       {/* ── IDENTITY ── */}
       {tab === 'Identity' && (
         <div className="space-y-4">
+
+          {/* Logo upload */}
+          <Section title="Brand Logo">
+            <div className="flex items-center gap-5">
+              <div className="w-20 h-20 rounded-2xl border-2 border-dashed border-zinc-700 bg-zinc-950 flex items-center justify-center overflow-hidden flex-shrink-0">
+                {form.logo_url
+                  ? <img src={form.logo_url} alt="Logo" className="w-full h-full object-contain p-1"/>
+                  : <span className="text-zinc-600 text-xs text-center leading-tight px-2">No logo</span>}
+              </div>
+              <div>
+                <p className="text-zinc-400 text-xs mb-2">Upload your brand logo. Used in AI-generated image prompts.</p>
+                <input ref={logoInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={e => e.target.files?.[0] && uploadLogo(e.target.files[0])}/>
+                <button type="button" onClick={() => logoInputRef.current?.click()} disabled={logoUploading}
+                  className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl border border-zinc-700 transition-colors">
+                  {logoUploading ? 'Uploading…' : form.logo_url ? 'Replace Logo' : 'Upload Logo'}
+                </button>
+              </div>
+            </div>
+          </Section>
+
           <Section title="Brand Basics">
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
