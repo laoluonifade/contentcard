@@ -103,7 +103,9 @@ export const billingApi = {
 
 // ─── Trends ─────────────────────────────────────────────────────
 export const trendsApi = {
-  list: (industry) => api.get('/trends', { params: industry ? { industry } : {} }).then(r => r.data),
+  list:         (industry) => api.get('/trends', { params: industry ? { industry } : {} }).then(r => r.data),
+  refresh:      (industry) => api.post('/trends/refresh', null, { params: industry ? { industry } : {} }).then(r => r.data),
+  generatePost: (data)     => api.post('/trends/generate-post', data).then(r => r.data),
 }
 
 // ─── Upload ─────────────────────────────────────────────────────

@@ -360,6 +360,53 @@ Return JSON: {{"caption": "...", "hashtags": ["...", "..."]}}"""
     return _parse_json_safe(raw)
 
 
+async def generate_fresh_trends(industry: str | None = None, country_code: str | None = None) -> list[dict]:
+    """Generate fresh Nigeria-focused trending topics via OpenAI."""
+    from datetime import date
+    today = date.today().isoformat()
+    industry_ctx = f" within the {industry} industry" if industry else ""
+
+    prompt = f"""Today is {today}. Generate 12 trending social media topics Nigerian brands and creators should be posting about RIGHT NOW{industry_ctx}.
+
+Mix of:
+- Nigerian entertainment, music (Afrobeats artists, Nollywood), sports
+- Nigerian fintech, startup and business culture (Flutterwave, Paystack ecosystem)
+- Nigerian lifestyle, food, fashion, beauty
+- Relatable everyday Nigerian experiences and humor
+- Pan-African pride and identity
+- Global trends filtered through a Nigerian lens
+- Seasonal moments and events happening this month in Nigeria
+
+Return a JSON array of exactly 12 objects with these fields:
+- "topic": trend name, 2-5 words, titlecase
+- "description": one sentence explaining why this is trending now in Nigeria
+- "volume": estimated engagement e.g. "4.2M posts" or "890K views"
+- "badge": one of "viral", "rising", or "steady"
+
+Return ONLY the raw JSON array. No markdown, no explanation."""
+
+    raw = await _openai_chat([
+        {"role": "system", "content": f"You are a senior Nigerian digital strategist tracking real-time trends on Twitter Nigeria, Instagram, TikTok Nigeria, and Nigerian news portals. Today is {today}."},
+        {"role": "user", "content": prompt},
+    ], max_tokens=2000)
+
+    result = _parse_json_safe(raw)
+    if not isinstance(result, list):
+        raise ValueError("Expected list of trends")
+
+    valid = []
+    for t in result:
+        if t.get("topic"):
+            badge = t.get("badge", "rising")
+            valid.append({
+                "topic": str(t["topic"])[:255],
+                "description": str(t["description"])[:500] if t.get("description") else None,
+                "volume": str(t["volume"])[:50] if t.get("volume") else None,
+                "badge": badge if badge in ("viral", "rising", "steady") else "rising",
+            })
+    return valid
+
+
 async def generate_photo_caption(
     brand: dict,
     platform: str,
