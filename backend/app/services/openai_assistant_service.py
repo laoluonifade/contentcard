@@ -242,7 +242,9 @@ async def generate_with_assistant(assistant_id: str, creative_brief: str) -> str
     Creates a thread, sends the creative brief, waits for completion, returns response text.
     The assistant retrieves brand context from its vector store automatically.
     Citation markers (【x:y†source】) are stripped so the result is clean JSON.
+    Uses manual async polling (asyncio.sleep) to avoid blocking the event loop.
     """
+    import asyncio
     client = _get_client()
 
     thread = await client.beta.threads.create()
@@ -252,11 +254,22 @@ async def generate_with_assistant(assistant_id: str, creative_brief: str) -> str
         content=creative_brief,
     )
 
-    run = await client.beta.threads.runs.create_and_poll(
+    run = await client.beta.threads.runs.create(
         thread_id=thread.id,
         assistant_id=assistant_id,
         max_completion_tokens=12000,
     )
+
+    # Poll with asyncio.sleep so the event loop stays free for other requests
+    timeout = 180  # 3 minutes max
+    elapsed = 0
+    while run.status in ("queued", "in_progress", "cancelling"):
+        if elapsed >= timeout:
+            await client.beta.threads.runs.cancel(thread_id=thread.id, run_id=run.id)
+            raise RuntimeError(f"Assistant run timed out after {timeout}s")
+        await asyncio.sleep(3)
+        elapsed += 3
+        run = await client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
 
     if run.status != "completed":
         raise RuntimeError(f"Assistant run ended with status: {run.status}")
