@@ -165,6 +165,9 @@ CRITICAL RULES:
 
     result = None
     if assistant_id:
+        # Assistant has the full brand kit in its Vector Store — no need to send
+        # brand_system in the prompt. It retrieves context via file_search automatically.
+        # Prompt is ~60% shorter → faster generation, lower cost.
         try:
             from app.services.openai_assistant_service import generate_with_assistant
             raw = await generate_with_assistant(assistant_id, creative_brief)
@@ -177,6 +180,7 @@ CRITICAL RULES:
             result = None
 
     if result is None:
+        # Fallback: inject full brand context inline since there's no Vector Store available
         raw = await _openai_chat([
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": brand_system},
