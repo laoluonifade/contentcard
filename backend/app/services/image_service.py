@@ -15,18 +15,23 @@ PLATFORM_FORMAT = {
 
 
 def _build_combined_prompt(post: dict, brand: dict) -> str:
-    """
-    Build the richest possible image prompt combining:
-    - AI-generated image_prompt (primary, if available)
-    - Brand identity: name, industry, colors, tone, language/culture
-    - Post context: content_type, content_idea, visual_direction, description
-    """
     brand_name = brand.get("name", "the brand")
     industry = (brand.get("industry") or "General").lower()
     colors = brand.get("colors") or brand.get("brand_colors") or []
+    secondary_colors = brand.get("secondary_colors") or []
     tone_tags = brand.get("tone_tags") or []
     language = brand.get("language_style", "english")
     target_audience = brand.get("target_audience", "")
+    audience_age_range = brand.get("audience_age_range", "")
+
+    # Visual identity from brand kit — these replace generic hardcoded descriptions
+    logo_description = brand.get("logo_description", "")
+    imagery_style = brand.get("imagery_style", "")
+    lighting_style = brand.get("lighting_style", "")
+    brand_motifs = brand.get("brand_motifs") or []
+    design_style = brand.get("design_style", "")
+    typography_style = brand.get("typography_style") or brand.get("brand_font", "")
+    strategy_note = brand.get("strategy_note", "")
 
     platform = (post.get("platform") or "instagram").lower()
     content_type = post.get("content_type", "")
@@ -36,32 +41,39 @@ def _build_combined_prompt(post: dict, brand: dict) -> str:
     ai_image_prompt = post.get("image_prompt", "")
     fmt = post.get("format", "single")
 
-    nigerian = "nigerian" in language.lower() or "pidgin" in language.lower()
     platform_note = PLATFORM_FORMAT.get(platform, "social media post 1:1")
-    color_str = f"{', '.join(colors[:4])}" if colors else "bold vibrant brand colors"
-    tone_str = ', '.join(tone_tags) if tone_tags else "modern, energetic, aspirational"
 
-    if nigerian:
-        cultural_note = (
-            f"Think {brand_name} meets Flutterwave meets a Lagos lifestyle magazine cover. "
-            "Where Lagos street culture meets luxury brand advertising. Aspirational, modern, African excellence."
-        )
-        person_note = (
-            "Feature a real-looking, well-dressed young Nigerian professional (25–32), "
-            "styled like a high-fashion Lagos lifestyle shoot — sharp outfit, confident energy, "
-            "glowing skin. NOT a stock photo — cinematic and editorial."
-        )
-    else:
-        cultural_note = (
-            f"Think {brand_name} meets a premium international lifestyle brand. "
-            "Modern, high-production, aspirational."
-        )
-        person_note = (
-            "Feature a well-dressed, confident young professional (25–32) "
-            "styled like a premium lifestyle campaign. Cinematic, editorial."
-        )
+    all_colors = colors[:4] + secondary_colors[:2]
+    color_str = ", ".join(all_colors) if all_colors else "bold vibrant brand colors"
+    tone_str = ", ".join(tone_tags) if tone_tags else "modern, energetic, aspirational"
 
-    format_note = ""
+    # Build brand visual identity block strictly from the kit
+    identity_lines = []
+    if logo_description:
+        identity_lines.append(f"Logo: {logo_description}")
+    if imagery_style:
+        identity_lines.append(f"Imagery style: {imagery_style}")
+    if lighting_style:
+        identity_lines.append(f"Lighting: {lighting_style}")
+    if brand_motifs:
+        identity_lines.append(f"Brand motifs: {', '.join(brand_motifs)}")
+    if design_style:
+        identity_lines.append(f"Design style: {design_style}")
+    if typography_style:
+        identity_lines.append(f"Typography: {typography_style}")
+    brand_identity_block = "\n".join(identity_lines)
+
+    # Cultural note derived from language style — enriches but never overrides kit values
+    nigerian = "nigerian" in language.lower() or "pidgin" in language.lower()
+    cultural_note = (
+        "Cultural energy: Lagos meets luxury — African excellence, aspirational, modern. NOT Western stock photo."
+        if nigerian else ""
+    )
+
+    # Audience description from kit fields
+    audience_parts = [p for p in [target_audience, f"age {audience_age_range}" if audience_age_range else ""] if p]
+    audience_note = f"Target audience: {', '.join(audience_parts)}." if audience_parts else ""
+
     if fmt == "carousel":
         format_note = "Bold editorial first-frame hero shot. Strong visual hierarchy suggesting a series."
     elif fmt == "quote":
@@ -69,44 +81,37 @@ def _build_combined_prompt(post: dict, brand: dict) -> str:
     else:
         format_note = "Single full-bleed hero image. Maximum visual impact."
 
-    # If AI generated a specific image_prompt, use it as the foundation and enrich it
-    logo_url = brand.get("logo_url", "")
-    logo_note = f"Brand logo URL for reference: {logo_url}. Incorporate the brand's visual identity consistently." if logo_url else ""
-
     if ai_image_prompt and len(ai_image_prompt) > 50:
+        # AI-generated prompt is primary; append brand identity enforcement
         prompt = f"""{ai_image_prompt}
 
-Brand identity reinforcement: {brand_name} ({industry}). Brand colors: {color_str}. Tone: {tone_str}.
-{f'Target audience: {target_audience}.' if target_audience else ''}
+=== BRAND IDENTITY ENFORCEMENT ===
+Brand: {brand_name} ({industry})
+Colors (dominant palette): {color_str}
+{brand_identity_block}
+{audience_note}
 {f'Post strategy: {description}' if description else ''}
 {f'Visual direction: {visual_direction}' if visual_direction else ''}
-{logo_note}
+{f'Strategy context: {strategy_note}' if strategy_note else ''}
 {cultural_note}
-Format: {platform_note}. Photorealistic, 8K quality, magazine-cover production value. NOT stock photo, NOT minimalist, NOT flat."""
+Format: {platform_note}. Photorealistic, 8K, magazine-cover production value. NOT generic stock photo."""
     else:
-        # Fallback: build from scratch with all context
-        prompt = f"""A vibrant, eye-catching {platform_note} for {brand_name}, a {industry} brand.
+        prompt = f"""A high-impact {platform_note} image for {brand_name}, a {industry} brand.
 
-Brand colors: {color_str} — use as dominant palette with electric accents.
-Post concept: "{content_idea}"{f' ({content_type})' if content_type else ''}.
+POST CONCEPT: "{content_idea}"{f' ({content_type})' if content_type else ''}
 {f'Post goal: {description}' if description else ''}
-
-{person_note}
-
 {f'Visual direction: {visual_direction}' if visual_direction else ''}
 
-Rich textures, dynamic composition, slight depth of field. Bold oversized typography space integrated into the design. {format_note}
+BRAND IDENTITY (strictly enforce):
+Brand colors: {color_str} — use as dominant palette
+{brand_identity_block}
+Tone: {tone_str}
+{audience_note}
+{f'Strategy context: {strategy_note}' if strategy_note else ''}
+{cultural_note}
 
-Visual style:
-- Cinematic, editorial, luxury brand energy — 8K, magazine-cover production value
-- Rich layered composition — NOT flat, NOT minimalist, NOT generic stock photo
-- Dynamic lighting: warm golden tones, dramatic shadows, or vibrant studio pop
-- Bold graphic energy: overlapping shapes, color blocks, strong typographic presence
-- Industry energy: {industry} meets premium lifestyle
-
-Tone: {tone_str}.
-{f'Target audience: {target_audience}.' if target_audience else ''}
-{cultural_note}"""
+{format_note}
+Photorealistic, 8K, magazine-cover production value. NOT generic, NOT stock photo, NOT flat."""
 
     return prompt.strip()
 
