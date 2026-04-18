@@ -286,6 +286,7 @@ async def _do_generate_month(
 ):
     from app.db.database import AsyncSessionLocal
     from app.services.bannerbear_service import generate_post_images
+    from app.services.image_service import generate_post_image
     async with AsyncSessionLocal() as db:
         try:
             posts = await generate_monthly_plan(
@@ -334,17 +335,19 @@ async def _do_generate_month(
             await db.commit()
             logger.info(f"Generated {len(saved_items)} posts for brand {brand_id} {month}/{year}")
 
-            # Generate Bannerbear images (no-op if API key not configured)
+            # Generate DALL-E 3 images (no-op if OPENAI_API_KEY not configured)
+            any_images = False
             for item, post_data in saved_items:
                 try:
-                    urls = await generate_post_images(post_data, brand_dict)
-                    if urls:
-                        item.image_url = urls[0]
-                        item.image_urls = urls
+                    url = await generate_post_image(post_data, brand_dict)
+                    if url:
+                        item.image_url = url
+                        item.image_urls = [url]
+                        any_images = True
                 except Exception as e:
-                    logger.error(f"Bannerbear failed for post {item.id}: {e}")
+                    logger.error(f"DALL-E failed for post {item.id}: {e}")
 
-            if any(item.image_url for item, _ in saved_items):
+            if any_images:
                 await db.commit()
 
         except json.JSONDecodeError as e:
