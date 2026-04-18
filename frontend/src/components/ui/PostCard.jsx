@@ -3,8 +3,8 @@ import { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 're
 const W = 1080
 const H = 1080
 const PAD = 72  // left/right padding
-const PLAT_LABEL = { instagram: 'Instagram', facebook: 'Facebook', twitter: 'Twitter/X', linkedin: 'LinkedIn' }
-const PLAT_COLOR = { instagram: '#E1306C', facebook: '#1877F2', twitter: '#1DA1F2', linkedin: '#0A66C2' }
+const PLAT_LABEL = { instagram: 'Instagram', facebook: 'Facebook', twitter: 'Twitter/X' }
+const PLAT_COLOR = { instagram: '#E1306C', facebook: '#1877F2', twitter: '#1DA1F2' }
 
 // ── Colour helpers ─────────────────────────────────────────────────────────
 
@@ -64,6 +64,18 @@ function rrect(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y+h, x, y, r)
   ctx.arcTo(x, y, x+w, y, r)
   ctx.closePath()
+}
+
+// ── Image loader (async, CORS-safe) ───────────────────────────────────────
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error(`Failed to load image: ${url}`))
+    img.src = url
+  })
 }
 
 // ── Organic shapes (flat crisp blobs, no blur) ────────────────────────────
@@ -141,7 +153,7 @@ function buildSlides(post) {
 // Solid brand color bg, giant headline top-left, decorative shapes bottom half
 
 function renderCover(ctx, post, slide, brand, platLabel, platColor, totalSlides) {
-  const brandColor = brand?.colors?.[0] || platColor || '#10A37F'
+  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
   const accentColor = brand?.colors?.[1] || lighten(brandColor, 0.3)
   const light = isLight(brandColor)
   const textColor = light ? '#111111' : '#ffffff'
@@ -218,7 +230,7 @@ function renderCover(ctx, post, slide, brand, platLabel, platColor, totalSlides)
 // White/cream bg, thick accent border, headline in brand color, dark body text
 
 function renderContent(ctx, post, slide, brand, platLabel, platColor, slideIdx, totalSlides) {
-  const brandColor = brand?.colors?.[0] || platColor || '#10A37F'
+  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
   const accentColor = brand?.colors?.[1] || darken(brandColor, 0.1)
   const ff = `'Inter', system-ui, -apple-system, sans-serif`
 
@@ -312,7 +324,7 @@ function renderContent(ctx, post, slide, brand, platLabel, platColor, slideIdx, 
 // Used for single "quote" format posts
 
 function renderQuote(ctx, post, slide, brand, platLabel, platColor) {
-  const brandColor = brand?.colors?.[0] || platColor || '#10A37F'
+  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
   const light = isLight(brandColor)
   const textColor = light ? '#111111' : '#ffffff'
   const ff = `'Inter', system-ui, -apple-system, sans-serif`
@@ -381,6 +393,235 @@ function drawSlideBadge(ctx, current, total, right, top, ff) {
   ctx.restore()
 }
 
+// ── TEMPLATE A: Overlay ────────────────────────────────────────────────────
+// Full-bleed background photo + dark gradient + large white text over bottom third.
+// Used for: cover slides with design_style 'bold' (default).
+
+async function renderOverlay(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage) {
+  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
+  const ff = `'Inter', system-ui, -apple-system, sans-serif`
+
+  // Background: photo or solid brand color fallback
+  if (bgImage) {
+    const scale = Math.max(W / bgImage.naturalWidth, H / bgImage.naturalHeight)
+    const iw = bgImage.naturalWidth * scale, ih = bgImage.naturalHeight * scale
+    ctx.drawImage(bgImage, (W - iw) / 2, (H - ih) / 2, iw, ih)
+  } else {
+    ctx.fillStyle = brandColor
+    ctx.fillRect(0, 0, W, H)
+  }
+
+  // Gradient: transparent → near-black over bottom 60%
+  const grad = ctx.createLinearGradient(0, H * 0.35, 0, H)
+  grad.addColorStop(0, 'rgba(0,0,0,0)')
+  grad.addColorStop(0.45, 'rgba(0,0,0,0.52)')
+  grad.addColorStop(1, 'rgba(0,0,0,0.86)')
+  ctx.fillStyle = grad
+  ctx.fillRect(0, 0, W, H)
+
+  // Brand name — top left, small, white
+  ctx.font = `600 26px ${ff}`
+  ctx.fillStyle = 'rgba(255,255,255,0.72)'
+  ctx.fillText((brand?.name || '').toUpperCase(), PAD, PAD + 26)
+
+  // Platform badge — top right
+  drawPlatBadge(ctx, platLabel, platColor, W - PAD, PAD, ff)
+
+  // Logo — top left, if present
+  if (brand?.logo_url) {
+    try {
+      const logo = await loadImage(brand.logo_url)
+      const lh = 52, lw = Math.round((logo.naturalWidth / logo.naturalHeight) * lh)
+      ctx.drawImage(logo, PAD, PAD + 54, lw, lh)
+    } catch (_) { /* logo unavailable — skip */ }
+  }
+
+  // Headline — large, bottom area
+  const headline = slide.topic || ''
+  const headSize = headline.length > 45 ? 76 : headline.length > 28 ? 92 : 108
+  ctx.font = `900 ${headSize}px ${ff}`
+  ctx.fillStyle = '#ffffff'
+  const headY = H * 0.54
+  const bottomY = drawWrapped(ctx, headline, PAD, headY, W - PAD * 2, headSize * 1.1, 3)
+
+  // Subtext — first sentence of caption
+  const sub = (slide.body || post?.caption || '').split(/[.!?]/)[0].trim().slice(0, 110)
+  if (sub) {
+    ctx.font = `400 34px ${ff}`
+    ctx.fillStyle = 'rgba(255,255,255,0.72)'
+    drawWrapped(ctx, sub, PAD, bottomY + 22, W - PAD * 2, 48, 2)
+  }
+
+  // Swipe pill — bottom left (carousel only)
+  if (totalSlides > 1) {
+    const label = 'Swipe →'
+    ctx.font = `600 26px ${ff}`
+    const tw = ctx.measureText(label).width
+    const pw = tw + 48, ph = 52, px = PAD, py = H - PAD - ph
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'
+    rrect(ctx, px, py, pw, ph, 26)
+    ctx.fill()
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(label, px + 24, py + 34)
+  }
+}
+
+// ── TEMPLATE B: Split ──────────────────────────────────────────────────────
+// Left half: solid brand color with headline and subtext.
+// Right half: photo cropped to fill the panel.
+// Used for: cover slides with design_style 'split'.
+
+async function renderSplit(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage) {
+  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
+  const light = isLight(brandColor)
+  const textColor = light ? '#111111' : '#ffffff'
+  const mutedColor = light ? 'rgba(0,0,0,0.52)' : 'rgba(255,255,255,0.62)'
+  const ff = `'Inter', system-ui, -apple-system, sans-serif`
+  const SPLIT = W / 2
+
+  // Right half: photo
+  if (bgImage) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(SPLIT, 0, W - SPLIT, H)
+    ctx.clip()
+    const scale = Math.max(SPLIT / bgImage.naturalWidth, H / bgImage.naturalHeight)
+    const iw = bgImage.naturalWidth * scale, ih = bgImage.naturalHeight * scale
+    ctx.drawImage(bgImage, SPLIT + (SPLIT - iw) / 2, (H - ih) / 2, iw, ih)
+    ctx.restore()
+  } else {
+    ctx.fillStyle = lighten(brandColor, 0.18)
+    ctx.fillRect(SPLIT, 0, W - SPLIT, H)
+  }
+
+  // Left half: solid brand color
+  ctx.fillStyle = brandColor
+  ctx.fillRect(0, 0, SPLIT, H)
+
+  // Divider line
+  ctx.fillStyle = light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'
+  ctx.fillRect(SPLIT - 2, 0, 4, H)
+
+  // Brand name — top left
+  ctx.font = `600 24px ${ff}`
+  ctx.fillStyle = mutedColor
+  ctx.fillText((brand?.name || '').toUpperCase(), PAD, PAD + 24)
+
+  // Logo — below brand name
+  if (brand?.logo_url) {
+    try {
+      const logo = await loadImage(brand.logo_url)
+      const lh = 48, lw = Math.round((logo.naturalWidth / logo.naturalHeight) * lh)
+      ctx.drawImage(logo, PAD, PAD + 52, lw, lh)
+    } catch (_) { /* skip */ }
+  }
+
+  // Headline — left panel, large
+  const headline = slide.topic || ''
+  const headSize = headline.length > 32 ? 68 : headline.length > 20 ? 82 : 96
+  ctx.font = `900 ${headSize}px ${ff}`
+  ctx.fillStyle = textColor
+  const hY = PAD + 140
+  const hBottom = drawWrapped(ctx, headline, PAD, hY, SPLIT - PAD * 1.5, headSize * 1.1, 4)
+
+  // Thin accent rule
+  ctx.fillStyle = light ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.28)'
+  ctx.fillRect(PAD, hBottom + 14, 56, 4)
+
+  // Subtext
+  const sub = (slide.body || post?.caption || '').split(/[.!?]/)[0].trim().slice(0, 120)
+  if (sub) {
+    ctx.font = `400 30px ${ff}`
+    ctx.fillStyle = mutedColor
+    drawWrapped(ctx, sub, PAD, hBottom + 42, SPLIT - PAD * 1.5, 44, 3)
+  }
+
+  // Slide counter — top right of left panel
+  if (totalSlides > 1) {
+    drawSlideBadge(ctx, 1, totalSlides, SPLIT - PAD / 2, PAD, ff)
+  }
+}
+
+// ── TEMPLATE C: Editorial ──────────────────────────────────────────────────
+// Image occupies top 52% of canvas; white panel below holds headline + body.
+// Brand-color rule separates the two halves.
+// Used for: cover with design_style 'minimal'/'clean', and all content slides.
+
+async function renderEditorial(ctx, post, slide, brand, platLabel, platColor, slideIdx, totalSlides, bgImage) {
+  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
+  const accentColor = brand?.colors?.[1] || darken(brandColor, 0.1)
+  const ff = `'Inter', system-ui, -apple-system, sans-serif`
+  const IMG_H = Math.round(H * 0.52)
+
+  // Top: photo (cropped to fill width × IMG_H)
+  if (bgImage) {
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(0, 0, W, IMG_H)
+    ctx.clip()
+    const scale = Math.max(W / bgImage.naturalWidth, IMG_H / bgImage.naturalHeight)
+    const iw = bgImage.naturalWidth * scale, ih = bgImage.naturalHeight * scale
+    ctx.drawImage(bgImage, (W - iw) / 2, 0, iw, ih)
+    ctx.restore()
+  } else {
+    const grad = ctx.createLinearGradient(0, 0, W, IMG_H)
+    grad.addColorStop(0, brandColor)
+    grad.addColorStop(1, darken(brandColor, 0.22))
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, W, IMG_H)
+  }
+
+  // Bottom: white
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, IMG_H, W, H - IMG_H)
+
+  // Brand-color rule between halves
+  ctx.fillStyle = brandColor
+  ctx.fillRect(0, IMG_H, W, 6)
+
+  // Platform badge — top right of image
+  drawPlatBadge(ctx, platLabel, platColor, W - PAD, PAD, ff)
+
+  // Brand name — top left of image
+  ctx.font = `600 24px ${ff}`
+  ctx.fillStyle = 'rgba(255,255,255,0.72)'
+  ctx.fillText((brand?.name || '').toUpperCase(), PAD, PAD + 24)
+
+  const textTop = IMG_H + 56
+
+  // Headline in brand color
+  const headline = slide.topic || ''
+  const headSize = headline.length > 45 ? 60 : headline.length > 28 ? 72 : 84
+  ctx.font = `800 ${headSize}px ${ff}`
+  ctx.fillStyle = brandColor
+  const hBottom = drawWrapped(ctx, headline, PAD, textTop, W - PAD * 2, headSize * 1.12, 3)
+
+  // Accent rule
+  ctx.fillStyle = accentColor
+  ctx.fillRect(PAD, hBottom + 12, 60, 4)
+
+  // Body text
+  if (slide.body) {
+    ctx.font = `400 36px ${ff}`
+    ctx.fillStyle = 'rgba(0,0,0,0.64)'
+    drawWrapped(ctx, slide.body, PAD, hBottom + 46, W - PAD * 2, 54, 4)
+  }
+
+  // Logo — bottom right of white panel
+  if (brand?.logo_url) {
+    try {
+      const logo = await loadImage(brand.logo_url)
+      const lh = 48, lw = Math.round((logo.naturalWidth / logo.naturalHeight) * lh)
+      ctx.drawImage(logo, W - PAD - lw, H - PAD - lh, lw, lh)
+    } catch (_) { /* skip */ }
+  }
+
+  // Slide counter
+  if (totalSlides > 1) {
+    drawSlideBadge(ctx, slideIdx + 1, totalSlides, W - PAD, IMG_H + 32, ff)
+  }
+}
+
 // ── Master render function ─────────────────────────────────────────────────
 
 export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
@@ -392,27 +633,62 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
   const slide = slides[Math.min(slideIndex, slides.length - 1)]
   const totalSlides = slides.length
   const platLabel = PLAT_LABEL[post?.platform] || post?.platform || ''
-  const platColor = PLAT_COLOR[post?.platform] || '#10A37F'
-
+  const platColor = PLAT_COLOR[post?.platform] || '#6C63FF'
   const format = post?.format || 'single'
 
-  if (format === 'quote') {
-    renderQuote(ctx, post, slide, brand, platLabel, platColor)
-  } else if (slide.isCover) {
-    renderCover(ctx, post, slide, brand, platLabel, platColor, totalSlides)
+  // Load DALL-E background if available.
+  // post.image_url holds the raw background; post.image_urls holds Bannerbear
+  // final renders (never used here — PostCard shows those as <img> directly).
+  // Only slide 0 gets the background; content slides use plain brand-color fills.
+  const bgUrl = slideIndex === 0 ? (post?.image_url || null) : null
+  let bgImage = null
+  if (bgUrl) {
+    try { bgImage = await loadImage(bgUrl) } catch (_) { /* fallback */ }
+  }
+
+  const designStyle = brand?.design_style || 'bold'
+
+  if (bgImage) {
+    // ── Image-backed template routing ──────────────────────────────────────
+    if (format === 'quote' || slide.isCTA) {
+      // Quotes and CTAs always use Overlay (text over full-bleed photo)
+      await renderOverlay(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage)
+    } else if (slide.isCover) {
+      if (designStyle === 'minimal' || designStyle === 'clean') {
+        await renderEditorial(ctx, post, slide, brand, platLabel, platColor, slideIndex, totalSlides, bgImage)
+      } else if (designStyle === 'split') {
+        await renderSplit(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage)
+      } else {
+        // 'bold' and all other styles → Overlay
+        await renderOverlay(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage)
+      }
+    } else {
+      // Content slides always use Editorial regardless of design_style
+      // (keeps body copy readable — white panel, no competing photo)
+      await renderEditorial(ctx, post, slide, brand, platLabel, platColor, slideIndex, totalSlides, bgImage)
+    }
   } else {
-    renderContent(ctx, post, slide, brand, platLabel, platColor, slideIndex, totalSlides)
+    // ── Fallback: existing no-image renderers ───────────────────────────────
+    if (format === 'quote') {
+      renderQuote(ctx, post, slide, brand, platLabel, platColor)
+    } else if (slide.isCover) {
+      renderCover(ctx, post, slide, brand, platLabel, platColor, totalSlides)
+    } else {
+      renderContent(ctx, post, slide, brand, platLabel, platColor, slideIndex, totalSlides)
+    }
   }
 }
 
-// ── Helper: get image URL for a specific slide ────────────────────────────
+// ── Helper: get Bannerbear final-render URL for a slide ───────────────────
+// Returns a URL only when Bannerbear has produced a fully composited slide
+// (text + brand design applied server-side). Returns null otherwise so the
+// canvas renderer can run and composite text onto the DALL-E background.
 
-function getImageUrl(post, slideIndex) {
+function getBannerbearUrl(post, slideIndex) {
   if (!post) return null
   if (post.image_urls && Array.isArray(post.image_urls) && post.image_urls[slideIndex]) {
     return post.image_urls[slideIndex]
   }
-  if (slideIndex === 0 && post.image_url) return post.image_url
   return null
 }
 
@@ -432,12 +708,17 @@ async function downloadUrl(url, filename) {
 const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIndex = 0, className = '' }, ref) {
   const canvasRef = useRef(null)
   const [rendering, setRendering] = useState(false)
-  const imageUrl = getImageUrl(post, slideIndex)
+
+  // bannerbearUrl: Bannerbear has fully rendered this slide (text + design applied).
+  // When present, show as <img> — no canvas work needed.
+  // When absent, canvas renders text layout on top of DALL-E background (or solid fallback).
+  const bannerbearUrl = getBannerbearUrl(post, slideIndex)
 
   useImperativeHandle(ref, () => ({
     async download(filename) {
-      const url = getImageUrl(post, slideIndex)
-      if (url) { await downloadUrl(url, filename || 'post.png'); return }
+      // Prefer Bannerbear output; fall back to canvas render (includes DALL-E background)
+      const bbUrl = getBannerbearUrl(post, slideIndex)
+      if (bbUrl) { await downloadUrl(bbUrl, filename || 'post.png'); return }
       const c = canvasRef.current; if (!c) return
       const a = document.createElement('a')
       a.download = filename || 'post.png'
@@ -448,13 +729,13 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
       const count = Math.max(1, post?.slide_count || 1)
       const base = `${post.platform}-${post.scheduled_date}`
 
-      // All slides have Bannerbear URLs — ZIP them
-      const allUrls = Array.from({ length: count }, (_, i) => getImageUrl(post, i))
-      if (allUrls.every(Boolean)) {
-        if (count === 1) { await downloadUrl(allUrls[0], `${base}.png`); return }
+      // Check whether all slides have Bannerbear renders
+      const bbUrls = Array.from({ length: count }, (_, i) => getBannerbearUrl(post, i))
+      if (bbUrls.every(Boolean)) {
+        if (count === 1) { await downloadUrl(bbUrls[0], `${base}.png`); return }
         const { default: JSZip } = await import('jszip')
         const zip = new JSZip()
-        await Promise.all(allUrls.map(async (url, i) => {
+        await Promise.all(bbUrls.map(async (url, i) => {
           const resp = await fetch(url)
           const buf = await resp.arrayBuffer()
           zip.file(`slide-${i+1}.png`, buf)
@@ -465,10 +746,10 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
         return
       }
 
-      // Fallback: render canvas for missing slides
+      // Mixed or no Bannerbear — render each slide to canvas (composites DALL-E bg + text)
       if (count === 1) {
-        const url = getImageUrl(post, 0)
-        if (url) { await downloadUrl(url, `${base}.png`); return }
+        const bbUrl = getBannerbearUrl(post, 0)
+        if (bbUrl) { await downloadUrl(bbUrl, `${base}.png`); return }
         const c = canvasRef.current; if (!c) return
         const a = document.createElement('a'); a.download = `${base}.png`
         a.href = c.toDataURL('image/png'); a.click(); return
@@ -476,9 +757,9 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
       const { default: JSZip } = await import('jszip')
       const zip = new JSZip()
       for (let i = 0; i < count; i++) {
-        const url = getImageUrl(post, i)
-        if (url) {
-          const resp = await fetch(url); const buf = await resp.arrayBuffer()
+        const bbUrl = getBannerbearUrl(post, i)
+        if (bbUrl) {
+          const resp = await fetch(bbUrl); const buf = await resp.arrayBuffer()
           zip.file(`slide-${i+1}.png`, buf)
         } else {
           const c = document.createElement('canvas')
@@ -492,36 +773,47 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
     },
     getSlideCount() { return Math.max(1, post?.slide_count || 1) },
     toDataURL() {
-      const url = getImageUrl(post, slideIndex)
-      return url || canvasRef.current?.toDataURL('image/png')
+      const bbUrl = getBannerbearUrl(post, slideIndex)
+      return bbUrl || canvasRef.current?.toDataURL('image/png')
     },
   }))
 
   useEffect(() => {
-    if (imageUrl) return  // Bannerbear image available — no canvas needed
+    // Always run canvas — it composites text layout over DALL-E background.
+    // If bannerbearUrl is set the canvas is hidden, but we still keep it rendered
+    // for instant fallback if the Bannerbear URL expires or fails to load.
     const canvas = canvasRef.current; if (!canvas || !post) return
     setRendering(true)
     renderSlideToCanvas(canvas, post, brand, slideIndex).finally(() => setRendering(false))
-  }, [post, brand, slideIndex, imageUrl])
-
-  if (imageUrl) {
-    return (
-      <div className={`relative ${className}`} style={{ width: size, height: size }}>
-        <img
-          src={imageUrl}
-          alt={post?.topic || 'Post'}
-          style={{ width: size, height: size, objectFit: 'cover', display: 'block', borderRadius: 12 }}
-        />
-      </div>
-    )
-  }
+  }, [post, brand, slideIndex])
 
   return (
     <div className={`relative ${className}`} style={{ width: size, height: size }}>
-      <canvas ref={canvasRef} style={{ width: size, height: size, display: 'block', borderRadius: 12 }} />
-      {rendering && (
-        <div className="absolute inset-0 flex items-center justify-center bg-zinc-800/60 rounded-xl">
-          <div className="w-6 h-6 border-2 border-brand-500 border-t-brand-500 rounded-full animate-spin" />
+      {/* Bannerbear final render — shown on top when available */}
+      {bannerbearUrl && (
+        <img
+          src={bannerbearUrl}
+          alt={post?.topic || 'Post'}
+          style={{
+            position: 'absolute', inset: 0,
+            width: size, height: size,
+            objectFit: 'cover', borderRadius: 12,
+            zIndex: 1,
+          }}
+        />
+      )}
+      {/* Canvas — always rendered; visible when Bannerbear URL absent */}
+      <canvas
+        ref={canvasRef}
+        style={{
+          width: size, height: size,
+          display: 'block', borderRadius: 12,
+          visibility: bannerbearUrl ? 'hidden' : 'visible',
+        }}
+      />
+      {rendering && !bannerbearUrl && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/30 rounded-xl" style={{ zIndex: 2 }}>
+          <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
         </div>
       )}
     </div>
