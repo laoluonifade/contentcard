@@ -345,19 +345,21 @@ async def _do_generate_month(
             await db.commit()
             logger.info(f"Generated {len(saved_items)} posts for brand {brand_id} {month}/{year}")
 
-            # ── Phase 1: DALL-E background generation ──────────────────────────────
-            # Generate one photorealistic background image per post.
+            # ── Phase 1: AI background generation ─────────────────────────────────
+            # Generate photorealistic background image(s) per post (model is
+            # settings.IMAGE_MODEL, count is settings.IMAGE_COUNT).
             # These are NOT the final post images — they are background layers
-            # that the canvas layout system and Bannerbear will composite text onto.
+            # that the canvas layout system and Bannerbear composite text onto.
+            # image_url holds the primary (index 0) background used by Bannerbear.
             any_images = False
             for item, post_data in saved_items:
                 try:
-                    bg_url = await generate_post_image(post_data, brand_dict)
-                    if bg_url:
-                        item.image_url = bg_url  # raw DALL-E background
+                    bg_urls = await generate_post_image(post_data, brand_dict)
+                    if bg_urls:
+                        item.image_url = bg_urls[0]   # primary background for Bannerbear
                         any_images = True
                 except Exception as e:
-                    logger.error(f"DALL-E background failed for post {item.id}: {e}")
+                    logger.error(f"Background image generation failed for post {item.id}: {e}")
 
             if any_images:
                 await db.commit()
