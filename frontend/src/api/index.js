@@ -128,6 +128,7 @@ export const adminApi = {
   stats:      ()            => api.get('/admin/stats').then(r => r.data),
   users:      (params)      => api.get('/admin/users', { params }).then(r => r.data),
   workspaces: (params)      => api.get('/admin/workspaces', { params }).then(r => r.data),
+  brands:     (params)      => api.get('/admin/brands', { params }).then(r => r.data),
   content:    (params)      => api.get('/admin/content', { params }).then(r => r.data),
 }
 

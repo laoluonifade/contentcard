@@ -1,19 +1,35 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Shield, ArrowRight } from 'lucide-react'
+import useAuthStore from '../stores/authStore'
+
+const ADMIN_EMAILS = ['laoluonifade@gmail.com', 'admin@contentcard.io']
 
 export default function AdminLogin() {
   const navigate = useNavigate()
+  const login = useAuthStore(s => s.login)
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    if (form.email === 'admin@contentcard.io' && form.password === 'admin123') {
-      localStorage.setItem('contentcard-admin', JSON.stringify({ email: form.email, role: 'super_admin' }))
+    setError('')
+    setLoading(true)
+    try {
+      const res = await login({ email: form.email, password: form.password })
+      const email = res?.user?.email || form.email
+      if (!ADMIN_EMAILS.includes(email)) {
+        setError('This account does not have admin access.')
+        setLoading(false)
+        return
+      }
+      localStorage.setItem('contentcard-admin', JSON.stringify({ email, role: 'super_admin' }))
       navigate('/admindash')
-    } else {
-      setError('Invalid credentials.')
+    } catch {
+      setError('Invalid email or password.')
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -47,8 +63,8 @@ export default function AdminLogin() {
               className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-white/20 focus:outline-none focus:border-brand-500/50 transition-colors" />
           </div>
           {error && <p className="text-red-400 text-xs">{error}</p>}
-          <button type="submit" className="btn-primary w-full py-3.5 justify-center">
-            Sign in <ArrowRight size={15} />
+          <button type="submit" disabled={loading} className="btn-primary w-full py-3.5 justify-center disabled:opacity-60">
+            {loading ? 'Signing in…' : <><span>Sign in</span><ArrowRight size={15} /></>}
           </button>
         </form>
       </div>

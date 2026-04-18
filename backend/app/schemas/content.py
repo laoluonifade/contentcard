@@ -9,6 +9,7 @@ class GenerateMonthRequest(BaseModel):
     year: int
     platforms: list[ContentPlatform]
     format_mix: str = "mixed"  # single | carousel | quote | mixed
+    posts_per_week: int = 3   # 1-7
     topic_override: str | None = None
     template_id: str | None = None
 
@@ -46,6 +47,8 @@ class ContentOut(BaseModel):
     hashtags: list
     theme: dict | None
     slide_count: int
+    image_url: str | None = None
+    image_urls: list | None = None
     user_photo_url: str | None
     mood: str | None
     scheduled_date: date | None
