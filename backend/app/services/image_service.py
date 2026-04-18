@@ -9,7 +9,6 @@ DALLE_URL = "https://api.openai.com/v1/images/generations"
 
 def _build_image_prompt(post: dict, brand: dict) -> str:
     topic = post.get("topic", "")
-    caption = post.get("caption", "")[:120]
     platform = post.get("platform", "Instagram")
     fmt = post.get("format", "single")
 
@@ -19,30 +18,49 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     tone_tags = brand.get("tone_tags") or []
     language = brand.get("language_style", "english")
 
-    color_desc = f"Brand colors: {', '.join(colors[:3])}. " if colors else ""
-    tone_desc = f"Tone: {', '.join(tone_tags)}. " if tone_tags else ""
     nigerian = "nigerian" in language.lower() or "pidgin" in language.lower()
-    cultural = "Feature confident, stylish young Nigerian professionals (ages 22–35). Lagos energy, aspirational lifestyle. " if nigerian else ""
+
+    color_str = f"{', '.join(colors[:3])}" if colors else "bold, vibrant brand colors"
+    tone_str = ', '.join(tone_tags) if tone_tags else "modern, energetic"
+
+    people = ""
+    if nigerian:
+        people = (
+            "Hero subject: a strikingly attractive young Nigerian man or woman, age 22–32, "
+            "styled like a high-fashion Lagos lifestyle shoot — designer outfit, confident pose, "
+            "glowing skin. Real person energy, NOT stock photo. "
+        )
+    else:
+        people = (
+            "Hero subject: an attractive, confident young professional, "
+            "styled like a premium lifestyle campaign. Real, aspirational, relatable. "
+        )
 
     layout = ""
     if fmt == "carousel":
-        layout = "Dynamic split-panel layout suggesting a swipeable carousel. "
+        layout = "Bold editorial layout with strong visual hierarchy suggesting multiple slides. "
     elif fmt == "quote":
-        layout = "Bold quote-card layout with the text as the hero element. "
+        layout = "Striking visual scene with space for text overlay — editorial magazine style. "
+    else:
+        layout = "Single hero image, full-bleed, maximum visual impact. "
 
-    prompt = f"""Vibrant, high-impact {platform} post graphic for {brand_name}, a {industry} brand.
+    prompt = f"""Ultra high-quality {platform} social media post visual for {brand_name}, a {industry} brand.
 
-{color_desc}{tone_desc}
-Headline concept: "{topic}"
+{people}
+Color palette: {color_str}. Tone: {tone_str}.
 
-{cultural}
-Rich textures, bold typography overlaid on the image, dynamic composition with depth.
-Real people, lifestyle photography aesthetic — NOT stock photo or clip art.
-{layout}
-Money, growth, and aspiration elements woven in naturally and stylishly.
-Modern African design — think luxury brand meets everyday life.
-{platform} square 1:1 format. Photorealistic. High production value.
-NO watermarks, NO logos, NO text blocks — just the visual scene."""
+Topic concept: "{topic}"
+
+Visual direction:
+- Cinematic, editorial, luxury brand energy — think Flutterwave, Nike, or Vogue Africa campaign
+- Rich, layered composition with depth and texture — NOT flat, NOT minimalist
+- Dynamic lighting: warm golden tones, dramatic shadows, or vibrant studio pop
+- Bold graphic elements: overlapping shapes, color blocks, strong typographic space
+- {layout}
+- Money, success, and aspiration woven naturally into the scene (cash, cards, devices, city skyline)
+- Photorealistic, 8K quality, magazine-cover production value
+
+Style: Where Lagos street culture meets luxury brand advertising. Sexy, modern, African excellence."""
 
     return prompt.strip()
 
@@ -67,7 +85,7 @@ async def generate_post_image(post: dict, brand: dict) -> str | None:
                     "prompt": prompt,
                     "n": 1,
                     "size": "1024x1024",
-                    "quality": "standard",
+                    "quality": "hd",
                     "response_format": "url",
                 },
             )
