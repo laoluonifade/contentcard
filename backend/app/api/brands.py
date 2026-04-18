@@ -206,6 +206,31 @@ Return ONLY valid JSON. No markdown, no explanation."""
     return insights
 
 
+@router.post("/{brand_id}/resync-assistant", response_model=dict)
+async def resync_brand_assistant(
+    workspace_id: str, brand_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Force re-upload the brand kit to the OpenAI Vector Store.
+    Use this when content generation looks generic despite a filled brand kit —
+    it means the assistant's Vector Store has stale or empty brand data.
+    """
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Editor access required")
+
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    background_tasks.add_task(_sync_brand_assistant, brand.id)
+    return {"message": "Brand assistant resync started. Allow 30–60 seconds then regenerate content."}
+
+
 @router.post("/{brand_id}/logo", response_model=dict)
 async def upload_logo(
     workspace_id: str, brand_id: str,
