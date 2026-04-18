@@ -306,6 +306,48 @@ async def _bg_sync_assistant(brand_id: str) -> None:
         logger.error(f"Brand assistant sync failed for {brand_id}: {e}")
 
 
+@router.post("/test-assistant/{brand_id}")
+async def test_assistant(
+    brand_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Debug: send a tiny test message to the brand's assistant and return the raw response,
+    elapsed time, and any error. Use this to verify the assistant is responding correctly.
+    """
+    import time
+    from app.services.openai_assistant_service import generate_with_assistant
+    r = await db.execute(select(Brand).where(Brand.id == brand_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    if not brand.openai_assistant_id:
+        raise HTTPException(status_code=400, detail="Brand has no assistant — run sync-assistant first")
+
+    test_prompt = (
+        'Return ONLY this exact JSON, nothing else: [{"test": "ok", "brand": "' + brand.name + '"}]'
+    )
+    start = time.time()
+    try:
+        raw = await generate_with_assistant(brand.openai_assistant_id, test_prompt)
+        elapsed = round(time.time() - start, 2)
+        return {
+            "elapsed_seconds": elapsed,
+            "raw_response": raw[:500],
+            "assistant_id": brand.openai_assistant_id,
+            "status": "success",
+        }
+    except Exception as e:
+        elapsed = round(time.time() - start, 2)
+        return {
+            "elapsed_seconds": elapsed,
+            "error": str(e),
+            "assistant_id": brand.openai_assistant_id,
+            "status": "failed",
+        }
+
+
 @router.post("/sync-assistant/{brand_id}")
 async def sync_brand_assistant(
     brand_id: str,
