@@ -10,9 +10,9 @@ from app.models.content import ContentItem
 from datetime import datetime, timezone, timedelta
 import os
 
-# Claude Opus 4.7 pricing: $15/M input + $75/M output
+# Claude Haiku 4.5 pricing: $0.80/M input + $4/M output
 # Estimate per post: ~1200 input tokens + 400 output tokens
-COST_PER_POST_USD = (1200 * 15.0 / 1_000_000) + (400 * 75.0 / 1_000_000)
+COST_PER_POST_USD = (1200 * 0.80 / 1_000_000) + (400 * 4.0 / 1_000_000)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

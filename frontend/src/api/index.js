@@ -123,13 +123,39 @@ export const holidaysApi = {
   undismiss: (date, name) => api.delete('/holidays/dismiss', { data: { date, name } }),
 }
 
-// ─── Admin ──────────────────────────────────────────────────────
+// ─── Admin (separate axios instance — never touches contentcard-auth) ──
+const adminAxios = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+  headers: { 'Content-Type': 'application/json' },
+})
+
+adminAxios.interceptors.request.use((config) => {
+  try {
+    const token = localStorage.getItem('contentcard-admin-token')
+    if (token) config.headers.Authorization = `Bearer ${token}`
+  } catch {}
+  return config
+})
+
+adminAxios.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      localStorage.removeItem('contentcard-admin-token')
+      localStorage.removeItem('contentcard-admin')
+      window.location.href = '/adminlogin'
+    }
+    return Promise.reject(err)
+  }
+)
+
 export const adminApi = {
-  stats:      ()            => api.get('/admin/stats').then(r => r.data),
-  users:      (params)      => api.get('/admin/users', { params }).then(r => r.data),
-  workspaces: (params)      => api.get('/admin/workspaces', { params }).then(r => r.data),
-  brands:     (params)      => api.get('/admin/brands', { params }).then(r => r.data),
-  content:    (params)      => api.get('/admin/content', { params }).then(r => r.data),
+  login:      (data)        => axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api/v1' }).post('/auth/login', data).then(r => r.data),
+  stats:      ()            => adminAxios.get('/admin/stats').then(r => r.data),
+  users:      (params)      => adminAxios.get('/admin/users', { params }).then(r => r.data),
+  workspaces: (params)      => adminAxios.get('/admin/workspaces', { params }).then(r => r.data),
+  brands:     (params)      => adminAxios.get('/admin/brands', { params }).then(r => r.data),
+  content:    (params)      => adminAxios.get('/admin/content', { params }).then(r => r.data),
 }
 
 export default api

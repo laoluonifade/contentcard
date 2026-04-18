@@ -76,7 +76,7 @@ export default function GeneratePage() {
   }
 
   const progressLabel = () => {
-    if (generationPollCount === 0) return 'Sending to Claude…'
+    if (generationPollCount === 0) return 'Generating your content…'
     if (generationPollCount < 3)  return 'Writing captions…'
     if (generationPollCount < 7)  return 'Crafting posts…'
     return 'Almost done…'
@@ -175,7 +175,7 @@ export default function GeneratePage() {
               <div className="w-5 h-5 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-400 text-[10px] font-bold">4</div>
               <span className="text-white font-semibold text-sm">Focus topic <span className="text-zinc-600 font-normal text-xs">— optional</span></span>
             </div>
-            <p className="text-zinc-600 text-xs mb-3 ml-7">Leave blank and Claude will vary topics automatically</p>
+            <p className="text-zinc-600 text-xs mb-3 ml-7">Leave blank and topics will be varied automatically</p>
             <input value={topic} onChange={e => setTopic(e.target.value)}
               placeholder="e.g. Product launch, Brand story, Client wins…" className={inp} />
             <div className="flex flex-wrap gap-2 mt-3">
