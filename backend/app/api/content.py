@@ -342,53 +342,47 @@ async def _do_generate_month(
                 db.add(item)
                 saved_items.append((item, post))
 
+            # ── Commit 1: text content saved immediately ───────────────────────────
+            # Posts are visible to the frontend as soon as text is ready.
+            # Image and Bannerbear phases are independent — their failures cannot
+            # roll back text that has already been generated successfully.
             await db.commit()
-            logger.info(f"Generated {len(saved_items)} posts for brand {brand_id} {month}/{year}")
-
-            # ── Phase 1: AI background generation ─────────────────────────────────
-            # Generate photorealistic background image(s) per post (model is
-            # settings.IMAGE_MODEL, count is settings.IMAGE_COUNT).
-            # These are NOT the final post images — they are background layers
-            # that the canvas layout system and Bannerbear composite text onto.
-            # image_url holds the primary (index 0) background used by Bannerbear.
-            any_images = False
-            for item, post_data in saved_items:
-                try:
-                    bg_urls = await generate_post_image(post_data, brand_dict)
-                    if bg_urls:
-                        item.image_url = bg_urls[0]   # primary background for Bannerbear
-                        any_images = True
-                except Exception as e:
-                    logger.error(f"Background image generation failed for post {item.id}: {e}")
-
-            if any_images:
-                await db.commit()
-
-            # ── Phase 2: Bannerbear final render ───────────────────────────────────
-            # Pass each post + its DALL-E background to Bannerbear to produce
-            # fully branded, text-composited slide images stored in image_urls.
-            any_bb = False
-            for item, post_data in saved_items:
-                try:
-                    bb_urls = await generate_post_images(
-                        post_data, brand_dict,
-                        background_image_url=item.image_url or None,
-                    )
-                    if bb_urls:
-                        item.image_urls = bb_urls
-                        any_bb = True
-                except Exception as e:
-                    logger.error(f"Bannerbear failed for post {item.id}: {e}")
-
-            if any_bb:
-                await db.commit()
+            logger.info(f"Saved {len(saved_items)} posts (text) for brand {brand_id} {month}/{year}")
 
         except json.JSONDecodeError as e:
             logger.error(f"AI returned invalid JSON for brand {brand_id}: {e}")
             await db.rollback()
+            return
         except Exception as e:
-            logger.error(f"Generation error for brand {brand_id}: {e}")
+            logger.error(f"Text generation error for brand {brand_id}: {e}")
             await db.rollback()
+            return
+
+        # ── Phase 1: AI background generation ─────────────────────────────────────
+        # Runs outside the text transaction. Each image failure is isolated —
+        # one bad post doesn't affect the others.
+        for item, post_data in saved_items:
+            try:
+                bg_urls = await generate_post_image(post_data, brand_dict)
+                if bg_urls:
+                    item.image_url = bg_urls[0]   # primary background for Bannerbear
+                    await db.commit()
+            except Exception as e:
+                logger.error(f"Background image generation failed for post {item.id}: {e}")
+
+        # ── Phase 2: Bannerbear final render ───────────────────────────────────────
+        # Each Bannerbear call is isolated. Failure on one post doesn't affect others.
+        for item, post_data in saved_items:
+            try:
+                bb_urls = await generate_post_images(
+                    post_data, brand_dict,
+                    background_image_url=item.image_url or None,
+                )
+                if bb_urls:
+                    item.image_urls = bb_urls
+                    await db.commit()
+            except Exception as e:
+                logger.error(f"Bannerbear failed for post {item.id}: {e}")
 
 
 def _brand_to_dict(brand: Brand) -> dict:
