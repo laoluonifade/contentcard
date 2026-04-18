@@ -70,6 +70,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_prompt TEXT",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_prompt_explanation TEXT",
             "ALTER TYPE contentplatform ADD VALUE IF NOT EXISTS 'linkedin'",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS openai_assistant_id VARCHAR(100)",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS openai_vector_store_id VARCHAR(100)",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))

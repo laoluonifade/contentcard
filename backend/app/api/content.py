@@ -482,4 +482,7 @@ def _brand_to_dict(brand: Brand) -> dict:
         "good_examples": kit.get("good_examples", ""),
         "bad_examples": kit.get("bad_examples", ""),
         "competitor_references": kit.get("competitor_references", []),
+
+        # OpenAI Assistant IDs — used for persistent brand memory generation
+        "openai_assistant_id": brand.openai_assistant_id or None,
     }
