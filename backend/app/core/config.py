@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/contentcard"
 
     OPENAI_API_KEY: str = ""
+    IMAGE_MODEL: str = "gpt-image-1"
+    IMAGE_COUNT: int = 1  # images generated per post; increase for selection layer
 
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""

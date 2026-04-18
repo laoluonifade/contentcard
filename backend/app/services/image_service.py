@@ -1,10 +1,11 @@
+import base64
 import logging
 import httpx
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-DALLE_URL = "https://api.openai.com/v1/images/generations"
+IMAGES_API_URL = "https://api.openai.com/v1/images/generations"
 
 PLATFORM_FORMAT = {
     "instagram": "square Instagram post 1:1 (1080×1080)",
@@ -188,10 +189,10 @@ def _composite_logo(image_bytes: bytes, logo_bytes: bytes) -> bytes:
     return out.getvalue()
 
 
-async def _upload_to_cloudinary(image_bytes: bytes, post_topic: str) -> str | None:
+async def _upload_to_cloudinary(image_bytes: bytes, post_topic: str, idx: int = 0) -> str | None:
     """Upload raw image bytes to Cloudinary and return the permanent secure URL."""
     if not all([settings.CLOUDINARY_CLOUD_NAME, settings.CLOUDINARY_API_KEY, settings.CLOUDINARY_API_SECRET]):
-        logger.warning("Cloudinary not configured — DALL-E URL will expire in 1 hour")
+        logger.warning("Cloudinary not configured — generated image URL will not be persisted")
         return None
     try:
         import cloudinary
@@ -202,10 +203,11 @@ async def _upload_to_cloudinary(image_bytes: bytes, post_topic: str) -> str | No
             api_secret=settings.CLOUDINARY_API_SECRET,
         )
         safe_topic = "".join(c if c.isalnum() or c in "-_" else "-" for c in (post_topic or "post"))[:60]
+        public_id = f"{safe_topic}-{idx}" if idx else safe_topic
         result = cloudinary.uploader.upload(
             image_bytes,
             folder="contentcard/generated",
-            public_id=safe_topic,
+            public_id=public_id,
             resource_type="image",
             overwrite=False,
             transformation=[{"quality": "auto", "fetch_format": "auto"}],
@@ -216,64 +218,92 @@ async def _upload_to_cloudinary(image_bytes: bytes, post_topic: str) -> str | No
         return None
 
 
-async def generate_post_image(post: dict, brand: dict) -> str | None:
-    """Generate a DALL-E 3 background image for a post. Returns a permanent URL or None."""
+async def generate_post_image(post: dict, brand: dict) -> list[str]:
+    """
+    Generate background image(s) for a post using settings.IMAGE_MODEL.
+
+    Returns a list of permanent Cloudinary URLs (one per generated image).
+    Returns an empty list on failure or when OpenAI is not configured.
+
+    The list length matches settings.IMAGE_COUNT (default 1).
+    When IMAGE_COUNT > 1 the caller can present candidates for selection.
+    The Bannerbear pipeline uses index 0 as the primary background.
+    """
     if not settings.OPENAI_API_KEY:
-        return None
+        return []
 
     topic = post.get("topic", "")
     prompt = _build_image_prompt(post, brand)
     logo_url = brand.get("logo_url", "")
+    n = max(1, min(10, settings.IMAGE_COUNT))
+    model = settings.IMAGE_MODEL
 
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=120) as client:
+            payload: dict = {
+                "model": model,
+                "prompt": prompt,
+                "n": n,
+                "size": "1024x1024",
+            }
+            # gpt-image-1 uses quality levels "auto"/"high"/"medium"/"low";
+            # dall-e-3 used "standard"/"hd". Default to "high" for gpt-image-1.
+            if model == "gpt-image-1":
+                payload["quality"] = "high"
+            else:
+                payload["quality"] = "hd"
+                payload["response_format"] = "url"
+
             resp = await client.post(
-                DALLE_URL,
+                IMAGES_API_URL,
                 headers={
                     "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
                     "Content-Type": "application/json",
                 },
-                json={
-                    "model": "dall-e-3",
-                    "prompt": prompt,
-                    "n": 1,
-                    "size": "1024x1024",
-                    "quality": "hd",
-                    "response_format": "url",
-                },
+                json=payload,
             )
             resp.raise_for_status()
             data = resp.json()
-            temp_url = data["data"][0]["url"]
-            revised_prompt = data["data"][0].get("revised_prompt", "")
-            if revised_prompt:
-                logger.info(f"DALL-E revised prompt: {revised_prompt[:200]}…")
-            logger.info(f"DALL-E image generated for '{topic}' — downloading for permanent storage…")
+            items = data.get("data", [])
 
-            # Download image bytes
-            img_resp = await client.get(temp_url)
-            if img_resp.status_code != 200:
-                logger.warning("Could not download DALL-E image, returning temp URL")
-                return temp_url
-
-            image_bytes = img_resp.content
-
-            # Composite brand logo onto the generated background
+            # Pre-fetch logo bytes once (reused for every generated image)
+            logo_bytes: bytes | None = None
             if logo_url:
                 logo_bytes = await _fetch_logo_bytes(logo_url, client)
+
+            urls: list[str] = []
+            for idx, item in enumerate(items):
+                # gpt-image-1 returns b64_json; dall-e-3 can return url or b64_json
+                if "b64_json" in item and item["b64_json"]:
+                    image_bytes = base64.b64decode(item["b64_json"])
+                elif "url" in item and item["url"]:
+                    temp_url = item["url"]
+                    img_resp = await client.get(temp_url)
+                    if img_resp.status_code != 200:
+                        logger.warning(f"Could not download image {idx} from temp URL — skipping")
+                        continue
+                    image_bytes = img_resp.content
+                else:
+                    logger.warning(f"Image {idx} had neither b64_json nor url — skipping")
+                    continue
+
+                # Composite brand logo onto each background
                 if logo_bytes:
-                    image_bytes = _composite_logo(image_bytes, logo_bytes)
-                    logger.info(f"Logo composited onto background image for '{topic}'")
+                    try:
+                        image_bytes = _composite_logo(image_bytes, logo_bytes)
+                    except Exception as e:
+                        logger.warning(f"Logo composite failed for image {idx}: {e}")
 
-        # Upload to Cloudinary for a permanent URL (DALL-E URLs expire after ~1h)
-        permanent_url = await _upload_to_cloudinary(image_bytes, topic)
-        if permanent_url:
-            logger.info(f"Image permanently stored at Cloudinary: {permanent_url}")
-            return permanent_url
+                permanent_url = await _upload_to_cloudinary(image_bytes, topic, idx)
+                if permanent_url:
+                    urls.append(permanent_url)
+                    logger.info(f"Image {idx} stored at Cloudinary: {permanent_url}")
+                else:
+                    logger.warning(f"Cloudinary unavailable for image {idx} — dropping")
 
-        logger.warning(f"Using temporary DALL-E URL (expires ~1h): {temp_url[:80]}…")
-        return temp_url
+            logger.info(f"{model}: {len(urls)}/{n} images generated for '{topic}'")
+            return urls
 
     except Exception as e:
-        logger.error(f"DALL-E generation failed for '{topic}': {e}")
-        return None
+        logger.error(f"Image generation failed for '{topic}' ({model}): {e}")
+        return []
