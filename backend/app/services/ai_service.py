@@ -155,6 +155,7 @@ For EACH post return ALL these fields:
 9. image_prompt_explanation — 2 sentences: why this visual was chosen for the target audience and content goal
 10. format — "single", "carousel", or "quote"
 11. slide_count — 1 for single/quote, 2-5 for carousel
+12. date — the assigned posting date in YYYY-MM-DD format (exactly as listed in the date/content-type assignments above)
 
 CRITICAL RULES:
 - Each post must feel distinctly different — vary tone, angle, format, and style across the month
