@@ -419,14 +419,6 @@ async function renderOverlay(ctx, post, slide, brand, platLabel, platColor, tota
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, W, H)
 
-  // Brand name — top left, small, white
-  ctx.font = `600 26px ${ff}`
-  ctx.fillStyle = 'rgba(255,255,255,0.72)'
-  ctx.fillText((brand?.name || '').toUpperCase(), PAD, PAD + 26)
-
-  // Platform badge — top right
-  drawPlatBadge(ctx, platLabel, platColor, W - PAD, PAD, ff)
-
   // Logo — top left, if present
   if (brand?.logo_url) {
     try {
@@ -503,18 +495,13 @@ async function renderSplit(ctx, post, slide, brand, platLabel, platColor, totalS
   ctx.fillStyle = light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'
   ctx.fillRect(SPLIT - 2, 0, 4, H)
 
-  // Brand name — top left
-  ctx.font = `600 24px ${ff}`
-  ctx.fillStyle = mutedColor
-  ctx.fillText((brand?.name || '').toUpperCase(), PAD, PAD + 24)
-
-  // Logo — below brand name
+  // Logo — top left of left panel
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
       const lh = 110
       const lw = Math.min(280, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
-      ctx.drawImage(logo, PAD, PAD + 48, lw, lh)
+      ctx.drawImage(logo, PAD, PAD + 24, lw, lh)
     } catch (_) { /* skip */ }
   }
 
@@ -580,14 +567,6 @@ async function renderEditorial(ctx, post, slide, brand, platLabel, platColor, sl
   // Brand-color rule between halves
   ctx.fillStyle = brandColor
   ctx.fillRect(0, IMG_H, W, 6)
-
-  // Platform badge — top right of image
-  drawPlatBadge(ctx, platLabel, platColor, W - PAD, PAD, ff)
-
-  // Brand name — top left of image
-  ctx.font = `600 24px ${ff}`
-  ctx.fillStyle = 'rgba(255,255,255,0.72)'
-  ctx.fillText((brand?.name || '').toUpperCase(), PAD, PAD + 24)
 
   const textTop = IMG_H + 56
 
