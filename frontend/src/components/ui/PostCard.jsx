@@ -431,8 +431,9 @@ async function renderOverlay(ctx, post, slide, brand, platLabel, platColor, tota
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
-      const lh = 52, lw = Math.round((logo.naturalWidth / logo.naturalHeight) * lh)
-      ctx.drawImage(logo, PAD, PAD + 54, lw, lh)
+      const lh = 130
+      const lw = Math.min(320, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
+      ctx.drawImage(logo, PAD, PAD + 16, lw, lh)
     } catch (_) { /* logo unavailable — skip */ }
   }
 
@@ -511,8 +512,9 @@ async function renderSplit(ctx, post, slide, brand, platLabel, platColor, totalS
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
-      const lh = 48, lw = Math.round((logo.naturalWidth / logo.naturalHeight) * lh)
-      ctx.drawImage(logo, PAD, PAD + 52, lw, lh)
+      const lh = 110
+      const lw = Math.min(280, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
+      ctx.drawImage(logo, PAD, PAD + 48, lw, lh)
     } catch (_) { /* skip */ }
   }
 
@@ -521,7 +523,7 @@ async function renderSplit(ctx, post, slide, brand, platLabel, platColor, totalS
   const headSize = headline.length > 32 ? 68 : headline.length > 20 ? 82 : 96
   ctx.font = `900 ${headSize}px ${ff}`
   ctx.fillStyle = textColor
-  const hY = PAD + 140
+  const hY = PAD + 210
   const hBottom = drawWrapped(ctx, headline, PAD, hY, SPLIT - PAD * 1.5, headSize * 1.1, 4)
 
   // Thin accent rule
@@ -611,7 +613,8 @@ async function renderEditorial(ctx, post, slide, brand, platLabel, platColor, sl
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
-      const lh = 48, lw = Math.round((logo.naturalWidth / logo.naturalHeight) * lh)
+      const lh = 110
+      const lw = Math.min(280, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
       ctx.drawImage(logo, W - PAD - lw, H - PAD - lh, lw, lh)
     } catch (_) { /* skip */ }
   }
