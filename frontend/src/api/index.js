@@ -70,6 +70,7 @@ export const brandApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then(r => r.data)
   },
+  aiInsights: (wsId, brandId) => api.post(`/workspaces/${wsId}/brands/${brandId}/ai-insights`).then(r => r.data),
 }
 
 // ─── Content ────────────────────────────────────────────────────

@@ -179,17 +179,79 @@ async def generate_monthly_plan(
     brand_name = brand.get('name', 'My Brand')
     industry = brand.get('industry', 'General')
 
+    def _fmt(v): return v if v else "—"
+    def _lst(v): return ', '.join(v) if v else "—"
+
     brand_ctx = f"""
+=== BRAND IDENTITY ===
 Brand: {brand_name}
 Industry: {industry}
-Description: {brand.get('description', '')}
-Target audience: {brand.get('target_audience', '')}
-Tone tags: {', '.join(brand.get('tone_tags') or [])}
-Language style: {brand.get('language_style', 'english')}
+Description: {_fmt(brand.get('description'))}
+Mission: {_fmt(brand.get('mission_statement'))}
+Value proposition: {_fmt(brand.get('value_proposition'))}
+Tagline: {_fmt(brand.get('tagline'))}
+Business model: {_fmt(brand.get('business_model'))}
+Target markets: {_lst(brand.get('target_markets'))}
+
+=== AUDIENCE ===
+Primary audience: {_fmt(brand.get('target_audience'))}
+Age range: {_fmt(brand.get('audience_age_range'))}
+Income level: {_fmt(brand.get('income_level'))}
+Occupation: {_lst(brand.get('occupation'))}
+Psychographics: {_lst(brand.get('psychographics'))}
+Pain points: {_fmt(brand.get('pain_points'))}
+Objections to overcome: {_lst(brand.get('objections'))}
+Aspirations: {_fmt(brand.get('aspirations'))}
+
+=== VOICE & TONE ===
+Tone: {_lst(brand.get('tone_tags'))}
+Writing style: {_fmt(brand.get('writing_style'))}
+Communication style: {_fmt(brand.get('communication_style'))}
+Emotional tone: {_fmt(brand.get('emotional_tone'))}
+Verbosity: {_fmt(brand.get('verbosity_level'))}
+Clarity level: {_fmt(brand.get('clarity_level'))}
+Language style: {_fmt(brand.get('language_style'))}
 Personality (0=serious, 100=casual): {brand.get('personality_score', 50)}
-Brand colors: {', '.join(brand.get('colors') or [])}
-Words to avoid: {', '.join(brand.get('words_to_avoid') or [])}
-Guidelines: {brand.get('guidelines', '')}
+
+=== VISUAL IDENTITY ===
+Primary colors: {_lst(brand.get('colors'))}
+Secondary colors: {_lst(brand.get('secondary_colors'))}
+Design style: {_fmt(brand.get('design_style'))}
+Typography: {_fmt(brand.get('typography_style') or brand.get('brand_font'))}
+Imagery style: {_fmt(brand.get('imagery_style'))}
+Lighting style: {_fmt(brand.get('lighting_style'))}
+Brand motifs: {_lst(brand.get('brand_motifs'))}
+Logo description: {_fmt(brand.get('logo_description'))}
+
+=== MESSAGING ===
+Key messages: {_lst(brand.get('key_messages'))}
+Value pillars: {_lst(brand.get('value_pillars'))}
+CTA style: {_fmt(brand.get('cta_style'))}
+Brand narratives: {_lst(brand.get('brand_narratives'))}
+Forbidden claims: {_fmt(brand.get('forbidden_claims'))}
+
+=== CONTENT STRATEGY ===
+Content goals: {_lst(brand.get('content_goals'))}
+Funnel stages: {_lst(brand.get('funnel_stages'))}
+Platforms: {_lst(brand.get('platform_styles'))}
+
+=== CAMPAIGN CONTEXT ===
+Campaign: {_fmt(brand.get('campaign_name'))}
+Theme: {_fmt(brand.get('campaign_theme'))}
+Season: {_fmt(brand.get('seasonal_context'))}
+Angle: {_fmt(brand.get('campaign_angle'))}
+
+=== GUARDRAILS ===
+Words to avoid: {_lst(brand.get('words_to_avoid'))}
+Required keywords: {_lst(brand.get('required_keywords'))}
+Tone restrictions: {_lst(brand.get('tone_restrictions'))}
+Regulatory constraints: {_fmt(brand.get('regulatory_constraints'))}
+Brand safety rules: {_fmt(brand.get('brand_safety_rules'))}
+Guidelines: {_fmt(brand.get('guidelines'))}
+
+=== EXAMPLES ===
+Good examples: {_fmt(brand.get('good_examples'))}
+Bad examples: {_fmt(brand.get('bad_examples'))}
 """.strip()
 
     topics_hint = ""

@@ -60,6 +60,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS country_code VARCHAR(10)",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_url VARCHAR(1000)",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_urls JSON",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS linkedin_handle VARCHAR(100)",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS brand_kit JSON",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS content_type VARCHAR(100)",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS content_idea VARCHAR(300)",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS description TEXT",

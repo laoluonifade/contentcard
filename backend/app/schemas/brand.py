@@ -1,4 +1,4 @@
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel
 from datetime import datetime
 
 
@@ -25,6 +25,8 @@ class BrandCreate(BaseModel):
     instagram_handle: str | None = None
     facebook_handle: str | None = None
     twitter_handle: str | None = None
+    linkedin_handle: str | None = None
+    brand_kit: dict = {}
 
 
 class BrandUpdate(BrandCreate):
@@ -57,6 +59,8 @@ class BrandOut(BaseModel):
     instagram_handle: str | None
     facebook_handle: str | None
     twitter_handle: str | None
+    linkedin_handle: str | None
+    brand_kit: dict | None
     created_at: datetime
     updated_at: datetime
 

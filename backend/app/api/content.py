@@ -382,15 +382,78 @@ async def _do_generate_month(
 
 
 def _brand_to_dict(brand: Brand) -> dict:
+    kit = brand.brand_kit or {}
     return {
+        # Core identity
         "name": brand.name or "My Brand",
         "industry": brand.industry or "General",
         "description": brand.description or "",
+        "mission_statement": kit.get("mission_statement", ""),
+        "value_proposition": kit.get("value_proposition", ""),
+        "tagline": kit.get("tagline", ""),
+        "business_model": kit.get("business_model", ""),
+        "target_markets": kit.get("target_markets", []),
+
+        # Audience
         "target_audience": brand.target_audience or "",
+        "audience_age_range": brand.audience_age_range or kit.get("demographics", {}).get("age_range", ""),
+        "income_level": kit.get("demographics", {}).get("income_level", ""),
+        "occupation": kit.get("demographics", {}).get("occupation", []),
+        "psychographics": kit.get("psychographics", []),
+        "pain_points": brand.pain_point or kit.get("pain_points", ""),
+        "objections": kit.get("objections", []),
+        "aspirations": kit.get("aspirations", ""),
+
+        # Voice & tone
         "tone_tags": brand.tone_tags or [],
+        "writing_style": kit.get("writing_style", ""),
+        "communication_style": kit.get("communication_style", ""),
+        "emotional_tone": kit.get("emotional_tone", ""),
+        "verbosity_level": kit.get("verbosity_level", "medium"),
+        "clarity_level": kit.get("clarity_level", "balanced"),
         "language_style": brand.language_style or "english",
         "personality_score": brand.personality_score or 50,
-        "words_to_avoid": brand.words_to_avoid or [],
-        "guidelines": brand.guidelines or "",
+
+        # Visual identity
         "colors": brand.brand_colors or [],
+        "secondary_colors": kit.get("secondary_colors", []),
+        "design_style": brand.design_style or "",
+        "brand_font": brand.brand_font or "",
+        "typography_style": kit.get("typography_style", ""),
+        "imagery_style": kit.get("imagery_style", ""),
+        "lighting_style": kit.get("lighting_style", ""),
+        "brand_motifs": kit.get("brand_motifs", []),
+        "logo_description": kit.get("logo_description", ""),
+
+        # Messaging
+        "key_messages": kit.get("key_messages", []),
+        "value_pillars": kit.get("value_pillars", []),
+        "cta_style": kit.get("cta_style", ""),
+        "brand_narratives": kit.get("brand_narratives", []),
+        "forbidden_claims": kit.get("forbidden_claims", ""),
+
+        # Strategy
+        "content_types_supported": kit.get("content_types_supported", []),
+        "funnel_stages": kit.get("funnel_stages", []),
+        "content_goals": kit.get("content_goals", []),
+        "platform_styles": kit.get("platform_styles", []),
+
+        # Campaign context
+        "campaign_name": kit.get("campaign_name", ""),
+        "campaign_theme": kit.get("campaign_theme", ""),
+        "seasonal_context": kit.get("seasonal_context", ""),
+        "campaign_angle": kit.get("campaign_angle", ""),
+
+        # Guardrails
+        "words_to_avoid": brand.words_to_avoid or [],
+        "required_keywords": kit.get("required_keywords", []),
+        "tone_restrictions": kit.get("tone_restrictions", []),
+        "guidelines": brand.guidelines or "",
+        "regulatory_constraints": kit.get("regulatory_constraints", ""),
+        "brand_safety_rules": kit.get("brand_safety_rules", ""),
+
+        # Examples & references
+        "good_examples": kit.get("good_examples", ""),
+        "bad_examples": kit.get("bad_examples", ""),
+        "competitor_references": kit.get("competitor_references", []),
     }
