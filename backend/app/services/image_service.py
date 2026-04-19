@@ -75,16 +75,8 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             "Cultural energy: Lagos meets luxury; African excellence, aspirational, modern. "
             "NOT Western stock photography aesthetic."
         )
-        subject_default = (
-            "a young Nigerian professional, age 24–32, natural skin, "
-            "styled casually but aspirationally, photographed on location in Lagos"
-        )
     else:
         cultural_note = ""
-        subject_default = (
-            "a confident young professional, age 24–32, "
-            "photographed in a clean modern urban environment"
-        )
 
     # Audience note
     audience_parts = [p for p in [target_audience, f"age {audience_age_range}" if audience_age_range else ""] if p]
@@ -92,34 +84,76 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
 
     arch = (ab.get("archetype_id") or "").lower()
     vt = str(post.get("visual_type") or "real_people").lower()
-    if vt not in ("real_people", "illustration"):
+    if vt not in ("real_people", "illustration", "abstract", "product"):
         vt = "real_people"
 
+    # Composition notes: default is topic-led — people only when the idea truly needs faces.
     arch_notes_photo = {
-        "photo_hero": "Hero composition: real human subject in lower two-thirds; clean open background, no areas reserved for typography.",
-        "portrait_story": "Environmental portrait of a real person: natural skin texture, documentary editorial frame, not illustrated.",
-        "pattern_headline": "Rich environmental texture and bold colour fields; geometric rhythm in environment only, no letters.",
-        "flat_edu": "Clean modern scene with real objects and crisp surfaces; uncluttered, premium studio-adjacent; real photography not illustration.",
-        "pov_comic": "Candid documentary POV of real life, natural handheld energy, photojournalism, never cartoon or stylised character.",
+        "photo_hero": (
+            "Hero composition led by the post topic: product hero, workspace still life, hands-at-work detail, architecture, "
+            "macro texture, or people only when the story genuinely needs faces. Leave one calmer quadrant with less busy detail "
+            "for post-production brand mark. No areas reserved for typography."
+        ),
+        "portrait_story": (
+            "Single clear focal subject from the topic (person, product, or environment); documentary editorial realism when people appear; "
+            "believable proportions; never default to anonymous stock faces if the topic is not about people."
+        ),
+        "pattern_headline": "Rich real-world texture, materials, light and colour rhythm; no letters; people optional and never the only option.",
+        "flat_edu": "Clean photographic scene of real objects, diagrams-as-objects, or studio surfaces; crisp and uncluttered; people optional.",
+        "pov_comic": "Candid documentary POV of a real moment, object, or place; natural handheld energy; people only if the topic demands it.",
     }
     arch_notes_illus = {
-        "photo_hero": "Bold illustrated hero scene with clear focal subject and generous negative space; no text or logos.",
-        "portrait_story": "Stylised illustrated character or silhouette treatment; premium brand illustration, not photoreal faces.",
+        "photo_hero": "Bold illustrated hero with focal subject from the topic; generous negative space; figures optional, not mandatory.",
+        "portrait_story": "Illustrated focal subject or symbolic scene; stylised professional treatment; avoid defaulting to generic human mascots.",
         "pattern_headline": "Rich illustrated pattern fields and geometric brand shapes; no letters or typography in-frame.",
-        "flat_edu": "Clean modern flat illustration with crisp shapes and editorial infographic energy; no photoreal humans.",
-        "pov_comic": "Playful illustrated POV scene with expressive line and colour; tasteful brand comic, not childish clip-art.",
+        "flat_edu": "Clean modern flat illustration with crisp shapes; objects, metaphors, or sparse figures only when on-topic.",
+        "pov_comic": "Playful illustrated POV; expressive line and colour; tasteful brand comic, not childish clip-art.",
     }
-    arch_note = (arch_notes_illus if vt == "illustration" else arch_notes_photo).get(arch, "")
+    arch_notes_abstract = {
+        "photo_hero": "Bold abstract colour fields, light gradients, or macro material study; zero people; premium campaign energy.",
+        "portrait_story": "Abstract emotional colour story or symbolic texture; zero human figures.",
+        "pattern_headline": "Geometric or organic pattern as the hero; layered depth; zero people.",
+        "flat_edu": "Minimal abstract planes and soft gradients; editorial calm; zero people.",
+        "pov_comic": "Dynamic abstract motion, colour streaks, or expressive texture; zero people.",
+    }
+    arch_notes_product = {
+        "photo_hero": "Premium product or still-life hero; crisp packshot or lifestyle context; lighting shows form; zero or minimal people.",
+        "portrait_story": "Product-in-environment storytelling; context props support the offer; faces only if essential to the idea.",
+        "pattern_headline": "Product texture, materials, or ingredient macro as pattern; no packaging copy legible in-frame.",
+        "flat_edu": "Knolling, tabletop arrangement, or clean studio layout of the product and related props.",
+        "pov_comic": "First-person product interaction (hands optional), playful but photoreal; avoid crowd scenes.",
+    }
+
+    if vt == "abstract":
+        arch_note = arch_notes_abstract.get(arch, arch_notes_abstract["pattern_headline"])
+    elif vt == "product":
+        arch_note = arch_notes_product.get(arch, arch_notes_product["photo_hero"])
+    else:
+        arch_note = (arch_notes_illus if vt == "illustration" else arch_notes_photo).get(arch, "")
 
     # Format note — composition guidance only, no typography or layout direction
-    if vt == "illustration":
+    if vt == "abstract":
+        if fmt == "carousel":
+            format_note = "Strong first-frame abstract hero; full-bleed colour and texture; no typography in the frame."
+        elif fmt == "quote":
+            format_note = "Wide abstract field with breathing room; no words or lettering in the image."
+        else:
+            format_note = "Full-bleed abstract art; no people; no typography, titles, or UI in the frame."
+    elif vt == "product":
+        if fmt == "carousel":
+            format_note = "First frame: product-led hero; tactile surfaces; no readable packaging slogans in the image."
+        elif fmt == "quote":
+            format_note = "Open product-forward scene with negative space; no words or lettering in the image."
+        else:
+            format_note = "Photoreal product or still life; full-bleed; no typography, titles, or UI in the frame."
+    elif vt == "illustration":
         if fmt == "carousel":
             format_note = "Strong first-frame illustrated hero; full-bleed brand art with no typography in the frame."
         elif fmt == "quote":
             format_note = "Wide illustrated scene with open colour fields; no words or lettering in the image."
         else:
             format_note = (
-                "Premium 2D brand illustration or modern flat graphic when figures appear; stylised, cohesive, not photoreal. "
+                "Premium 2D brand illustration or modern flat graphic; stylised, cohesive, not photoreal. "
                 "Full-bleed artwork with no typography, titles, or UI in the frame."
             )
     else:
@@ -129,7 +163,8 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             format_note = "Wide open photographic scene, editorial magazine realism, no words or lettering in the image."
         else:
             format_note = (
-                "Real human subject when people appear: documentary portrait photography, natural skin, believable proportions. "
+                "Photoreal scene: when people appear use documentary portrait quality; when the topic is not about people, "
+                "prioritise environment, product, hands, or detail shots instead of faces. "
                 "Full-bleed photograph with no typography, titles, or UI in the frame."
             )
     if arch_note:
@@ -140,7 +175,21 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     imagery_note = f"Visual style reference: {imagery_style}." if imagery_style else ""
 
     # Hard negative constraints — appended to every prompt regardless of input
-    if vt == "illustration":
+    if vt == "abstract":
+        negative = (
+            "No text, no words, no letters, no logos, no watermarks, no UI elements, "
+            "no human figures, no faces, no hands as subject, no typography, no captions, "
+            "no stock office crowds, no illustrated characters. "
+            "Abstract colour, light, texture, pattern, or materials only."
+        )
+    elif vt == "product":
+        negative = (
+            "No text, no words, no letters, no logos, no watermarks, no UI elements, "
+            "no readable packaging claims, no subtitles, no typography, no captions, "
+            "no cartoon, no illustration, no CGI toy look. "
+            "Photoreal product, food, ingredients, or objects only; if hands appear they are secondary to the product."
+        )
+    elif vt == "illustration":
         negative = (
             "No text, no words, no letters, no logos, no watermarks, no UI elements, "
             "no photorealistic humans, no synthetic photo faces, no stock portrait photography, "
@@ -155,9 +204,9 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             "no CGI, no cartoon, no anime, no vector art, no stylised characters, no claymation, "
             "no synthetic faces, no typography, no captions, "
             "no borders, no frames, no badges, no icons, no unrealistic lighting, "
-            "no floating objects, no abstract art. "
-            "If people appear they must be photorealistic real humans (as in documentary or advertising photography), "
-            "never illustrated or toy-like."
+            "no floating objects. "
+            "Do not default to random smiling models; only include people when the scene truly needs them, "
+            "and then they must be photoreal documentary or advertising photography, never illustrated or toy-like."
         )
     extra_never = ab.get("negative_motifs") or []
     if extra_never:
@@ -171,12 +220,18 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
 
     if ai_image_prompt and len(ai_image_prompt) > 50:
         # AI-generated prompt is primary; append brand enforcement and negatives
-        if vt == "illustration":
+        if vt == "abstract":
+            style_close = "Premium abstract campaign art; colour and material-led, zero people."
+            cam_line = "Execution: large calm areas and intentional texture; avoid busy detail in every corner."
+        elif vt == "product":
+            style_close = "Photoreal product and still-life campaign; tactile and credible."
+            cam_line = "Camera: macro or 50–100mm product photography, controlled studio or natural light, sharp hero subject."
+        elif vt == "illustration":
             style_close = "Premium illustrated brand key visual; cohesive shapes and colour, never stock photo."
             cam_line = "Illustration execution: crisp edges, intentional colour blocking, print-quality vector-adjacent finish."
         else:
-            style_close = "Photorealistic editorial photograph of real people and real environments, never stock illustration."
-            cam_line = "Camera: Canon EOS R5, 85mm f/1.4, shallow depth of field, subject sharp."
+            style_close = "Photoreal editorial photograph; topic-led subjects (people, product, place, or detail), never generic illustration."
+            cam_line = "Camera: Canon EOS R5, 35–85mm, shallow or medium depth of field; subject chosen to match the post idea."
         prompt = (
             f"{ai_image_prompt}\n\n"
             f"Brand context: {brand_name} ({industry}). "
@@ -188,16 +243,26 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{negative}"
         )
     else:
-        if vt == "illustration":
+        if vt == "abstract":
+            opener = f"Premium abstract visual for {brand_name}, a {industry} brand."
+            cam_block = "Execution: colour fields, light gradients, material macro, or geometric rhythm; no people."
+            style_close = "Museum-quality abstract still, not stock photo of humans."
+        elif vt == "product":
+            opener = f"Photoreal product-led photograph for {brand_name}, a {industry} brand."
+            cam_block = (
+                "Camera: product or lifestyle product shot, controlled lighting, tactile surfaces, believable context props. "
+                "Hero is the product or offer, not a random person."
+            )
+            style_close = "High-end commercial still life or lifestyle product photography."
+        elif vt == "illustration":
             opener = f"Premium brand illustration for {brand_name}, a {industry} brand."
             cam_block = "Execution: cohesive illustrated scene with intentional colour hierarchy and modern brand-graphic polish."
             style_close = "High-end illustrated campaign key visual; not stock photography."
         else:
-            opener = f"Photorealistic lifestyle photograph for {brand_name}, a {industry} brand."
+            opener = f"Photorealistic editorial photograph for {brand_name}, a {industry} brand."
             cam_block = (
-                "Camera: Canon EOS R5, 85mm f/1.4 lens, shallow depth of field, subject sharp and in focus. "
-                "Environment: modern, uncluttered, premium. "
-                "Shot feel: high-end editorial campaign photograph, not stock photography."
+                "Camera: Canon EOS R5, 35–85mm lens, depth of field chosen for the subject (product, place, detail, or people). "
+                "Environment and talent must match the post idea; avoid default anonymous office crowds."
             )
             style_close = ""
         prompt = (
@@ -257,19 +322,22 @@ def _composite_logo(
             cleaned.append((r, g, b, a))
     logo.putdata(cleaned)
 
-    # Resize: at least min_width_px and ~14–18% of frame width
-    logo_max_w = max(min_width_px, int(w * 0.16))
+    # Resize: at least min_width_px and ~18–22% of frame width (readability on mobile)
+    logo_max_w = max(min_width_px, int(w * 0.2))
     lw, lh = logo.size
     scale = logo_max_w / lw
     logo = logo.resize((int(lw * scale), int(lh * scale)), Image.LANCZOS)
 
     pad = max(16, int(w * 0.03))
     pl = (placement or "bottom_right").lower().replace("-", "_")
-    if pl == "bottom_left":
-        x = pad
+    if pl in ("top_left", "upper_left"):
+        x, y = pad, pad
+    elif pl in ("top_right", "upper_right"):
+        x, y = w - logo.width - pad, pad
+    elif pl in ("bottom_left", "lower_left"):
+        x, y = pad, h - logo.height - pad
     else:
-        x = w - logo.width - pad
-    y = h - logo.height - pad
+        x, y = w - logo.width - pad, h - logo.height - pad
 
     base.paste(logo, (x, y), logo)
 

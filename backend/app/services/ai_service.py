@@ -58,13 +58,14 @@ REQUIRED_POST_FIELDS = {"caption", "date", "format"}
 VALID_FORMATS = {"single", "carousel", "quote"}
 VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
 VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
+VALID_LOGO_SAFE_ZONES = frozenset({"upper_left", "upper_right", "lower_left", "lower_right"})
 
 
 def _image_prompt_ending_for_style(ips: str) -> str:
     if ips == "real_people":
         return (
             'Must end with: "No text, no logos, no watermarks, no typography, no UI elements, no illustration, '
-            'photorealistic photograph of real humans and real environments only."'
+            'photorealistic photograph; subjects must match the post topic (people only when the idea truly needs faces)."'
         )
     if ips == "illustration":
         return (
@@ -72,8 +73,9 @@ def _image_prompt_ending_for_style(ips: str) -> str:
             'premium brand illustration or modern flat graphic only; no photorealistic humans."'
         )
     return (
-        "End by forbidding logos and readable text in-image; describe EITHER photorealistic humans OR "
-        "tasteful brand illustration consistent with visual_type for that post."
+        "End by forbidding logos and readable text in-image. "
+        "visual_type per post must be one of real_people, illustration, abstract, or product — pick the best fit; "
+        "prefer abstract or product when the content is not about people; do not default every post to humans."
     )
 
 
@@ -82,7 +84,10 @@ def _visual_type_rule_for_style(ips: str) -> str:
         return 'always the string "real_people"'
     if ips == "illustration":
         return 'always the string "illustration"'
-    return 'per post either "real_people" OR "illustration"; vary intentionally across the month'
+    return (
+        'per post one of: "real_people", "illustration", "abstract", "product" — vary across the month; '
+        'use "abstract" or "product" whenever the content idea does not require people'
+    )
 
 
 def _hard_visual_type_rule(ips: str) -> str:
@@ -90,7 +95,11 @@ def _hard_visual_type_rule(ips: str) -> str:
         return '• visual_type must be exactly "real_people" for every post'
     if ips == "illustration":
         return '• visual_type must be exactly "illustration" for every post'
-    return '• visual_type must be either "real_people" or "illustration" per post (vary intentionally)'
+    return (
+        '• visual_type must be one of real_people, illustration, abstract, or product per post (vary intentionally)\n'
+        '• Across the full batch: at least 35% of posts combined must use abstract or product (not people-led), '
+        "unless the assigned content_type for a date explicitly requires a person's story"
+    )
 
 
 def _visual_system_prompt_block(brand: dict) -> str:
@@ -108,6 +117,7 @@ def _visual_system_prompt_block(brand: dict) -> str:
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
         f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; mixed = vary by post). "
         f"The brand logo is composited automatically after image generation. Do NOT instruct the image model to draw, render, or place a logo. "
+        f"For each post, choose logo_safe_zone so the scene keeps one calmer quadrant for that later mark. "
         f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
     )
 
@@ -162,7 +172,7 @@ def _validate_posts(
         elif ips == "illustration":
             post["visual_type"] = "illustration"
         else:
-            post["visual_type"] = vt_ai if vt_ai in ("real_people", "illustration") else "real_people"
+            post["visual_type"] = vt_ai
 
         # visual_archetype: layout family for VBS / art brief (PRD)
         va = str(post.get("visual_archetype", "")).strip().lower()
@@ -170,6 +180,18 @@ def _validate_posts(
             post["visual_archetype"] = infer_default_archetype(post["visual_type"])
         else:
             post["visual_archetype"] = va
+
+        vt = post["visual_type"]
+        if vt == "abstract" and post["visual_archetype"] not in ("pattern_headline", "flat_edu"):
+            post["visual_archetype"] = "pattern_headline"
+        elif vt == "product" and post["visual_archetype"] not in ("photo_hero", "flat_edu", "pattern_headline"):
+            post["visual_archetype"] = "photo_hero"
+
+        zone = str(post.get("logo_safe_zone", "")).strip().lower().replace(" ", "_")
+        if zone not in VALID_LOGO_SAFE_ZONES:
+            post.pop("logo_safe_zone", None)
+        else:
+            post["logo_safe_zone"] = zone
 
         # Backfill topic from content_idea
         if not post.get("topic"):
@@ -328,7 +350,8 @@ async def _generate_for_platform(
             "• ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
             "• NEVER mention logos, wordmarks, or typography in image_prompt. Raster is logo-free and text-free; logo is added in post-production\n"
             "• ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
-            "• People must be photorealistic real humans matching target_audience demographics; never cartoon, 3D, or toy-like characters\n"
+            "• When people appear they must be photoreal and on-brief for target_audience; never cartoon, 3D, or toy-like characters\n"
+            "• Many posts should have zero people: use product, environment, macro detail, hands-at-work, or abstract texture when the idea allows\n"
             "• NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", or \"modern design\""
         ).format(bn=brand_name)
     elif ips == "illustration":
@@ -342,7 +365,8 @@ async def _generate_for_platform(
     else:
         img_style_rules = (
             f"• ALWAYS name the brand ({brand_name}) and honour VISUAL IDENTITY colours and motifs\n"
-            "• Vary the month: some posts photorealistic humans, others premium illustrated or flat brand graphics; pick the stronger fit per post\n"
+            "• Vary the month: mix photoreal (with or without people), premium illustration, abstract texture, and product or still-life heroes\n"
+            "• Pick visual_type per post; do not default to crowds or smiling models — lean abstract/product when the topic is not human-centric\n"
             "• NEVER logos or readable text inside the image; logo is added in post-production\n"
             "• NEVER generic stock or clichéd \"AI slop\""
         )
@@ -388,10 +412,11 @@ For EACH post return ALL these fields:
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
 10. visual_type: {_visual_type_rule_for_style(ips)}
-11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story"; must align with content_type and visual_type
+11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story"; must align with content_type and visual_type (for abstract prefer pattern_headline or flat_edu; for product prefer photo_hero)
 12. format: "single", "carousel", or "quote"
 13. slide_count: 1 for single/quote, 2-5 for carousel
 14. date: posting date in YYYY-MM-DD format exactly as listed above
+15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose the quadrant where the composed scene will have the calmest, least-detailed negative space for a brand mark added later in software. Base this only on how you describe the shot in visual_direction and image_prompt — do not mention a logo or watermark in the image.
 
 HARD RULES:
 • Each post must feel distinctly different; vary tone, angle, format, and style
