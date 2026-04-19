@@ -178,10 +178,10 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
     payload = await request.body()
     sig_header = request.headers.get("x-paystack-signature", "")
 
-    # Verify webhook signature
-    if settings.PAYSTACK_WEBHOOK_SECRET:
+    # Verify webhook signature using the Paystack secret key
+    if settings.PAYSTACK_SECRET_KEY:
         expected = hmac.new(
-            settings.PAYSTACK_WEBHOOK_SECRET.encode("utf-8"),
+            settings.PAYSTACK_SECRET_KEY.encode("utf-8"),
             payload,
             hashlib.sha512,
         ).hexdigest()

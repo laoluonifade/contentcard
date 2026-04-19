@@ -17,7 +17,6 @@ class Settings(BaseSettings):
 
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
-    PAYSTACK_WEBHOOK_SECRET: str = ""
 
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
