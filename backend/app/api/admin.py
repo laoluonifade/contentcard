@@ -1,9 +1,12 @@
 import asyncio
 import logging
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, delete
+from sqlalchemy.orm import aliased
+from pydantic import BaseModel, Field
+from app.services.billing_service import verify_paystack_transaction, PLANS
+from app.core.config import settings
 from app.db.database import get_db, AsyncSessionLocal
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -11,8 +14,6 @@ from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.models.brand import Brand
 from app.models.content import ContentItem
 from datetime import datetime, timezone, timedelta
-
-from app.services.billing_service import verify_paystack_transaction, PLANS
 
 logger = logging.getLogger(__name__)
 
@@ -55,38 +56,28 @@ class ReconcilePaystackBody(BaseModel):
     plan: str | None = Field(None, description="Override plan if metadata is missing: starter | smb | pro")
 
 
-async def _owner_workspace_for_user_email(email: str, db: AsyncSession) -> tuple[User, Workspace] | None:
-    user_r = await db.execute(select(User).where(func.lower(User.email) == email.strip().lower()))
-    user = user_r.scalar_one_or_none()
-    if not user:
-        return None
-    ws_r = await db.execute(
-        select(Workspace)
-        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
-        .where(WorkspaceMember.user_id == user.id, WorkspaceMember.role == WorkspaceRole.OWNER)
-    )
-    ws = ws_r.scalar_one_or_none()
-    if not ws:
-        return None
-    return user, ws
+class ReconcileWorkspacePaystackBody(BaseModel):
+    reference: str = Field(..., description="Paystack transaction reference from receipt/dashboard")
+    plan: str | None = Field(None, description="Override plan if metadata is missing: starter | smb | pro")
 
 
-@router.post("/billing/reconcile-paystack")
-async def admin_reconcile_paystack(
-    body: ReconcilePaystackBody,
-    _: User = Depends(require_admin),
-    db: AsyncSession = Depends(get_db),
+async def _reconcile_paystack_transaction_for_workspace(
+    db: AsyncSession,
+    user: User,
+    ws: Workspace,
+    reference: str,
+    plan_override: str | None,
 ) -> dict:
-    """
-    One-off: verify a Paystack charge and apply plan + saved card to the user's owner workspace.
-    Use when automatic callback/webhook did not update the database.
-    """
-    pair = await _owner_workspace_for_user_email(body.email, db)
-    if not pair:
-        raise HTTPException(status_code=404, detail="No user or owner workspace found for that email")
+    if not settings.PAYSTACK_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Paystack is not configured on this server (missing PAYSTACK_SECRET_KEY)")
 
-    user, ws = pair
-    result = await verify_paystack_transaction(body.reference.strip())
+    result = await verify_paystack_transaction(reference.strip())
+    if result.get("status") is False:
+        raise HTTPException(
+            status_code=402,
+            detail=result.get("message") or "Paystack could not verify this reference",
+        )
+
     data = result.get("data") or {}
     if data.get("status") != "success":
         raise HTTPException(
@@ -117,7 +108,7 @@ async def admin_reconcile_paystack(
                 detail="Paystack customer email does not match account email",
             )
 
-    plan_name = (metadata.get("plan") or body.plan or "starter").lower()
+    plan_name = (metadata.get("plan") or plan_override or "starter").lower()
     if plan_name not in PLANS:
         raise HTTPException(status_code=400, detail=f"Invalid plan in metadata/body: {plan_name}")
 
@@ -150,6 +141,66 @@ async def admin_reconcile_paystack(
         "customer_id": ws.customer_id,
         "card_last4": getattr(ws, "card_last4", None),
     }
+
+
+async def _owner_workspace_for_user_email(email: str, db: AsyncSession) -> tuple[User, Workspace] | None:
+    user_r = await db.execute(select(User).where(func.lower(User.email) == email.strip().lower()))
+    user = user_r.scalar_one_or_none()
+    if not user:
+        return None
+    ws_r = await db.execute(
+        select(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(WorkspaceMember.user_id == user.id, WorkspaceMember.role == WorkspaceRole.OWNER)
+    )
+    ws = ws_r.scalar_one_or_none()
+    if not ws:
+        return None
+    return user, ws
+
+
+@router.post("/billing/reconcile-paystack")
+async def admin_reconcile_paystack(
+    body: ReconcilePaystackBody,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    One-off: verify a Paystack charge and apply plan + saved card to the user's owner workspace.
+    Use when automatic callback/webhook did not update the database.
+    """
+    pair = await _owner_workspace_for_user_email(body.email, db)
+    if not pair:
+        raise HTTPException(status_code=404, detail="No user or owner workspace found for that email")
+
+    user, ws = pair
+    return await _reconcile_paystack_transaction_for_workspace(
+        db, user, ws, body.reference, body.plan
+    )
+
+
+@router.post("/workspaces/{workspace_id}/billing/reconcile-paystack")
+async def admin_reconcile_workspace_paystack(
+    workspace_id: str,
+    body: ReconcileWorkspacePaystackBody,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Same as POST /admin/billing/reconcile-paystack but scoped by workspace id (admin UI).
+    Paste the Paystack transaction reference from the Paystack dashboard or customer receipt.
+    """
+    ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+    ws = ws_r.scalar_one_or_none()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    user_r = await db.execute(select(User).where(User.id == ws.owner_id))
+    user = user_r.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Workspace owner not found")
+    return await _reconcile_paystack_transaction_for_workspace(
+        db, user, ws, body.reference, body.plan
+    )
 
 
 @router.get("/stats")
@@ -292,11 +343,15 @@ async def admin_workspaces(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     total = (await db.execute(select(func.count()).select_from(Workspace))).scalar() or 0
+    owner_user = aliased(User)
     result = await db.execute(
-        select(Workspace).order_by(desc(Workspace.created_at))
-        .offset((page - 1) * limit).limit(limit)
+        select(Workspace, owner_user.email)
+        .join(owner_user, owner_user.id == Workspace.owner_id)
+        .order_by(desc(Workspace.created_at))
+        .offset((page - 1) * limit)
+        .limit(limit)
     )
-    workspaces = result.scalars().all()
+    rows = result.all()
     return {
         "total": total,
         "page": page,
@@ -306,8 +361,9 @@ async def admin_workspaces(
                 "name": ws.name,
                 "plan": ws.plan,
                 "created_at": ws.created_at.isoformat(),
+                "owner_email": owner_email,
             }
-            for ws in workspaces
+            for ws, owner_email in rows
         ],
     }
 
@@ -446,7 +502,7 @@ async def test_assistant(
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     if not brand.openai_assistant_id:
-        raise HTTPException(status_code=400, detail="Brand has no assistant — run sync-assistant first")
+        raise HTTPException(status_code=400, detail="Brand has no assistant. Run sync-assistant first.")
 
     test_prompt = (
         'Return ONLY this exact JSON, nothing else: [{"test": "ok", "brand": "' + brand.name + '"}]'

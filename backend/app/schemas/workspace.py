@@ -16,6 +16,8 @@ class WorkspaceOut(BaseModel):
     payment_provider: str | None
     is_active: bool
     created_at: datetime
+    # Highest plan across all workspaces you own (same as billing); equals `plan` for invited workspaces.
+    effective_plan: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -31,12 +33,19 @@ class WorkspaceMemberOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+LINK_INVITE_EMAIL_SUFFIX = "@invite.contentcard.internal"
+
+
 class InviteRequest(BaseModel):
-    email: EmailStr
+    """Omit email to create a secure link-only invite (no outbound email)."""
+
+    email: EmailStr | None = None
     role: WorkspaceRole = WorkspaceRole.EDITOR
 
 
 class InviteOut(BaseModel):
+    """Pending invite row (no secret token — safe for list endpoints)."""
+
     id: str
     email: str
     role: WorkspaceRole
@@ -47,11 +56,19 @@ class InviteOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class InviteCreated(InviteOut):
+    """Returned when an invite is created; includes the token for the shareable link."""
+
+    token: str
+
+
 class AcceptInviteRequest(BaseModel):
     token: str
     full_name: str
     password: str
     phone: str | None = None
+    # Required when accepting a link-only invite (synthetic placeholder email on the row).
+    email: EmailStr | None = None
 
 
 class RoleUpdateRequest(BaseModel):

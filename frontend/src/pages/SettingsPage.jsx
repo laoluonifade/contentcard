@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Check, Eye, EyeOff, Sun, Moon } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
@@ -8,24 +9,38 @@ import clsx from 'clsx'
 import { COUNTRIES_LIST } from './SignupPage'
 import { useTheme } from '../hooks/useTheme'
 
-const TABS = ['Profile','Company','Team','Notifications']
+const TABS = ['Profile', 'Company', 'Team', 'Appearance']
+
+/** Matches billing tiers; `plan` on a workspace row can lag behind pooled subscription. Prefer `effective_plan`. */
+const PLAN_LABELS = { trial: 'Trial', starter: 'Starter', smb: 'Growth', pro: 'Pro' }
+function workspacePlanLabel(ws) {
+  const raw = (ws?.effective_plan || ws?.plan || 'trial').toString().trim().toLowerCase()
+  return PLAN_LABELS[raw] || raw.charAt(0).toUpperCase() + raw.slice(1)
+}
+
+const LINK_INVITE_HINT = '@invite.contentcard.internal'
 const ROLES = ['admin','editor','viewer','approver']
 
 const inputCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 
-function Toggle({ on, onChange }) {
-  return (
-    <button onClick={() => onChange(!on)} className={`w-11 h-6 rounded-full relative transition-colors flex-shrink-0 ${on ? 'bg-brand-500' : 'bg-fog'}`}>
-      <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${on ? 'left-6' : 'left-1'}`} />
-    </button>
-  )
-}
-
 export default function SettingsPage() {
-  const { user, updateUser } = useAuthStore()
-  const { activeWorkspace, activeWorkspaceId } = useAppStore()
-  const { theme, toggle: toggleTheme, isDark } = useTheme()
+  const { user, updateUser, fetchMe } = useAuthStore()
+  const { activeWorkspace, activeWorkspaceId, fetchWorkspaces } = useAppStore()
+  const { theme, setTheme } = useTheme()
+  const [searchParams] = useSearchParams()
   const [tab, setTab] = useState('Profile')
+
+  useEffect(() => {
+    const t = searchParams.get('tab')
+    if (t && TABS.includes(t)) setTab(t)
+  }, [searchParams])
+
+  useEffect(() => {
+    if (tab === 'Company') {
+      fetchMe?.().catch(() => {})
+      fetchWorkspaces?.().catch(() => {})
+    }
+  }, [tab, fetchMe, fetchWorkspaces])
   const [saving, setSaving] = useState(false)
   const [showPw, setShowPw] = useState(false)
   const [members, setMembers] = useState([])
@@ -44,8 +59,6 @@ export default function SettingsPage() {
     country_code: user?.country_code || '',
   })
   const [pwForm, setPwForm] = useState({ current_password: '', new_password: '' })
-  const [notifs, setNotifs] = useState({ daily: true, weekly: true, trending: true, updates: true, marketing: false })
-
   const loadTeam = async () => {
     if (membersLoaded || !activeWorkspaceId) return
     try {
@@ -78,15 +91,20 @@ export default function SettingsPage() {
   }
 
   const sendInvite = async () => {
-    if (!inviteEmail) { toast('Enter an email address', 'error'); return }
     setInviting(true)
     try {
-      const inv = await inviteApi.send(activeWorkspaceId, { email: inviteEmail, role: inviteRole })
+      const payload = inviteEmail.trim()
+        ? { email: inviteEmail.trim(), role: inviteRole }
+        : { role: inviteRole }
+      const inv = await inviteApi.send(activeWorkspaceId, payload)
       setInvites(iv => [inv, ...iv])
       setInviteEmail('')
       const inviteLink = `${window.location.origin}/accept-invite?token=${inv.token}`
-      toast(`Invite link created — share it with ${inv.email}`)
-      // Also show the link in the UI
+      toast(
+        inviteEmail.trim()
+          ? `Invite ready for ${inviteEmail.trim()} — share the link below.`
+          : 'Secure invite link created — share it with your teammate (no email sent).'
+      )
       setLastInviteLink(inviteLink)
     } catch (err) { toast(err.message, 'error') }
     finally { setInviting(false) }
@@ -109,18 +127,21 @@ export default function SettingsPage() {
     } catch (err) { toast(err.message, 'error') }
   }
 
+  const inviteRowLabel = (email) =>
+    email && email.toLowerCase().endsWith(LINK_INVITE_HINT.toLowerCase()) ? 'Link invite' : email
+
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Settings</h1>
         <p className="text-ink/40 text-sm">Manage your account and workspace</p>
       </div>
 
-      <div className="grid lg:grid-cols-[185px_1fr] gap-6 items-start">
-        <nav className="bg-white border border-fog rounded-2xl p-2">
+      <div className="grid grid-cols-1 lg:grid-cols-[185px_1fr] gap-6 items-start">
+        <nav className="bg-surface border border-fog rounded-2xl p-2 flex flex-row flex-wrap lg:flex-col gap-0.5">
           {TABS.map(t => (
             <button key={t} onClick={() => { setTab(t); if (t === 'Team') loadTeam() }}
-              className={clsx('flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left mb-0.5', tab === t ? 'bg-mist text-ink' : 'text-ink/40 hover:text-ink hover:bg-mist')}>
+              className={clsx('flex items-center gap-2 flex-1 min-w-[120px] lg:min-w-0 lg:w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left lg:mb-0.5', tab === t ? 'bg-mist text-ink' : 'text-ink/40 hover:text-ink hover:bg-mist')}>
               {t}
             </button>
           ))}
@@ -129,7 +150,7 @@ export default function SettingsPage() {
         <div>
           {tab === 'Profile' && (
             <div className="space-y-4">
-              <div className="bg-white border border-fog rounded-2xl p-6">
+              <div className="bg-surface border border-fog rounded-2xl p-6">
                 <h3 className="text-ink font-bold text-sm mb-1">Your profile</h3>
                 <p className="text-ink/40 text-xs mb-5">Update your personal information</p>
                 <div className="flex items-center gap-4 mb-5 pb-5 border-b border-fog">
@@ -138,7 +159,7 @@ export default function SettingsPage() {
                   </div>
                   <div><div className="text-ink font-bold">{user?.full_name}</div><div className="text-ink/40 text-xs mt-0.5">{user?.email}</div></div>
                 </div>
-                <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">First name</label>
                     <input value={profileForm.first_name} onChange={e => setProfileForm(f => ({ ...f, first_name: e.target.value }))} placeholder="Ada" className={inputCls} />
@@ -148,7 +169,7 @@ export default function SettingsPage() {
                     <input value={profileForm.last_name} onChange={e => setProfileForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Okonkwo" className={inputCls} />
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Email</label>
                     <input value={profileForm.email} disabled className={`${inputCls} opacity-50 cursor-not-allowed`} />
@@ -171,10 +192,10 @@ export default function SettingsPage() {
                   </button>
                 </div>
               </div>
-              <div className="bg-white border border-fog rounded-2xl p-6">
+              <div className="bg-surface border border-fog rounded-2xl p-6 mt-4">
                 <h3 className="text-ink font-bold text-sm mb-1">Change password</h3>
                 <p className="text-ink/40 text-xs mb-5">Min. 8 characters</p>
-                <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Current password</label>
                     <div className="relative">
@@ -197,29 +218,74 @@ export default function SettingsPage() {
           )}
 
           {tab === 'Company' && (
-            <div className="bg-white border border-fog rounded-2xl p-6">
-              <h3 className="text-ink font-bold text-sm mb-1">Workspace</h3>
-              <p className="text-ink/40 text-xs mb-5">{activeWorkspace?.name}</p>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Plan</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.plan || 'trial'}</div></div>
-                <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Payment provider</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.payment_provider || '—'}</div></div>
+            <div className="space-y-4">
+              <div className="bg-surface border border-fog rounded-2xl p-6">
+                <h3 className="text-ink font-bold text-sm mb-1">Agency mode</h3>
+                <p className="text-ink/40 text-xs mb-4">
+                  Turn on when you manage multiple client companies. You can create a separate workspace for each: its own brands,
+                  brand kits, calendar, and billing. Use the sidebar switcher (and <strong className="text-ink/60">New client workspace</strong>) to move between clients.
+                </p>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                  <div>
+                    <p className="text-ink text-sm font-semibold">Multi-workspace account</p>
+                    <p className="text-ink/35 text-xs mt-0.5">{user?.agency_mode ? 'Enabled' : 'Off — one owned workspace unless you are only invited to others.'}</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={async () => {
+                      const next = !user?.agency_mode
+                      setSaving(true)
+                      try {
+                        const u = await authApi.updateProfile({ agency_mode: next })
+                        updateUser(u)
+                        toast(next ? 'Agency mode on — you can add client workspaces from the sidebar.' : 'Agency mode off.')
+                      } catch (err) {
+                        toast(err.response?.data?.detail || err.message || 'Update failed', 'error')
+                      } finally {
+                        setSaving(false)
+                      }
+                    }}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-semibold border transition-colors whitespace-nowrap ${
+                      user?.agency_mode
+                        ? 'border-fog bg-mist text-ink hover:bg-fog'
+                        : 'border-brand-200 bg-brand-500 text-white hover:bg-brand-600'
+                    }`}
+                  >
+                    {user?.agency_mode ? 'Turn off agency mode' : 'Enable agency mode'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="bg-surface border border-fog rounded-2xl p-6">
+                <h3 className="text-ink font-bold text-sm mb-1">Active workspace</h3>
+                <p className="text-ink/40 text-xs mb-5">{activeWorkspace?.name}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Plan</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm">{workspacePlanLabel(activeWorkspace)}</div></div>
+                  <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Payment provider</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.payment_provider || 'Not set'}</div></div>
+                </div>
               </div>
             </div>
           )}
 
           {tab === 'Team' && (
             <div className="space-y-4">
-              <div className="bg-white border border-fog rounded-2xl p-6">
-                <h3 className="text-ink font-bold text-sm mb-1">Invite member</h3>
-                <p className="text-ink/40 text-xs mb-4">They'll receive a link to create their account and join.</p>
-                <div className="flex gap-3">
-                  <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendInvite()} placeholder="colleague@company.com" className={`${inputCls} flex-1`} />
-                  <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} className="px-3 py-3 bg-mist border border-fog rounded-xl text-sm capitalize cursor-pointer outline-none">
+              <div className="bg-surface border border-fog rounded-2xl p-6">
+                <h3 className="text-ink font-bold text-sm mb-1">Invite teammate</h3>
+                <p className="text-ink/40 text-xs mb-4">
+                  Create a secure link to share in Slack, WhatsApp, or email yourself. We do not send outbound email from the product yet.
+                  Optionally restrict the invite to one email — the link still must be opened to join.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendInvite()} placeholder="Optional: colleague@company.com" className={`${inputCls} flex-1`} />
+                  <div className="flex gap-2 sm:flex-shrink-0">
+                  <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} className="px-3 py-3 bg-mist border border-fog rounded-xl text-sm capitalize cursor-pointer outline-none flex-1 sm:flex-initial min-w-0">
                     {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
                   <button onClick={sendInvite} disabled={inviting} className="px-4 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap">
-                    {inviting ? '…' : 'Send invite'}
+                    {inviting ? '…' : 'Create link'}
                   </button>
+                  </div>
                 </div>
                 {lastInviteLink && (
                   <div className="mt-3 p-3 bg-mist rounded-xl border border-fog">
@@ -237,7 +303,7 @@ export default function SettingsPage() {
                 )}
               </div>
 
-              <div className="bg-white border border-fog rounded-2xl p-6">
+              <div className="bg-surface border border-fog rounded-2xl p-6">
                 <h3 className="text-ink font-bold text-sm mb-4">Members</h3>
                 {members.length === 0 ? <p className="text-ink/30 text-sm">No members loaded yet.</p> : members.map(m => (
                   <div key={m.id} className="flex items-center gap-3 py-3 border-b border-fog last:border-0">
@@ -267,7 +333,7 @@ export default function SettingsPage() {
                     {invites.filter(i => i.status === 'pending').map(inv => (
                       <div key={inv.id} className="flex items-center gap-3 py-2.5 border-b border-fog last:border-0">
                         <div className="flex-1 min-w-0">
-                          <p className="text-ink/70 text-sm truncate">{inv.email}</p>
+                          <p className="text-ink/70 text-sm truncate">{inviteRowLabel(inv.email)}</p>
                           <p className="text-ink/30 text-xs capitalize">{inv.role} · invited</p>
                         </div>
                         <span className="text-xs font-medium px-2 py-1 bg-mist text-ink/40 rounded-full border border-fog">Pending</span>
@@ -279,42 +345,28 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {tab === 'Notifications' && (
-            <div className="space-y-4">
-            <div className="bg-white border border-fog rounded-2xl p-6">
+          {tab === 'Appearance' && (
+            <div className="bg-surface border border-fog rounded-2xl p-6">
               <h3 className="text-ink font-bold text-sm mb-1">Appearance</h3>
-              <p className="text-ink/40 text-xs mb-5">Choose your preferred interface theme</p>
-              <div className="flex gap-3">
+              <p className="text-ink/40 text-xs mb-5">Theme applies across the signed-in app (saved on this device).</p>
+              <div className="flex flex-col sm:flex-row gap-3 max-w-md">
                 {[
                   { value: 'dark',  label: 'Dark',  icon: Moon },
                   { value: 'light', label: 'Light', icon: Sun  },
                 ].map(({ value, label, icon: Icon }) => (
-                  <button key={value} onClick={() => { if (theme !== value) toggleTheme() }}
-                    className={`flex-1 flex items-center gap-2 py-3 px-4 rounded-xl border font-medium text-sm transition-all ${theme === value ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}>
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setTheme(value)}
+                    className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl border font-medium text-sm transition-all ${theme === value ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}
+                  >
                     <Icon size={16} /> {label}
                   </button>
                 ))}
               </div>
-            </div>
-            <div className="bg-white border border-fog rounded-2xl p-6">
-              <h3 className="text-ink font-bold text-sm mb-1">Notification preferences</h3>
-              <p className="text-ink/40 text-xs mb-5">Control what you hear about</p>
-              {[
-                ['daily','Daily post reminder','Morning digest of today\'s posts'],
-                ['weekly','Weekly summary','Performance digest every Monday'],
-                ['trending','AI trending alerts','When a trend spikes in your niche'],
-                ['updates','Product updates','New features and announcements'],
-                ['marketing','Marketing emails','Tips, case studies and inspiration'],
-              ].map(([key, label, sub]) => (
-                <div key={key} className="flex items-center justify-between py-3.5 border-b border-fog last:border-0">
-                  <div><p className="text-ink text-sm font-semibold">{label}</p><p className="text-ink/40 text-xs mt-0.5">{sub}</p></div>
-                  <Toggle on={notifs[key]} onChange={v => setNotifs(n => ({ ...n, [key]: v }))} />
-                </div>
-              ))}
-              <div className="flex justify-end mt-4">
-                <button onClick={() => toast('Preferences saved!')} className="btn-primary text-sm"><Check size={14} />Save preferences</button>
-              </div>
-            </div>
+              <p className="text-ink/30 text-xs mt-5">
+                Email-based notification preferences are not available until outbound email is enabled.
+              </p>
             </div>
           )}
         </div>

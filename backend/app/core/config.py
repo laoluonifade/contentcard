@@ -22,8 +22,16 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
 
+    BANNERBEAR_API_KEY: str = ""
+    BANNERBEAR_TEMPLATE_COVER: str = ""
+    BANNERBEAR_TEMPLATE_CONTENT: str = ""
+    BANNERBEAR_TEMPLATE_QUOTE: str = ""
+    BANNERBEAR_TEMPLATE_HOOK: str = ""
+
     FREE_TRIAL_DAYS: int = 14
     FRONTEND_URL: str = "http://localhost:5173"
+    # Max workspaces a single user may own when agency_mode is enabled (guardrail).
+    AGENCY_MAX_OWNED_WORKSPACES: int = 50
 
     class Config:
         env_file = ".env"

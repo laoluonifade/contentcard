@@ -104,6 +104,17 @@ async def get_brand(
     return BrandOut.model_validate(brand)
 
 
+def _deep_merge_dict(base: dict, patch: dict) -> dict:
+    """Recursively merge patch into base (patch wins for scalars; dict values merge)."""
+    out = dict(base)
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge_dict(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 @router.put("/{brand_id}", response_model=BrandOut)
 async def update_brand(
     workspace_id: str, brand_id: str, body: BrandUpdate,
@@ -120,7 +131,11 @@ async def update_brand(
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
-    for key, val in body.model_dump(exclude_none=True).items():
+    data = body.model_dump(exclude_none=True)
+    if "brand_kit" in data and isinstance(data["brand_kit"], dict):
+        data["brand_kit"] = _deep_merge_dict(dict(brand.brand_kit or {}), data["brand_kit"])
+
+    for key, val in data.items():
         setattr(brand, key, val)
 
     await db.commit()
@@ -178,7 +193,7 @@ async def generate_ai_insights(
 brand_personality_summary: 2-3 sentences capturing the brand's core personality and voice in human, non-jargon language
 tone_variants: array of 3 objects, each with "name" (e.g. "Urgent CTA", "Warm Education") and "description" (1 sentence on when to use this tone)
 audience_segments: array of 2-3 objects, each with "name" and "insight" (1-2 sentences on this segment's psychology and how to speak to them)
-recommended_improvements: array of up to 5 strings — specific, actionable improvements to the brand kit based on what's missing or vague
+recommended_improvements: array of up to 5 strings: specific, actionable improvements to the brand kit based on what is missing or vague
 missing_fields: array of field names that are empty or too vague to be useful
 overall_score: integer 0-100 rating the brand kit completeness and quality
 score_breakdown: object with keys "identity", "audience", "voice", "visual", "messaging", "guardrails" each scored 0-100
@@ -215,8 +230,8 @@ async def resync_brand_assistant(
 ):
     """
     Force re-upload the brand kit to the OpenAI Vector Store.
-    Use this when content generation looks generic despite a filled brand kit —
-    it means the assistant's Vector Store has stale or empty brand data.
+    Use this when content generation looks generic despite a filled brand kit.
+    It usually means the assistant Vector Store has stale or empty brand data.
     """
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
@@ -228,7 +243,7 @@ async def resync_brand_assistant(
         raise HTTPException(status_code=404, detail="Brand not found")
 
     background_tasks.add_task(_sync_brand_assistant, brand.id)
-    return {"message": "Brand assistant resync started. Allow 30–60 seconds then regenerate content."}
+    return {"message": "Brand assistant resync started. Allow 30 to 60 seconds then regenerate content."}
 
 
 @router.post("/{brand_id}/photos", response_model=dict)
@@ -250,7 +265,7 @@ async def upload_brand_photo(
 
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="File too large — max 10 MB")
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
 
     try:
         result = cloudinary.uploader.upload(
@@ -262,7 +277,7 @@ async def upload_brand_photo(
         photo_url = result["secure_url"]
     except Exception as e:
         logger.error(f"Brand photo upload failed: {e}")
-        raise HTTPException(status_code=502, detail="Image upload failed — please try again")
+        raise HTTPException(status_code=502, detail="Image upload failed. Please try again.")
 
     current_photos = list(brand.brand_photos or [])
     current_photos.append(photo_url)

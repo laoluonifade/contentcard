@@ -45,9 +45,9 @@ function AppPreview() {
           {/* Content list */}
           <div className="space-y-1">
             {[
-              { dot: '#10A37F', text: 'LinkedIn — Product launch thread' },
-              { dot: '#f59e0b', text: 'Instagram — Brand story carousel' },
-              { dot: '#6366f1', text: 'Twitter — Weekly insights post' },
+              { dot: '#10A37F', text: 'LinkedIn: Product launch thread' },
+              { dot: '#f59e0b', text: 'Instagram: Brand story carousel' },
+              { dot: '#6366f1', text: 'Twitter: Weekly insights post' },
             ].map(({ dot, text }) => (
               <div key={text} className="flex items-center gap-2 bg-white/3 rounded-lg px-2 py-1.5">
                 <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dot }} />
@@ -82,7 +82,7 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left — form */}
+      {/* Left: form */}
       <div className="flex-1 lg:max-w-lg bg-mist flex flex-col justify-center px-8 py-12 lg:px-16">
         <div className="mb-10">
           <LogoFull size={32} />
@@ -133,7 +133,7 @@ export default function LoginPage() {
         </p>
       </div>
 
-      {/* Right — app preview */}
+      {/* Right: app preview */}
       <div className="hidden lg:flex flex-1 bg-[#0F172A] items-center justify-center p-12 relative overflow-hidden">
         {/* Background glow */}
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_60%_40%,rgba(16,163,127,0.15)_0%,transparent_70%)]" />

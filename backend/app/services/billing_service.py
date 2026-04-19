@@ -76,7 +76,7 @@ async def ensure_paystack_plans() -> None:
                     "interval": "monthly",
                     "amount": config["ngn_price"],
                     "currency": "NGN",
-                    "description": f"ContentCard {config['name']} — unlimited AI content generation",
+                    "description": f"ContentCard {config['name']}: unlimited AI content generation",
                 }
                 r = await client.post(f"{PAYSTACK_BASE}/plan", json=payload, headers=_headers())
                 data = r.json()
@@ -135,13 +135,41 @@ async def create_paystack_checkout(
 
 
 async def verify_paystack_transaction(reference: str) -> dict:
-    """Verify a transaction by reference and return the full Paystack data dict."""
+    """
+    Verify a transaction by reference and return Paystack JSON.
+    On HTTP or parse errors, returns a Paystack-shaped dict with status false
+    so callers can surface message without crashing.
+    """
+    ref = (reference or "").strip()
+    if not settings.PAYSTACK_SECRET_KEY:
+        return {"status": False, "message": "PAYSTACK_SECRET_KEY is not configured", "data": None}
+    if not ref:
+        return {"status": False, "message": "Empty transaction reference", "data": None}
+
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
-            f"{PAYSTACK_BASE}/transaction/verify/{reference}",
+            f"{PAYSTACK_BASE}/transaction/verify/{ref}",
             headers=_headers(),
         )
-        return resp.json()
+        try:
+            body = resp.json()
+        except Exception:
+            logger.warning("Paystack verify non-JSON response HTTP %s: %s", resp.status_code, resp.text[:500])
+            return {
+                "status": False,
+                "message": f"Invalid Paystack response (HTTP {resp.status_code})",
+                "data": None,
+            }
+
+        if resp.status_code != 200:
+            msg = body.get("message") if isinstance(body, dict) else None
+            return {
+                "status": False,
+                "message": msg or f"Paystack verify HTTP {resp.status_code}",
+                "data": body.get("data") if isinstance(body, dict) else None,
+            }
+
+        return body
 
 
 async def cancel_paystack_subscription(subscription_code: str) -> None:
@@ -175,3 +203,9 @@ async def get_subscription_next_payment(subscription_code: str) -> str | None:
 
 def get_plan_limits(plan: str) -> dict:
     return PLANS.get(plan, PLANS["starter"])
+
+
+def plan_includes_trending_topics(plan: str | None) -> bool:
+    """Matches BillingPage: Starter omits 'AI trending topics'; Growth (smb) and Pro include it."""
+    p = (plan or "").strip().lower()
+    return p in ("smb", "pro")

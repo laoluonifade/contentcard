@@ -1,7 +1,22 @@
 import axios from 'axios'
 
+/**
+ * FastAPI mounts all routes under /api/v1. If VITE_API_URL is a bare host
+ * (e.g. https://app.onrender.com), requests would hit /admin/... at the root
+ * and return 404: append /api/v1 automatically in that case.
+ */
+export function normalizeViteApiBaseUrl(v) {
+  const s = (v || '').trim().replace(/\/+$/, '')
+  if (!s) return '/api/v1'
+  if (s.endsWith('/api/v1')) return s
+  if (/^https?:\/\/[^/]+$/i.test(s)) return `${s}/api/v1`
+  return s
+}
+
+const API_BASE = normalizeViteApiBaseUrl(import.meta.env.VITE_API_URL)
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -85,6 +100,11 @@ export const brandApi = {
 // ─── Content ────────────────────────────────────────────────────
 export const contentApi = {
   generateMonth:       (data)          => api.post('/content/generate-month', data).then(r => r.data),
+  generationPrepChat:  (data)          => api.post('/content/generation-prep-chat', data).then(r => r.data),
+  prepExecuteVisual:     (data)          => api.post('/content/prep-execute-visual', data).then(r => r.data),
+  brandFormCoach:      (data)          => api.post('/content/brand-form-coach', data).then(r => r.data),
+  bulkRemoveFromCalendar: (data)      => api.post('/content/bulk-remove-from-calendar', data).then(r => r.data),
+  bulkDelete:            (data)       => api.post('/content/bulk-delete', data).then(r => r.data),
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
@@ -92,6 +112,7 @@ export const contentApi = {
   get:        (id)             => api.get(`/content/${id}`).then(r => r.data),
   update:     (id, data)       => api.put(`/content/${id}`, data).then(r => r.data),
   regenerate: (id, data)       => api.post(`/content/${id}/regenerate`, data).then(r => r.data),
+  regenerateVisual: (id, data) => api.post(`/content/${id}/regenerate-visual`, data).then(r => r.data),
   delete:     (id)             => api.delete(`/content/${id}`).then(r => r.data),
 }
 
@@ -114,9 +135,17 @@ export const billingApi = {
 
 // ─── Trends ─────────────────────────────────────────────────────
 export const trendsApi = {
-  list:         (industry) => api.get('/trends', { params: industry ? { industry } : {} }).then(r => r.data),
-  refresh:      (industry) => api.post('/trends/refresh', null, { params: industry ? { industry } : {} }).then(r => r.data),
-  generatePost: (data)     => api.post('/trends/generate-post', data).then(r => r.data),
+  list: (workspaceId, industry) => {
+    const params = { workspace_id: workspaceId }
+    if (industry) params.industry = industry
+    return api.get('/trends', { params }).then((r) => r.data)
+  },
+  refresh: (workspaceId, industry) => {
+    const params = { workspace_id: workspaceId }
+    if (industry) params.industry = industry
+    return api.post('/trends/refresh', null, { params }).then((r) => r.data)
+  },
+  generatePost: (data) => api.post('/trends/generate-post', data).then((r) => r.data),
 }
 
 // ─── Upload ─────────────────────────────────────────────────────
@@ -137,9 +166,9 @@ export const holidaysApi = {
   undismiss: (date, name) => api.delete('/holidays/dismiss', { data: { date, name } }),
 }
 
-// ─── Admin (separate axios instance — never touches contentcard-auth) ──
+// ─── Admin (separate axios instance: never touches contentcard-auth) ──
 const adminAxios = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -164,10 +193,14 @@ adminAxios.interceptors.response.use(
 )
 
 export const adminApi = {
-  login:              (data)    => axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api/v1' }).post('/auth/login', data).then(r => r.data),
+  login:              (data)    => axios.create({ baseURL: API_BASE }).post('/auth/login', data).then(r => r.data),
   stats:              ()        => adminAxios.get('/admin/stats').then(r => r.data),
   users:              (params)  => adminAxios.get('/admin/users', { params }).then(r => r.data),
   workspaces:         (params)  => adminAxios.get('/admin/workspaces', { params }).then(r => r.data),
+  reconcileWorkspacePaystack: (workspaceId, data) =>
+    adminAxios
+      .post(`/admin/workspaces/${encodeURIComponent(workspaceId)}/billing/reconcile-paystack`, data)
+      .then((r) => r.data),
   brands:             (params)  => adminAxios.get('/admin/brands', { params }).then(r => r.data),
   content:            (params)  => adminAxios.get('/admin/content', { params }).then(r => r.data),
   deleteContentByUser:(email)   => adminAxios.delete(`/admin/content/by-user/${encodeURIComponent(email)}`).then(r => r.data),

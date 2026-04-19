@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Search, Eye, X } from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
 import { adminApi } from '../api'
+import { formatAdminApiError } from '../lib/adminApiError'
 
 const STATUS_STYLE = {
   active:   'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
@@ -14,12 +15,14 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
     setLoading(true)
+    setLoadError(null)
     adminApi.users({ limit: 100, search: search || undefined })
       .then(data => { setUsers(data.users || []); setTotal(data.total || 0) })
-      .catch(() => {})
+      .catch((e) => { setUsers([]); setTotal(0); setLoadError(formatAdminApiError(e)) })
       .finally(() => setLoading(false))
   }, [search])
 
@@ -37,6 +40,10 @@ export default function AdminUsersPage() {
             className="pl-8 pr-4 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-500/40 w-56" />
         </div>
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{loadError}</div>
+      )}
 
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden overflow-x-auto">
         {loading ? (
@@ -59,7 +66,7 @@ export default function AdminUsersPage() {
                     <div className="text-white text-sm font-medium">{u.full_name}</div>
                     <div className="text-white/35 text-xs">{u.email}</div>
                   </td>
-                  <td className="px-5 py-3 text-white/50 text-sm">{u.country_code || '—'}</td>
+                  <td className="px-5 py-3 text-white/50 text-sm">{u.country_code || 'Not set'}</td>
                   <td className="px-5 py-3">
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${u.is_active ? STATUS_STYLE.active : STATUS_STYLE.inactive}`}>
                       {u.is_active ? 'active' : 'inactive'}
@@ -92,7 +99,7 @@ export default function AdminUsersPage() {
                 ['ID', selected.id],
                 ['Name', selected.full_name],
                 ['Email', selected.email],
-                ['Country', selected.country_code || '—'],
+                ['Country', selected.country_code || 'Not set'],
                 ['Active', selected.is_active ? 'Yes' : 'No'],
                 ['Joined', new Date(selected.created_at).toLocaleString()],
               ].map(([k, v]) => (

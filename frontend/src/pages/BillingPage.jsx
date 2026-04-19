@@ -174,7 +174,7 @@ export default function BillingPage() {
   useEffect(() => {
     fetchSubscription().catch(() => {})
     if (searchParams.get('success')) {
-      toast('Payment confirmed — your plan is now active!')
+      toast('Payment confirmed: your plan is now active!')
       fetchSubscription().catch(() => {})
     }
   }, [])
@@ -186,7 +186,7 @@ export default function BillingPage() {
       const { checkout_url } = await createCheckout(planId)
       window.location.href = checkout_url
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Checkout failed — please try again', 'error')
+      toast(err.response?.data?.detail || err.message || 'Checkout failed: please try again', 'error')
       setLoading(null)
     }
   }
@@ -196,7 +196,7 @@ export default function BillingPage() {
     try {
       await cancelSubscription()
       setShowCancelModal(false)
-      toast('Subscription cancelled. Your card stays saved — re-subscribe anytime.')
+      toast('Subscription cancelled. Your card stays saved: re-subscribe anytime.')
     } catch (err) {
       toast(err.response?.data?.detail || 'Cancellation failed', 'error')
     } finally {
@@ -233,13 +233,20 @@ export default function BillingPage() {
         <p className="text-ink/40 text-sm">Manage your subscription and saved payment method.</p>
       </div>
 
+      {subscription?.subscription_covers_owned_workspaces && (
+        <div className="mb-5 rounded-xl border border-brand-200 bg-brand-50/80 px-4 py-3 text-sm text-ink/80 leading-relaxed">
+          Your subscription applies to <strong className="text-ink">every workspace you own</strong> (including agency
+          client workspaces). Payment method and plan changes are managed once and shared across them.
+        </div>
+      )}
+
       {/* ── Active subscription status ── */}
       {isSubscribed && (
         <div className="rounded-2xl bg-white border border-fog p-5 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-ink/40 mb-1">Active plan</p>
             <p className="text-xl font-bold text-ink" style={{ letterSpacing: '-0.01em' }}>
-              {currentPlan?.name} — {currentPlan?.price}<span className="text-ink/40 font-normal text-sm">/mo</span>
+              {currentPlan?.name}: {currentPlan?.price}<span className="text-ink/40 font-normal text-sm">/mo</span>
             </p>
             {subscription?.next_payment_date && (
               <p className="text-xs text-ink/40 mt-1">
@@ -360,7 +367,7 @@ export default function BillingPage() {
       {showCancelModal && (
         <ConfirmModal
           title="Cancel subscription?"
-          body={`Your plan stays active until the end of the billing period. Your saved card remains on file — re-subscribe with one click anytime.`}
+          body={`Your plan stays active until the end of the billing period. Your saved card remains on file: re-subscribe with one click anytime.`}
           confirmLabel="Yes, cancel"
           confirmClass="bg-red-500 hover:bg-red-600"
           onConfirm={handleCancel}

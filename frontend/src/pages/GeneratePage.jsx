@@ -3,7 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { Layers, ArrowRight, Zap } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
-import { contentApi } from '../api'
+import { brandVisualBlockReason } from '../lib/brandVisualValidate'
+import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
 const MONTHS_LIST = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December']
@@ -49,8 +50,19 @@ const PLATFORM_LOGO = {
 export default function GeneratePage() {
   const navigate  = useNavigate()
   const location  = useLocation()
-  const { activeBrandId, generateMonth, generatingMonth, generationPollCount, trends, brands } = useAppStore()
+  const {
+    activeBrandId,
+    activeWorkspace,
+    generateMonth,
+    generatingMonth,
+    generationPollCount,
+    generationProgress,
+    trends,
+    brands,
+    fetchTrends,
+  } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
+  const showTrends = planIncludesTrendingTopics(activeWorkspace?.plan)
 
   const now = new Date()
   const [selPlatform, setSelPlatform]   = useState('instagram')
@@ -64,6 +76,12 @@ export default function GeneratePage() {
     if (location.state?.topic) { setTopic(location.state.topic); setSelTrend(null) }
   }, [location.state])
 
+  useEffect(() => {
+    if (!showTrends) return
+    if (trends.length) return
+    fetchTrends().catch(() => {})
+  }, [showTrends, activeWorkspace?.id])
+
   const monthOptions = Array.from({ length: 8 }, (_, i) => {
     const mi = (now.getMonth() + i) % 12 + 1
     const yi = now.getFullYear() + Math.floor((now.getMonth() + i) / 12)
@@ -72,38 +90,57 @@ export default function GeneratePage() {
 
   const totalPosts = Math.round(postsPerWeek * 4.3)
 
+  const runGen = async (confirmDuplicate) => {
+    await generateMonth({
+      month: selMonth, year: selYear,
+      platforms: [selPlatform],
+      format_mix: 'mixed',
+      posts_per_week: postsPerWeek,
+      topic_override: topic.trim() || null,
+      confirm_duplicate: confirmDuplicate,
+    })
+  }
+
   const handleGenerate = async () => {
     if (!activeBrandId) { toast('Select or create a brand first', 'error'); return }
+    const visErr = brandVisualBlockReason(activeBrand)
+    if (visErr) {
+      toast(visErr, 'error')
+      return
+    }
     try {
-      const status = await contentApi.getStatus(activeBrandId, selYear, selMonth)
-      if (status.count > 0) {
-        const ok = window.confirm(
-          `You already have ${status.count} post${status.count !== 1 ? 's' : ''} for ${MONTHS_LIST[selMonth - 1]} ${selYear}.\n\nGenerating again will add more posts. Continue?`
-        )
-        if (!ok) return
+      try {
+        await runGen(false)
+      } catch (err) {
+        const st = err.response?.status
+        const d = err.response?.data?.detail
+        if (st === 409 && d && typeof d === 'object' && d.code === 'DUPLICATE_MONTH_CONTENT') {
+          const ok = window.confirm(
+            `${d.message || 'This month already has posts for the selected platform.'}\n\nGenerate additional posts anyway?`
+          )
+          if (!ok) return
+          await runGen(true)
+        } else {
+          throw err
+        }
       }
-    } catch {}
-
-    try {
-      await generateMonth({
-        month: selMonth, year: selYear,
-        platforms: [selPlatform],
-        format_mix: 'mixed',
-        posts_per_week: postsPerWeek,
-        topic_override: topic.trim() || null,
-      })
-      toast(`${MONTHS_LIST[selMonth - 1]} ${selYear} — content ready`)
+      toast(`${MONTHS_LIST[selMonth - 1]} ${selYear} · finished posts are on your calendar`)
       navigate('/dashboard/calendar')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Generation failed', 'error')
+      const d = err.response?.data?.detail
+      const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
+      toast(msg, 'error')
     }
   }
 
   const progressLabel = () => {
-    if (generationPollCount === 0) return 'Generating your content…'
+    if (generationProgress && generationProgress.total > 0) {
+      return `Designs ${generationProgress.with}/${generationProgress.total} ready…`
+    }
+    if (generationPollCount === 0) return 'Starting generation…'
     if (generationPollCount < 3)  return 'Writing captions…'
     if (generationPollCount < 7)  return 'Crafting posts…'
-    return 'Almost done…'
+    return 'Rendering images…'
   }
 
   const progressPct = () => Math.min(95, Math.round((generationPollCount / 10) * 100))
@@ -129,7 +166,7 @@ export default function GeneratePage() {
       <div className="grid lg:grid-cols-[1fr_240px] gap-6 items-start">
         <div className="space-y-3">
 
-          {/* Step 1 — Platform */}
+          {/* Step 1: Platform */}
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">1</span>
@@ -150,7 +187,7 @@ export default function GeneratePage() {
             </div>
           </div>
 
-          {/* Step 2 — Month */}
+          {/* Step 2: Month */}
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">2</span>
@@ -168,7 +205,7 @@ export default function GeneratePage() {
             </div>
           </div>
 
-          {/* Step 3 — Posting frequency */}
+          {/* Step 3: Posting frequency */}
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">3</span>
@@ -193,11 +230,11 @@ export default function GeneratePage() {
             </p>
           </div>
 
-          {/* Step 4 — Topic */}
+          {/* Step 4: Topic */}
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/30 text-[9px] font-bold flex items-center justify-center">4</span>
-              Focus topic <span className="text-ink/25 font-normal ml-1">— optional</span>
+              Focus topic <span className="text-ink/25 font-normal ml-1">(optional)</span>
             </p>
             <p className="text-ink/30 text-xs mb-3 ml-6">Leave blank for varied topics, automatically selected</p>
             <input value={topic} onChange={e => setTopic(e.target.value)}
@@ -227,21 +264,33 @@ export default function GeneratePage() {
                 <div className="h-full bg-ink/30 rounded-full transition-all duration-700" style={{ width: `${progressPct()}%` }} />
               </div>
               <p className="text-center text-ink/30 text-xs">
-                Usually takes 30–60 seconds. You'll be redirected to your calendar when done.
+                Captions and images can take a few minutes. We will send you to the calendar when every post has finished visuals — no manual refresh needed.
               </p>
             </div>
           )}
         </div>
 
-        {/* Trends sidebar */}
+        {/* Trends sidebar: Growth + Pro only (matches Billing) */}
         <div className="bg-white border border-fog rounded-2xl p-4 sticky top-6">
           <div className="flex items-center gap-2 mb-3">
             <Zap size={12} className="text-ink/30" />
             <span className="text-xs font-medium text-ink/40">Trending now</span>
           </div>
-          {trends.length === 0
-            ? <p className="text-ink/30 text-xs">Loading trends…</p>
-            : trends.slice(0, 10).map((t, i) => (
+          {!showTrends ? (
+            <div className="text-ink/40 text-xs leading-relaxed">
+              <p className="mb-3">AI trending topics are on the Growth and Pro plans.</p>
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard/billing')}
+                className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+              >
+                View plans →
+              </button>
+            </div>
+          ) : trends.length === 0 ? (
+            <p className="text-ink/30 text-xs">Loading trends…</p>
+          ) : (
+            trends.slice(0, 10).map((t, i) => (
               <button key={t.id} onClick={() => { setTopic(t.topic); setSelTrend(t.id) }}
                 className={`w-full flex items-start gap-2 p-2.5 rounded-lg transition-all text-left mb-1 ${
                   selTrend === t.id ? 'bg-mist' : 'hover:bg-mist'
@@ -253,7 +302,7 @@ export default function GeneratePage() {
                 </div>
               </button>
             ))
-          }
+          )}
         </div>
       </div>
     </div>

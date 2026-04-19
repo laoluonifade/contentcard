@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Search, Eye, X } from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
 import { adminApi } from '../api'
+import { formatAdminApiError } from '../lib/adminApiError'
 
 export default function AdminBrandsPage() {
   const [search, setSearch] = useState('')
@@ -9,12 +10,14 @@ export default function AdminBrandsPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
+  const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
     setLoading(true)
+    setLoadError(null)
     adminApi.brands({ limit: 100, search: search || undefined })
       .then(data => { setBrands(data.brands || []); setTotal(data.total || 0) })
-      .catch(() => {})
+      .catch((e) => { setBrands([]); setTotal(0); setLoadError(formatAdminApiError(e)) })
       .finally(() => setLoading(false))
   }, [search])
 
@@ -32,6 +35,10 @@ export default function AdminBrandsPage() {
             className="pl-8 pr-4 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-500/40 w-56" />
         </div>
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{loadError}</div>
+      )}
 
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden overflow-x-auto">
         {loading ? (
@@ -54,14 +61,14 @@ export default function AdminBrandsPage() {
                     <div className="text-white text-sm font-medium">{b.name}</div>
                     <div className="text-white/30 text-xs font-mono">{b.id.slice(0, 8)}…</div>
                   </td>
-                  <td className="px-5 py-3 text-white/50 text-sm">{b.industry || '—'}</td>
+                  <td className="px-5 py-3 text-white/50 text-sm">{b.industry || 'Not set'}</td>
                   <td className="px-5 py-3 text-white/50 text-sm capitalize">{(b.language_style || 'english').replace('_', ' ')}</td>
                   <td className="px-5 py-3">
                     <div className="flex gap-1">
                       {(b.brand_colors || []).slice(0, 3).map((c, i) => (
                         <div key={i} className="w-5 h-5 rounded-full border border-white/10" style={{ background: c }} title={c} />
                       ))}
-                      {(!b.brand_colors || b.brand_colors.length === 0) && <span className="text-white/25 text-xs">—</span>}
+                      {(!b.brand_colors || b.brand_colors.length === 0) && <span className="text-white/25 text-xs">. </span>}
                     </div>
                   </td>
                   <td className="px-5 py-3 text-white/35 text-xs whitespace-nowrap">
@@ -90,9 +97,9 @@ export default function AdminBrandsPage() {
               {[
                 ['ID', selected.id],
                 ['Name', selected.name],
-                ['Industry', selected.industry || '—'],
+                ['Industry', selected.industry || 'Not set'],
                 ['Language', (selected.language_style || 'english').replace('_', ' ')],
-                ['Tone', (selected.tone_tags || []).join(', ') || '—'],
+                ['Tone', (selected.tone_tags || []).join(', ') || 'Not set'],
                 ['Created', new Date(selected.created_at).toLocaleString()],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between py-2 border-b border-white/5">

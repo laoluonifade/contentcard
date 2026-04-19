@@ -2,11 +2,27 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --cc-ink-rgb: 15 23 42;
+  --cc-fog-rgb: 229 231 235;
+  --cc-mist-rgb: 247 247 248;
+  --cc-surface-rgb: 255 255 255;
+  --cc-page-rgb: 255 255 255;
+}
+
+html[data-theme='dark'] {
+  --cc-ink-rgb: 226 232 240;
+  --cc-fog-rgb: 51 65 85;
+  --cc-mist-rgb: 30 41 59;
+  --cc-surface-rgb: 15 23 42;
+  --cc-page-rgb: 2 6 23;
+}
+
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
 
   body {
-    @apply bg-white text-ink font-sans antialiased;
+    @apply bg-page text-ink font-sans antialiased;
     font-feature-settings: 'cv01', 'cv02', 'cv03', 'cv04';
   }
 
@@ -19,7 +35,7 @@
 
 @layer components {
   .card {
-    @apply bg-white rounded-2xl border border-fog;
+    @apply bg-surface rounded-2xl border border-fog;
   }
 
   .btn-primary {
@@ -30,7 +46,7 @@
   }
 
   .btn-secondary {
-    @apply inline-flex items-center gap-2 px-5 py-2.5 bg-white hover:bg-mist
+    @apply inline-flex items-center gap-2 px-5 py-2.5 bg-surface hover:bg-mist
            text-ink font-semibold rounded-xl border border-fog transition-all duration-200
            focus:outline-none focus:ring-2 focus:ring-brand-200 focus:ring-offset-2;
   }
@@ -46,7 +62,7 @@
   }
 
   .input {
-    @apply w-full px-4 py-3 bg-white border border-fog rounded-xl text-ink
+    @apply w-full px-4 py-3 bg-surface border border-fog rounded-xl text-ink
            placeholder:text-ink/25 focus:outline-none focus:ring-2 focus:ring-brand-300/40
            focus:border-brand-400 transition-all duration-200 text-sm;
   }
@@ -90,7 +106,17 @@
   100% { background-position: 200% 0; }
 }
 .shimmer {
-  background: linear-gradient(90deg, #f5f5f7 25%, #ededf0 50%, #f5f5f7 75%);
+  background: linear-gradient(
+    90deg,
+    rgb(var(--cc-mist-rgb)) 25%,
+    rgb(var(--cc-fog-rgb)) 50%,
+    rgb(var(--cc-mist-rgb)) 75%
+  );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
+}
+
+html[data-theme='dark'] .shimmer {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
 }

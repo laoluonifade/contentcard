@@ -21,9 +21,11 @@ import ChangelogPage        from './pages/ChangelogPage'
 import RoadmapPage          from './pages/RoadmapPage'
 import LegalPage            from './pages/LegalPage'
 import PitchDeckPage        from './pages/PitchDeckPage'
+import ProductGuidePage     from './pages/ProductGuidePage'
 import DashboardLayout      from './components/layout/DashboardLayout'
 import DashboardPage        from './pages/DashboardPage'
 import CalendarPage         from './pages/CalendarPage'
+import GeneratePage         from './pages/GeneratePage'
 import BrandKitPage         from './pages/BrandKitPage'
 import TemplatesPage        from './pages/TemplatesPage'
 import SettingsPage         from './pages/SettingsPage'
@@ -81,6 +83,7 @@ export default function App() {
         <Route path="/security"              element={<LegalPage />} />
         <Route path="/support"               element={<LegalPage />} />
         <Route path="/pitch-deck"            element={<PitchDeckPage />} />
+        <Route path="/product-guide"         element={<ProductGuidePage />} />
 
         {/* Auth */}
         <Route path="/login"                 element={<GuestRoute><LoginPage /></GuestRoute>} />
@@ -92,6 +95,7 @@ export default function App() {
         {/* Dashboard */}
         <Route path="/dashboard" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
           <Route index             element={<DashboardPage />} />
+          <Route path="generate"   element={<GeneratePage />} />
           <Route path="calendar"   element={<CalendarPage />} />
           <Route path="templates"  element={<TemplatesPage />} />
           <Route path="brand-kit"  element={<BrandKitPage />} />

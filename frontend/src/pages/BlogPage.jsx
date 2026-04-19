@@ -8,7 +8,7 @@ const POSTS = [
   { tag: 'Trends',     title: 'The 2026 social media trends every African brand needs to know',       date: 'Mar 28, 2026', img: 'https://images.unsplash.com/photo-1611532736597-de2d4265fba3?w=600&auto=format&fit=crop&q=80' },
   { tag: 'Case Study', title: 'How Blaze Digital Agency scaled to 17 clients with one tool',         date: 'Mar 20, 2026', img: 'https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=600&auto=format&fit=crop&q=80' },
   { tag: 'Product',    title: 'New: approval workflows and multi-brand dashboards are here',         date: 'Mar 12, 2026', img: 'https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=600&auto=format&fit=crop&q=80' },
-  { tag: 'Guide',      title: 'Building a brand voice that AI can replicate — a practical guide',   date: 'Mar 5, 2026',  img: 'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=600&auto=format&fit=crop&q=80' },
+  { tag: 'Guide',      title: 'Building a brand voice that AI can replicate: a practical guide',   date: 'Mar 5, 2026',  img: 'https://images.unsplash.com/photo-1506784983877-45594efa4cbe?w=600&auto=format&fit=crop&q=80' },
 ]
 
 export default function BlogPage() {

@@ -1,12 +1,18 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Check, Plus, X, ArrowRight } from 'lucide-react'
+import { Check, Plus, X, ArrowRight, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import useAppStore from '../stores/appStore'
+import { brandApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
+import { normalizeHex } from '../lib/brandVisualValidate'
+import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 
-const TABS = ['Basics','Audience','Identity','Voice','Compliance','Rules']
+const TABS = ['Basics', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
+
+const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
+
 const inpCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 const taCls  = `${inpCls} resize-none`
 const cardCls = "bg-white border border-fog rounded-2xl p-6"
@@ -26,6 +32,50 @@ const FONTS = [
   { value: 'oswald',      label: 'Oswald',        style: { fontFamily: 'Oswald, sans-serif' } },
   { value: 'sourceserif', label: 'Source Serif',  style: { fontFamily: '"Source Serif 4", serif' } },
 ]
+
+const ALLOWED_FONT_IDS = new Set(FONTS.map((f) => f.value))
+
+function mergeVisualSystem(kit, brandColors, brandFont) {
+  const cur = (kit && kit.visual_system) || {}
+  const bf = (brandFont || 'inter').toLowerCase()
+  const hf = ALLOWED_FONT_IDS.has((cur.heading_font || '').toLowerCase())
+    ? (cur.heading_font || '').toLowerCase()
+    : bf
+  const bod = ALLOWED_FONT_IDS.has((cur.body_font || '').toLowerCase())
+    ? (cur.body_font || '').toLowerCase()
+    : bf
+  const def = {
+    version: 1,
+    primary_hex: cur.primary_hex || brandColors[0] || '#6366f1',
+    secondary_hex: cur.secondary_hex || brandColors[1] || brandColors[0] || '#6366f1',
+    accent_hex: cur.accent_hex || brandColors[2] || brandColors[1] || '#6366f1',
+    neutral_hex: cur.neutral_hex || '#f4f4f5',
+    heading_font: hf,
+    body_font: bod,
+    logo_placement: cur.logo_placement || 'bottom_right',
+    logo_min_width_px: cur.logo_min_width_px ?? 80,
+    allowed_archetypes: Array.isArray(cur.allowed_archetypes) && cur.allowed_archetypes.length
+      ? cur.allowed_archetypes
+      : [...VISUAL_ARCHETYPES],
+    never_show_motifs: Array.isArray(cur.never_show_motifs) ? cur.never_show_motifs : [],
+    reference_urls: Array.isArray(cur.reference_urls) ? cur.reference_urls : [],
+    reference_rights_attested: !!cur.reference_rights_attested,
+    forbidden_hexes: Array.isArray(cur.forbidden_hexes) ? cur.forbidden_hexes : [],
+    image_people_style: ['real_people', 'illustration', 'mixed'].includes(
+      String(cur.image_people_style || 'real_people').toLowerCase()
+    )
+      ? String(cur.image_people_style || 'real_people').toLowerCase()
+      : 'real_people',
+  }
+  const merged = {
+    ...def,
+    ...cur,
+    allowed_archetypes: cur.allowed_archetypes?.length ? cur.allowed_archetypes : def.allowed_archetypes,
+  }
+  const ips = String(merged.image_people_style || 'real_people').toLowerCase()
+  merged.image_people_style = ['real_people', 'illustration', 'mixed'].includes(ips) ? ips : 'real_people'
+  return merged
+}
 
 const LANGUAGE_OPTIONS_BY_COUNTRY = {
   NG: [['english','English'],['nigerian_english','Nigerian English'],['pidgin','Pidgin (Naija)'],['mix','Mix (code-switching)']],
@@ -85,38 +135,38 @@ function computeScores(form) {
   return {
     name: () => {
       const v = (form.name || '').trim()
-      if (!v) return s('poor', 'Add your brand name — it anchors every AI-generated post and visual.')
+      if (!v) return s('poor', 'Add your brand name: it anchors every AI-generated post and visual.')
       return s('excellent', 'Brand name set.')
     },
     industry: () => {
       if (!form.industry) return s('poor', 'Select your industry so AI uses the right market language and references.')
-      return s('excellent', 'Industry set — AI will align language and examples to your sector.')
+      return s('excellent', 'Industry set: AI will align language and examples to your sector.')
     },
     description: () => {
       const words = wc(form.description)
       if (words === 0) return s('poor', 'Most important field. Describe what your company does, who you serve, and the problem you solve.')
       if (words < 15)  return s('fair', 'Too brief. Add who your customers are, what you offer, and what makes you different.')
-      if (words < 40)  return s('good', 'Solid. Strengthen it by adding a specific outcome — e.g. "helping X achieve Y in Z timeframe".')
+      if (words < 40)  return s('good', 'Solid. Strengthen it by adding a specific outcome: e.g. "helping X achieve Y in Z timeframe".')
       return s('excellent', 'Strong description. AI has rich context to generate on-brand content every time.')
     },
     target_audience: () => {
       const words = wc(form.target_audience)
-      if (words === 0) return s('poor', 'Define who you\'re speaking to — age, occupation, location, and what drives their behaviour.')
+      if (words === 0) return s('poor', 'Define who you\'re speaking to: age, occupation, location, and what drives their behaviour.')
       if (words < 12)  return s('fair', 'Too vague. Add age range, occupation, location, and their mindset.')
       if (words < 30)  return s('good', 'Good detail. Add what motivates their decisions to reach Excellent.')
       return s('excellent', 'Rich audience profile. AI will produce highly targeted content for this persona.')
     },
     pain_point: () => {
       const words = wc(form.pain_point)
-      if (words === 0) return s('poor', 'Pain points create emotional hooks. Describe at least 2–3 specific frustrations your customer faces.')
-      if (words < 8)   return s('fair', 'Expand it. Describe the emotional weight of the problem — what keeps them up at night?')
+      if (words === 0) return s('poor', 'Pain points create emotional hooks. Describe at least 2 to 3 specific frustrations your customer faces.')
+      if (words < 8)   return s('fair', 'Expand it. Describe the emotional weight of the problem: what keeps them up at night?')
       if (words < 20)  return s('good', 'Good. Add the downstream consequence of unresolved pain for an Excellent score.')
       return s('excellent', 'Strong pain point context. AI will write empathy-driven content that resonates.')
     },
     brand_colors: () => {
       const n = arrLen(form.brand_colors)
-      if (n === 0) return s('poor', 'Add your primary brand colours — used in generated visuals and slide backgrounds.')
-      if (n === 1) return s('fair', 'Add at least 2–3 colours. A primary + accent gives AI a proper palette.')
+      if (n === 0) return s('poor', 'Add your primary brand colours: used in generated visuals and slide backgrounds.')
+      if (n === 1) return s('fair', 'Add at least 2 to 3 colours. A primary + accent gives AI a proper palette.')
       if (n === 2) return s('good', 'Good. A third colour (accent or neutral) gives more visual flexibility.')
       return s('excellent', 'Great colour palette. AI will use these consistently in all generated visuals.')
     },
@@ -125,14 +175,14 @@ function computeScores(form) {
       return s('good', 'Font set. AI will incorporate this into visual style descriptions.')
     },
     design_style: () => {
-      if (!form.design_style) return s('poor', 'Select a design style — it directly controls the visual feel of every AI-generated image.')
+      if (!form.design_style) return s('poor', 'Select a design style: it directly controls the visual feel of every AI-generated image.')
       return s('excellent', 'Design style set. AI-generated visuals will follow this aesthetic.')
     },
     tone_tags: () => {
       const n = arrLen(form.tone_tags)
-      if (n === 0) return s('poor', 'Tone tags define your brand voice. Select at least 3–4 that describe how your brand speaks.')
+      if (n === 0) return s('poor', 'Tone tags define your brand voice. Select at least 3 to 4 that describe how your brand speaks.')
       if (n <= 2)  return s('fair', 'Select at least 3 tone tags. The combination is what makes your voice distinctive.')
-      if (n <= 4)  return s('good', 'Good voice definition. Adding 1–2 more tags sharpens the AI\'s tonal range.')
+      if (n <= 4)  return s('good', 'Good voice definition. Adding 1 to 2 more tags sharpens the AI\'s tonal range.')
       return s('excellent', 'Strong voice profile. AI will consistently hit this tone across every post.')
     },
     language_style: () => {
@@ -141,16 +191,38 @@ function computeScores(form) {
     },
     words_to_avoid: () => {
       const n = arrLen(form.words_to_avoid)
-      if (n === 0) return s('fair', 'Add words AI must never use — brand terms, competitor names, or overpromising language.')
+      if (n === 0) return s('fair', 'Add words AI must never use: brand terms, competitor names, or overpromising language.')
       if (n <= 2)  return s('fair', 'Add a few more. Think about buzzwords, competitor names, or phrases that feel off-brand.')
       return s('good', 'Good guardrail list. AI will avoid all these terms in generated captions.')
     },
     guidelines: () => {
       const words = wc(form.guidelines)
-      if (words === 0) return s('fair', 'Add brand guidelines — e.g. "always end with a CTA", "use active voice", "never mention competitors".')
+      if (words === 0) return s('fair', 'Add brand guidelines: e.g. "always end with a CTA", "use active voice", "never mention competitors".')
       if (words < 10)  return s('fair', 'Add more rules. The more specific, the better AI follows your brand\'s editorial standards.')
       if (words < 25)  return s('good', 'Good rules. List any remaining edge cases or formatting preferences for Excellent.')
       return s('excellent', 'Comprehensive guidelines. AI will apply these editorial standards to every post.')
+    },
+    visual_system: () => {
+      const vs = (form.brand_kit || {}).visual_system || {}
+      for (const k of ['primary_hex', 'secondary_hex', 'accent_hex']) {
+        const v = vs[k]
+        if (v != null && String(v).trim() !== '' && !normalizeHex(String(v))) {
+          return s('poor', `Invalid ${k.replace(/_/g, ' ')}: use #RRGGBB (e.g. #0A1B2C).`)
+        }
+      }
+      if (vs.neutral_hex != null && String(vs.neutral_hex).trim() !== '' && !normalizeHex(String(vs.neutral_hex))) {
+        return s('poor', 'Invalid neutral hex: use #RRGGBB or leave blank for default.')
+      }
+      for (const h of vs.forbidden_hexes || []) {
+        if (String(h).trim() && !normalizeHex(String(h))) {
+          return s('fair', 'One or more forbidden hex colours are invalid: fix or remove the bad line.')
+        }
+      }
+      const refs = vs.reference_urls || []
+      if (refs.length > 0 && !vs.reference_rights_attested) {
+        return s('fair', 'Reference URLs need the rights confirmation checked (or remove the URLs) before generating.')
+      }
+      return s('excellent', 'Visual tokens are valid for generation.')
     },
   }
 }
@@ -197,7 +269,7 @@ function StrengthBanner({ overall, overallLevel }) {
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${dot}`} />
             <span className={`text-sm font-bold ${text}`}>{label}</span>
-            <span className="text-zinc-600 text-xs">— {overall}% complete</span>
+            <span className="text-zinc-600 text-xs">· {overall}% complete</span>
           </div>
         </div>
         <span className={`text-2xl font-bold tabular-nums ${text}`}>
@@ -209,9 +281,9 @@ function StrengthBanner({ overall, overallLevel }) {
       </div>
       {overallLevel !== 'excellent' && (
         <p className="text-zinc-600 text-[11px] mt-2 leading-snug">
-          {overallLevel === 'poor' && 'Fill in description, audience, and tone first — these drive the most AI quality.'}
+          {overallLevel === 'poor' && 'Fill in description, audience, and tone first: these drive the most AI quality.'}
           {overallLevel === 'fair' && 'Making progress. Focus on any fields still showing Poor or Can Be Better.'}
-          {overallLevel === 'good' && 'Almost there — a few more fields will push you to Excellent.'}
+          {overallLevel === 'good' && 'Almost there: a few more fields will push you to Excellent.'}
         </p>
       )}
     </div>
@@ -250,12 +322,17 @@ export default function BrandKitPage() {
 
   const [tab, setTab]       = useState('Basics')
   const [saving, setSaving] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
   const [newWord, setNewWord]     = useState('')
   const [newColorHex, setNewColorHex] = useState('#6C63FF')
   const [form, setForm]     = useState({})
+  const logoFileRef = useRef(null)
 
   useEffect(() => {
-    if (brand) setForm({ ...brand, compliance_rules: brand.compliance_rules || {} })
+    if (!brand) return
+    const kit = { ...(brand.brand_kit || {}) }
+    kit.visual_system = mergeVisualSystem(kit, brand.brand_colors || [], brand.brand_font)
+    setForm({ ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} })
   }, [brand?.id])
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
@@ -279,6 +356,23 @@ export default function BrandKitPage() {
 
   const setCompliance = (key, val) => set('compliance_rules', { ...(form.compliance_rules || {}), [key]: val })
 
+  const vs = () => ({ ...((form.brand_kit || {}).visual_system || {}) })
+  const setVs = (patch) => {
+    const kit = { ...(form.brand_kit || {}) }
+    kit.visual_system = { ...vs(), ...patch }
+    setForm((f) => ({ ...f, brand_kit: kit }))
+  }
+
+  const toggleArchetype = (id) => {
+    const cur = vs().allowed_archetypes || [...VISUAL_ARCHETYPES]
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+    if (next.length === 0) {
+      toast('Keep at least one layout archetype', 'error')
+      return
+    }
+    setVs({ allowed_archetypes: next })
+  }
+
   const applyCompliancePreset = (preset) => {
     set('compliance_rules', { ...(form.compliance_rules || {}), ...COMPLIANCE_PRESETS[preset] })
     toast(`${preset.charAt(0).toUpperCase() + preset.slice(1)} compliance preset applied`)
@@ -301,7 +395,30 @@ export default function BrandKitPage() {
     setNewWord('')
   }
 
-  // Live scores — recomputed on every keystroke
+  const onBrandLogoFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !activeBrandId || !activeWorkspaceId) return
+    if (!file.type.startsWith('image/')) {
+      toast('Please choose an image file (PNG, JPG, or SVG).', 'error')
+      return
+    }
+    setLogoUploading(true)
+    try {
+      const { logo_url: logoUrl } = await brandApi.uploadLogo(activeWorkspaceId, activeBrandId, file)
+      setForm((f) => ({ ...f, logo_url: logoUrl }))
+      useAppStore.setState((s) => ({
+        brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, logo_url: logoUrl } : b)),
+      }))
+      toast('Logo saved. It will be composited onto generated post images.')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Upload failed', 'error')
+    } finally {
+      setLogoUploading(false)
+    }
+  }
+
+  // Live scores: recomputed on every keystroke
   const { S, overall, overallLevel } = useBrandScores(form)
 
   if (!brand) {
@@ -312,7 +429,7 @@ export default function BrandKitPage() {
         <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
           <h2 className="text-ink font-bold text-lg mb-2">No brand yet</h2>
           <p className="text-ink/40 text-sm mb-6 max-w-sm mx-auto">
-            Create your brand profile so ContentCard knows your tone, audience, and voice — and generates content that sounds exactly like you.
+            Create your brand profile so ContentCard knows your tone, audience, and voice, and generates content that sounds exactly like you.
           </p>
           <button onClick={() => navigate('/onboarding')}
             className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
@@ -324,7 +441,7 @@ export default function BrandKitPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
@@ -339,7 +456,8 @@ export default function BrandKitPage() {
       {/* Brand Strength Banner */}
       <StrengthBanner overall={overall} overallLevel={overallLevel} />
 
-      <div className="grid lg:grid-cols-[190px_1fr] gap-6 items-start">
+      <div className="grid xl:grid-cols-[1fr_min(360px,100%)] gap-8 items-start">
+        <div className="grid lg:grid-cols-[190px_1fr] gap-6 items-start min-w-0">
         <nav className="bg-white border border-fog rounded-2xl p-2 sticky top-6">
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -412,13 +530,13 @@ export default function BrandKitPage() {
                 <label className={`${labelCls} mb-2`}>Who are they?</label>
                 <ScoreBadge score={S.target_audience} />
                 <textarea value={form.target_audience || ''} onChange={e => set('target_audience', e.target.value)} rows={3}
-                  placeholder="Small business owners aged 25–40, looking to grow their social media presence…"
+                  placeholder="Small business owners aged 25 to 40, looking to grow their social media presence…"
                   className={clsx(taCls, 'mt-2')} />
               </div>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className={`${labelCls} mb-2`}>Age range</label>
-                  <input value={form.audience_age_range || ''} onChange={e => set('audience_age_range', e.target.value)} placeholder="25–40" className={inpCls} />
+                  <input value={form.audience_age_range || ''} onChange={e => set('audience_age_range', e.target.value)} placeholder="25 to 40" className={inpCls} />
                 </div>
                 <div>
                   <label className={`${labelCls} mb-2`}>Location</label>
@@ -435,7 +553,250 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {/* ── IDENTITY ── */}
+          {/* ── VISUAL (VBS) ── */}
+          {tab === 'Visual' && (
+            <div className={`${cardCls} space-y-5`}>
+              <div>
+                <h3 className={sectionTitleCls}>Visual brand system</h3>
+                <ScoreBadge score={S.visual_system} />
+                <p className="text-ink/40 text-xs mt-1 max-w-xl">
+                  Tokens drive generated backgrounds, logo placement, and Bannerbear accents. Set primary colours to
+                  match your real brand (not generic AI defaults).
+                </p>
+              </div>
+              <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
+                <div>
+                  <span className={labelCls}>Brand logo (on designs)</span>
+                  <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
+                    Upload a PNG or SVG with a transparent background when possible. This logo is burned onto generated
+                    covers and raster visuals — it is not drawn by the AI model.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <input
+                    ref={logoFileRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
+                    className="sr-only"
+                    onChange={onBrandLogoFile}
+                  />
+                  {form.logo_url ? (
+                    <div className="flex items-center gap-3 rounded-lg border border-fog bg-white p-2 pr-3">
+                      <img
+                        src={form.logo_url}
+                        alt="Brand logo preview"
+                        className="h-14 w-auto max-w-[200px] object-contain object-left"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-14 w-28 rounded-lg border border-dashed border-fog bg-white flex items-center justify-center text-[11px] text-ink/35">
+                      No logo yet
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={logoUploading}
+                    onClick={() => logoFileRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-white text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                  >
+                    <Upload size={16} />
+                    {logoUploading ? 'Uploading…' : form.logo_url ? 'Replace logo' : 'Upload logo'}
+                  </button>
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <label className="space-y-1">
+                  <span className={labelCls}>Primary hex</span>
+                  <input
+                    className={inpCls}
+                    value={vs().primary_hex || ''}
+                    onChange={(e) => setVs({ primary_hex: e.target.value })}
+                    placeholder="#0033FF"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Secondary hex</span>
+                  <input
+                    className={inpCls}
+                    value={vs().secondary_hex || ''}
+                    onChange={(e) => setVs({ secondary_hex: e.target.value })}
+                    placeholder="#FF0066"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Accent hex</span>
+                  <input
+                    className={inpCls}
+                    value={vs().accent_hex || ''}
+                    onChange={(e) => setVs({ accent_hex: e.target.value })}
+                  />
+                </label>
+                <label className="space-y-1 sm:col-span-3">
+                  <span className={labelCls}>Neutral / background hex</span>
+                  <input
+                    className={inpCls}
+                    maxLength={7}
+                    value={vs().neutral_hex || ''}
+                    onChange={(e) => setVs({ neutral_hex: e.target.value })}
+                    placeholder="#f4f4f5"
+                  />
+                </label>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <label className="space-y-1">
+                  <span className={labelCls}>Heading font (slides)</span>
+                  <select
+                    className={inpCls}
+                    value={vs().heading_font || 'inter'}
+                    onChange={(e) => setVs({ heading_font: e.target.value })}
+                  >
+                    {FONTS.map((f) => (
+                      <option key={f.value} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Body font (slides)</span>
+                  <select
+                    className={inpCls}
+                    value={vs().body_font || 'inter'}
+                    onChange={(e) => setVs({ body_font: e.target.value })}
+                  >
+                    {FONTS.map((f) => (
+                      <option key={`b-${f.value}`} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="space-y-1 block">
+                <span className={labelCls}>Forbidden hex colours (one per line)</span>
+                <textarea
+                  className={taCls}
+                  rows={2}
+                  value={(vs().forbidden_hexes || []).join('\n')}
+                  onChange={(e) =>
+                    setVs({
+                      forbidden_hexes: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder={'#00ff88\n#ff00ff'}
+                />
+              </label>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <label className="space-y-1 sm:col-span-2">
+                  <span className={labelCls}>People in generated images</span>
+                  <select
+                    className={inpCls}
+                    value={vs().image_people_style || 'real_people'}
+                    onChange={(e) => setVs({ image_people_style: e.target.value })}
+                  >
+                    <option value="real_people">Real people (photography)</option>
+                    <option value="illustration">Illustration / cartoon-style art</option>
+                    <option value="mixed">Mix (vary by post)</option>
+                  </select>
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Controls how month generation and image prompts treat humans: photoreal, illustrated, or both across the month.
+                  </p>
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Logo placement (raster)</span>
+                  <select
+                    className={inpCls}
+                    value={vs().logo_placement || 'bottom_right'}
+                    onChange={(e) => setVs({ logo_placement: e.target.value })}
+                  >
+                    <option value="bottom_right">Bottom right</option>
+                    <option value="bottom_left">Bottom left</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Logo min width (px)</span>
+                  <input
+                    type="number"
+                    min={48}
+                    className={inpCls}
+                    value={vs().logo_min_width_px ?? 80}
+                    onChange={(e) => setVs({ logo_min_width_px: parseInt(e.target.value, 10) || 80 })}
+                  />
+                </label>
+              </div>
+              <div>
+                <span className={labelCls}>Allowed layout archetypes</span>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {VISUAL_ARCHETYPES.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => toggleArchetype(id)}
+                      className={clsx(
+                        'text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors',
+                        (vs().allowed_archetypes || []).includes(id)
+                          ? 'border-brand-500 bg-brand-500/10 text-brand-700'
+                          : 'border-fog text-ink/40 hover:border-ink/20'
+                      )}
+                    >
+                      {id.replace(/_/g, ' ')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="space-y-1 block">
+                <span className={labelCls}>Never show (one motif per line)</span>
+                <textarea
+                  className={taCls}
+                  rows={3}
+                  value={(vs().never_show_motifs || []).join('\n')}
+                  onChange={(e) =>
+                    setVs({
+                      never_show_motifs: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder={'floating stock tickers\ngeneric shield + checkmark icon'}
+                />
+              </label>
+              <label className="space-y-1 block">
+                <span className={labelCls}>Reference URLs (style only, max 10)</span>
+                <textarea
+                  className={taCls}
+                  rows={2}
+                  value={(vs().reference_urls || []).join('\n')}
+                  onChange={(e) =>
+                    setVs({
+                      reference_urls: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                        .slice(0, 10),
+                    })
+                  }
+                  placeholder="https://…"
+                />
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!vs().reference_rights_attested}
+                  onChange={(e) => setVs({ reference_rights_attested: e.target.checked })}
+                  className="mt-1"
+                />
+                <span className="text-ink/60 text-xs">
+                  I confirm I have rights to use the reference URLs for style guidance (not to copy third-party
+                  trademarks).
+                </span>
+              </label>
+            </div>
+          )}
+
           {tab === 'Identity' && (
             <div className="space-y-4">
               <div className={cardCls}>
@@ -511,7 +872,7 @@ export default function BrandKitPage() {
               </div>
               <div className="mb-5">
                 <label className={`${labelCls} mb-3`}>
-                  Personality — {(form.personality_score || 50) < 35 ? 'Serious & corporate' : (form.personality_score || 50) > 65 ? 'Casual & relaxed' : 'Balanced'}
+                  Personality: {(form.personality_score || 50) < 35 ? 'Serious & corporate' : (form.personality_score || 50) > 65 ? 'Casual & relaxed' : 'Balanced'}
                 </label>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-ink/40">Serious</span>
@@ -570,7 +931,7 @@ export default function BrandKitPage() {
                 {[
                   ['disclaimer', 'Include disclaimer on every post', 'Adds "This is not financial/legal/medical advice" where appropriate'],
                   ['no_guarantees', 'No guarantees or promises', 'Avoids language like "guaranteed results" or "100% success"'],
-                  ['not_financial_advice', 'Not financial advice notice', 'Appends "Not financial advice – DYOR" on investment-related posts'],
+                  ['not_financial_advice', 'Not financial advice notice', 'Appends "Not financial advice  to  DYOR" on investment-related posts'],
                   ['no_medical_claims', 'No medical/health claims', 'Avoids unverified health or cure claims'],
                   ['age_gate', 'Age-restricted content flag', 'Marks content as 18+ where required'],
                   ['responsible_messaging', 'Responsible messaging', 'Adds responsible use messaging for regulated products'],
@@ -651,6 +1012,20 @@ export default function BrandKitPage() {
             </button>
           </div>
         </div>
+        </div>
+
+        <aside className="space-y-2 xl:sticky xl:top-24">
+          <BrandFormCoachPanel
+            mode="brand_kit"
+            brandId={activeBrandId}
+            formSnapshot={form}
+            onApplyPatch={(patch) => setForm((f) => mergeBrandFormPatch(f, patch))}
+            className="min-h-[320px]"
+          />
+          <p className="text-[11px] text-ink/45 px-1">
+            Suggestions merge into the form. Review tabs, then use Save changes when you are ready.
+          </p>
+        </aside>
       </div>
     </div>
   )

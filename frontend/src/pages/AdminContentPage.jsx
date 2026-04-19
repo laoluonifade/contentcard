@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import AdminLayout from '../components/layout/AdminLayout'
 import { adminApi } from '../api'
+import { formatAdminApiError } from '../lib/adminApiError'
 
 const PLAT_COLOR = { instagram: '#E1306C', facebook: '#1877F2', twitter: '#1DA1F2' }
 const STATUS_STYLE = {
@@ -13,11 +14,13 @@ export default function AdminContentPage() {
   const [items, setItems] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
+    setLoadError(null)
     adminApi.content({ limit: 100 })
       .then(data => { setItems(data.items || []); setTotal(data.total || 0) })
-      .catch(() => {})
+      .catch((e) => { setItems([]); setTotal(0); setLoadError(formatAdminApiError(e)) })
       .finally(() => setLoading(false))
   }, [])
 
@@ -27,6 +30,10 @@ export default function AdminContentPage() {
         <h1 className="text-xl font-bold text-white">Content</h1>
         <p className="text-white/35 text-sm mt-0.5">{total} total posts generated</p>
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{loadError}</div>
+      )}
 
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden overflow-x-auto">
         {loading ? (
@@ -59,7 +66,7 @@ export default function AdminContentPage() {
                       {item.status}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-white/40 text-xs whitespace-nowrap">{item.scheduled_date || '—'}</td>
+                  <td className="px-5 py-3 text-white/40 text-xs whitespace-nowrap">{item.scheduled_date || 'Not set'}</td>
                   <td className="px-5 py-3 text-white/30 text-xs whitespace-nowrap">
                     {new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                   </td>

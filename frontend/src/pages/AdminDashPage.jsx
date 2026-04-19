@@ -180,7 +180,7 @@ export default function AdminDashPage() {
                     <div className="text-white text-sm font-medium">{u.full_name}</div>
                     <div className="text-white/35 text-xs">{u.email}</div>
                   </td>
-                  <td className="px-5 py-3 text-white/50 text-sm">{u.country_code || '—'}</td>
+                  <td className="px-5 py-3 text-white/50 text-sm">{u.country_code || 'Not set'}</td>
                   <td className="px-5 py-3">
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${u.is_active ? STATUS_STYLE.active : STATUS_STYLE.churned}`}>
                       {u.is_active ? 'active' : 'inactive'}

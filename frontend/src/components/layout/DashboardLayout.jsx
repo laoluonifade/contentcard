@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images } from 'lucide-react'
+import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
@@ -25,13 +25,16 @@ const MOBILE_NAV = [
 ]
 
 export default function DashboardLayout() {
-  const { user, logout }                          = useAuthStore()
-  const { workspaces, activeWorkspace, brands,
+  const { user, logout, fetchMe }                 = useAuthStore()
+  const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
-          fetchTrends }                           = useAppStore()
+          fetchTrends, createWorkspace }        = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [newWsOpen, setNewWsOpen] = useState(false)
+  const [newWsName, setNewWsName] = useState('')
+  const [creatingWs, setCreatingWs] = useState(false)
 
   useEffect(() => {
     setSidebarOpen(false)
@@ -42,7 +45,28 @@ export default function DashboardLayout() {
       fetchWorkspaces().catch(() => {})
     }
     fetchTrends().catch(() => {})
+    fetchMe?.().catch(() => {})
   }, [])
+
+  const agencyMode = !!user?.agency_mode
+
+  const submitNewWorkspace = async (e) => {
+    e?.preventDefault?.()
+    const name = newWsName.trim()
+    if (!name) { toast('Enter a workspace name', 'error'); return }
+    setCreatingWs(true)
+    try {
+      await createWorkspace({ name })
+      setNewWsOpen(false)
+      setNewWsName('')
+      toast('Workspace created — add brands under Brand Kit for this client.', 'success')
+    } catch (err) {
+      const msg = err.response?.data?.detail || err.message || 'Could not create workspace'
+      toast(typeof msg === 'string' ? msg : 'Could not create workspace', 'error')
+    } finally {
+      setCreatingWs(false)
+    }
+  }
 
   const handleLogout = () => {
     logout()
@@ -51,7 +75,8 @@ export default function DashboardLayout() {
   }
 
   const freeGenerationsUsed = useAppStore(s => s.subscription?.free_generations_used ?? null)
-  const isSubscribed = ['starter', 'smb', 'pro'].includes(activeWorkspace?.plan)
+  const planTier = activeWorkspace?.effective_plan || activeWorkspace?.plan
+  const isSubscribed = ['starter', 'smb', 'pro'].includes(planTier)
   const freeRemaining = isSubscribed ? null : Math.max(0, 2 - (freeGenerationsUsed ?? 0))
 
   const initials = user?.full_name
@@ -65,20 +90,35 @@ export default function DashboardLayout() {
         <span className="font-bold text-ink text-[14px]" style={{ letterSpacing: '-0.02em' }}>ContentCard</span>
       </Link>
 
-      {workspaces.length > 1 && (
-        <div className="px-3 py-2 border-b border-fog flex-shrink-0">
-          <select
-            value={activeWorkspace?.id || ''}
-            onChange={e => setActiveWorkspace(e.target.value)}
-            className="w-full bg-mist border border-fog rounded-lg px-2 py-1.5 text-xs text-ink/70 outline-none cursor-pointer">
-            {workspaces.map(ws => (
-              <option key={ws.id} value={ws.id}>{ws.name}</option>
-            ))}
-          </select>
+      {(workspaces.length > 1 || agencyMode) && (
+        <div className="px-3 py-2 border-b border-fog flex-shrink-0 space-y-2">
+          {workspaces.length > 1 ? (
+            <select
+              value={activeWorkspace?.id || ''}
+              onChange={e => setActiveWorkspace(e.target.value)}
+              className="w-full bg-mist border border-fog rounded-lg px-2 py-1.5 text-xs text-ink/70 outline-none cursor-pointer">
+              {workspaces.map(ws => (
+                <option key={ws.id} value={ws.id}>{ws.name}</option>
+              ))}
+            </select>
+          ) : activeWorkspace ? (
+            <div>
+              <p className="text-ink/40 text-[10px] font-semibold uppercase tracking-widest mb-0.5">Workspace</p>
+              <p className="text-ink text-xs font-semibold truncate">{activeWorkspace.name}</p>
+            </div>
+          ) : null}
+          {agencyMode && (
+            <button
+              type="button"
+              onClick={() => { setNewWsName(''); setNewWsOpen(true) }}
+              className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border border-dashed border-fog text-[11px] font-semibold text-brand-600 hover:bg-brand-500/5 transition-colors">
+              <Plus size={12} /> New client workspace
+            </button>
+          )}
         </div>
       )}
 
-      {workspaces.length === 1 && activeWorkspace && (
+      {workspaces.length === 1 && !agencyMode && activeWorkspace && (
         <div className="px-4 py-2 border-b border-fog flex-shrink-0">
           <p className="text-ink/40 text-[10px] font-semibold uppercase tracking-widest">Workspace</p>
           <p className="text-ink text-xs font-semibold truncate">{activeWorkspace.name}</p>
@@ -92,7 +132,7 @@ export default function DashboardLayout() {
             : 'bg-amber-50 border-amber-200 text-amber-700'
         }`}>
           {freeRemaining === 0
-            ? 'Free generations used up — subscribe to continue'
+            ? 'Free generations used up: subscribe to continue'
             : `${freeRemaining} free generation${freeRemaining !== 1 ? 's' : ''} remaining`}
         </div>
       )}
@@ -138,6 +178,37 @@ export default function DashboardLayout() {
 
   return (
     <div className="flex h-screen bg-mist overflow-hidden">
+      {newWsOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
+          <div className="bg-white rounded-2xl border border-fog shadow-xl max-w-md w-full p-6">
+            <h2 className="text-ink font-bold text-lg mb-1">New client workspace</h2>
+            <p className="text-ink/45 text-sm mb-4">
+              Each workspace is a separate company: its own brands, brand kits, billing, and content. Switch between them from the sidebar.
+            </p>
+            <form onSubmit={submitNewWorkspace} className="space-y-4">
+              <div>
+                <label className="block text-[11px] font-semibold text-ink/40 uppercase tracking-wider mb-1.5">Workspace name</label>
+                <input
+                  autoFocus
+                  value={newWsName}
+                  onChange={e => setNewWsName(e.target.value)}
+                  placeholder="e.g. Acme Corp"
+                  className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-sm text-ink outline-none focus:ring-2 focus:ring-brand-400/40"
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setNewWsOpen(false)} className="px-4 py-2 text-sm font-semibold text-ink/50 hover:text-ink">
+                  Cancel
+                </button>
+                <button type="submit" disabled={creatingWs} className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">
+                  {creatingWs ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Desktop sidebar */}
       <div className="hidden lg:flex">
         <Sidebar />

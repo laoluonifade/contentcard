@@ -13,7 +13,7 @@ const ROLES = [
 
 const PERKS = [
   { title: 'Remote-friendly',       desc: 'Most roles can be done from anywhere in Africa or beyond.' },
-  { title: 'Competitive salary',    desc: 'We pay at or above market — in USD or NGN, your choice.' },
+  { title: 'Competitive salary',    desc: 'We pay at or above market: in USD or NGN, your choice.' },
   { title: 'Equity for everyone',   desc: 'Every full-time hire gets meaningful equity in ContentCard.' },
   { title: 'Health & wellness',     desc: 'Full health insurance for you and your immediate family.' },
   { title: 'Learning budget',       desc: '₦500k / $500 per year for courses, books, and conferences.' },

@@ -44,7 +44,7 @@ export default function MarketingLayout({ children }) {
     <div className="bg-ink min-h-screen text-white flex flex-col">
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-white/5 bg-ink/90 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link to="/"><LogoFull size={26} dark /></Link>
           <div className="hidden md:flex items-center gap-7">
             {NAV_ITEMS.map(({ label, href }) => (
@@ -63,12 +63,12 @@ export default function MarketingLayout({ children }) {
       <main className="flex-1">{children}</main>
 
       {/* Footer */}
-      <footer className="border-t border-white/5 py-12 px-6 mt-24">
+      <footer className="border-t border-white/5 py-12 px-4 sm:px-6 mt-24">
         <div className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
               <LogoFull size={24} dark />
-              <p className="text-white/30 text-sm mt-4 leading-relaxed">Build consistent, on-brand social content at scale — without expanding your team.</p>
+              <p className="text-white/30 text-sm mt-4 leading-relaxed">Build consistent, on-brand social content at scale: without expanding your team.</p>
             </div>
             {Object.entries(FOOTER_LINKS).map(([heading, links]) => (
               <div key={heading}>
