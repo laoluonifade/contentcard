@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { MessageCircle, Send, Sparkles, Loader2 } from 'lucide-react'
+import { MessageCircle, Send, Sparkles, Loader2, PanelRightClose, ChevronLeft } from 'lucide-react'
 import { contentApi } from '../../api'
 import { toast } from '../ui/Toast'
 
@@ -17,13 +17,84 @@ export function mergeBrandFormPatch(form, patch) {
   return next
 }
 
+/** Merge template coach patch into the new-template form. */
+export function mergeTemplateFormPatch(form, patch) {
+  if (!patch || typeof patch !== 'object') return form
+  const next = { ...form }
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined) continue
+    if (k === 'topics' && Array.isArray(v)) {
+      next.topics = v.map((x) => String(x).trim()).filter(Boolean).slice(0, 40)
+    } else if (k === 'tone_tags' && Array.isArray(v)) {
+      next.tone_tags = v.map((x) => String(x).trim()).filter(Boolean).slice(0, 20)
+    } else if (k === 'platforms' && Array.isArray(v)) {
+      const allowed = new Set(['instagram', 'facebook', 'twitter', 'linkedin'])
+      next.platforms = [...new Set(v.map((x) => String(x).toLowerCase().trim()).filter((p) => allowed.has(p)))]
+    } else if (k === 'recurrence_days' && Array.isArray(v)) {
+      const days = v
+        .map((x) => parseInt(x, 10))
+        .filter((n) => !Number.isNaN(n) && n >= 0 && n <= 6)
+      next.recurrence_days = [...new Set(days)].sort((a, b) => a - b).slice(0, 7)
+    } else if (k === 'custom_dates' && Array.isArray(v)) {
+      next.custom_dates = v.map((x) => String(x).trim()).filter(Boolean).slice(0, 52)
+    } else {
+      next[k] = v
+    }
+  }
+  return next
+}
+
+const BRAND_COACH_MIN_KEY = 'contentcard.ui.brandCoachMinimized'
+const TEMPLATE_COACH_MIN_KEY = 'contentcard.ui.templateCoachMinimized'
+
 export default function BrandFormCoachPanel({
   mode,
   brandId,
   formSnapshot,
   onApplyPatch,
   className = '',
+  assistantTitle,
+  assistantSubtitle,
+  inputPlaceholder,
+  emptyStateHint,
+  minimizeStorageKey,
 }) {
+  const minKey = minimizeStorageKey || (mode === 'template' ? TEMPLATE_COACH_MIN_KEY : BRAND_COACH_MIN_KEY)
+  const title =
+    assistantTitle ||
+    (mode === 'template' ? 'Template assistant' : 'Brand profile assistant')
+  const subtitle =
+    assistantSubtitle ||
+    (mode === 'template'
+      ? 'Describe a recurring pattern (weekly service, monthly promo, etc.). Suggestions apply to the new template form. Paste a https:// link to pull public context.'
+      : 'Free. Fill one field or the whole kit. Paste a https:// link and we will fetch public pages to draft fields (verify before publishing).')
+  const placeholder =
+    inputPlaceholder ||
+    (mode === 'template'
+      ? 'e.g. Weekly Sunday service reminders with topics: worship, giving, community…'
+      : 'e.g. Fill everything with what you know about Paystack, or paste your website URL…')
+  const emptyHint =
+    emptyStateHint ||
+    (mode === 'template'
+      ? 'Examples: “Monthly flash sale template, 4 posts, Instagram only” or “Fill from https://…” You can edit every field before saving.'
+      : 'Examples: “Fill everything with what you know about Paystack” or “Fill the brand kit from https://contentcard.co” (we fetch the site text server-side). You can still edit every field yourself.')
+
+  const [minimized, setMinimized] = useState(() => {
+    try {
+      return localStorage.getItem(minKey) === '1'
+    } catch {
+      return false
+    }
+  })
+  const setMin = (v) => {
+    setMinimized(v)
+    try {
+      localStorage.setItem(minKey, v ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
+
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
@@ -49,7 +120,7 @@ export default function BrandFormCoachPanel({
     try {
       const res = await contentApi.brandFormCoach({
         mode,
-        brand_id: mode === 'brand_kit' ? brandId : null,
+        brand_id: mode === 'brand_kit' || mode === 'template' ? brandId : null,
         form_snapshot: formSnapshot || {},
         messages: next.map((m) => ({ role: m.role, content: m.content })),
         research_urls: [],
@@ -78,21 +149,44 @@ export default function BrandFormCoachPanel({
     }
   }
 
+  if (minimized) {
+    return (
+      <button
+        type="button"
+        onClick={() => setMin(false)}
+        className={`flex items-center gap-3 w-full rounded-2xl border border-fog bg-white shadow-sm px-4 py-3 text-left hover:bg-mist/50 transition-colors ${className}`}
+        aria-expanded="false"
+      >
+        <div className="w-8 h-8 rounded-lg bg-brand-500/15 flex items-center justify-center shrink-0">
+          <Sparkles size={16} className="text-brand-600" />
+        </div>
+        <span className="text-sm font-bold text-ink">{title}</span>
+        <ChevronLeft size={18} className="ml-auto text-ink/35 shrink-0" aria-hidden />
+      </button>
+    )
+  }
+
   return (
     <div
       className={`flex flex-col rounded-2xl border border-fog bg-white shadow-sm overflow-hidden ${className}`}
     >
-      <div className="px-4 py-3 border-b border-fog bg-mist/60 flex items-center gap-2">
-        <div className="w-8 h-8 rounded-lg bg-brand-500/15 flex items-center justify-center">
+      <div className="px-4 py-3 border-b border-fog bg-mist/60 flex items-start gap-2">
+        <div className="w-8 h-8 rounded-lg bg-brand-500/15 flex items-center justify-center shrink-0 mt-0.5">
           <Sparkles size={16} className="text-brand-600" />
         </div>
-        <div>
-          <p className="text-sm font-bold text-ink">Brand profile assistant</p>
-          <p className="text-[11px] text-ink/45">
-            Free. Fill one field or the whole kit. Paste a https:// link and we will fetch public pages to draft
-            fields (verify before publishing).
-          </p>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-ink">{title}</p>
+          <p className="text-[11px] text-ink/45">{subtitle}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => setMin(true)}
+          className="p-2 rounded-lg text-ink/35 hover:text-ink hover:bg-white/80 transition-colors shrink-0"
+          title="Minimize assistant"
+          aria-label="Minimize assistant"
+        >
+          <PanelRightClose size={18} />
+        </button>
       </div>
 
       {lastFetchNote && (
@@ -105,8 +199,7 @@ export default function BrandFormCoachPanel({
         {messages.length === 0 && (
           <div className="rounded-xl border border-dashed border-fog bg-mist/40 p-3 text-xs text-ink/55 leading-relaxed">
             <MessageCircle size={14} className="inline mr-1 text-ink/35 align-text-bottom" />
-            Examples: “Fill everything with what you know about Paystack” or “Fill the brand kit from
-            https://contentcard.co” (we fetch the site text server-side). You can still edit every field yourself.
+            {emptyHint}
           </div>
         )}
         {messages.map((m, i) => (
@@ -135,7 +228,7 @@ export default function BrandFormCoachPanel({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), send())}
-placeholder="e.g. Fill everything with what you know about Paystack, or paste your website URL…"
+          placeholder={placeholder}
           className="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-fog bg-mist text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-brand-400/40"
           disabled={sending}
         />

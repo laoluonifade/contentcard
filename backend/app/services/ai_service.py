@@ -834,6 +834,84 @@ def _truncate_str(val: str, n: int) -> str:
     return s if len(s) <= n else s[:n]
 
 
+_ALLOWED_TEMPLATE_CATS = frozenset({"product", "event", "service", "seasonal"})
+_ALLOWED_TEMPLATE_REC = frozenset({"daily", "weekly", "monthly", "yearly", "custom"})
+_ALLOWED_TEMPLATE_PLATFORMS = frozenset({"instagram", "facebook", "twitter", "linkedin"})
+
+
+def _filter_template_patch(patch: dict | None) -> dict | None:
+    """Allow only ContentTemplate form fields for template coach patches."""
+    if not patch or not isinstance(patch, dict):
+        return None
+    out: dict = {}
+    for k, v in patch.items():
+        if k == "name" and isinstance(v, str) and v.strip():
+            out[k] = _truncate_str(v, 255)
+            continue
+        if k == "description" and isinstance(v, str):
+            out[k] = _truncate_str(v, 4000)
+            continue
+        if k == "category":
+            c = str(v).strip().lower()
+            if c in _ALLOWED_TEMPLATE_CATS:
+                out[k] = c
+            continue
+        if k == "color" and isinstance(v, str):
+            cs = v.strip()
+            if len(cs) <= 20 and cs.startswith("#") and len(cs) == 7:
+                out[k] = cs.lower()
+            continue
+        if k == "recurrence":
+            r = str(v).strip().lower()
+            if r in _ALLOWED_TEMPLATE_REC:
+                out[k] = r
+            continue
+        if k == "recurrence_days" and isinstance(v, list):
+            days: list[int] = []
+            for x in v[:14]:
+                try:
+                    d = int(x)
+                    if 0 <= d <= 6:
+                        days.append(d)
+                except (TypeError, ValueError):
+                    continue
+            out[k] = sorted(set(days))
+            continue
+        if k == "recurrence_day_of_month":
+            try:
+                dom = int(v)
+                if 1 <= dom <= 31:
+                    out[k] = dom
+            except (TypeError, ValueError):
+                pass
+            continue
+        if k == "custom_dates" and isinstance(v, list):
+            out[k] = [_truncate_str(str(x), 32) for x in v if str(x).strip()][:52]
+            continue
+        if k == "topics" and isinstance(v, list):
+            out[k] = [_truncate_str(str(x), 200) for x in v if str(x).strip()][:40]
+            continue
+        if k == "tone_tags" and isinstance(v, list):
+            out[k] = [_truncate_str(str(x), 40) for x in v if str(x).strip()][:20]
+            continue
+        if k == "platforms" and isinstance(v, list):
+            pls = []
+            for x in v[:8]:
+                p = str(x).strip().lower()
+                if p in _ALLOWED_TEMPLATE_PLATFORMS:
+                    pls.append(p)
+            if pls:
+                out[k] = sorted(set(pls))
+            continue
+        if k == "is_active" and isinstance(v, bool):
+            out[k] = v
+            continue
+        if k == "icon" and isinstance(v, str) and v.strip():
+            out[k] = _truncate_str(v, 10)
+            continue
+    return out or None
+
+
 def _filter_brand_form_patch(mode: str, patch: dict | None) -> dict | None:
     if not patch or not isinstance(patch, dict):
         return None
@@ -957,6 +1035,7 @@ def _bulk_or_research_intent(messages: list[dict], research_context: str | None)
         "fill all",
         "all fields",
         "whole brand",
+        "whole template",
         "entire form",
         "all you know",
         "complete the brand",
@@ -1024,6 +1103,46 @@ Help the user strengthen weak sections tab by tab. When they paste details, map 
 )
 
 
+_TEMPLATE_COACH = (
+    _BRAND_FORM_COACH_BASE.replace("Brand Profile Coach", "Recurring Template Coach")
+    .replace("complete their brand profile form", "complete the recurring template form")
+    .replace("fill this profile", "fill this template")
+    .replace(
+        "• NEVER draft social posts, ads, emails, blogs, scripts, or calendar content.",
+        "• NEVER draft full post captions or a full month of content. Only suggest template fields (schedule, topic rotation, platforms).",
+    )
+    + """
+MODE: template (recurring content pattern for this brand).
+
+Templates describe how often to post, which platforms, and a rotation of topic ideas. They are not individual posts.
+
+Allowed patch keys ONLY (omit any other key):
+name, category, description, color, recurrence, recurrence_days, recurrence_day_of_month, custom_dates,
+topics, tone_tags, platforms, is_active, icon.
+
+• category: one of product, event, service, seasonal.
+• recurrence: one of daily, weekly, monthly, yearly, custom.
+• recurrence_days: array of integers 0 to 6 where 0 is Monday and 6 is Sunday (for weekly recurrence).
+• recurrence_day_of_month: integer 1 to 31 when monthly cadence should hit a specific day.
+• custom_dates: array of ISO date strings (YYYY-MM-DD) only when recurrence is custom.
+• topics: array of short topic strings to rotate through (not full captions).
+• tone_tags: short labels consistent with the brand voice.
+• platforms: subset of instagram, facebook, twitter, linkedin.
+• color: #RRGGBB hex for the template card accent.
+• is_active: boolean when editing an existing template.
+
+Guide the user to name the pattern, pick a sensible schedule, and list concrete topic angles. If they paste a URL, use web context when provided to infer topics and cadence, and remind them to verify.
+"""
+)
+
+_TEMPLATE_COACH_BULK = """
+BULK FILL (this turn):
+• If the user asked to fill everything, all fields, or the whole template, OR if RESEARCH CONTEXT FROM WEB is attached: return a large patch covering every applicable allowed key you can justify.
+• When research text is present, derive topics and schedule hints from it; do not invent private metrics.
+• In reply, briefly list what you filled and remind the user to review before saving.
+"""
+
+
 async def run_brand_form_coach_chat(
     mode: str,
     form_snapshot: dict,
@@ -1034,8 +1153,8 @@ async def run_brand_form_coach_chat(
     import json as json_lib
 
     m = (mode or "").strip().lower()
-    if m not in ("onboarding", "brand_kit"):
-        raise ValueError("mode must be onboarding or brand_kit")
+    if m not in ("onboarding", "brand_kit", "template"):
+        raise ValueError("mode must be onboarding, brand_kit, or template")
 
     snap_limit = 22000 if m == "brand_kit" else 16000
     try:
@@ -1043,12 +1162,20 @@ async def run_brand_form_coach_chat(
     except Exception:
         snap = "{}"
 
-    system = _BRAND_FORM_COACH_ONBOARDING if m == "onboarding" else _BRAND_FORM_COACH_BRAND_KIT
     bulk = _bulk_or_research_intent(messages, research_context)
-    if m == "onboarding" and bulk:
-        system = system + _BRAND_FORM_COACH_BULK_ONBOARDING
-    if m == "brand_kit" and bulk:
-        system = system + _BRAND_FORM_COACH_BULK_BRAND_KIT
+    if m == "onboarding":
+        system = _BRAND_FORM_COACH_ONBOARDING
+        if bulk:
+            system = system + _BRAND_FORM_COACH_BULK_ONBOARDING
+    elif m == "brand_kit":
+        system = _BRAND_FORM_COACH_BRAND_KIT
+        if bulk:
+            system = system + _BRAND_FORM_COACH_BULK_BRAND_KIT
+    else:
+        system = _TEMPLATE_COACH
+        if bulk:
+            system = system + _TEMPLATE_COACH_BULK
+
     if research_context and research_context.strip():
         system = system + "\n\n" + research_context.strip()[:120000]
 
@@ -1061,7 +1188,12 @@ async def run_brand_form_coach_chat(
             r = "user"
         msgs.append({"role": r, "content": str(row.get("content", ""))[:8000]})
 
-    max_tokens = 8000 if (m == "brand_kit" and bulk) else (4500 if (m == "onboarding" and bulk) else 1400)
+    if m == "brand_kit" and bulk:
+        max_tokens = 8000
+    elif m in ("onboarding", "template") and bulk:
+        max_tokens = 4500
+    else:
+        max_tokens = 1400
     temp = 0.35 if bulk else 0.4
     raw = await _openai_chat(msgs, max_tokens=max_tokens, temperature=temp, json_mode=True)
     try:
@@ -1077,11 +1209,18 @@ async def run_brand_form_coach_chat(
 
     reply = data.get("reply")
     if not isinstance(reply, str) or not reply.strip():
-        reply = "Let me know a bit more about your brand so we can fill the next fields together."
+        reply = (
+            "Let me know a bit more about your brand so we can fill the next fields together."
+            if m != "template"
+            else "Describe the recurring pattern you want (e.g. weekly service reminders, monthly sale) and I will suggest fields."
+        )
     reply = (_sanitize_ai_copy_dashes(reply.strip()) or reply.strip())
 
     patch_raw = data.get("patch")
-    patch_f = _filter_brand_form_patch(m, patch_raw if isinstance(patch_raw, dict) else None)
+    if m == "template":
+        patch_f = _filter_template_patch(patch_raw if isinstance(patch_raw, dict) else None)
+    else:
+        patch_f = _filter_brand_form_patch(m, patch_raw if isinstance(patch_raw, dict) else None)
 
     return {"reply": reply, "patch": patch_f}
 

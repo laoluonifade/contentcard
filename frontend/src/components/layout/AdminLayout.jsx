@@ -1,7 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, Heart, FileText,
-  CreditCard, BarChart2, TrendingUp, LayoutTemplate, Settings, LogOut, Shield,
+  CreditCard, BarChart2, TrendingUp, LayoutTemplate, Settings, LogOut, Shield, Download,
 } from 'lucide-react'
 
 const NAV = [
@@ -60,6 +60,29 @@ export default function AdminLayout({ children }) {
             </NavLink>
           ))}
         </nav>
+
+        <div className="px-3 py-2 border-t border-white/5">
+          <a
+            href="/contentcard-logo-mark.svg"
+            download="contentcard-logo-mark.svg"
+            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/45 hover:text-brand-400 hover:bg-white/5 text-sm font-medium transition-all"
+          >
+            <Download size={15} />
+            Download logo
+          </a>
+          <p className="text-white/20 text-[10px] px-3 mt-0.5 leading-snug">Official ContentCard mark (SVG)</p>
+          <p className="text-white/28 text-[10px] px-3 mt-2 leading-relaxed">
+            To use it on generated designs for your ContentCard workspace: open the{' '}
+            <a
+              href="/dashboard/brand-kit"
+              className="text-brand-400/90 hover:text-brand-300 underline underline-offset-2"
+            >
+              main app → Brand Kit → Visual
+            </a>
+            , then under <span className="text-white/40">Brand logo (on designs)</span> upload this file (PNG/SVG with
+            transparency works best). Save the brand kit when done.
+          </p>
+        </div>
 
         {/* Bottom */}
         <div className="p-3 border-t border-white/5">

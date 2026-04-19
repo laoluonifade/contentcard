@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Check, Plus, X, ArrowRight } from 'lucide-react'
+import { Check, Plus, X, ArrowRight, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import useAppStore from '../stores/appStore'
+import { brandApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
@@ -321,9 +322,11 @@ export default function BrandKitPage() {
 
   const [tab, setTab]       = useState('Basics')
   const [saving, setSaving] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
   const [newWord, setNewWord]     = useState('')
   const [newColorHex, setNewColorHex] = useState('#6C63FF')
   const [form, setForm]     = useState({})
+  const logoFileRef = useRef(null)
 
   useEffect(() => {
     if (!brand) return
@@ -390,6 +393,29 @@ export default function BrandKitPage() {
     if (!newWord.trim()) return
     set('words_to_avoid', [...(form.words_to_avoid || []), newWord.trim()])
     setNewWord('')
+  }
+
+  const onBrandLogoFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !activeBrandId || !activeWorkspaceId) return
+    if (!file.type.startsWith('image/')) {
+      toast('Please choose an image file (PNG, JPG, or SVG).', 'error')
+      return
+    }
+    setLogoUploading(true)
+    try {
+      const { logo_url: logoUrl } = await brandApi.uploadLogo(activeWorkspaceId, activeBrandId, file)
+      setForm((f) => ({ ...f, logo_url: logoUrl }))
+      useAppStore.setState((s) => ({
+        brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, logo_url: logoUrl } : b)),
+      }))
+      toast('Logo saved. It will be composited onto generated post images.')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Upload failed', 'error')
+    } finally {
+      setLogoUploading(false)
+    }
   }
 
   // Live scores: recomputed on every keystroke
@@ -537,6 +563,46 @@ export default function BrandKitPage() {
                   Tokens drive generated backgrounds, logo placement, and Bannerbear accents. Set primary colours to
                   match your real brand (not generic AI defaults).
                 </p>
+              </div>
+              <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
+                <div>
+                  <span className={labelCls}>Brand logo (on designs)</span>
+                  <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
+                    Upload a PNG or SVG with a transparent background when possible. This logo is burned onto generated
+                    covers and raster visuals — it is not drawn by the AI model.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <input
+                    ref={logoFileRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
+                    className="sr-only"
+                    onChange={onBrandLogoFile}
+                  />
+                  {form.logo_url ? (
+                    <div className="flex items-center gap-3 rounded-lg border border-fog bg-white p-2 pr-3">
+                      <img
+                        src={form.logo_url}
+                        alt="Brand logo preview"
+                        className="h-14 w-auto max-w-[200px] object-contain object-left"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-14 w-28 rounded-lg border border-dashed border-fog bg-white flex items-center justify-center text-[11px] text-ink/35">
+                      No logo yet
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={logoUploading}
+                    onClick={() => logoFileRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-white text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                  >
+                    <Upload size={16} />
+                    {logoUploading ? 'Uploading…' : form.logo_url ? 'Replace logo' : 'Upload logo'}
+                  </button>
+                </div>
               </div>
               <div className="grid sm:grid-cols-3 gap-4">
                 <label className="space-y-1">

@@ -71,9 +71,9 @@ class BrandFormCoachMessage(BaseModel):
 
 
 class BrandFormCoachRequest(BaseModel):
-    """Free coach: only helps fill brand profile fields (onboarding or brand kit)."""
+    """Free coach: brand profile (onboarding / brand kit) or recurring template draft."""
 
-    mode: str  # onboarding | brand_kit
+    mode: str  # onboarding | brand_kit | template
     brand_id: str | None = None
     form_snapshot: dict = {}
     messages: list[BrandFormCoachMessage]
