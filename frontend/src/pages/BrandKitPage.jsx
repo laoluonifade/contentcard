@@ -7,8 +7,11 @@ import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
 
 const TABS = ['Basics','Audience','Identity','Voice','Compliance','Rules']
-const inpCls = "w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all text-sm"
+const inpCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 const taCls  = `${inpCls} resize-none`
+const cardCls = "bg-white border border-fog rounded-2xl p-6"
+const sectionTitleCls = "text-ink font-bold text-sm"
+const labelCls = "block text-xs font-bold uppercase tracking-widest text-ink/40"
 const TONE_TAGS = ['Bold','Authentic','Energetic','Playful','Luxury','Minimal','Warm','Professional','Witty','Inspirational','Confident','Friendly']
 
 const FONTS = [
@@ -221,14 +224,14 @@ function ColorSwatch({ color, onRemove, onEdit }) {
   return (
     <div className="relative group flex flex-col items-center gap-1">
       <div
-        className="w-9 h-9 rounded-xl border-2 border-zinc-700 cursor-pointer hover:border-violet-500 transition-colors"
+        className="w-9 h-9 rounded-xl border-2 border-fog cursor-pointer hover:border-brand-400 transition-colors"
         style={{ background: color }}
         onClick={() => inputRef.current?.click()}
         title="Click to edit"
       />
       <input ref={inputRef} type="color" defaultValue={color}
         onChange={e => onEdit(e.target.value)} className="sr-only" />
-      <span className="text-[9px] text-zinc-500 font-mono">{color}</span>
+      <span className="text-[9px] text-ink/40 font-mono">{color}</span>
       <button onClick={onRemove}
         className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-[9px] items-center justify-center hidden group-hover:flex">×</button>
     </div>
@@ -304,15 +307,15 @@ export default function BrandKitPage() {
   if (!brand) {
     return (
       <div className="p-6 lg:p-8 max-w-5xl mx-auto">
-        <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
-        <p className="text-zinc-500 text-sm mb-8">Your brand profile shapes every generated design and caption.</p>
-        <div className="bg-zinc-900 border border-dashed border-zinc-700 rounded-2xl p-12 text-center">
-          <h2 className="text-white font-bold text-lg mb-2">No brand yet</h2>
-          <p className="text-zinc-500 text-sm mb-6 max-w-sm mx-auto">
+        <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
+        <p className="text-ink/40 text-sm mb-8">Your brand profile shapes every generated design and caption.</p>
+        <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
+          <h2 className="text-ink font-bold text-lg mb-2">No brand yet</h2>
+          <p className="text-ink/40 text-sm mb-6 max-w-sm mx-auto">
             Create your brand profile so ContentCard knows your tone, audience, and voice — and generates content that sounds exactly like you.
           </p>
           <button onClick={() => navigate('/onboarding')}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors">
+            className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
             Create brand profile <ArrowRight size={15} />
           </button>
         </div>
@@ -324,11 +327,11 @@ export default function BrandKitPage() {
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
-          <p className="text-zinc-500 text-sm">{brand.name} · {brand.industry || 'No industry set'}</p>
+          <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
+          <p className="text-ink/40 text-sm">{brand.name} · {brand.industry || 'No industry set'}</p>
         </div>
         <button onClick={save} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
+          className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
           <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
         </button>
       </div>
@@ -337,11 +340,11 @@ export default function BrandKitPage() {
       <StrengthBanner overall={overall} overallLevel={overallLevel} />
 
       <div className="grid lg:grid-cols-[190px_1fr] gap-6 items-start">
-        <nav className="bg-zinc-900 border border-zinc-800 rounded-2xl p-2 sticky top-6">
+        <nav className="bg-white border border-fog rounded-2xl p-2 sticky top-6">
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={clsx('flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left mb-0.5',
-                tab === t ? 'bg-violet-600 text-white' : 'text-white/60 hover:text-white hover:bg-zinc-800')}>
+                tab === t ? 'bg-brand-500 text-white' : 'text-ink/50 hover:text-ink hover:bg-mist')}>
               {t}
             </button>
           ))}
@@ -351,17 +354,17 @@ export default function BrandKitPage() {
 
           {/* ── BASICS ── */}
           {tab === 'Basics' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-5">Business basics</h3>
+            <div className={cardCls}>
+              <h3 className={`${sectionTitleCls} mb-5`}>Business basics</h3>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Brand name</label>
+                  <label className={`${labelCls} mb-2`}>Brand name</label>
                   <ScoreBadge score={S.name} />
                   <input value={form.name || ''} onChange={e => set('name', e.target.value)} placeholder="Nova Studio"
                     className={clsx(inpCls, 'mt-2')} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Industry</label>
+                  <label className={`${labelCls} mb-2`}>Industry</label>
                   <ScoreBadge score={S.industry} />
                   <select value={form.industry || ''} onChange={e => set('industry', e.target.value)}
                     className={clsx(inpCls, 'cursor-pointer mt-2')}>
@@ -374,7 +377,7 @@ export default function BrandKitPage() {
                 </div>
               </div>
               <div className="mb-4">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">What you do</label>
+                <label className={`${labelCls} mb-2`}>What you do</label>
                 <ScoreBadge score={S.description} />
                 <textarea value={form.description || ''} onChange={e => set('description', e.target.value)} rows={3}
                   placeholder="We help small businesses grow through strategic social media content…"
@@ -382,18 +385,18 @@ export default function BrandKitPage() {
               </div>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Website</label>
+                  <label className={`${labelCls} mb-2`}>Website</label>
                   <input value={form.website || ''} onChange={e => set('website', e.target.value)} placeholder="https://yourbrand.com" className={inpCls} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Location</label>
+                  <label className={`${labelCls} mb-2`}>Location</label>
                   <input value={form.location || ''} onChange={e => set('location', e.target.value)} placeholder="Lagos, Nigeria" className={inpCls} />
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 {[['instagram_handle','Instagram'],['facebook_handle','Facebook'],['twitter_handle','Twitter/X']].map(([k,p]) => (
                   <div key={k}>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">{p}</label>
+                    <label className={`${labelCls} mb-2`}>{p}</label>
                     <input value={form[k] || ''} onChange={e => set(k, e.target.value)} placeholder="@handle" className={inpCls} />
                   </div>
                 ))}
@@ -403,10 +406,10 @@ export default function BrandKitPage() {
 
           {/* ── AUDIENCE ── */}
           {tab === 'Audience' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-5">Target audience</h3>
+            <div className={cardCls}>
+              <h3 className={`${sectionTitleCls} mb-5`}>Target audience</h3>
               <div className="mb-4">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Who are they?</label>
+                <label className={`${labelCls} mb-2`}>Who are they?</label>
                 <ScoreBadge score={S.target_audience} />
                 <textarea value={form.target_audience || ''} onChange={e => set('target_audience', e.target.value)} rows={3}
                   placeholder="Small business owners aged 25–40, looking to grow their social media presence…"
@@ -414,16 +417,16 @@ export default function BrandKitPage() {
               </div>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Age range</label>
+                  <label className={`${labelCls} mb-2`}>Age range</label>
                   <input value={form.audience_age_range || ''} onChange={e => set('audience_age_range', e.target.value)} placeholder="25–40" className={inpCls} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Location</label>
+                  <label className={`${labelCls} mb-2`}>Location</label>
                   <input value={form.audience_location || ''} onChange={e => set('audience_location', e.target.value)} placeholder="Nigeria, West Africa" className={inpCls} />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Their biggest pain point</label>
+                <label className={`${labelCls} mb-2`}>Their biggest pain point</label>
                 <ScoreBadge score={S.pain_point} />
                 <textarea value={form.pain_point || ''} onChange={e => set('pain_point', e.target.value)} rows={2}
                   placeholder="Overwhelmed by content creation, no clear strategy…"
@@ -435,8 +438,8 @@ export default function BrandKitPage() {
           {/* ── IDENTITY ── */}
           {tab === 'Identity' && (
             <div className="space-y-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-2">Brand colors</h3>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-2`}>Brand colors</h3>
                 <ScoreBadge score={S.brand_colors} />
                 <div className="flex gap-4 flex-wrap items-end mb-4 mt-3">
                   {(form.brand_colors || []).map((c, i) => (
@@ -448,37 +451,37 @@ export default function BrandKitPage() {
                 </div>
                 <div className="flex gap-3 items-center">
                   <input type="color" value={newColorHex} onChange={e => setNewColorHex(e.target.value)}
-                    className="w-12 h-10 rounded-xl border-2 border-zinc-700 cursor-pointer bg-transparent p-0.5" />
+                    className="w-12 h-10 rounded-xl border-2 border-fog cursor-pointer bg-transparent p-0.5" />
                   <input value={newColorHex} onChange={e => setNewColorHex(e.target.value)} placeholder="#6C63FF"
-                    className="w-32 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-sm font-mono focus:outline-none focus:border-violet-500" />
+                    className="w-32 px-3 py-2 bg-mist border border-fog rounded-xl text-ink text-sm font-mono focus:outline-none focus:border-brand-400" />
                   <button onClick={addColor}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-bold rounded-xl border border-zinc-700 transition-colors">
+                    className="flex items-center gap-1.5 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-bold rounded-xl transition-colors">
                     <Plus size={14} /> Add color
                   </button>
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-2">Brand font</h3>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-2`}>Brand font</h3>
                 <ScoreBadge score={S.brand_font} />
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   {FONTS.map(f => (
                     <button key={f.value} onClick={() => set('brand_font', f.value)}
-                      className={`py-3 px-4 rounded-xl border-2 text-left transition-all ${form.brand_font === f.value ? 'border-violet-500 bg-violet-500/5' : 'border-zinc-800 hover:border-zinc-700'}`}>
-                      <span className="text-sm font-semibold text-white" style={f.style}>{f.label}</span>
-                      <span className="block text-xs text-zinc-500 mt-0.5" style={f.style}>Aa Bb Cc 123</span>
+                      className={`py-3 px-4 rounded-xl border-2 text-left transition-all ${form.brand_font === f.value ? 'border-brand-400 bg-brand-500/5' : 'border-fog hover:border-brand-300'}`}>
+                      <span className="text-sm font-semibold text-ink" style={f.style}>{f.label}</span>
+                      <span className="block text-xs text-ink/40 mt-0.5" style={f.style}>Aa Bb Cc 123</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-2">Design style</h3>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-2`}>Design style</h3>
                 <ScoreBadge score={S.design_style} />
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   {['bold','minimal','warm','premium'].map(style => (
                     <button key={style} onClick={() => set('design_style', style)}
-                      className={`py-3 rounded-xl border-2 text-sm font-semibold capitalize transition-all ${form.design_style === style ? 'border-violet-500 bg-violet-500/5 text-violet-300' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+                      className={`py-3 rounded-xl border-2 text-sm font-semibold capitalize transition-all ${form.design_style === style ? 'border-brand-400 bg-brand-500/5 text-brand-600' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
                       {style}
                     </button>
                   ))}
@@ -489,17 +492,17 @@ export default function BrandKitPage() {
 
           {/* ── VOICE ── */}
           {tab === 'Voice' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-5">Brand voice & tone</h3>
+            <div className={cardCls}>
+              <h3 className={`${sectionTitleCls} mb-5`}>Brand voice & tone</h3>
               <div className="mb-5">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Tone tags</label>
+                <label className={`${labelCls} mb-2`}>Tone tags</label>
                 <ScoreBadge score={S.tone_tags} />
                 <div className="flex flex-wrap gap-2 mt-3">
                   {TONE_TAGS.map(t => {
                     const on = (form.tone_tags || []).includes(t.toLowerCase())
                     return (
                       <button key={t} onClick={() => toggleTone(t.toLowerCase())}
-                        className={`px-3 py-1.5 rounded-full border-2 text-xs font-semibold transition-all ${on ? 'bg-violet-600 border-violet-600 text-white' : 'border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>
+                        className={`px-3 py-1.5 rounded-full border-2 text-xs font-semibold transition-all ${on ? 'bg-brand-500 border-brand-500 text-white' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
                         {t}
                       </button>
                     )
@@ -507,19 +510,19 @@ export default function BrandKitPage() {
                 </div>
               </div>
               <div className="mb-5">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3">
+                <label className={`${labelCls} mb-3`}>
                   Personality — {(form.personality_score || 50) < 35 ? 'Serious & corporate' : (form.personality_score || 50) > 65 ? 'Casual & relaxed' : 'Balanced'}
                 </label>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-600">Serious</span>
+                  <span className="text-xs text-ink/40">Serious</span>
                   <input type="range" min="0" max="100" value={form.personality_score || 50}
                     onChange={e => set('personality_score', Number(e.target.value))}
-                    className="flex-1 accent-violet-600" />
-                  <span className="text-xs text-zinc-600">Casual</span>
+                    className="flex-1 accent-brand-500" />
+                  <span className="text-xs text-ink/40">Casual</span>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Language style</label>
+                <label className={`${labelCls} mb-2`}>Language style</label>
                 <ScoreBadge score={S.language_style} />
                 {!countryCode && (
                   <p className="text-amber-400 text-xs mt-2 mb-3 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
@@ -529,7 +532,7 @@ export default function BrandKitPage() {
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   {langOptions.map(([v,l]) => (
                     <button key={v} onClick={() => set('language_style', v)}
-                      className={`py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${form.language_style === v ? 'border-violet-500 bg-violet-500/5 text-violet-300' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+                      className={`py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${form.language_style === v ? 'border-brand-400 bg-brand-500/5 text-brand-600' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
                       {l}
                     </button>
                   ))}
@@ -541,9 +544,9 @@ export default function BrandKitPage() {
           {/* ── COMPLIANCE ── */}
           {tab === 'Compliance' && (
             <div className="space-y-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-1">Compliance presets</h3>
-                <p className="text-zinc-500 text-xs mb-5">Apply a preset to add industry-specific rules to all generated content.</p>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-1`}>Compliance presets</h3>
+                <p className="text-ink/40 text-xs mb-5">Apply a preset to add industry-specific rules to all generated content.</p>
                 <div className="grid grid-cols-3 gap-2 mb-2">
                   {Object.entries({
                     finance: 'Finance & Investment',
@@ -553,16 +556,16 @@ export default function BrandKitPage() {
                     real_estate: 'Real Estate',
                   }).map(([key, label]) => (
                     <button key={key} onClick={() => applyCompliancePreset(key)}
-                      className="py-2.5 px-3 rounded-xl border border-zinc-700 text-zinc-300 text-xs font-semibold hover:border-violet-500 hover:text-violet-300 transition-all text-left">
+                      className="py-2.5 px-3 rounded-xl border border-fog text-ink/60 text-xs font-semibold hover:border-brand-300 hover:text-brand-600 transition-all text-left">
                       {label}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-1">Active compliance rules</h3>
-                <p className="text-zinc-500 text-xs mb-5">These rules will be applied to all AI-generated content for this brand.</p>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-1`}>Active compliance rules</h3>
+                <p className="text-ink/40 text-xs mb-5">These rules will be applied to all AI-generated content for this brand.</p>
 
                 {[
                   ['disclaimer', 'Include disclaimer on every post', 'Adds "This is not financial/legal/medical advice" where appropriate'],
@@ -577,28 +580,28 @@ export default function BrandKitPage() {
                   ['licensed_disclosure', 'Licensed professional disclosure', 'States relevant professional licence where needed'],
                   ['requires_disclosure', 'Sponsored content disclosure', 'Adds #ad or #sponsored tags on paid/partner content'],
                 ].map(([key, label, desc]) => (
-                  <div key={key} className="flex items-start gap-3 py-3.5 border-b border-zinc-800 last:border-0">
+                  <div key={key} className="flex items-start gap-3 py-3.5 border-b border-fog last:border-0">
                     <button onClick={() => setCompliance(key, !(form.compliance_rules || {})[key])}
-                      className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${(form.compliance_rules || {})[key] ? 'bg-violet-600 border-violet-600' : 'border-zinc-700 hover:border-zinc-500'}`}>
+                      className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${(form.compliance_rules || {})[key] ? 'bg-brand-500 border-brand-500' : 'border-fog hover:border-brand-300'}`}>
                       {(form.compliance_rules || {})[key] && <Check size={11} className="text-white" />}
                     </button>
                     <div>
-                      <p className="text-zinc-200 text-sm font-semibold">{label}</p>
-                      <p className="text-zinc-500 text-xs mt-0.5">{desc}</p>
+                      <p className="text-ink text-sm font-semibold">{label}</p>
+                      <p className="text-ink/40 text-xs mt-0.5">{desc}</p>
                     </div>
                   </div>
                 ))}
 
                 <div className="mt-5">
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Regulatory body / jurisdiction</label>
+                  <label className={`${labelCls} mb-2`}>Regulatory body / jurisdiction</label>
                   <input value={(form.compliance_rules || {}).regulatory_body || ''}
                     onChange={e => setCompliance('regulatory_body', e.target.value)}
                     placeholder="e.g. FCA, SEC, NAFDAC, CAC" className={inpCls} />
-                  <p className="text-zinc-600 text-xs mt-1.5">Referenced in generated content where disclosures are required.</p>
+                  <p className="text-ink/40 text-xs mt-1.5">Referenced in generated content where disclosures are required.</p>
                 </div>
 
                 <div className="mt-4">
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Custom disclaimer text</label>
+                  <label className={`${labelCls} mb-2`}>Custom disclaimer text</label>
                   <textarea value={(form.compliance_rules || {}).custom_disclaimer || ''}
                     onChange={e => setCompliance('custom_disclaimer', e.target.value)} rows={2}
                     placeholder="e.g. 'Past performance is not indicative of future results.'" className={taCls} />
@@ -609,10 +612,10 @@ export default function BrandKitPage() {
 
           {/* ── RULES ── */}
           {tab === 'Rules' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-5">Brand rules</h3>
+            <div className={cardCls}>
+              <h3 className={`${sectionTitleCls} mb-5`}>Brand rules</h3>
               <div className="mb-5">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Words to never use</label>
+                <label className={`${labelCls} mb-2`}>Words to never use</label>
                 <ScoreBadge score={S.words_to_avoid} />
                 <div className="flex flex-wrap gap-2 mt-3 mb-3 min-h-[36px]">
                   {(form.words_to_avoid || []).map(w => (
@@ -628,11 +631,11 @@ export default function BrandKitPage() {
                     onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addWord())}
                     placeholder="Type a word and press Enter…" className={`${inpCls} flex-1`} />
                   <button onClick={addWord}
-                    className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-bold rounded-xl border border-zinc-700 transition-colors">Add</button>
+                    className="px-4 py-3 bg-brand-500 hover:bg-brand-600 text-white text-sm font-bold rounded-xl transition-colors">Add</button>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Brand guidelines</label>
+                <label className={`${labelCls} mb-2`}>Brand guidelines</label>
                 <ScoreBadge score={S.guidelines} />
                 <textarea value={form.guidelines || ''} onChange={e => set('guidelines', e.target.value)} rows={5}
                   placeholder="Always use inclusive language. Never make direct price comparisons. Lead with value. Use active voice…"
@@ -643,7 +646,7 @@ export default function BrandKitPage() {
 
           <div className="flex justify-end">
             <button onClick={save} disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
+              className="flex items-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
               <Check size={14} />{saving ? 'Saving…' : 'Save brand kit'}
             </button>
           </div>
