@@ -85,7 +85,7 @@ export default function SettingsPage() {
       setInvites(iv => [inv, ...iv])
       setInviteEmail('')
       const inviteLink = `${window.location.origin}/accept-invite?token=${inv.token}`
-      toast(`Invite link created — share it with ${inv.email}`)
+      toast(`Invite link created: share it with ${inv.email}`)
       // Also show the link in the UI
       setLastInviteLink(inviteLink)
     } catch (err) { toast(err.message, 'error') }
@@ -202,7 +202,7 @@ export default function SettingsPage() {
               <p className="text-ink/40 text-xs mb-5">{activeWorkspace?.name}</p>
               <div className="grid grid-cols-2 gap-4">
                 <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Plan</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.plan || 'trial'}</div></div>
-                <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Payment provider</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.payment_provider || '—'}</div></div>
+                <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Payment provider</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.payment_provider || 'Not set'}</div></div>
               </div>
             </div>
           )}

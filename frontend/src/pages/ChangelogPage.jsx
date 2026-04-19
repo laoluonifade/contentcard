@@ -3,19 +3,19 @@ import MarketingLayout from '../components/layout/MarketingLayout'
 const RELEASES = [
   {
     version: 'v1.4.0', date: 'April 2026', tag: 'New',
-    items: ['Approval workflows — editors submit, approvers review before anything goes live', 'Multi-brand dashboard with instant brand switching', 'Bulk download: export entire month as ZIP in one click'],
+    items: ['Approval workflows: editors submit, approvers review before anything goes live', 'Multi-brand dashboard with instant brand switching', 'Bulk download: export entire month as ZIP in one click'],
   },
   {
     version: 'v1.3.0', date: 'March 2026', tag: 'New',
-    items: ['Live trend engine — industry trends updated every 24 hours', 'One-click post generation from any trending topic', 'Nigerian English and Pidgin caption tone options'],
+    items: ['Live trend engine: industry trends updated every 24 hours', 'One-click post generation from any trending topic', 'Nigerian English and Pidgin caption tone options'],
   },
   {
     version: 'v1.2.0', date: 'February 2026', tag: 'Improvement',
-    items: ['Faster generation — month of content now generates in under 30 seconds', 'Brand kit v2 — set fonts, colour palette, and logo placement rules', 'Calendar drag-and-drop reordering'],
+    items: ['Faster generation: month of content now generates in under 30 seconds', 'Brand kit v2: set fonts, colour palette, and logo placement rules', 'Calendar drag-and-drop reordering'],
   },
   {
     version: 'v1.1.0', date: 'January 2026', tag: 'Improvement',
-    items: ['Team roles — Admin, Editor, Approver, and Viewer permissions', 'Invite team members by email', 'Activity log for all workspace actions'],
+    items: ['Team roles: Admin, Editor, Approver, and Viewer permissions', 'Invite team members by email', 'Activity log for all workspace actions'],
   },
   {
     version: 'v1.0.0', date: 'December 2025', tag: 'Launch',
@@ -32,7 +32,7 @@ export default function ChangelogPage() {
         <div className="max-w-2xl mx-auto">
           <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Changelog</div>
           <h1 className="text-4xl font-bold mb-4" style={{ letterSpacing: '-0.03em' }}>What's new in ContentCard</h1>
-          <p className="text-white/45">Every update, improvement, and launch — in one place.</p>
+          <p className="text-white/45">Every update, improvement, and launch: in one place.</p>
         </div>
       </section>
       <section className="py-16 px-6">

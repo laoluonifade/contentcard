@@ -68,7 +68,7 @@ export default function MarketingLayout({ children }) {
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
               <LogoFull size={24} dark />
-              <p className="text-white/30 text-sm mt-4 leading-relaxed">Build consistent, on-brand social content at scale — without expanding your team.</p>
+              <p className="text-white/30 text-sm mt-4 leading-relaxed">Build consistent, on-brand social content at scale: without expanding your team.</p>
             </div>
             {Object.entries(FOOTER_LINKS).map(([heading, links]) => (
               <div key={heading}>

@@ -3,7 +3,7 @@ import axios from 'axios'
 /**
  * FastAPI mounts all routes under /api/v1. If VITE_API_URL is a bare host
  * (e.g. https://app.onrender.com), requests would hit /admin/... at the root
- * and return 404 — append /api/v1 automatically in that case.
+ * and return 404: append /api/v1 automatically in that case.
  */
 export function normalizeViteApiBaseUrl(v) {
   const s = (v || '').trim().replace(/\/+$/, '')
@@ -101,6 +101,7 @@ export const brandApi = {
 export const contentApi = {
   generateMonth:       (data)          => api.post('/content/generate-month', data).then(r => r.data),
   generationPrepChat:  (data)          => api.post('/content/generation-prep-chat', data).then(r => r.data),
+  brandFormCoach:      (data)          => api.post('/content/brand-form-coach', data).then(r => r.data),
   bulkRemoveFromCalendar: (data)      => api.post('/content/bulk-remove-from-calendar', data).then(r => r.data),
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
@@ -163,7 +164,7 @@ export const holidaysApi = {
   undismiss: (date, name) => api.delete('/holidays/dismiss', { data: { date, name } }),
 }
 
-// ─── Admin (separate axios instance — never touches contentcard-auth) ──
+// ─── Admin (separate axios instance: never touches contentcard-auth) ──
 const adminAxios = axios.create({
   baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },

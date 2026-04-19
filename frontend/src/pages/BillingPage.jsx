@@ -174,7 +174,7 @@ export default function BillingPage() {
   useEffect(() => {
     fetchSubscription().catch(() => {})
     if (searchParams.get('success')) {
-      toast('Payment confirmed — your plan is now active!')
+      toast('Payment confirmed: your plan is now active!')
       fetchSubscription().catch(() => {})
     }
   }, [])
@@ -186,7 +186,7 @@ export default function BillingPage() {
       const { checkout_url } = await createCheckout(planId)
       window.location.href = checkout_url
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Checkout failed — please try again', 'error')
+      toast(err.response?.data?.detail || err.message || 'Checkout failed: please try again', 'error')
       setLoading(null)
     }
   }
@@ -196,7 +196,7 @@ export default function BillingPage() {
     try {
       await cancelSubscription()
       setShowCancelModal(false)
-      toast('Subscription cancelled. Your card stays saved — re-subscribe anytime.')
+      toast('Subscription cancelled. Your card stays saved: re-subscribe anytime.')
     } catch (err) {
       toast(err.response?.data?.detail || 'Cancellation failed', 'error')
     } finally {
@@ -239,7 +239,7 @@ export default function BillingPage() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-ink/40 mb-1">Active plan</p>
             <p className="text-xl font-bold text-ink" style={{ letterSpacing: '-0.01em' }}>
-              {currentPlan?.name} — {currentPlan?.price}<span className="text-ink/40 font-normal text-sm">/mo</span>
+              {currentPlan?.name}: {currentPlan?.price}<span className="text-ink/40 font-normal text-sm">/mo</span>
             </p>
             {subscription?.next_payment_date && (
               <p className="text-xs text-ink/40 mt-1">
@@ -360,7 +360,7 @@ export default function BillingPage() {
       {showCancelModal && (
         <ConfirmModal
           title="Cancel subscription?"
-          body={`Your plan stays active until the end of the billing period. Your saved card remains on file — re-subscribe with one click anytime.`}
+          body={`Your plan stays active until the end of the billing period. Your saved card remains on file: re-subscribe with one click anytime.`}
           confirmLabel="Yes, cancel"
           confirmClass="bg-red-500 hover:bg-red-600"
           onConfirm={handleCancel}

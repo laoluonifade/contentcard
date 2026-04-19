@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Check, ArrowRight, Star } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
 
-const TEAM_SIZES = ['Just me', '2–5', '6–20', '21–100', '100+']
+const TEAM_SIZES = ['Just me', '2 to 5', '6 to 20', '21 to 100', '100+']
 const ROLES = ['Founder / CEO', 'CMO / Marketing Director', 'Social Media Manager', 'Agency Owner', 'Brand Manager', 'Other']
 
 export default function DemoPage() {
@@ -49,7 +49,7 @@ export default function DemoPage() {
       <section className="py-16 px-6">
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-start">
 
-          {/* Left — pitch */}
+          {/* Left: pitch */}
           <div className="pt-6">
             <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-6">Book a demo</div>
             <h1 className="text-4xl font-bold text-white mb-5" style={{ letterSpacing: '-0.02em' }}>
@@ -62,7 +62,7 @@ export default function DemoPage() {
               {[
                 'Live demo of content generation for your specific industry',
                 'Walk through the team & approval workflow',
-                'Honest pricing conversation — no pressure',
+                'Honest pricing conversation: no pressure',
                 'Q&A with a product expert',
               ].map(b => (
                 <div key={b} className="flex items-start gap-3 text-white/65 text-sm">
@@ -90,7 +90,7 @@ export default function DemoPage() {
             </div>
           </div>
 
-          {/* Right — form */}
+          {/* Right: form */}
           <div className="bg-white/[0.03] border border-white/[0.06] rounded-3xl p-8">
             <h2 className="text-xl font-bold text-white mb-6">Request your demo</h2>
             <form onSubmit={handleSubmit} className="space-y-4">

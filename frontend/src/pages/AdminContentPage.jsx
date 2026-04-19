@@ -59,7 +59,7 @@ export default function AdminContentPage() {
                       {item.status}
                     </span>
                   </td>
-                  <td className="px-5 py-3 text-white/40 text-xs whitespace-nowrap">{item.scheduled_date || '—'}</td>
+                  <td className="px-5 py-3 text-white/40 text-xs whitespace-nowrap">{item.scheduled_date || 'Not set'}</td>
                   <td className="px-5 py-3 text-white/30 text-xs whitespace-nowrap">
                     {new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
                   </td>

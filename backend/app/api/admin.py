@@ -502,7 +502,7 @@ async def test_assistant(
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     if not brand.openai_assistant_id:
-        raise HTTPException(status_code=400, detail="Brand has no assistant — run sync-assistant first")
+        raise HTTPException(status_code=400, detail="Brand has no assistant. Run sync-assistant first.")
 
     test_prompt = (
         'Return ONLY this exact JSON, nothing else: [{"test": "ok", "brand": "' + brand.name + '"}]'

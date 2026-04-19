@@ -145,7 +145,7 @@ function drawSlideBadge(ctx, current, total, right, top, ff) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// TEMPLATE A — Overlay
+// TEMPLATE A: Overlay
 // Full-bleed photo + gradient over bottom half + headline only.
 // Design rules:
 //   • NO logo drawn on top (AI image carries the brand)
@@ -172,7 +172,7 @@ async function renderOverlay(ctx, post, slide, brand, totalSlides, bgImage) {
     ctx.fillRect(0, 0, W, H)
   }
 
-  // Gradient: bottom 45% only — transparent → near-black
+  // Gradient: bottom 45% only: transparent → near-black
   const grad = ctx.createLinearGradient(0, H * 0.42, 0, H)
   grad.addColorStop(0, 'rgba(0,0,0,0)')
   grad.addColorStop(0.38, 'rgba(0,0,0,0.48)')
@@ -180,7 +180,7 @@ async function renderOverlay(ctx, post, slide, brand, totalSlides, bgImage) {
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, W, H)
 
-  // Headline — white, positioned in the lower third
+  // Headline: white, positioned in the lower third
   const headline = slide.topic || ''
   const headSize = headline.length > 45 ? 78 : headline.length > 30 ? 96 : 114
   ctx.font = `900 ${headSize}px ${ff}`
@@ -188,7 +188,7 @@ async function renderOverlay(ctx, post, slide, brand, totalSlides, bgImage) {
   const headY = H * 0.60
   drawWrapped(ctx, headline, PAD, headY, W - PAD * 2, headSize * 1.1, 3)
 
-  // Swipe indicator — bottom right (carousel only, subtle pill)
+  // Swipe indicator: bottom right (carousel only, subtle pill)
   if (totalSlides > 1) {
     const label = 'Swipe  →'
     ctx.font = `500 24px ${ff}`
@@ -204,7 +204,7 @@ async function renderOverlay(ctx, post, slide, brand, totalSlides, bgImage) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// TEMPLATE B — Split Cover
+// TEMPLATE B: Split Cover
 // Left half: solid brand color + headline. Right half: photo.
 // Design rules:
 //   • Logo in left panel only (text side)
@@ -239,7 +239,7 @@ async function renderSplit(ctx, post, slide, brand, totalSlides, bgImage) {
   ctx.fillStyle = brandColor
   ctx.fillRect(0, 0, SPLIT, H)
 
-  // Logo — top of left panel
+  // Logo: top of left panel
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
@@ -261,15 +261,15 @@ async function renderSplit(ctx, post, slide, brand, totalSlides, bgImage) {
   const hY = PAD + 200
   drawWrapped(ctx, headline, PAD, hY, SPLIT - PAD * 1.5, headSize * 1.1, 4)
 
-  // Slide counter — top-right corner (right panel)
+  // Slide counter: top-right corner (right panel)
   if (totalSlides > 1) {
     drawSlideBadge(ctx, 1, totalSlides, W - PAD, PAD + 28, ff)
   }
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// TEMPLATE C — Carousel Body Slide
-// Clean white + brand accent — NO background image.
+// TEMPLATE C: Carousel Body Slide
+// Clean white + brand accent: NO background image.
 // This template is intentionally image-free so the text is always crisp
 // and never competes with the AI photo already seen on the cover.
 // Design rules:
@@ -298,15 +298,15 @@ async function renderCarouselBody(ctx, post, slide, brand, slideIdx, totalSlides
   ctx.fillStyle = brandColor
   ctx.fillRect(0, H - BAR, W, BAR)
 
-  // Subtle brand-tinted rectangle — top-right decoration
+  // Subtle brand-tinted rectangle: top-right decoration
   ctx.fillStyle = alpha(brandColor, 0.06)
   ctx.fillRect(W - 220, BAR, 220, 220)
 
-  // Subtle brand-tinted rectangle — bottom-left decoration
+  // Subtle brand-tinted rectangle: bottom-left decoration
   ctx.fillStyle = alpha(brandColor, 0.04)
   ctx.fillRect(0, H - BAR - 180, 200, 180)
 
-  // Slide counter pill — top-right
+  // Slide counter pill: top-right
   ctx.save()
   const countLabel = `${slideIdx + 1}  /  ${totalSlides}`
   ctx.font = `500 24px ${ff}`
@@ -339,7 +339,7 @@ async function renderCarouselBody(ctx, post, slide, brand, slideIdx, totalSlides
     drawWrapped(ctx, slide.body, headLeft, hBottom + 62, W - PAD * 2, 62, 7)
   }
 
-  // Logo — bottom-right (above bottom bar)
+  // Logo: bottom-right (above bottom bar)
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
@@ -357,7 +357,7 @@ async function renderCarouselBody(ctx, post, slide, brand, slideIdx, totalSlides
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// TEMPLATE D — Carousel CTA Slide
+// TEMPLATE D: Carousel CTA Slide
 // Solid brand color, centered CTA text, logo centered.
 // Used for: last slide of any carousel format
 // ──────────────────────────────────────────────────────────────────────────
@@ -379,7 +379,7 @@ async function renderCarouselCTA(ctx, post, slide, brand) {
 
   const mid = H / 2
 
-  // Logo — above main text
+  // Logo: above main text
   let logoBottom = mid - 120
   if (brand?.logo_url) {
     try {
@@ -420,7 +420,7 @@ async function renderCarouselCTA(ctx, post, slide, brand) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// FALLBACK — Cover (no AI image)
+// FALLBACK: Cover (no AI image)
 // Solid brand color, decorative shapes, large headline.
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -447,7 +447,7 @@ function renderCover(ctx, post, slide, brand, totalSlides) {
     drawOrganicBlob(ctx, s.cx, s.cy, s.r, c, 0.6, seed + i)
   })
 
-  // Giant headline — starts high
+  // Giant headline: starts high
   const headline = slide.topic || 'Untitled'
   const headSize = headline.length > 40 ? 90 : headline.length > 25 ? 108 : 126
   ctx.font = `900 ${headSize}px ${ff}`
@@ -455,7 +455,7 @@ function renderCover(ctx, post, slide, brand, totalSlides) {
   const headY = PAD + 80
   drawWrapped(ctx, headline, PAD, headY, W - PAD * 2, headSize * 1.1, 4)
 
-  // Swipe pill — bottom left (carousel only)
+  // Swipe pill: bottom left (carousel only)
   if (totalSlides > 1) {
     const label = 'Swipe  →'
     ctx.font = `600 26px ${ff}`
@@ -468,7 +468,7 @@ function renderCover(ctx, post, slide, brand, totalSlides) {
     ctx.fillText(label, px + 24, py + 36)
   }
 
-  // Brand watermark — bottom right, subtle
+  // Brand watermark: bottom right, subtle
   if (brand?.name) {
     ctx.font = `500 24px ${ff}`
     ctx.fillStyle = mutedColor
@@ -479,7 +479,7 @@ function renderCover(ctx, post, slide, brand, totalSlides) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// FALLBACK — Quote (no AI image)
+// FALLBACK: Quote (no AI image)
 // Brand color bg, giant quote mark, centered quote text
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -511,7 +511,7 @@ function renderQuote(ctx, post, slide, brand) {
     ctx.fillText((brand.name || '').toUpperCase(), PAD, H - PAD - 24)
   }
 
-  // Quote text — centered vertically
+  // Quote text: centered vertically
   const quote = slide.topic || slide.body || post?.caption || ''
   ctx.font = `700 72px ${ff}`
   ctx.fillStyle = textColor
@@ -533,7 +533,7 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
   const totalSlides = slides.length
   const format = post?.format || 'single'
 
-  // Load AI background — only for cover slides (slide 0).
+  // Load AI background: only for cover slides (slide 0).
   // Body slides use the clean text-only renderCarouselBody template.
   const bgUrl = (slide.isCover || format === 'quote') ? (post?.image_url || null) : null
   let bgImage = null
@@ -543,7 +543,7 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
 
   const designStyle = brand?.design_style || 'bold'
 
-  // ── CTA slide — always the clean brand-color template
+  // ── CTA slide: always the clean brand-color template
   if (slide.isCTA) {
     await renderCarouselCTA(ctx, post, slide, brand)
     return
@@ -575,7 +575,7 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
     return
   }
 
-  // ── Carousel body slide — ALWAYS use clean text layout, never editorial split
+  // ── Carousel body slide: ALWAYS use clean text layout, never editorial split
   await renderCarouselBody(ctx, post, slide, brand, slideIndex, totalSlides)
 }
 

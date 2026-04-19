@@ -92,7 +92,7 @@ export default function DashboardLayout() {
             : 'bg-amber-50 border-amber-200 text-amber-700'
         }`}>
           {freeRemaining === 0
-            ? 'Free generations used up — subscribe to continue'
+            ? 'Free generations used up: subscribe to continue'
             : `${freeRemaining} free generation${freeRemaining !== 1 ? 's' : ''} remaining`}
         </div>
       )}

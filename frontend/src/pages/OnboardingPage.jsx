@@ -6,6 +6,7 @@ import { toast } from '../components/ui/Toast'
 import useAppStore from '../stores/appStore'
 import { workspaceApi } from '../api'
 import useAuthStore from '../stores/authStore'
+import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 
 const INDUSTRIES = [
   'Fashion & Beauty','Food & Beverage','Technology','Finance & Fintech',
@@ -82,9 +83,9 @@ export default function OnboardingPage() {
   const firstName = user?.full_name?.split(' ')[0] || ''
 
   return (
-    <div className="min-h-screen bg-mist flex">
-      {/* Left panel — form */}
-      <div className="flex-1 flex flex-col items-center justify-center p-6 lg:p-12">
+    <div className="min-h-screen bg-mist flex flex-col lg:flex-row lg:items-stretch">
+      {/* Main: form */}
+      <div className="flex-1 flex flex-col items-center justify-center p-6 lg:p-12 lg:overflow-y-auto">
         {/* Logo */}
         <div className="w-full max-w-xl mb-8">
           <div className="flex items-center gap-2.5">
@@ -149,7 +150,7 @@ export default function OnboardingPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="label">What your business does <span className="text-ink/30 font-normal normal-case">— optional</span></label>
+                  <label className="label">What your business does <span className="text-ink/30 font-normal normal-case">(optional)</span></label>
                   <textarea value={form.description} onChange={e => set('description', e.target.value)} rows={3}
                     placeholder="Briefly describe your products, services, or what makes your brand distinctive."
                     className="input resize-none" />
@@ -165,20 +166,20 @@ export default function OnboardingPage() {
                   <p className="text-ink/50 text-sm">Understanding your audience helps us write captions that resonate and convert.</p>
                 </div>
                 <div>
-                  <label className="label">Who are your customers? <span className="text-ink/30 font-normal normal-case">— optional</span></label>
+                  <label className="label">Who are your customers? <span className="text-ink/30 font-normal normal-case">(optional)</span></label>
                   <textarea value={form.target_audience} onChange={e => set('target_audience', e.target.value)} rows={4}
-                    placeholder="e.g. Young professionals aged 25–35 in Lagos and Abuja, interested in career growth and lifestyle, earning ₦200k+ per month."
+                    placeholder="e.g. Young professionals aged 25 to 35 in Lagos and Abuja, interested in career growth and lifestyle, earning ₦200k+ per month."
                     className="input resize-none" />
                 </div>
                 <div>
-                  <label className="label">Social media handles <span className="text-ink/30 font-normal normal-case">— optional</span></label>
+                  <label className="label">Social media handles <span className="text-ink/30 font-normal normal-case">(optional)</span></label>
                   <div className="space-y-2">
                     <input value={form.instagram_handle} onChange={e => set('instagram_handle', e.target.value)}
-                      placeholder="Instagram — @yourbrand" className="input" />
+                      placeholder="Instagram: @yourbrand" className="input" />
                     <input value={form.facebook_handle} onChange={e => set('facebook_handle', e.target.value)}
-                      placeholder="Facebook — Your page name" className="input" />
+                      placeholder="Facebook: Your page name" className="input" />
                     <input value={form.twitter_handle} onChange={e => set('twitter_handle', e.target.value)}
-                      placeholder="Twitter / X — @yourbrand" className="input" />
+                      placeholder="Twitter / X: @yourbrand" className="input" />
                   </div>
                 </div>
               </div>
@@ -192,7 +193,7 @@ export default function OnboardingPage() {
                   <p className="text-ink/50 text-sm">Select the tone that best reflects how your brand communicates. You can refine this at any time in your Brand Kit.</p>
                 </div>
                 <div>
-                  <label className="label">Tone <span className="text-ink/30 font-normal normal-case">— select all that apply</span></label>
+                  <label className="label">Tone <span className="text-ink/30 font-normal normal-case">(select all that apply)</span></label>
                   <div className="flex flex-wrap gap-2">
                     {TONES.map(t => {
                       const on = form.tone_tags.includes(t)
@@ -209,7 +210,7 @@ export default function OnboardingPage() {
                 </div>
                 <div>
                   <label className="label">
-                    Personality — <span className="font-normal normal-case text-ink/60">
+                    Personality: <span className="font-normal normal-case text-ink/60">
                       {form.personality_score < 35 ? 'Formal and corporate' : form.personality_score > 65 ? 'Casual and conversational' : 'Balanced'}
                     </span>
                   </label>
@@ -270,92 +271,14 @@ export default function OnboardingPage() {
         </div>
       </div>
 
-      {/* Right panel — app preview (desktop only) */}
-      <div className="hidden lg:flex flex-1 bg-[#0F172A] items-center justify-center p-12 relative overflow-hidden">
-        {/* Background glow */}
-        <div className="absolute top-1/4 right-1/4 w-64 h-64 bg-brand-500/20 rounded-full blur-[80px] pointer-events-none" />
-        <div className="absolute bottom-1/4 left-1/4 w-48 h-48 bg-brand-400/10 rounded-full blur-[60px] pointer-events-none" />
-
-        <div className="relative z-10 w-full max-w-sm">
-          {/* Mini dashboard preview */}
-          <div className="bg-white rounded-2xl shadow-2xl overflow-hidden border border-white/10">
-            {/* Mini sidebar + content */}
-            <div className="flex" style={{ height: 420 }}>
-              {/* Sidebar */}
-              <div className="w-[120px] bg-white border-r border-[#E5E7EB] flex flex-col flex-shrink-0">
-                <div className="flex items-center gap-1.5 px-3 py-3 border-b border-[#E5E7EB]">
-                  <div className="w-5 h-5 rounded-md bg-brand-500 flex-shrink-0" />
-                  <span className="text-[8px] font-bold text-[#0F172A]" style={{ letterSpacing: '-0.01em' }}>ContentCard</span>
-                </div>
-                <nav className="flex-1 px-1.5 py-2 space-y-0.5">
-                  {[
-                    { label: 'Dashboard', active: true },
-                    { label: 'Calendar', active: false },
-                    { label: 'Templates', active: false },
-                    { label: 'Brand Kit', active: false },
-                  ].map(({ label, active }) => (
-                    <div key={label} className={`px-2 py-1.5 rounded-lg text-[7px] font-semibold ${active ? 'bg-[#10A37F]/10 text-[#10A37F]' : 'text-[#6B7280]'}`}>
-                      {label}
-                    </div>
-                  ))}
-                </nav>
-                <div className="px-1.5 py-2 border-t border-[#E5E7EB]">
-                  <div className="flex items-center gap-1.5 px-2 py-1.5">
-                    <div className="w-4 h-4 rounded-full bg-brand-500 flex-shrink-0" />
-                    <div>
-                      <div className="text-[6px] font-semibold text-[#0F172A] leading-none">Your Brand</div>
-                      <div className="text-[5px] text-[#6B7280] leading-none mt-0.5">Pro plan</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Main content */}
-              <div className="flex-1 bg-[#F7F7F8] p-3 overflow-hidden">
-                <div className="text-[8px] font-bold text-[#0F172A] mb-1">Good morning 👋</div>
-                <div className="text-[6px] text-[#6B7280] mb-3">18 posts generated for April</div>
-
-                {/* Green banner */}
-                <div className="rounded-xl p-2.5 mb-2.5 relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #10A37F, #34d399)' }}>
-                  <div className="text-[6px] text-white/70 font-semibold uppercase tracking-widest mb-0.5">April 2026</div>
-                  <div className="text-[9px] font-bold text-white">14 / 18 posts ready</div>
-                  <div className="text-[6px] text-white/70 mt-0.5">Keep posting to grow your audience.</div>
-                </div>
-
-                {/* Stat cards */}
-                <div className="grid grid-cols-2 gap-1.5 mb-2.5">
-                  {[['18', 'Total posts'], ['14', 'Ready'], ['4', 'Drafts'], ['12', 'Instagram']].map(([n, l]) => (
-                    <div key={l} className="bg-white rounded-xl p-2 border border-[#E5E7EB]">
-                      <div className="text-[10px] font-bold text-[#0F172A]">{n}</div>
-                      <div className="text-[6px] text-[#6B7280]">{l}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Trending */}
-                <div className="bg-white rounded-xl p-2 border border-[#E5E7EB]">
-                  <div className="text-[6px] font-bold text-[#0F172A] mb-1.5 flex items-center gap-1">
-                    <div className="w-2 h-2 rounded-sm bg-brand-500/20 flex items-center justify-center">
-                      <div className="w-1 h-1 rounded-full bg-brand-500" />
-                    </div>
-                    Trending topics
-                  </div>
-                  {['AI in content marketing', 'Founder-led brand strategy', 'Q2 social media playbook'].map(t => (
-                    <div key={t} className="text-[5.5px] text-[#6B7280] py-0.5 border-b border-[#F7F7F8] last:border-0 truncate">{t}</div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Caption below mockup */}
-          <div className="text-center mt-6">
-            <p className="text-white/50 text-xs leading-relaxed">
-              Your entire content calendar, ready in seconds.<br />
-              <span className="text-brand-400 font-semibold">One brand profile. Unlimited content.</span>
-            </p>
-          </div>
-        </div>
+      <div className="w-full lg:w-[min(420px,40vw)] lg:shrink-0 border-t lg:border-t-0 lg:border-l border-fog bg-white p-4 lg:min-h-screen flex flex-col">
+        <BrandFormCoachPanel
+          mode="onboarding"
+          brandId={null}
+          formSnapshot={form}
+          onApplyPatch={(patch) => setForm((f) => mergeBrandFormPatch(f, patch))}
+          className="flex-1 min-h-[280px] lg:min-h-0"
+        />
       </div>
     </div>
   )

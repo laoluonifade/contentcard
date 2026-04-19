@@ -54,14 +54,14 @@ export default function AdminBrandsPage() {
                     <div className="text-white text-sm font-medium">{b.name}</div>
                     <div className="text-white/30 text-xs font-mono">{b.id.slice(0, 8)}…</div>
                   </td>
-                  <td className="px-5 py-3 text-white/50 text-sm">{b.industry || '—'}</td>
+                  <td className="px-5 py-3 text-white/50 text-sm">{b.industry || 'Not set'}</td>
                   <td className="px-5 py-3 text-white/50 text-sm capitalize">{(b.language_style || 'english').replace('_', ' ')}</td>
                   <td className="px-5 py-3">
                     <div className="flex gap-1">
                       {(b.brand_colors || []).slice(0, 3).map((c, i) => (
                         <div key={i} className="w-5 h-5 rounded-full border border-white/10" style={{ background: c }} title={c} />
                       ))}
-                      {(!b.brand_colors || b.brand_colors.length === 0) && <span className="text-white/25 text-xs">—</span>}
+                      {(!b.brand_colors || b.brand_colors.length === 0) && <span className="text-white/25 text-xs">. </span>}
                     </div>
                   </td>
                   <td className="px-5 py-3 text-white/35 text-xs whitespace-nowrap">
@@ -90,9 +90,9 @@ export default function AdminBrandsPage() {
               {[
                 ['ID', selected.id],
                 ['Name', selected.name],
-                ['Industry', selected.industry || '—'],
+                ['Industry', selected.industry || 'Not set'],
                 ['Language', (selected.language_style || 'english').replace('_', ' ')],
-                ['Tone', (selected.tone_tags || []).join(', ') || '—'],
+                ['Tone', (selected.tone_tags || []).join(', ') || 'Not set'],
                 ['Created', new Date(selected.created_at).toLocaleString()],
               ].map(([k, v]) => (
                 <div key={k} className="flex justify-between py-2 border-b border-white/5">

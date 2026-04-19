@@ -81,9 +81,9 @@ function AppPreview() {
           </div>
           <div className="space-y-1">
             {[
-              { dot: '#10A37F', text: 'LinkedIn — Product launch thread' },
-              { dot: '#f59e0b', text: 'Instagram — Brand story carousel' },
-              { dot: '#6366f1', text: 'Twitter — Weekly insights post' },
+              { dot: '#10A37F', text: 'LinkedIn: Product launch thread' },
+              { dot: '#f59e0b', text: 'Instagram: Brand story carousel' },
+              { dot: '#6366f1', text: 'Twitter: Weekly insights post' },
             ].map(({ dot, text }) => (
               <div key={text} className="flex items-center gap-2 bg-white/3 rounded-lg px-2 py-1.5">
                 <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dot }} />
@@ -155,7 +155,7 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-screen flex">
-      {/* Left — form */}
+      {/* Left: form */}
       <div className="flex-1 lg:max-w-lg bg-mist flex flex-col justify-center px-8 py-12 lg:px-16 overflow-y-auto">
         <div className="mb-8">
           <LogoFull size={32} />
@@ -295,14 +295,14 @@ export default function SignupPage() {
         </p>
       </div>
 
-      {/* Right — app preview */}
+      {/* Right: app preview */}
       <div className="hidden lg:flex flex-1 bg-[#0F172A] items-center justify-center p-12 relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_60%_40%,rgba(16,163,127,0.15)_0%,transparent_70%)]" />
         <div className="relative z-10 flex flex-col items-center gap-8">
           <div className="text-center">
             <p className="text-white/50 text-sm font-medium mb-1">ContentCard</p>
             <h2 className="text-white text-2xl font-bold" style={{ letterSpacing: '-0.02em' }}>Everything in one place</h2>
-            <p className="text-white/40 text-sm mt-2">Plan, generate, and publish — your entire content workflow.</p>
+            <p className="text-white/40 text-sm mt-2">Plan, generate, and publish: your entire content workflow.</p>
           </div>
           <AppPreview />
           <div className="flex items-center gap-2">

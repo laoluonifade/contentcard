@@ -19,12 +19,15 @@ from app.schemas.content import (
     ContentOut,
     GenerationPrepChatRequest,
     BulkDeleteContentRequest,
+    BrandFormCoachRequest,
+    BrandFormCoachResponse,
 )
 from app.services.ai_service import (
     generate_monthly_plan,
     generate_single_caption,
     generate_photo_caption,
     run_generation_prep_chat,
+    run_brand_form_coach_chat,
 )
 from app.services.month_holiday_context import build_month_holiday_context
 from app.services.visual_tokens import apply_visual_system_defaults
@@ -212,7 +215,7 @@ async def caption_from_photo(
             results[platform.value] = result
         except Exception as e:
             logger.error(f"Photo caption error for {platform.value}: {e}")
-            errors[platform.value] = "Generation failed — please try again"
+            errors[platform.value] = "Generation failed. Please try again."
     if not results:
         raise HTTPException(status_code=502, detail="AI generation failed for all platforms")
     return {"results": results, "errors": errors}
@@ -323,6 +326,41 @@ async def generation_prep_chat(
     return {"message": reply}
 
 
+@router.post("/brand-form-coach", response_model=BrandFormCoachResponse)
+async def brand_form_coach(
+    body: BrandFormCoachRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Free for all plans: AI that only helps fill the brand profile / onboarding form.
+    Does not consume paid generation quotas.
+    """
+    mode = (body.mode or "").strip().lower()
+    if mode not in ("onboarding", "brand_kit"):
+        raise HTTPException(status_code=400, detail="mode must be onboarding or brand_kit")
+    if not body.messages:
+        raise HTTPException(status_code=400, detail="messages is required")
+    last = body.messages[-1]
+    if (last.role or "").lower() != "user":
+        raise HTTPException(status_code=400, detail="Last message must be from the user")
+
+    if mode == "brand_kit":
+        if not body.brand_id:
+            raise HTTPException(status_code=400, detail="brand_id is required for brand_kit mode")
+        await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
+
+    msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
+    try:
+        out = await run_brand_form_coach_chat(mode, body.form_snapshot or {}, msgs)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+    return BrandFormCoachResponse(reply=out["reply"], patch=out.get("patch"))
+
+
 @router.post("/bulk-remove-from-calendar")
 async def bulk_remove_from_calendar(
     body: BulkDeleteContentRequest,
@@ -420,7 +458,7 @@ async def regenerate_caption(
         item.caption_edited = False
     except Exception as e:
         logger.error(f"Regenerate error for {content_id}: {e}")
-        raise HTTPException(status_code=502, detail="AI generation failed — please try again")
+        raise HTTPException(status_code=502, detail="AI generation failed. Please try again.")
 
     await db.commit()
     await db.refresh(item)
@@ -478,7 +516,7 @@ async def regenerate_visual(
         raise
     except Exception as e:
         logger.error(f"regenerate-visual failed for {content_id}: {e}")
-        raise HTTPException(status_code=502, detail="Visual regeneration failed — try again shortly")
+        raise HTTPException(status_code=502, detail="Visual regeneration failed. Try again shortly.")
 
 
 @router.delete("/{content_id}", status_code=204)

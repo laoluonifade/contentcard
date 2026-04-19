@@ -23,7 +23,7 @@ export default function AdminLogin() {
         setLoading(false)
         return
       }
-      // Store admin token separately — never touches contentcard-auth
+      // Store admin token separately: never touches contentcard-auth
       localStorage.setItem('contentcard-admin-token', res.access_token)
       localStorage.setItem('contentcard-admin', JSON.stringify({ email, role: 'super_admin' }))
       navigate('/admindash')

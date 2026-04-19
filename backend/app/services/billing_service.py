@@ -76,7 +76,7 @@ async def ensure_paystack_plans() -> None:
                     "interval": "monthly",
                     "amount": config["ngn_price"],
                     "currency": "NGN",
-                    "description": f"ContentCard {config['name']} — unlimited AI content generation",
+                    "description": f"ContentCard {config['name']}: unlimited AI content generation",
                 }
                 r = await client.post(f"{PAYSTACK_BASE}/plan", json=payload, headers=_headers())
                 data = r.json()

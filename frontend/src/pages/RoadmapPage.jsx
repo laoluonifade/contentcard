@@ -5,7 +5,7 @@ const COLUMNS = [
     label: 'In progress', color: 'text-yellow-400', dot: 'bg-yellow-400',
     items: [
       { title: 'Direct scheduling to Instagram & Facebook', desc: 'Post directly from ContentCard without downloading.' },
-      { title: 'AI image generation', desc: 'Generate graphics entirely with AI — no templates.' },
+      { title: 'AI image generation', desc: 'Generate graphics entirely with AI: no templates.' },
       { title: 'Analytics dashboard', desc: 'Track engagement and reach for every post.' },
     ],
   },
@@ -35,7 +35,7 @@ export default function RoadmapPage() {
         <div className="max-w-2xl mx-auto">
           <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Roadmap</div>
           <h1 className="text-4xl font-bold mb-4" style={{ letterSpacing: '-0.03em' }}>Where ContentCard is going</h1>
-          <p className="text-white/45">Our public roadmap — what we're building now, what's coming next, and what we're thinking about.</p>
+          <p className="text-white/45">Our public roadmap: what we're building now, what's coming next, and what we're thinking about.</p>
         </div>
       </section>
       <section className="py-16 px-6">

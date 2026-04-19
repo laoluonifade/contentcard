@@ -15,7 +15,7 @@ export function brandVisualBlockReason(brand) {
   for (const k of ['primary_hex', 'secondary_hex', 'accent_hex']) {
     const v = vs[k]
     if (v != null && String(v).trim() !== '' && !normalizeHex(String(v))) {
-      return `Invalid ${k.replace(/_/g, ' ')} in Visual brand system. Use #RRGGBB — open Brand kit → Visual.`
+      return `Invalid ${k.replace(/_/g, ' ')} in Visual brand system. Use #RRGGBB: open Brand kit → Visual.`
     }
   }
   if (vs.neutral_hex != null && String(vs.neutral_hex).trim() !== '' && !normalizeHex(String(vs.neutral_hex))) {
