@@ -3,6 +3,12 @@ import { persist } from 'zustand/middleware'
 import { workspaceApi, brandApi, contentApi, templateApi, trendsApi, billingApi } from '../api'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
+/** Billing tier for the active workspace (owner subscription pool or row plan). */
+function workspacePlanTier(ws) {
+  if (!ws) return null
+  return ws.effective_plan || ws.plan
+}
+
 const useAppStore = create(
   persist(
     (set, get) => ({
@@ -42,7 +48,7 @@ const useAppStore = create(
           activeWorkspace: ws,
           brands: [],
           activeBrandId: null,
-          trends: planIncludesTrendingTopics(ws?.plan) ? get().trends : [],
+          trends: planIncludesTrendingTopics(workspacePlanTier(ws)) ? get().trends : [],
         })
         if (id) {
           await get().fetchBrands(id)
@@ -221,7 +227,7 @@ const useAppStore = create(
       fetchTrends: async () => {
         const wsId = get().activeWorkspaceId
         const ws = get().activeWorkspace
-        if (!wsId || !planIncludesTrendingTopics(ws?.plan)) {
+        if (!wsId || !planIncludesTrendingTopics(workspacePlanTier(ws))) {
           set({ trends: [] })
           return []
         }
@@ -241,7 +247,7 @@ const useAppStore = create(
       refreshTrends: async () => {
         const wsId = get().activeWorkspaceId
         const ws = get().activeWorkspace
-        if (!wsId || !planIncludesTrendingTopics(ws?.plan)) {
+        if (!wsId || !planIncludesTrendingTopics(workspacePlanTier(ws))) {
           set({ trends: [] })
           return []
         }
@@ -267,7 +273,12 @@ const useAppStore = create(
         set({ subscription: sub })
         set(s => ({
           activeWorkspace: s.activeWorkspace
-            ? { ...s.activeWorkspace, plan: sub.plan, trial_ends_at: sub.trial_ends_at }
+            ? {
+                ...s.activeWorkspace,
+                plan: sub.plan,
+                effective_plan: sub.plan,
+                trial_ends_at: sub.trial_ends_at,
+              }
             : s.activeWorkspace,
         }))
         return sub

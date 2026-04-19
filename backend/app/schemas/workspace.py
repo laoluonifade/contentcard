@@ -16,6 +16,8 @@ class WorkspaceOut(BaseModel):
     payment_provider: str | None
     is_active: bool
     created_at: datetime
+    # Highest plan across all workspaces you own (same as billing); equals `plan` for invited workspaces.
+    effective_plan: str | None = None
 
     model_config = {"from_attributes": True}
 

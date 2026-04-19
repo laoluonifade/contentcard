@@ -75,7 +75,8 @@ export default function DashboardLayout() {
   }
 
   const freeGenerationsUsed = useAppStore(s => s.subscription?.free_generations_used ?? null)
-  const isSubscribed = ['starter', 'smb', 'pro'].includes(activeWorkspace?.plan)
+  const planTier = activeWorkspace?.effective_plan || activeWorkspace?.plan
+  const isSubscribed = ['starter', 'smb', 'pro'].includes(planTier)
   const freeRemaining = isSubscribed ? null : Math.max(0, 2 - (freeGenerationsUsed ?? 0))
 
   const initials = user?.full_name

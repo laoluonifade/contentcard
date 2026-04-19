@@ -233,6 +233,13 @@ export default function BillingPage() {
         <p className="text-ink/40 text-sm">Manage your subscription and saved payment method.</p>
       </div>
 
+      {subscription?.subscription_covers_owned_workspaces && (
+        <div className="mb-5 rounded-xl border border-brand-200 bg-brand-50/80 px-4 py-3 text-sm text-ink/80 leading-relaxed">
+          Your subscription applies to <strong className="text-ink">every workspace you own</strong> (including agency
+          client workspaces). Payment method and plan changes are managed once and shared across them.
+        </div>
+      )}
+
       {/* ── Active subscription status ── */}
       {isSubscribed && (
         <div className="rounded-2xl bg-white border border-fog p-5 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">

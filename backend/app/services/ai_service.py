@@ -921,17 +921,54 @@ STRICT SCOPE (violations are failures):
 • NEVER draft social posts, ads, emails, blogs, scripts, or calendar content.
 • NEVER give broad marketing strategy, growth tactics, competitor analysis, or legal advice. Stay inside "what should we put in this field".
 • If the user goes off topic, answer in one short sentence that you only help fill this profile, then ask one concrete question for the next missing field.
-• Never invent company facts. If unsure, ask a follow up instead of putting guesses in patch.
+• For normal back-and-forth, avoid inventing company facts. For bulk fill or web research requests (see mode notes), you may propose many fields from provided page text or widely known public facts, and you must say in reply that the user should verify.
 
 OUTPUT (return ONLY valid JSON, no markdown):
 {"reply": "<1 to 4 short paragraphs or bullet lines, plain and friendly>", "patch": <object or null>}
 
 Rules for patch:
-• Include patch only when the user's latest message clearly supplies values you are confident about.
+• Include patch when you have values to suggest. For single-field help, prefer small patches. For bulk fill or research requests, return one large patch with many keys when appropriate.
 • Only use allowed keys for this mode (listed in the mode section). Omit patch entirely (null) when you are only asking questions.
 • Strings must be plain text suitable for form fields. No emojis unless the user used them first.
 • Do not use long dash, en dash, or two hyphens in a row in reply text. Use commas or periods.
 """
+
+
+_BRAND_FORM_COACH_BULK_BRAND_KIT = """
+BULK FILL AND RESEARCH (this turn):
+• If the user asked to fill everything, all fields, the whole brand kit, or to use what you know about a named company, OR if RESEARCH CONTEXT FROM WEB is attached below: return a LARGE patch covering every applicable allowed key you can justify (top-level fields and brand_kit nested keys). One response should populate as much of the form as possible.
+• When RESEARCH CONTEXT FROM WEB is present, prioritize facts and wording from that text for descriptions, audience, tone, competitors, guidelines, and brand_kit writing fields.
+• When the user names a well-known company without a URL (e.g. Paystack), you may use accurate general public knowledge for Nigeria or global fintech context as appropriate.
+• In reply, briefly list what you filled and remind the user to verify names, numbers, and claims against their own materials.
+"""
+
+
+_BRAND_FORM_COACH_BULK_ONBOARDING = """
+BULK FILL: If the user asked to fill everything or web research context is attached, return one patch with as many allowed onboarding keys as you can (name, industry, description, audience, tone, handles, etc.).
+"""
+
+
+def _bulk_or_research_intent(messages: list[dict], research_context: str | None) -> bool:
+    if research_context and research_context.strip():
+        return True
+    last = str((messages[-1] or {}).get("content") or "").lower()
+    keys = (
+        "fill everything",
+        "fill all",
+        "all fields",
+        "whole brand",
+        "entire form",
+        "all you know",
+        "complete the brand",
+        "complete the form",
+        "auto-fill",
+        "autofill",
+        "from the website",
+        "from their website",
+        "research ",
+        "look up",
+    )
+    return any(k in last for k in keys)
 
 
 _BRAND_FORM_COACH_ONBOARDING = (
@@ -987,19 +1024,34 @@ Help the user strengthen weak sections tab by tab. When they paste details, map 
 )
 
 
-async def run_brand_form_coach_chat(mode: str, form_snapshot: dict, messages: list[dict]) -> dict:
+async def run_brand_form_coach_chat(
+    mode: str,
+    form_snapshot: dict,
+    messages: list[dict],
+    *,
+    research_context: str | None = None,
+) -> dict:
     import json as json_lib
 
     m = (mode or "").strip().lower()
     if m not in ("onboarding", "brand_kit"):
         raise ValueError("mode must be onboarding or brand_kit")
 
+    snap_limit = 22000 if m == "brand_kit" else 16000
     try:
-        snap = json_lib.dumps(form_snapshot or {}, ensure_ascii=False)[:14000]
+        snap = json_lib.dumps(form_snapshot or {}, ensure_ascii=False)[:snap_limit]
     except Exception:
         snap = "{}"
 
     system = _BRAND_FORM_COACH_ONBOARDING if m == "onboarding" else _BRAND_FORM_COACH_BRAND_KIT
+    bulk = _bulk_or_research_intent(messages, research_context)
+    if m == "onboarding" and bulk:
+        system = system + _BRAND_FORM_COACH_BULK_ONBOARDING
+    if m == "brand_kit" and bulk:
+        system = system + _BRAND_FORM_COACH_BULK_BRAND_KIT
+    if research_context and research_context.strip():
+        system = system + "\n\n" + research_context.strip()[:120000]
+
     msgs: list[dict] = [
         {"role": "system", "content": system + "\n\nCurrent form_snapshot JSON (refresh each turn):\n" + snap},
     ]
@@ -1009,7 +1061,9 @@ async def run_brand_form_coach_chat(mode: str, form_snapshot: dict, messages: li
             r = "user"
         msgs.append({"role": r, "content": str(row.get("content", ""))[:8000]})
 
-    raw = await _openai_chat(msgs, max_tokens=1400, temperature=0.4, json_mode=True)
+    max_tokens = 8000 if (m == "brand_kit" and bulk) else (4500 if (m == "onboarding" and bulk) else 1400)
+    temp = 0.35 if bulk else 0.4
+    raw = await _openai_chat(msgs, max_tokens=max_tokens, temperature=temp, json_mode=True)
     try:
         data = _parse_json_safe(raw)
     except Exception:
