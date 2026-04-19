@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, delete
 from app.db.database import get_db, AsyncSessionLocal
@@ -10,7 +11,8 @@ from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.models.brand import Brand
 from app.models.content import ContentItem
 from datetime import datetime, timezone, timedelta
-import os
+
+from app.services.billing_service import verify_paystack_transaction, PLANS
 
 logger = logging.getLogger(__name__)
 
@@ -20,13 +22,134 @@ COST_PER_POST_USD = (1200 * 0.80 / 1_000_000) + (400 * 4.0 / 1_000_000)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-ADMIN_EMAILS = {"laoluonifade@gmail.com", "hellovoya@gmail.com"}
+ADMIN_EMAILS = {"laoluonifade@gmail.com", "hellovoya@gmail.com", "admin@contentcard.io"}
 
 
 def require_admin(current_user: User = Depends(get_current_user)):
     if current_user.email not in ADMIN_EMAILS:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+
+def _apply_paystack_authorization_to_workspace(ws: Workspace, auth: dict) -> None:
+    """Persist Paystack authorization fields when workspace model has billing columns."""
+    if not auth:
+        return
+    if hasattr(ws, "paystack_authorization_code") and auth.get("authorization_code"):
+        ws.paystack_authorization_code = auth.get("authorization_code") or ws.paystack_authorization_code
+    if hasattr(ws, "card_last4") and auth.get("last4"):
+        ws.card_last4 = auth.get("last4") or ws.card_last4
+    if hasattr(ws, "card_type") and auth.get("card_type"):
+        ws.card_type = auth.get("card_type") or ws.card_type
+    if hasattr(ws, "card_bank") and auth.get("bank"):
+        ws.card_bank = auth.get("bank") or ws.card_bank
+    if hasattr(ws, "card_exp_month") and auth.get("exp_month"):
+        ws.card_exp_month = str(auth.get("exp_month")) or ws.card_exp_month
+    if hasattr(ws, "card_exp_year") and auth.get("exp_year"):
+        ws.card_exp_year = str(auth.get("exp_year")) or ws.card_exp_year
+
+
+class ReconcilePaystackBody(BaseModel):
+    email: str = Field(..., description="Account email (must match workspace owner)")
+    reference: str = Field(..., description="Paystack transaction reference from receipt/dashboard")
+    plan: str | None = Field(None, description="Override plan if metadata is missing: starter | smb | pro")
+
+
+async def _owner_workspace_for_user_email(email: str, db: AsyncSession) -> tuple[User, Workspace] | None:
+    user_r = await db.execute(select(User).where(func.lower(User.email) == email.strip().lower()))
+    user = user_r.scalar_one_or_none()
+    if not user:
+        return None
+    ws_r = await db.execute(
+        select(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(WorkspaceMember.user_id == user.id, WorkspaceMember.role == WorkspaceRole.OWNER)
+    )
+    ws = ws_r.scalar_one_or_none()
+    if not ws:
+        return None
+    return user, ws
+
+
+@router.post("/billing/reconcile-paystack")
+async def admin_reconcile_paystack(
+    body: ReconcilePaystackBody,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    One-off: verify a Paystack charge and apply plan + saved card to the user's owner workspace.
+    Use when automatic callback/webhook did not update the database.
+    """
+    pair = await _owner_workspace_for_user_email(body.email, db)
+    if not pair:
+        raise HTTPException(status_code=404, detail="No user or owner workspace found for that email")
+
+    user, ws = pair
+    result = await verify_paystack_transaction(body.reference.strip())
+    data = result.get("data") or {}
+    if data.get("status") != "success":
+        raise HTTPException(
+            status_code=402,
+            detail=f"Paystack verification failed: {result.get('message', data.get('gateway_response', 'unknown'))}",
+        )
+
+    metadata = data.get("metadata") or {}
+    meta_ws = metadata.get("workspace_id")
+    customer = data.get("customer") or {}
+    pay_email = (customer.get("email") or "").strip().lower()
+    owner_email = user.email.strip().lower()
+
+    if meta_ws and str(meta_ws) != str(ws.id):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Transaction workspace_id {meta_ws} does not match owner workspace {ws.id}",
+        )
+    if not meta_ws:
+        if not pay_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Transaction has no workspace_id in metadata and no customer email; cannot safely reconcile",
+            )
+        if pay_email != owner_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Paystack customer email does not match account email",
+            )
+
+    plan_name = (metadata.get("plan") or body.plan or "starter").lower()
+    if plan_name not in PLANS:
+        raise HTTPException(status_code=400, detail=f"Invalid plan in metadata/body: {plan_name}")
+
+    ws.plan = plan_name
+    ws.payment_provider = "paystack"
+    sub_code = data.get("subscription_code")
+    if sub_code:
+        ws.subscription_id = sub_code
+    if customer.get("customer_code"):
+        ws.customer_id = customer["customer_code"]
+
+    auth = data.get("authorization") or {}
+    _apply_paystack_authorization_to_workspace(ws, auth)
+
+    npd = data.get("next_payment_date")
+    if npd and hasattr(ws, "next_payment_date"):
+        try:
+            ws.next_payment_date = datetime.fromisoformat(str(npd).replace("Z", "+00:00"))
+        except Exception:
+            pass
+
+    await db.commit()
+
+    return {
+        "ok": True,
+        "workspace_id": ws.id,
+        "user_id": user.id,
+        "plan": ws.plan,
+        "subscription_id": ws.subscription_id,
+        "customer_id": ws.customer_id,
+        "card_last4": getattr(ws, "card_last4", None),
+    }
 
 
 @router.get("/stats")
