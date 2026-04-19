@@ -41,6 +41,7 @@ class UserOut(BaseModel):
     full_name: str
     phone: str | None
     country_code: str | None
+    agency_mode: bool = False
 
     model_config = {"from_attributes": True}
 

@@ -3,7 +3,6 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { Layers, ArrowRight, Zap } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
-import { contentApi } from '../api'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
@@ -57,6 +56,7 @@ export default function GeneratePage() {
     generateMonth,
     generatingMonth,
     generationPollCount,
+    generationProgress,
     trends,
     brands,
     fetchTrends,
@@ -90,6 +90,17 @@ export default function GeneratePage() {
 
   const totalPosts = Math.round(postsPerWeek * 4.3)
 
+  const runGen = async (confirmDuplicate) => {
+    await generateMonth({
+      month: selMonth, year: selYear,
+      platforms: [selPlatform],
+      format_mix: 'mixed',
+      posts_per_week: postsPerWeek,
+      topic_override: topic.trim() || null,
+      confirm_duplicate: confirmDuplicate,
+    })
+  }
+
   const handleGenerate = async () => {
     if (!activeBrandId) { toast('Select or create a brand first', 'error'); return }
     const visErr = brandVisualBlockReason(activeBrand)
@@ -98,35 +109,38 @@ export default function GeneratePage() {
       return
     }
     try {
-      const status = await contentApi.getStatus(activeBrandId, selYear, selMonth)
-      if (status.count > 0) {
-        const ok = window.confirm(
-          `You already have ${status.count} post${status.count !== 1 ? 's' : ''} for ${MONTHS_LIST[selMonth - 1]} ${selYear}.\n\nGenerating again will add more posts. Continue?`
-        )
-        if (!ok) return
+      try {
+        await runGen(false)
+      } catch (err) {
+        const st = err.response?.status
+        const d = err.response?.data?.detail
+        if (st === 409 && d && typeof d === 'object' && d.code === 'DUPLICATE_MONTH_CONTENT') {
+          const ok = window.confirm(
+            `${d.message || 'This month already has posts for the selected platform.'}\n\nGenerate additional posts anyway?`
+          )
+          if (!ok) return
+          await runGen(true)
+        } else {
+          throw err
+        }
       }
-    } catch {}
-
-    try {
-      await generateMonth({
-        month: selMonth, year: selYear,
-        platforms: [selPlatform],
-        format_mix: 'mixed',
-        posts_per_week: postsPerWeek,
-        topic_override: topic.trim() || null,
-      })
-      toast(`${MONTHS_LIST[selMonth - 1]} ${selYear} · content ready`)
+      toast(`${MONTHS_LIST[selMonth - 1]} ${selYear} · finished posts are on your calendar`)
       navigate('/dashboard/calendar')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Generation failed', 'error')
+      const d = err.response?.data?.detail
+      const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
+      toast(msg, 'error')
     }
   }
 
   const progressLabel = () => {
+    if (generationProgress && generationProgress.total > 0) {
+      return `Designs ${generationProgress.with}/${generationProgress.total} ready…`
+    }
     if (generationPollCount === 0) return 'Starting generation…'
     if (generationPollCount < 3)  return 'Writing captions…'
     if (generationPollCount < 7)  return 'Crafting posts…'
-    return 'Almost done…'
+    return 'Rendering images…'
   }
 
   const progressPct = () => Math.min(95, Math.round((generationPollCount / 10) * 100))
@@ -250,7 +264,7 @@ export default function GeneratePage() {
                 <div className="h-full bg-ink/30 rounded-full transition-all duration-700" style={{ width: `${progressPct()}%` }} />
               </div>
               <p className="text-center text-ink/30 text-xs">
-                Usually takes 30 to 60 seconds. You'll be redirected to your calendar when done.
+                Captions and images can take a few minutes. We will send you to the calendar when every post has finished visuals — no manual refresh needed.
               </p>
             </div>
           )}

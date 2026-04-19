@@ -30,7 +30,7 @@ export default function AdminLayout({ children }) {
       {/* Sidebar */}
       <aside className="w-56 flex-shrink-0 border-r border-white/5 flex flex-col">
         {/* Logo */}
-        <div className="h-14 flex items-center gap-2.5 px-5 border-b border-white/5">
+        <div className="h-14 flex items-center gap-2.5 px-4 sm:px-5 border-b border-white/5">
           <div className="w-7 h-7 rounded-lg bg-brand-500 flex items-center justify-center flex-shrink-0">
             <Shield size={14} className="text-white" />
           </div>
@@ -79,10 +79,10 @@ export default function AdminLayout({ children }) {
       {/* Main */}
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Top bar */}
-        <header className="h-14 flex items-center justify-between px-6 border-b border-white/5 flex-shrink-0">
+        <header className="h-14 flex items-center justify-between px-4 sm:px-6 border-b border-white/5 flex-shrink-0 gap-3">
           <input
             placeholder="Search users, workspaces, content..."
-            className="w-72 bg-white/[0.04] border border-white/8 rounded-xl px-3 py-1.5 text-white/70 text-sm placeholder-white/25 focus:outline-none focus:border-brand-500/40"
+            className="w-full max-w-[200px] sm:max-w-xs md:w-72 bg-white/[0.04] border border-white/8 rounded-xl px-3 py-1.5 text-white/70 text-sm placeholder-white/25 focus:outline-none focus:border-brand-500/40"
           />
           <div className="flex items-center gap-3">
             <div className="w-2 h-2 rounded-full bg-teal animate-pulse" />
@@ -91,7 +91,7 @@ export default function AdminLayout({ children }) {
         </header>
 
         {/* Page content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6">
           {children}
         </div>
       </main>

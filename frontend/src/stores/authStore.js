@@ -40,6 +40,17 @@ const useAuthStore = create(
       logout: () => set({ user: null, token: null, isAuthenticated: false }),
 
       updateUser: (updates) => set(s => ({ user: { ...s.user, ...updates } })),
+
+      fetchMe: async () => {
+        try {
+          const u = await authApi.me()
+          set(s => ({ user: { ...s.user, ...u } }))
+          return u
+        } catch {
+          return null
+        }
+      },
+
       clearError: () => set({ error: null }),
     }),
     {

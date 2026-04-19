@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import { contentApi, holidaysApi } from '../api'
-import PostCard, { renderSlideToCanvas } from '../components/ui/PostCard'
+import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
+import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const PLATFORMS = [
@@ -46,30 +47,18 @@ function fmtDate(str) {
   return new Date(y,m-1,d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})
 }
 
-function drawThumb(canvas, post, brand) {
-  renderSlideToCanvas(canvas, post, brand, 0)
-  canvas.width = 400; canvas.height = 400
-  renderSlideToCanvas(canvas, post, brand, 0)
-}
-
 function formatArchetypeLabel(id) {
   if (!id) return ''
   return String(id).replace(/_/g, ' ')
 }
 
 function PostThumb({ post, brand, onClick, selectMode, selected }) {
-  const canvasRef = useRef(null)
   const isCarousel = (post?.slide_count||1) > 1
   const imageUrl = post?.image_url || (post?.image_urls?.[0])
   const arch = post?.visual_archetype
   const isSel = !!selected
 
-  useEffect(() => {
-    if (imageUrl) return
-    if (canvasRef.current && post) drawThumb(canvasRef.current, post, brand)
-  }, [post, brand, imageUrl])
-
-  const cls = "group relative bg-white border border-fog rounded-xl overflow-hidden hover:border-ink/20 transition-colors text-left w-full"
+  const cls = "group relative bg-surface border border-fog rounded-xl overflow-hidden hover:border-ink/20 transition-colors text-left w-full"
   const body = (
     <>
       {selectMode && (
@@ -84,7 +73,11 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
       <div className="relative" style={{ aspectRatio:'1' }}>
         {imageUrl
           ? <img src={imageUrl} alt={post.topic} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
-          : <canvas ref={canvasRef} style={{ width:'100%', height:'100%', display:'block' }} />
+          : (
+            <div className="flex h-full w-full min-h-[120px] items-center justify-center bg-mist px-2 text-center text-[10px] font-medium text-ink/35">
+              Finishing design…
+            </div>
+          )
         }
         {isCarousel && (
           <div className={`absolute top-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded ${selectMode ? 'right-2' : 'left-2'}`}>
@@ -115,10 +108,114 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
   )
 }
 
+function CalendarPrepBody({
+  messages,
+  prepSending,
+  prepInput,
+  setPrepInput,
+  onSend,
+  scrollRef,
+  onPickChoice,
+  onExecuteDesignIntent,
+  prepExecuteBusy,
+  activeBrandId,
+}) {
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-[200px] max-h-[42vh]">
+        {!messages.length && (
+          <p className="text-ink/30 text-xs leading-relaxed">
+            Example: “We’re launching X on the 12th” or “Use the new dashboard screenshot tone.” The assistant will
+            reply with follow-ups; everything here is sent with Generate as context.
+          </p>
+        )}
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={`text-xs rounded-xl px-3 py-2 leading-relaxed ${
+              m.role === 'assistant' ? 'bg-mist text-ink/80' : 'bg-brand-500/10 text-ink border border-brand-500/15'
+            }`}
+          >
+            <span className="font-semibold text-[10px] uppercase tracking-wide text-ink/35 block mb-0.5">
+              {m.role === 'assistant' ? 'Assistant' : 'You'}
+            </span>
+            {m.content}
+            {m.role === 'assistant' && Array.isArray(m.choices) && m.choices.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-fog/70">
+                {m.choices.map((ch) => (
+                  <button
+                    key={ch.id}
+                    type="button"
+                    onClick={() => onPickChoice(ch)}
+                    className="text-[11px] px-2 py-1 rounded-lg border border-fog bg-white text-ink/70 hover:border-ink/20 hover:text-ink transition-colors"
+                  >
+                    {ch.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {m.role === 'assistant' && m.design_intent?.action === 'regenerate_visuals' && (
+              <div className="mt-2 pt-2 border-t border-fog/70 space-y-1.5">
+                <button
+                  type="button"
+                  disabled={prepExecuteBusy}
+                  onClick={() => onExecuteDesignIntent(m.design_intent)}
+                  className="text-[11px] px-2.5 py-1.5 rounded-lg bg-ink text-white font-semibold hover:opacity-90 disabled:opacity-40"
+                >
+                  {prepExecuteBusy ? 'Running…' : 'Run design refresh'}
+                </button>
+                {m.design_intent?.scope === 'selected' && (
+                  <p className="text-ink/30 text-[10px] leading-snug">
+                    Uses posts you tick in Select mode on the calendar (or pick month to refresh all in view).
+                  </p>
+                )}
+                {m.design_intent?.scope === 'month' && (
+                  <p className="text-ink/30 text-[10px] leading-snug">Refreshes visuals for every post in this month (up to 15 at a time).</p>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+        {prepSending && (
+          <div className="text-ink/30 text-xs flex items-center gap-2 px-1">
+            <div className="w-3.5 h-3.5 border border-fog border-t-ink/30 rounded-full animate-spin" />
+            Thinking…
+          </div>
+        )}
+      </div>
+      <div className="p-3 border-t border-fog bg-mist/50">
+        <textarea
+          value={prepInput}
+          onChange={(e) => setPrepInput(e.target.value)}
+          rows={2}
+          placeholder="Product updates, promos, tone…"
+          className="input text-xs resize-none mb-2"
+          disabled={!activeBrandId || prepSending}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              onSend()
+            }
+          }}
+        />
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={!activeBrandId || prepSending || !prepInput.trim()}
+          className="btn-primary w-full text-xs py-2 justify-center gap-1.5 disabled:opacity-40"
+        >
+          <Send size={12} />
+          Send
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function CalendarPage() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
-  const { activeBrandId, brands, fetchMonthContent, generateMonth, generatingMonth, generationPollCount } = useAppStore()
+  const { activeBrandId, brands, fetchMonthContent, generateMonth, generatingMonth, generationPollCount, generationProgress } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
@@ -138,9 +235,11 @@ export default function CalendarPage() {
   const [prepMessages, setPrepMessages] = useState([])
   const [prepInput, setPrepInput] = useState('')
   const [prepSending, setPrepSending] = useState(false)
+  const [prepExecuteBusy, setPrepExecuteBusy] = useState(false)
   const [includeHolidays, setIncludeHolidays] = useState(true)
   const [monthHolidays, setMonthHolidays] = useState([])
-  const prepScrollRef = useRef(null)
+  const prepScrollAsideRef = useRef(null)
+  const prepScrollMobileRef = useRef(null)
   const [modal, setModal]   = useState(null)
   const [slideIdx, setSlideIdx] = useState(0)
   const [editCaption, setEditCaption]   = useState('')
@@ -199,10 +298,10 @@ export default function CalendarPage() {
   }, [showGenPanel, year, month, activeBrandId])
 
   useEffect(() => {
-    const el = prepScrollRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [prepMessages])
+    ;[prepScrollAsideRef.current, prepScrollMobileRef.current].forEach((el) => {
+      if (el) el.scrollTop = el.scrollHeight
+    })
+  }, [prepMessages, prepSending])
 
   useEffect(() => {
     if (modal) { setEditCaption(modal.caption||''); setEditHashtags(modal.hashtags||[]); setSlideIdx(0) }
@@ -326,27 +425,161 @@ export default function CalendarPage() {
     }
   }
 
-  const sendPrep = async () => {
-    const txt = prepInput.trim()
+  const bulkDeleteSelected = async () => {
+    const ids = [...selectedIds]
+    if (!ids.length) return
+    if (
+      !confirm(
+        `Permanently delete ${ids.length} post(s)? This cannot be undone.`
+      )
+    )
+      return
+    try {
+      await contentApi.bulkDelete({ content_ids: ids })
+      setSelectedIds(new Set())
+      setSelectMode(false)
+      const items = await fetchMonthContent(month, year)
+      setPosts(items)
+      toast('Posts deleted')
+    } catch {
+      toast('Delete failed', 'error')
+    }
+  }
+
+  const targetPostsForBulk = filterPlat === 'all' ? posts : posts.filter((p) => p.platform === filterPlat)
+
+  const bulkRedraftCaptions = async () => {
+    const list = targetPostsForBulk
+    if (!list.length) return
+    if (!confirm(`Regenerate caption copy for ${list.length} post(s)? This may take a minute.`)) return
+    try {
+      for (const p of list) {
+        await contentApi.regenerate(p.id, {})
+      }
+      const items = await fetchMonthContent(month, year)
+      setPosts(items)
+      toast('Captions updated')
+    } catch (e) {
+      toast(e.response?.data?.detail || 'Bulk redraft failed', 'error')
+    }
+  }
+
+  const bulkRegenerateVisuals = async () => {
+    const list = targetPostsForBulk
+    if (!list.length) return
+    if (!confirm(`Regenerate visuals for ${list.length} post(s)? This may take several minutes.`)) return
+    try {
+      for (const p of list) {
+        await contentApi.regenerateVisual(p.id, { mode: 'same_archetype' })
+      }
+      const items = await fetchMonthContent(month, year)
+      setPosts(items)
+      toast('Visuals updated')
+    } catch (e) {
+      toast(e.response?.data?.detail || 'Bulk visual regen failed', 'error')
+    }
+  }
+
+  const sendPrepWithText = async (rawText) => {
+    const txt = String(rawText || '').trim()
     if (!txt || !activeBrandId || prepSending) return
     const next = [...prepMessages, { role: 'user', content: txt }]
     setPrepMessages(next)
     setPrepInput('')
     setPrepSending(true)
     try {
-      const { message } = await contentApi.generationPrepChat({
+      const data = await contentApi.generationPrepChat({
         brand_id: activeBrandId,
         month,
         year,
         messages: next,
       })
-      setPrepMessages([...next, { role: 'assistant', content: message }])
+      setPrepMessages([
+        ...next,
+        {
+          role: 'assistant',
+          content: data.message || '',
+          choices: data.choices || [],
+          design_intent: data.design_intent || null,
+        },
+      ])
     } catch (e) {
       setPrepMessages((pm) => pm.slice(0, -1))
       toast(e.response?.data?.detail || 'Prep chat failed', 'error')
     } finally {
       setPrepSending(false)
     }
+  }
+
+  const sendPrep = () => sendPrepWithText(prepInput)
+
+  const executePrepDesignIntent = async (intent) => {
+    if (!intent || intent.action !== 'regenerate_visuals' || !activeBrandId) return
+    let ids = []
+    if (intent.scope === 'selected') {
+      ids = [...selectedIds]
+      if (!ids.length) {
+        toast('Select posts on the calendar first (tap Select, then each post).', 'error')
+        return
+      }
+    } else if (intent.scope === 'month') {
+      ids = posts.map((p) => p.id)
+      if (!ids.length) {
+        toast('No posts in this month yet.', 'error')
+        return
+      }
+    } else {
+      toast('Ask the assistant to refresh selected posts or the full month.', 'error')
+      return
+    }
+    const capped = ids.slice(0, 15)
+    if (ids.length > 15) {
+      if (!confirm(`Only the first 15 of ${ids.length} posts will be regenerated in one batch. Continue?`)) return
+    }
+    setPrepExecuteBusy(true)
+    try {
+      const res = await contentApi.prepExecuteVisual({
+        brand_id: activeBrandId,
+        month,
+        year,
+        content_ids: capped,
+        mode: 'same_archetype',
+      })
+      const ok = (res.updated_ids || []).length
+      const bad = (res.errors || []).length
+      const items = await fetchMonthContent(month, year)
+      setPosts(items)
+      if (bad) {
+        toast(`Updated ${ok} post(s); ${bad} could not be refreshed.`, 'error')
+      } else {
+        toast(ok ? `Design refresh completed for ${ok} post(s).` : 'No posts were updated.')
+      }
+    } catch (e) {
+      toast(e.response?.data?.detail || 'Design refresh failed', 'error')
+    } finally {
+      setPrepExecuteBusy(false)
+    }
+  }
+
+  const runGenerate = async (confirmDuplicate) => {
+    const generation_brief =
+      prepMessages.length > 0
+        ? prepMessages
+            .map((m) => `${m.role}: ${typeof m.content === 'string' ? m.content : ''}`)
+            .join('\n')
+            .slice(0, 12000)
+        : null
+    await generateMonth({
+      month,
+      year,
+      platforms: [genPlatform],
+      format_mix: 'mixed',
+      posts_per_week: genPPW,
+      topic_override: genTopic.trim() || null,
+      include_holidays_in_content: includeHolidays,
+      generation_brief,
+      confirm_duplicate: confirmDuplicate,
+    })
   }
 
   const handleGenerate = async () => {
@@ -357,33 +590,29 @@ export default function CalendarPage() {
       return
     }
     try {
-      const status = await contentApi.getStatus(activeBrandId, year, month)
-      if (status.count > 0) {
-        const ok = window.confirm(`${status.count} posts already exist for ${MONTHS[month-1]} ${year}. Add more?`)
-        if (!ok) return
+      try {
+        await runGenerate(false)
+      } catch (err) {
+        const st = err.response?.status
+        const d = err.response?.data?.detail
+        if (st === 409 && d && typeof d === 'object' && d.code === 'DUPLICATE_MONTH_CONTENT') {
+          const ok = window.confirm(
+            `${d.message || 'This month already has posts for the selected platform.'}\n\nGenerate additional posts anyway?`
+          )
+          if (!ok) return
+          await runGenerate(true)
+        } else {
+          throw err
+        }
       }
-    } catch {}
-    const generation_brief =
-      prepMessages.length > 0
-        ? prepMessages.map((m) => `${m.role}: ${m.content}`).join('\n').slice(0, 12000)
-        : null
-    try {
-      await generateMonth({
-        month,
-        year,
-        platforms: [genPlatform],
-        format_mix: 'mixed',
-        posts_per_week: genPPW,
-        topic_override: genTopic.trim() || null,
-        include_holidays_in_content: includeHolidays,
-        generation_brief,
-      })
-      toast(`${MONTHS[month-1]} ${year} · content ready`)
+      toast(`${MONTHS[month-1]} ${year} · posts are ready with finished designs`)
       setShowGenPanel(false)
       setLoading(true)
       fetchMonthContent(month, year).then(items => { setPosts(items); setLoading(false) }).catch(() => setLoading(false))
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Generation failed', 'error')
+      const d = err.response?.data?.detail
+      const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
+      toast(msg, 'error')
     }
   }
 
@@ -432,16 +661,15 @@ export default function CalendarPage() {
         </div>
       </div>
 
-      <p className="lg:hidden text-[11px] text-ink/35 mb-3 -mt-2 px-0.5">
-        On a wider screen, the Prep assistant appears beside the calendar for Q&A before you generate.
-      </p>
-
       {selectMode && selectedIds.size > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-fog bg-mist px-4 py-3">
           <span className="text-ink text-sm font-medium">{selectedIds.size} selected</span>
           <button type="button" onClick={bulkRemoveSelected} className="btn-danger text-xs px-3 py-2">
             <Trash2 size={12} className="inline mr-1" />
             Remove from calendar
+          </button>
+          <button type="button" onClick={bulkDeleteSelected} className="text-xs px-3 py-2 rounded-xl border border-red-200 text-red-600 hover:bg-red-50 font-semibold">
+            Delete permanently
           </button>
           <button
             type="button"
@@ -453,10 +681,73 @@ export default function CalendarPage() {
         </div>
       )}
 
+      {generatingMonth && (
+        <div className="mb-4 rounded-xl border border-fog bg-mist px-4 py-3 text-sm text-ink/70">
+          {generationProgress && generationProgress.total > 0 ? (
+            <>
+              Finishing designs… <strong className="text-ink">{generationProgress.with}</strong> of{' '}
+              <strong className="text-ink">{generationProgress.total}</strong> posts are ready.
+              This page refreshes automatically when they are all done — you do not need to reload manually.
+            </>
+          ) : (
+            <>
+              Generation is running. Posts will appear here automatically once captions and images are finished
+              (poll #{generationPollCount}).
+            </>
+          )}
+        </div>
+      )}
+
       <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-6 lg:items-start">
       <div className="min-w-0">
 
+      <details className="lg:hidden mb-4 border border-fog rounded-2xl bg-white overflow-hidden group">
+        <summary className="list-none cursor-pointer px-4 py-3 flex items-center gap-2 border-b border-fog bg-white [&::-webkit-details-marker]:hidden">
+          <MessageSquare size={16} className="text-ink/40 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-ink text-sm font-semibold">Prep assistant</p>
+            <p className="text-ink/35 text-[10px] leading-snug">
+              Q&amp;A, quick replies, and design refresh for {MONTHS[month - 1]} before you generate.
+            </p>
+          </div>
+          <span className="ml-auto text-ink/25 text-xs group-open:rotate-180 transition-transform">▾</span>
+        </summary>
+        <div className="flex flex-col max-h-[70vh] border-t border-fog">
+          <CalendarPrepBody
+            messages={prepMessages}
+            prepSending={prepSending}
+            prepInput={prepInput}
+            setPrepInput={setPrepInput}
+            onSend={sendPrep}
+            scrollRef={prepScrollMobileRef}
+            onPickChoice={(ch) => sendPrepWithText(ch.label)}
+            onExecuteDesignIntent={executePrepDesignIntent}
+            prepExecuteBusy={prepExecuteBusy}
+            activeBrandId={activeBrandId}
+          />
+        </div>
+      </details>
+
       {/* Platform filter */}
+      {posts.length > 0 && !selectMode && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          <button
+            type="button"
+            onClick={bulkRedraftCaptions}
+            className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
+          >
+            Redraft captions ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
+          </button>
+          <button
+            type="button"
+            onClick={bulkRegenerateVisuals}
+            className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
+          >
+            Regenerate visuals ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
+          </button>
+        </div>
+      )}
+
       {posts.length > 0 && (
         <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
           <button onClick={()=>setFilterPlat('all')}
@@ -534,57 +825,19 @@ export default function CalendarPage() {
             </p>
           </div>
         </div>
-        <div ref={prepScrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-[200px] max-h-[42vh]">
-          {!prepMessages.length && (
-            <p className="text-ink/30 text-xs leading-relaxed">
-              Example: “We’re launching X on the 12th” or “Use the new dashboard screenshot tone.” The assistant will
-              reply with follow-ups; everything here is sent with Generate as context.
-            </p>
-          )}
-          {prepMessages.map((m, i) => (
-            <div
-              key={i}
-              className={`text-xs rounded-xl px-3 py-2 leading-relaxed ${
-                m.role === 'assistant' ? 'bg-mist text-ink/80' : 'bg-brand-500/10 text-ink border border-brand-500/15'
-              }`}
-            >
-              <span className="font-semibold text-[10px] uppercase tracking-wide text-ink/35 block mb-0.5">
-                {m.role === 'assistant' ? 'Assistant' : 'You'}
-              </span>
-              {m.content}
-            </div>
-          ))}
-          {prepSending && (
-            <div className="text-ink/30 text-xs flex items-center gap-2 px-1">
-              <div className="w-3.5 h-3.5 border border-fog border-t-ink/30 rounded-full animate-spin" />
-              Thinking…
-            </div>
-          )}
-        </div>
-        <div className="p-3 border-t border-fog bg-mist/50">
-          <textarea
-            value={prepInput}
-            onChange={(e) => setPrepInput(e.target.value)}
-            rows={2}
-            placeholder="Product updates, promos, tone…"
-            className="input text-xs resize-none mb-2"
-            disabled={!activeBrandId || prepSending}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                sendPrep()
-              }
-            }}
+        <div className="flex flex-col flex-1 min-h-0">
+          <CalendarPrepBody
+            messages={prepMessages}
+            prepSending={prepSending}
+            prepInput={prepInput}
+            setPrepInput={setPrepInput}
+            onSend={sendPrep}
+            scrollRef={prepScrollAsideRef}
+            onPickChoice={(ch) => sendPrepWithText(ch.label)}
+            onExecuteDesignIntent={executePrepDesignIntent}
+            prepExecuteBusy={prepExecuteBusy}
+            activeBrandId={activeBrandId}
           />
-          <button
-            type="button"
-            onClick={sendPrep}
-            disabled={!activeBrandId || prepSending || !prepInput.trim()}
-            className="btn-primary w-full text-xs py-2 justify-center gap-1.5 disabled:opacity-40"
-          >
-            <Send size={12} />
-            Send
-          </button>
         </div>
       </aside>
 
@@ -773,6 +1026,46 @@ export default function CalendarPage() {
                         <Download size={12}/> Download
                       </button>
                     )}
+                  </div>
+                  <p className="text-ink/35 text-[10px] leading-snug text-center max-w-[280px] mx-auto">
+                    Auto-publish is not available for every network. Copy your caption, save images above, then open a
+                    composer to paste.
+                  </p>
+                  <div className="flex flex-wrap gap-2 w-full justify-center">
+                    {modal.platform === 'twitter' && (
+                      <a
+                        href={twitterIntentUrl(fullPostCaptionText(editCaption, editHashtags))}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-center gap-1.5 py-2 px-3 btn-secondary text-xs"
+                      >
+                        <ExternalLink size={12} /> Open X composer
+                      </a>
+                    )}
+                    <a
+                      href="https://www.instagram.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 btn-secondary text-xs"
+                    >
+                      <ExternalLink size={12} /> Instagram
+                    </a>
+                    <a
+                      href="https://www.facebook.com/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 btn-secondary text-xs"
+                    >
+                      <ExternalLink size={12} /> Facebook
+                    </a>
+                    <a
+                      href="https://www.linkedin.com/feed/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 btn-secondary text-xs"
+                    >
+                      <ExternalLink size={12} /> LinkedIn
+                    </a>
                   </div>
                 </div>
 

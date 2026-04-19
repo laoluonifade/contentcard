@@ -2,7 +2,7 @@ import json
 import random
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func, or_
 from app.db.database import get_db
 from app.models.brand import Brand
 from app.models.content import ContentItem, ContentStatus, ContentPlatform, ContentFormat
@@ -18,6 +18,11 @@ from app.schemas.content import (
     CaptionUpdateRequest,
     ContentOut,
     GenerationPrepChatRequest,
+    GenerationPrepChatResponse,
+    PrepChatChoice,
+    PrepChatDesignIntent,
+    PrepExecuteVisualRequest,
+    PrepExecuteVisualResponse,
     BulkDeleteContentRequest,
     BrandFormCoachRequest,
     BrandFormCoachResponse,
@@ -45,6 +50,31 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/content", tags=["content"])
+
+MAX_POSTS_PER_PLATFORM_PER_MONTH = 15
+MAX_PREP_VISUAL_BATCH = 15
+
+
+def _item_has_visual_assets(item: ContentItem) -> bool:
+    if item.image_url and str(item.image_url).strip():
+        return True
+    urls = item.image_urls
+    return isinstance(urls, list) and len(urls) > 0
+
+
+async def _counts_by_platform_month(
+    brand_id: str, month: int, year: int, db: AsyncSession
+) -> dict[str, int]:
+    r = await db.execute(
+        select(ContentItem.platform, func.count(ContentItem.id))
+        .where(
+            ContentItem.brand_id == brand_id,
+            ContentItem.generation_month == month,
+            ContentItem.generation_year == year,
+        )
+        .group_by(ContentItem.platform)
+    )
+    return {row[0].value: int(row[1] or 0) for row in r.all()}
 
 
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> None:
@@ -163,12 +193,37 @@ async def generate_month(
             detail=f"Your brand kit is incomplete. Fill in these fields before generating: {', '.join(missing)}",
         )
 
+    existing_counts = await _counts_by_platform_month(brand.id, body.month, body.year, db)
+    platform_values = [p.value for p in body.platforms]
+    for pv in platform_values:
+        if existing_counts.get(pv, 0) >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"You already have {MAX_POSTS_PER_PLATFORM_PER_MONTH} posts for "
+                    f"{pv} in this month. Remove some from the calendar or delete them before generating more."
+                ),
+            )
+    if not body.confirm_duplicate:
+        dup = [pv for pv in platform_values if existing_counts.get(pv, 0) > 0]
+        if dup:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "DUPLICATE_MONTH_CONTENT",
+                    "message": "This month already has posts for: " + ", ".join(dup),
+                    "platforms": dup,
+                },
+            )
+
     template_topics = None
     if body.template_id:
         t_r = await db.execute(select(ContentTemplate).where(ContentTemplate.id == body.template_id))
         tmpl = t_r.scalar_one_or_none()
         if tmpl:
             template_topics = tmpl.topics
+
+    existing_snapshot = dict(existing_counts)
 
     background_tasks.add_task(
         _do_generate_month,
@@ -186,6 +241,7 @@ async def generate_month(
         country_code=current_user.country_code,
         include_holidays_in_content=body.include_holidays_in_content,
         generation_brief=body.generation_brief,
+        existing_counts=existing_snapshot,
     )
     return {"message": "Generation started", "month": body.month, "year": body.year}
 
@@ -241,7 +297,22 @@ async def generation_status(
         )
     )
     items = result.scalars().all()
-    return {"count": len(items), "ready": len(items) > 0}
+    total = len(items)
+    with_visuals = sum(1 for i in items if _item_has_visual_assets(i))
+    by_platform: dict[str, int] = {}
+    for i in items:
+        if not _item_has_visual_assets(i):
+            continue
+        k = i.platform.value
+        by_platform[k] = by_platform.get(k, 0) + 1
+    return {
+        "count": with_visuals,
+        "total": total,
+        "with_visuals": with_visuals,
+        "pending_assets": max(0, total - with_visuals),
+        "ready": total > 0 and with_visuals >= total,
+        "by_platform": by_platform,
+    }
 
 
 
@@ -293,6 +364,7 @@ async def list_content(
     year: int | None = None,
     platform: ContentPlatform | None = None,
     status: ContentStatus | None = None,
+    include_pending: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -306,13 +378,23 @@ async def list_content(
         conditions.append(ContentItem.platform == platform)
     if status:
         conditions.append(ContentItem.status == status)
+    if month and year and not include_pending:
+        conditions.append(
+            or_(
+                ContentItem.image_url.isnot(None),
+                ContentItem.image_urls.isnot(None),
+            )
+        )
     result = await db.execute(
         select(ContentItem).where(and_(*conditions)).order_by(ContentItem.scheduled_date)
     )
-    return [ContentOut.model_validate(c) for c in result.scalars().all()]
+    rows = list(result.scalars().all())
+    if month and year and not include_pending:
+        rows = [c for c in rows if _item_has_visual_assets(c)]
+    return [ContentOut.model_validate(c) for c in rows]
 
 
-@router.post("/generation-prep-chat")
+@router.post("/generation-prep-chat", response_model=GenerationPrepChatResponse)
 async def generation_prep_chat(
     body: GenerationPrepChatRequest,
     current_user: User = Depends(get_current_user),
@@ -322,8 +404,69 @@ async def generation_prep_chat(
         raise HTTPException(status_code=400, detail="Month must be 1–12")
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=False)
     msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
-    reply = await run_generation_prep_chat(_brand_to_dict(brand), body.month, body.year, msgs)
-    return {"message": reply}
+    raw = await run_generation_prep_chat(_brand_to_dict(brand), body.month, body.year, msgs)
+    design_intent = None
+    if isinstance(raw.get("design_intent"), dict):
+        try:
+            design_intent = PrepChatDesignIntent.model_validate(raw["design_intent"])
+        except Exception:
+            design_intent = None
+    choice_rows = [
+        c
+        for c in (raw.get("choices") or [])
+        if isinstance(c, dict) and str(c.get("id") or "").strip() and str(c.get("label") or "").strip()
+    ]
+    return GenerationPrepChatResponse(
+        message=str(raw.get("message") or "").strip(),
+        choices=[PrepChatChoice(**c) for c in choice_rows],
+        design_intent=design_intent,
+    )
+
+
+@router.post("/prep-execute-visual", response_model=PrepExecuteVisualResponse)
+async def prep_execute_visual(
+    body: PrepExecuteVisualRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Run visual regeneration for multiple posts in one month (used from prep assistant).
+    """
+    if body.month < 1 or body.month > 12:
+        raise HTTPException(status_code=400, detail="Month must be 1–12")
+    if not body.content_ids:
+        raise HTTPException(status_code=400, detail="content_ids is required")
+    if len(body.content_ids) > MAX_PREP_VISUAL_BATCH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"At most {MAX_PREP_VISUAL_BATCH} posts per batch",
+        )
+    if body.mode not in ("same_archetype", "new_archetype"):
+        raise HTTPException(status_code=400, detail="mode must be same_archetype or new_archetype")
+    brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+    vis_body = RegenerateVisualRequest(mode=body.mode, new_archetype=body.new_archetype)
+    updated: list[str] = []
+    errors: list[dict] = []
+
+    for cid in body.content_ids:
+        r = await db.execute(select(ContentItem).where(ContentItem.id == cid))
+        item = r.scalar_one_or_none()
+        if not item or item.brand_id != brand.id:
+            errors.append({"id": cid, "detail": "Post not found or wrong brand"})
+            continue
+        if item.generation_month != body.month or item.generation_year != body.year:
+            errors.append({"id": cid, "detail": "Post is not in the requested calendar month"})
+            continue
+        try:
+            await _regenerate_visual_core(db, item, brand, vis_body)
+            updated.append(cid)
+        except HTTPException as he:
+            errors.append({"id": cid, "detail": str(he.detail)})
+        except Exception as e:
+            logger.error(f"prep_execute_visual failed for {cid}: {e}")
+            errors.append({"id": cid, "detail": "Visual regeneration failed"})
+
+    return PrepExecuteVisualResponse(updated_ids=updated, errors=errors)
 
 
 @router.post("/brand-form-coach", response_model=BrandFormCoachResponse)
@@ -387,6 +530,29 @@ async def bulk_remove_from_calendar(
         removed += 1
     await db.commit()
     return {"removed": removed}
+
+
+@router.post("/bulk-delete", status_code=200)
+async def bulk_delete_content(
+    body: BulkDeleteContentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Permanently delete content rows (editor+). Use when bulk-removing mistaken generations."""
+    ids = [str(x).strip() for x in (body.content_ids or []) if str(x).strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="content_ids required")
+    deleted = 0
+    for cid in ids[:100]:
+        r = await db.execute(select(ContentItem).where(ContentItem.id == cid))
+        item = r.scalar_one_or_none()
+        if not item:
+            continue
+        await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=True)
+        await db.delete(item)
+        deleted += 1
+    await db.commit()
+    return {"deleted": deleted}
 
 
 # ── Param routes AFTER literal routes ──────────────────────────────
@@ -465,22 +631,15 @@ async def regenerate_caption(
     return ContentOut.model_validate(item)
 
 
-@router.post("/{content_id}/regenerate-visual", response_model=ContentOut)
-async def regenerate_visual(
-    content_id: str,
+async def _regenerate_visual_core(
+    db: AsyncSession,
+    item: ContentItem,
+    brand: Brand,
     body: RegenerateVisualRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
+) -> ContentItem:
     from app.services.art_brief_service import ARCHETYPE_IDS
 
-    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
-    item = r.scalar_one_or_none()
-    if not item:
-        raise HTTPException(status_code=404, detail="Content not found")
-    brand = await _get_brand_and_check_access(item.brand_id, current_user.id, db)
     brand_dict = apply_visual_system_defaults(_brand_to_dict(brand))
-
     post = _content_item_to_post_dict(item)
     if body.mode == "new_archetype" and body.new_archetype:
         na = body.new_archetype.strip().lower()
@@ -491,26 +650,43 @@ async def regenerate_visual(
     sab = build_art_brief(post, brand_dict)
     post["art_brief"] = sab
 
+    bg_urls = await generate_post_image(post, brand_dict)
+    if bg_urls:
+        item.image_url = bg_urls[0]
+    bb_urls = await generate_post_images(
+        post, brand_dict, background_image_url=item.image_url or None
+    )
+    if bb_urls:
+        item.image_urls = bb_urls
+    await _apply_brand_logo_to_visuals(item, post, brand_dict)
+    lint = await lint_final_image((item.image_urls or [None])[0], brand_dict, sab)
+    th = dict(item.theme) if isinstance(item.theme, dict) else dict(random.choice(THEMES))
+    th["cc_meta"] = {
+        "visual_archetype": sab["archetype_id"],
+        "art_brief": sab,
+        "visual_lint": lint,
+    }
+    item.theme = th
+    await db.commit()
+    await db.refresh(item)
+    return item
+
+
+@router.post("/{content_id}/regenerate-visual", response_model=ContentOut)
+async def regenerate_visual(
+    content_id: str,
+    body: RegenerateVisualRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
+    item = r.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    brand = await _get_brand_and_check_access(item.brand_id, current_user.id, db)
+
     try:
-        bg_urls = await generate_post_image(post, brand_dict)
-        if bg_urls:
-            item.image_url = bg_urls[0]
-        bb_urls = await generate_post_images(
-            post, brand_dict, background_image_url=item.image_url or None
-        )
-        if bb_urls:
-            item.image_urls = bb_urls
-        await _apply_brand_logo_to_visuals(item, post, brand_dict)
-        lint = await lint_final_image((item.image_urls or [None])[0], brand_dict, sab)
-        th = dict(item.theme) if isinstance(item.theme, dict) else dict(random.choice(THEMES))
-        th["cc_meta"] = {
-            "visual_archetype": sab["archetype_id"],
-            "art_brief": sab,
-            "visual_lint": lint,
-        }
-        item.theme = th
-        await db.commit()
-        await db.refresh(item)
+        await _regenerate_visual_core(db, item, brand, body)
         return ContentOut.model_validate(item)
     except HTTPException:
         raise
@@ -546,6 +722,7 @@ async def _do_generate_month(
     country_code: str | None,
     include_holidays_in_content: bool,
     generation_brief: str | None,
+    existing_counts: dict[str, int] | None = None,
 ):
     from app.db.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
@@ -566,6 +743,24 @@ async def _do_generate_month(
                 holiday_context=holiday_context or None,
                 generation_brief=generation_brief,
             )
+            ec = existing_counts or {}
+            slots = {p: max(0, MAX_POSTS_PER_PLATFORM_PER_MONTH - int(ec.get(p, 0))) for p in platforms}
+            filtered_posts = []
+            for post in posts:
+                pv = str(post.get("platform", platforms[0] if platforms else "instagram")).lower()
+                if pv not in slots:
+                    slots[pv] = 0
+                if slots.get(pv, 0) <= 0:
+                    continue
+                filtered_posts.append(post)
+                slots[pv] -= 1
+            posts = filtered_posts
+            if not posts:
+                logger.warning(
+                    "No posts to save after per-platform cap for brand %s %s/%s",
+                    brand_id, month, year,
+                )
+                return
             saved_items = []
             for post in posts:
                 try:

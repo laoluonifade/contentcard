@@ -58,7 +58,7 @@ export default function FeaturesPage() {
   return (
     <MarketingLayout>
       {/* Hero */}
-      <section className="relative overflow-hidden pt-20 pb-16 px-6 text-center border-b border-white/5">
+      <section className="relative overflow-hidden pt-16 sm:pt-20 pb-12 sm:pb-16 px-4 sm:px-6 text-center border-b border-white/5">
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[400px] rounded-full bg-brand-600/15 blur-[140px]" />
         </div>
@@ -66,10 +66,10 @@ export default function FeaturesPage() {
           <div className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500/10 border border-brand-500/20 rounded-full text-brand-400 text-xs font-bold uppercase tracking-widest mb-8">
             <Zap size={10} /> Platform Features
           </div>
-          <h1 className="text-5xl md:text-6xl font-bold mb-6" style={{ letterSpacing: '-0.03em' }}>
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold mb-6" style={{ letterSpacing: '-0.03em' }}>
             Everything your team needs to<br /><span className="text-brand-400">dominate social.</span>
           </h1>
-          <p className="text-xl text-white/50 mb-10 leading-relaxed">
+          <p className="text-base sm:text-lg md:text-xl text-white/50 mb-10 leading-relaxed">
             One platform for content generation, trend intelligence, team collaboration, and brand consistency: built for the way enterprise teams actually work.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
@@ -80,7 +80,7 @@ export default function FeaturesPage() {
       </section>
 
       {/* Features list */}
-      <section className="py-8 px-6">
+      <section className="py-8 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto space-y-28 py-16">
           {FEATURES.map(({ icon: Icon, badge, title, body, bullets, img }, idx) => (
             <div key={badge} className={`grid lg:grid-cols-2 gap-16 items-center ${idx % 2 !== 0 ? 'lg:[&>*:first-child]:order-2' : ''}`}>

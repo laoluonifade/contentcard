@@ -37,7 +37,7 @@ export default function PricingPage() {
   return (
     <MarketingLayout>
       {/* Hero */}
-      <section className="py-20 px-6 text-center border-b border-white/5">
+      <section className="py-16 sm:py-20 px-4 sm:px-6 text-center border-b border-white/5">
         <div className="max-w-2xl mx-auto">
           <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Pricing</div>
           <h1 className="text-5xl font-bold mb-5" style={{ letterSpacing: '-0.03em' }}>Simple. Transparent.<br />No surprises.</h1>
@@ -47,7 +47,7 @@ export default function PricingPage() {
       </section>
 
       {/* Plans */}
-      <section className="py-16 px-6">
+      <section className="py-16 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto">
           <div className="grid md:grid-cols-3 gap-5">
             {PLANS.map(p => (
@@ -90,7 +90,7 @@ export default function PricingPage() {
       </section>
 
       {/* FAQ */}
-      <section className="py-16 px-6 border-t border-white/5">
+      <section className="py-16 px-4 sm:px-6 border-t border-white/5">
         <div className="max-w-3xl mx-auto">
           <h2 className="text-3xl font-bold text-white mb-10 text-center" style={{ letterSpacing: '-0.02em' }}>Frequently asked questions</h2>
           <div className="space-y-4">

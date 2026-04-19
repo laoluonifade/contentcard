@@ -7,13 +7,24 @@ from app.db.database import get_db
 from app.models.workspace import WorkspaceInvite, WorkspaceMember, WorkspaceRole, InviteStatus, Workspace
 from app.models.user import User
 from app.core.dependencies import get_current_user
-from app.core.security import hash_password
-from app.schemas.workspace import InviteRequest, InviteOut, AcceptInviteRequest, WorkspaceMemberOut
+from app.core.security import hash_password, verify_password
+from app.schemas.workspace import (
+    InviteRequest,
+    InviteOut,
+    InviteCreated,
+    AcceptInviteRequest,
+    WorkspaceMemberOut,
+    LINK_INVITE_EMAIL_SUFFIX,
+)
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/invites", tags=["teams"])
 
 
-@router.post("", response_model=InviteOut, status_code=201)
+def _is_link_invite_email(email: str) -> bool:
+    return bool(email) and email.lower().endswith(LINK_INVITE_EMAIL_SUFFIX.lower())
+
+
+@router.post("", response_model=InviteCreated, status_code=201)
 async def invite_member(
     workspace_id: str,
     body: InviteRequest,
@@ -29,31 +40,33 @@ async def invite_member(
     if not member or member.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN):
         raise HTTPException(status_code=403, detail="Admin required")
 
-    # Check not already a member
-    existing_user = await db.execute(select(User).where(User.email == body.email))
-    eu = existing_user.scalar_one_or_none()
-    if eu:
-        existing_member = await db.execute(select(WorkspaceMember).where(
-            WorkspaceMember.workspace_id == workspace_id,
-            WorkspaceMember.user_id == eu.id,
-        ))
-        if existing_member.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="User is already a workspace member")
+    if body.email:
+        target_email = str(body.email).strip().lower()
+        existing_user = await db.execute(select(User).where(User.email == target_email))
+        eu = existing_user.scalar_one_or_none()
+        if eu:
+            existing_member = await db.execute(select(WorkspaceMember).where(
+                WorkspaceMember.workspace_id == workspace_id,
+                WorkspaceMember.user_id == eu.id,
+            ))
+            if existing_member.scalar_one_or_none():
+                raise HTTPException(status_code=409, detail="User is already a workspace member")
 
-    # Check no pending invite for this email
-    existing_invite = await db.execute(select(WorkspaceInvite).where(
-        WorkspaceInvite.workspace_id == workspace_id,
-        WorkspaceInvite.email == body.email,
-        WorkspaceInvite.status == InviteStatus.PENDING,
-    ))
-    if existing_invite.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Invite already sent to this email")
+        existing_invite = await db.execute(select(WorkspaceInvite).where(
+            WorkspaceInvite.workspace_id == workspace_id,
+            WorkspaceInvite.email == target_email,
+            WorkspaceInvite.status == InviteStatus.PENDING,
+        ))
+        if existing_invite.scalar_one_or_none():
+            raise HTTPException(status_code=409, detail="Invite already sent to this email")
+    else:
+        target_email = f"link.{secrets.token_urlsafe(16)}{LINK_INVITE_EMAIL_SUFFIX}"
 
     token = secrets.token_urlsafe(32)
     invite = WorkspaceInvite(
         workspace_id=workspace_id,
         invited_by_id=current_user.id,
-        email=body.email,
+        email=target_email,
         role=body.role,
         token=token,
         status=InviteStatus.PENDING,
@@ -63,10 +76,7 @@ async def invite_member(
     await db.commit()
     await db.refresh(invite)
 
-    # TODO: send invite email with link containing token
-    # The frontend link would be: {FRONTEND_URL}/accept-invite?token={token}
-
-    return InviteOut.model_validate(invite)
+    return InviteCreated.model_validate(invite)
 
 
 @router.get("", response_model=list[InviteOut])
@@ -131,11 +141,13 @@ async def get_invite_details(token: str, db: AsyncSession = Depends(get_db)):
 
     ws = await db.execute(select(Workspace).where(Workspace.id == invite.workspace_id))
     workspace = ws.scalar_one_or_none()
+    link_only = _is_link_invite_email(invite.email)
     return {
-        "email": invite.email,
+        "email": None if link_only else invite.email,
         "role": invite.role,
         "workspace_name": workspace.name if workspace else "",
         "expires_at": invite.expires_at,
+        "link_only": link_only,
     }
 
 
@@ -153,21 +165,43 @@ async def accept_invite(token: str, body: AcceptInviteRequest, db: AsyncSession 
         await db.commit()
         raise HTTPException(status_code=410, detail="Invite has expired")
 
-    # Check if email already has an account
-    existing = await db.execute(select(User).where(User.email == invite.email))
+    link_only = _is_link_invite_email(invite.email)
+    if link_only:
+        if not body.email:
+            raise HTTPException(status_code=400, detail="Enter your email to finish joining.")
+        target_email = str(body.email).strip().lower()
+        taken = await db.execute(select(User).where(User.email == target_email))
+        if taken.scalar_one_or_none():
+            raise HTTPException(
+                status_code=409,
+                detail="That email already has an account. Log in and ask an admin to invite you by email instead.",
+            )
+    else:
+        target_email = str(invite.email).strip().lower()
+
+    existing = await db.execute(select(User).where(User.email == target_email))
     user = existing.scalar_one_or_none()
 
     if not user:
         user = User(
             full_name=body.full_name,
-            email=invite.email,
+            email=target_email,
             phone=body.phone,
             hashed_password=hash_password(body.password),
         )
         db.add(user)
         await db.flush()
+    else:
+        if not verify_password(body.password, user.hashed_password):
+            raise HTTPException(status_code=401, detail="Incorrect password for this account.")
 
-    # Add to workspace
+    member_check = await db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == invite.workspace_id,
+        WorkspaceMember.user_id == user.id,
+    ))
+    if member_check.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="You are already a member of this workspace.")
+
     member = WorkspaceMember(
         workspace_id=invite.workspace_id,
         user_id=user.id,

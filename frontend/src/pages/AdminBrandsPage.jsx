@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Search, Eye, X } from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
 import { adminApi } from '../api'
+import { formatAdminApiError } from '../lib/adminApiError'
 
 export default function AdminBrandsPage() {
   const [search, setSearch] = useState('')
@@ -9,12 +10,14 @@ export default function AdminBrandsPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
+  const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
     setLoading(true)
+    setLoadError(null)
     adminApi.brands({ limit: 100, search: search || undefined })
       .then(data => { setBrands(data.brands || []); setTotal(data.total || 0) })
-      .catch(() => {})
+      .catch((e) => { setBrands([]); setTotal(0); setLoadError(formatAdminApiError(e)) })
       .finally(() => setLoading(false))
   }, [search])
 
@@ -32,6 +35,10 @@ export default function AdminBrandsPage() {
             className="pl-8 pr-4 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-500/40 w-56" />
         </div>
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{loadError}</div>
+      )}
 
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden overflow-x-auto">
         {loading ? (

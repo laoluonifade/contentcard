@@ -114,9 +114,16 @@ async def update_profile(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    allowed = {"full_name", "phone", "country_code"}
+    allowed = {"full_name", "phone", "country_code", "agency_mode"}
     for key, val in body.items():
-        if key in allowed:
+        if key not in allowed:
+            continue
+        if key == "agency_mode":
+            if isinstance(val, str):
+                current_user.agency_mode = val.strip().lower() in ("1", "true", "yes", "on")
+            else:
+                current_user.agency_mode = bool(val)
+        else:
             setattr(current_user, key, val)
     await db.commit()
     await db.refresh(current_user)

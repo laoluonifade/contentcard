@@ -1038,14 +1038,31 @@ When you have enough to brief a copywriter, reply with 3 to 6 bullet lines summa
 Stay under the brand's industry; never invent product facts.
 Do not use long dash, en dash, or two hyphens in a row as punctuation in your replies. Use commas or periods instead."""
 
+_PREP_JSON_RULES = """
+Respond ONLY with valid JSON (no markdown fences) using exactly this shape:
+{
+  "message": "your reply to the user as plain text",
+  "choices": [{"id": "short_snake_id", "label": "short button label"}],
+  "design_intent": {"action": "none", "scope": "none", "reason": "optional short note"}
+}
 
-async def run_generation_prep_chat(brand: dict, month: int, year: int, messages: list[dict]) -> str:
+Rules for choices: 0 to 4 objects. Each id must be a short snake_case token; each label under 60 characters.
+Use choices for quick follow-ups (yes/no, pick a focus, confirm a date range).
+Rules for design_intent:
+- action is "none" unless the user clearly wants new graphics or a visual refresh for existing posts.
+- If they want refreshed designs for posts they will select on the calendar, set action to "regenerate_visuals" and scope to "selected".
+- If they want every post in this calendar month redesigned, set action to "regenerate_visuals" and scope to "month".
+- Otherwise action "none" and scope "none". reason is optional human-readable context for the UI.
+"""
+
+
+async def run_generation_prep_chat(brand: dict, month: int, year: int, messages: list[dict]) -> dict:
     import calendar
 
     mn = calendar.month_name[month]
     bn = brand.get("name", "the brand")
     intro = (
-        f"{_PREP_CHAT_SYSTEM}\n\n"
+        f"{_PREP_CHAT_SYSTEM}\n{_PREP_JSON_RULES}\n\n"
         f"Calendar month: {mn} {year}.\n"
         f"Brand: {bn}. Industry: {brand.get('industry', 'General')}."
     )
@@ -1058,8 +1075,54 @@ async def run_generation_prep_chat(brand: dict, month: int, year: int, messages:
         if r not in ("user", "assistant"):
             r = "user"
         msgs.append({"role": r, "content": str(m.get("content", ""))[:8000]})
-    reply = await _openai_chat(msgs, max_tokens=900, temperature=0.55, json_mode=False)
-    return _sanitize_ai_copy_dashes(reply) or ""
+    raw = await _openai_chat(msgs, max_tokens=1100, temperature=0.5, json_mode=True)
+    try:
+        data = _parse_json_safe(raw)
+    except Exception:
+        return {
+            "message": "Sorry, I could not read that reply. Please try again with a shorter message.",
+            "choices": [],
+            "design_intent": None,
+        }
+
+    if not isinstance(data, dict):
+        return {
+            "message": "Sorry, something went wrong. Please try again.",
+            "choices": [],
+            "design_intent": None,
+        }
+
+    message = data.get("message")
+    if not isinstance(message, str) or not message.strip():
+        message = "Tell me what is launching or what you want to emphasise this month."
+    message = _sanitize_ai_copy_dashes(message.strip()) or message.strip()
+
+    choices_out: list[dict] = []
+    for c in (data.get("choices") or [])[:4]:
+        if not isinstance(c, dict):
+            continue
+        cid = str(c.get("id") or "").strip()
+        lab = str(c.get("label") or "").strip()
+        if cid and lab:
+            choices_out.append({"id": cid[:48], "label": lab[:80]})
+
+    design_intent = None
+    di = data.get("design_intent")
+    if isinstance(di, dict):
+        action = str(di.get("action") or "none").lower()
+        if action not in ("none", "regenerate_visuals"):
+            action = "none"
+        scope = str(di.get("scope") or "none").lower()
+        if scope not in ("none", "selected", "month"):
+            scope = "none"
+        reason = di.get("reason")
+        design_intent = {
+            "action": action,
+            "scope": scope,
+            "reason": reason.strip()[:500] if isinstance(reason, str) and reason.strip() else None,
+        }
+
+    return {"message": message, "choices": choices_out, "design_intent": design_intent}
 
 
 # ── Trends ─────────────────────────────────────────────────────────────────────

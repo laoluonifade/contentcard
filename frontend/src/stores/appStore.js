@@ -14,6 +14,7 @@ const useAppStore = create(
       contentByMonth: {},
       generatingMonth: false,
       generationPollCount: 0,
+      generationProgress: null,
       templates: [],
       trends: [],
       subscription: null,
@@ -47,6 +48,13 @@ const useAppStore = create(
           await get().fetchBrands(id)
           await get().fetchTrends().catch(() => {})
         }
+      },
+
+      createWorkspace: async ({ name }) => {
+        const ws = await workspaceApi.create({ name })
+        await get().fetchWorkspaces()
+        await get().setActiveWorkspace(ws.id)
+        return ws
       },
 
       // ── Brands ──────────────────────────────────────────────────
@@ -88,10 +96,11 @@ const useAppStore = create(
         template_id,
         include_holidays_in_content,
         generation_brief,
+        confirm_duplicate,
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
-        set({ generatingMonth: true, generationPollCount: 0 })
+        set({ generatingMonth: true, generationPollCount: 0, generationProgress: null })
         try {
           await contentApi.generateMonth({
             brand_id: brandId, month, year, platforms, format_mix,
@@ -99,19 +108,19 @@ const useAppStore = create(
             topic_override: topic_override || null, template_id: template_id || null,
             include_holidays_in_content: include_holidays_in_content !== false,
             generation_brief: generation_brief || null,
+            confirm_duplicate: !!confirm_duplicate,
           })
-          // Poll the status endpoint until content appears (max 60 seconds)
           const count = await get()._pollForContent(brandId, month, year)
           return count
         } finally {
-          set({ generatingMonth: false })
+          set({ generatingMonth: false, generationProgress: null })
         }
       },
 
       // Poll with exponential backoff: returns number of posts found
       _pollForContent: async (brandId, month, year) => {
-        const maxAttempts = 20
-        const delays = [3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
+        const maxAttempts = 36
+        const delays = [3000, 3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
 
         for (let i = 0; i < maxAttempts; i++) {
           const delay = delays[Math.min(i, delays.length - 1)]
@@ -121,20 +130,29 @@ const useAppStore = create(
           try {
             const status = await contentApi.getStatus(brandId, year, month)
             if (status.error) throw new Error(status.error)
-            if (status.ready && status.count > 0) {
+            const withV = status.with_visuals ?? status.count ?? 0
+            const total = status.total ?? withV
+            set({
+              generationProgress: total > 0
+                ? { with: withV, total }
+                : { with: 0, total: 0 },
+            })
+            if (status.ready && withV > 0) {
               const items = await get().fetchMonthContent(month, year)
               return items.length
             }
           } catch (e) {
             if (e.message && !e.message.includes('fetch') && !e.message.includes('Network')) throw e
-            // status endpoint network failure: try fetching directly
             const items = await get().fetchMonthContent(month, year)
             if (items.length > 0) return items.length
           }
         }
-        // Final attempt: fetch whatever's there, throw if still empty
         const items = await get().fetchMonthContent(month, year)
-        if (items.length === 0) throw new Error('Generation timed out: no posts were created. Please try again in a moment.')
+        if (items.length === 0) {
+          throw new Error(
+            'Generation is taking longer than expected. Finished posts will appear on the calendar automatically; check back in a minute.'
+          )
+        }
         return items.length
       },
 

@@ -108,7 +108,7 @@ export default function AdminDashPage() {
     },
     {
       label: 'Avg Spend / Company',
-      value: s.avg_spend_per_workspace != null ? `$${s.avg_spend_per_workspace.toFixed(3)}` : ', ',
+      value: s.avg_spend_per_workspace != null ? `$${s.avg_spend_per_workspace.toFixed(3)}` : '—',
       delta: s.total_estimated_spend != null ? `$${s.total_estimated_spend.toFixed(3)} total` : null,
       up: true,
       icon: DollarSign,

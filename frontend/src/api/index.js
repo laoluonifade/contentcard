@@ -101,8 +101,10 @@ export const brandApi = {
 export const contentApi = {
   generateMonth:       (data)          => api.post('/content/generate-month', data).then(r => r.data),
   generationPrepChat:  (data)          => api.post('/content/generation-prep-chat', data).then(r => r.data),
+  prepExecuteVisual:     (data)          => api.post('/content/prep-execute-visual', data).then(r => r.data),
   brandFormCoach:      (data)          => api.post('/content/brand-form-coach', data).then(r => r.data),
   bulkRemoveFromCalendar: (data)      => api.post('/content/bulk-remove-from-calendar', data).then(r => r.data),
+  bulkDelete:            (data)       => api.post('/content/bulk-delete', data).then(r => r.data),
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
