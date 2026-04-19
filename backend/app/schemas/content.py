@@ -12,6 +12,26 @@ class GenerateMonthRequest(BaseModel):
     posts_per_week: int = 3   # 1-7
     topic_override: str | None = None
     template_id: str | None = None
+    # When true (default), AI weaves in public holidays for the user's country this month.
+    include_holidays_in_content: bool = True
+    # Optional notes from the calendar prep chat (product updates, screenshots described, etc.)
+    generation_brief: str | None = None
+
+
+class GenerationPrepMessage(BaseModel):
+    role: str  # user | assistant
+    content: str
+
+
+class GenerationPrepChatRequest(BaseModel):
+    brand_id: str
+    month: int
+    year: int
+    messages: list[GenerationPrepMessage]
+
+
+class BulkDeleteContentRequest(BaseModel):
+    content_ids: list[str]
 
 
 class GeneratePhotoCaption(BaseModel):

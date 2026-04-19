@@ -1,5 +1,6 @@
 import base64
 import logging
+import uuid
 import httpx
 from app.core.config import settings
 
@@ -90,25 +91,47 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     audience_note = f"Target audience: {', '.join(audience_parts)}." if audience_parts else ""
 
     arch = (ab.get("archetype_id") or "").lower()
-    arch_notes = {
-        "photo_hero": "Hero composition: subject in lower two-thirds, generous clean upper third for overlay.",
-        "portrait_story": "Environmental portrait: subject connects with environment, editorial storytelling frame.",
+    vt = str(post.get("visual_type") or "real_people").lower()
+    if vt not in ("real_people", "illustration"):
+        vt = "real_people"
+
+    arch_notes_photo = {
+        "photo_hero": "Hero composition: real human subject in lower two-thirds; clean open background, no areas reserved for typography.",
+        "portrait_story": "Environmental portrait of a real person: natural skin texture, documentary editorial frame, not illustrated.",
         "pattern_headline": "Rich environmental texture and bold colour fields; geometric rhythm in environment only, no letters.",
-        "flat_edu": "Clean modern scene with educational props and crisp surfaces; uncluttered, premium studio-adjacent.",
-        "pov_comic": "Candid documentary POV moment, natural handheld energy, relatable everyday scene, not cartoon.",
+        "flat_edu": "Clean modern scene with real objects and crisp surfaces; uncluttered, premium studio-adjacent; real photography not illustration.",
+        "pov_comic": "Candid documentary POV of real life, natural handheld energy, photojournalism, never cartoon or stylised character.",
     }
-    arch_note = arch_notes.get(arch, "")
+    arch_notes_illus = {
+        "photo_hero": "Bold illustrated hero scene with clear focal subject and generous negative space — no text or logos.",
+        "portrait_story": "Stylised illustrated character or silhouette treatment — premium brand illustration, not photoreal faces.",
+        "pattern_headline": "Rich illustrated pattern fields and geometric brand shapes — no letters or typography in-frame.",
+        "flat_edu": "Clean modern flat illustration with crisp shapes and editorial infographic energy — no photoreal humans.",
+        "pov_comic": "Playful illustrated POV scene with expressive line and colour — tasteful brand comic, not childish clip-art.",
+    }
+    arch_note = (arch_notes_illus if vt == "illustration" else arch_notes_photo).get(arch, "")
 
     # Format note — composition guidance only, no typography or layout direction
-    if fmt == "carousel":
-        format_note = "Strong first-frame hero composition. Negative space in upper third for text overlay."
-    elif fmt == "quote":
-        format_note = "Wide open scene with prominent negative space for text overlay. Editorial magazine style."
+    if vt == "illustration":
+        if fmt == "carousel":
+            format_note = "Strong first-frame illustrated hero; full-bleed brand art with no typography in the frame."
+        elif fmt == "quote":
+            format_note = "Wide illustrated scene with open colour fields — no words or lettering in the image."
+        else:
+            format_note = (
+                "Premium 2D brand illustration or modern flat graphic when figures appear — stylised, cohesive, not photoreal. "
+                "Full-bleed artwork with no typography, titles, or UI in the frame."
+            )
     else:
-        format_note = (
-            "Subject occupies lower two-thirds of frame. "
-            "Upper third is clean negative space suitable for text overlay."
-        )
+        if fmt == "carousel":
+            format_note = "Strong first-frame hero composition; full-bleed photograph with no typography in the frame."
+        elif fmt == "quote":
+            format_note = "Wide open photographic scene, editorial magazine realism, no words or lettering in the image."
+        else:
+            format_note = (
+                "Real human subject when people appear: documentary portrait photography, natural skin, believable proportions. "
+                "Full-bleed photograph with no typography, titles, or UI in the frame."
+            )
     if arch_note:
         format_note = f"{arch_note} {format_note}"
 
@@ -117,13 +140,25 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     imagery_note = f"Visual style reference: {imagery_style}." if imagery_style else ""
 
     # Hard negative constraints — appended to every prompt regardless of input
-    negative = (
-        "No text, no words, no letters, no logos, no watermarks, no UI elements, "
-        "no overlays, no graphic design elements, no illustration, no 3D render, "
-        "no CGI, no cartoon, no vector art, no typography, no captions, "
-        "no borders, no frames, no badges, no icons, no unrealistic lighting, "
-        "no floating objects, no abstract art."
-    )
+    if vt == "illustration":
+        negative = (
+            "No text, no words, no letters, no logos, no watermarks, no UI elements, "
+            "no photorealistic humans, no synthetic photo faces, no stock portrait photography, "
+            "no 3D renders pretending to be photos, no typography, no captions, "
+            "no childish clip-art, no meme aesthetics. "
+            "Use cohesive premium illustration, flat brand graphics, or tasteful vector-adjacent art only."
+        )
+    else:
+        negative = (
+            "No text, no words, no letters, no logos, no watermarks, no UI elements, "
+            "no overlays, no graphic design elements, no illustration, no 3D render, "
+            "no CGI, no cartoon, no anime, no vector art, no stylised characters, no claymation, "
+            "no synthetic faces, no typography, no captions, "
+            "no borders, no frames, no badges, no icons, no unrealistic lighting, "
+            "no floating objects, no abstract art. "
+            "If people appear they must be photorealistic real humans (as in documentary or advertising photography), "
+            "never illustrated or toy-like."
+        )
     extra_never = ab.get("negative_motifs") or []
     if extra_never:
         negative += " Avoid specifically: " + "; ".join(str(x) for x in extra_never[:10] if x) + "."
@@ -136,29 +171,46 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
 
     if ai_image_prompt and len(ai_image_prompt) > 50:
         # AI-generated prompt is primary; append brand enforcement and negatives
+        if vt == "illustration":
+            style_close = "Premium illustrated brand key visual — cohesive shapes and colour, never stock photo."
+            cam_line = "Illustration execution: crisp edges, intentional colour blocking, print-quality vector-adjacent finish."
+        else:
+            style_close = "Photorealistic editorial photograph of real people and real environments, never stock illustration."
+            cam_line = "Camera: Canon EOS R5, 85mm f/1.4, shallow depth of field, subject sharp."
         prompt = (
             f"{ai_image_prompt}\n\n"
             f"Brand context: {brand_name} ({industry}). "
             f"Color palette: {color_str}. Tone: {tone_str}. "
             f"{audience_note} {cultural_note} {motif_note}\n"
-            f"Camera: Canon EOS R5, 85mm f/1.4, shallow depth of field, subject sharp. "
+            f"{cam_line} "
             f"{lighting}. {format_note} "
-            f"Photorealistic editorial photograph, not stock photography. "
+            f"{style_close} "
             f"{negative}"
         )
     else:
+        if vt == "illustration":
+            opener = f"Premium brand illustration for {brand_name}, a {industry} brand."
+            cam_block = "Execution: cohesive illustrated scene with intentional colour hierarchy and modern brand-graphic polish."
+            style_close = "High-end illustrated campaign key visual — not stock photography."
+        else:
+            opener = f"Photorealistic lifestyle photograph for {brand_name}, a {industry} brand."
+            cam_block = (
+                "Camera: Canon EOS R5, 85mm f/1.4 lens, shallow depth of field, subject sharp and in focus. "
+                "Environment: modern, uncluttered, premium. "
+                "Shot feel: high-end editorial campaign photograph, not stock photography."
+            )
+            style_close = ""
         prompt = (
-            f"Photorealistic lifestyle photograph for {brand_name}, a {industry} brand. "
+            f"{opener} "
             f"Scene naturally relates to: {content_idea}. "
             f"{f'Post goal: {description} ' if description else ''}"
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
             f"{audience_note} {cultural_note} {motif_note} {imagery_note} "
             f"{f'Strategy context: {strategy_note} ' if strategy_note else ''}"
-            f"Camera: Canon EOS R5, 85mm f/1.4 lens, shallow depth of field, subject sharp and in focus. "
+            f"{cam_block} "
             f"{lighting}. {format_note} "
-            f"Environment: modern, uncluttered, premium. "
-            f"Shot feel: high-end editorial campaign photograph, not stock photography. "
+            f"{style_close} "
             f"Platform: {platform_note}. "
             f"{negative}"
         )
@@ -226,7 +278,9 @@ def _composite_logo(
     return out.getvalue()
 
 
-async def _upload_to_cloudinary(image_bytes: bytes, post_topic: str, idx: int = 0) -> str | None:
+async def _upload_to_cloudinary(
+    image_bytes: bytes, post_topic: str, idx: int = 0, *, public_suffix: str | None = None
+) -> str | None:
     """Upload raw image bytes to Cloudinary and return the permanent secure URL."""
     if not all([settings.CLOUDINARY_CLOUD_NAME, settings.CLOUDINARY_API_KEY, settings.CLOUDINARY_API_SECRET]):
         logger.warning("Cloudinary not configured — generated image URL will not be persisted")
@@ -239,8 +293,10 @@ async def _upload_to_cloudinary(image_bytes: bytes, post_topic: str, idx: int = 
             api_key=settings.CLOUDINARY_API_KEY,
             api_secret=settings.CLOUDINARY_API_SECRET,
         )
-        safe_topic = "".join(c if c.isalnum() or c in "-_" else "-" for c in (post_topic or "post"))[:60]
-        public_id = f"{safe_topic}-{idx}" if idx else safe_topic
+        safe_topic = "".join(c if c.isalnum() or c in "-_" else "-" for c in (post_topic or "post"))[:40]
+        suffix = public_suffix or (str(idx) if idx else "")
+        public_id = f"{safe_topic}-{suffix}" if suffix else safe_topic
+        public_id = "".join(c if c.isalnum() or c in "-_" else "-" for c in public_id)[:120]
         result = cloudinary.uploader.upload(
             image_bytes,
             folder="contentcard/generated",
@@ -253,6 +309,50 @@ async def _upload_to_cloudinary(image_bytes: bytes, post_topic: str, idx: int = 
     except Exception as e:
         logger.error(f"Cloudinary upload failed: {e}")
         return None
+
+
+async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | None = None) -> str | None:
+    """
+    Download a rendered image (e.g. Bannerbear PNG), composite the brand logo from
+    brand['logo_url'], re-upload to Cloudinary. Logo is never left to the image model.
+    """
+    logo_url = (brand.get("logo_url") or "").strip()
+    if not image_url or not logo_url:
+        return None
+    ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
+    vs = brand.get("visual_system") or {}
+    placement = str(ab.get("logo_placement") or vs.get("logo_placement") or "bottom_right")
+    try:
+        min_w = int(ab.get("logo_min_width_px") or vs.get("logo_min_width_px") or 80)
+    except (TypeError, ValueError):
+        min_w = 80
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            img_r = await client.get(image_url, follow_redirects=True)
+            if img_r.status_code != 200:
+                logger.warning("burn_logo: download image failed HTTP %s", img_r.status_code)
+                return None
+            logo_b = await _fetch_logo_bytes(logo_url, client)
+            if not logo_b:
+                return None
+            out_bytes = _composite_logo(
+                img_r.content, logo_b, placement=placement, min_width_px=min_w
+            )
+            uid = uuid.uuid4().hex[:14]
+            return await _upload_to_cloudinary(out_bytes, "cover-logo", 0, public_suffix=uid)
+    except Exception as e:
+        logger.warning("burn_logo_into_image_url: %s", e)
+        return None
+
+
+async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: dict | None) -> list[str]:
+    """Apply burn-in logo to slide 0 (cover) when URLs exist."""
+    if not urls:
+        return []
+    burned = await burn_logo_into_image_url(urls[0], brand, post)
+    if burned:
+        return [burned, *urls[1:]]
+    return urls
 
 
 async def generate_post_image(post: dict, brand: dict) -> list[str]:
@@ -271,7 +371,6 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
 
     topic = post.get("topic", "")
     prompt = _build_image_prompt(post, brand)
-    logo_url = brand.get("logo_url", "")
     n = max(1, min(10, settings.IMAGE_COUNT))
     model = settings.IMAGE_MODEL
 
@@ -303,11 +402,6 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
             data = resp.json()
             items = data.get("data", [])
 
-            # Pre-fetch logo bytes once (reused for every generated image)
-            logo_bytes: bytes | None = None
-            if logo_url:
-                logo_bytes = await _fetch_logo_bytes(logo_url, client)
-
             urls: list[str] = []
             for idx, item in enumerate(items):
                 # gpt-image-1 returns b64_json; dall-e-3 can return url or b64_json
@@ -324,19 +418,7 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                     logger.warning(f"Image {idx} had neither b64_json nor url — skipping")
                     continue
 
-                # Composite brand logo onto each background
-                if logo_bytes:
-                    try:
-                        ab = post.get("art_brief") if isinstance(post.get("art_brief"), dict) else {}
-                        image_bytes = _composite_logo(
-                            image_bytes,
-                            logo_bytes,
-                            placement=str(ab.get("logo_placement") or "bottom_right"),
-                            min_width_px=int(ab.get("logo_min_width_px") or 80),
-                        )
-                    except Exception as e:
-                        logger.warning(f"Logo composite failed for image {idx}: {e}")
-
+                # Logo is composited after Bannerbear (or here if caller uses raster-only flow).
                 permanent_url = await _upload_to_cloudinary(image_bytes, topic, idx)
                 if permanent_url:
                     urls.append(permanent_url)

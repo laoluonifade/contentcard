@@ -17,12 +17,24 @@ from app.schemas.content import (
     RegenerateVisualRequest,
     CaptionUpdateRequest,
     ContentOut,
+    GenerationPrepChatRequest,
+    BulkDeleteContentRequest,
 )
-from app.services.ai_service import generate_monthly_plan, generate_single_caption, generate_photo_caption
+from app.services.ai_service import (
+    generate_monthly_plan,
+    generate_single_caption,
+    generate_photo_caption,
+    run_generation_prep_chat,
+)
+from app.services.month_holiday_context import build_month_holiday_context
 from app.services.visual_tokens import apply_visual_system_defaults
 from app.services.art_brief_service import build_art_brief
 from app.services.visual_lint_service import lint_final_image
-from app.services.image_service import generate_post_image
+from app.services.image_service import (
+    burn_logo_into_image_url,
+    finalize_rendered_urls_with_logo,
+    generate_post_image,
+)
 from app.services.bannerbear_service import generate_post_images
 from datetime import date
 import logging
@@ -30,6 +42,22 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/content", tags=["content"])
+
+
+async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> None:
+    """Burn logo onto final cover (Bannerbear) or raster-only hero — never rely on the image model for logos."""
+    try:
+        if item.image_urls:
+            finalized = await finalize_rendered_urls_with_logo(item.image_urls, brand_dict, post_data)
+            item.image_urls = finalized
+            if finalized:
+                item.image_url = finalized[0]
+        elif item.image_url:
+            nu = await burn_logo_into_image_url(item.image_url, brand_dict, post_data)
+            if nu:
+                item.image_url = nu
+    except Exception as e:
+        logger.warning("_apply_brand_logo_to_visuals failed for %s: %s", item.id, e)
 
 THEMES = [
     {"bg": "#7C3AED", "fg": "#fff", "ac": "#E1306C", "pattern": "circles"},
@@ -151,6 +179,10 @@ async def generate_month(
         topic_override=body.topic_override,
         template_topics=template_topics,
         template_id=body.template_id,
+        user_id=current_user.id,
+        country_code=current_user.country_code,
+        include_holidays_in_content=body.include_holidays_in_content,
+        generation_brief=body.generation_brief,
     )
     return {"message": "Generation started", "month": body.month, "year": body.year}
 
@@ -277,6 +309,48 @@ async def list_content(
     return [ContentOut.model_validate(c) for c in result.scalars().all()]
 
 
+@router.post("/generation-prep-chat")
+async def generation_prep_chat(
+    body: GenerationPrepChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.month < 1 or body.month > 12:
+        raise HTTPException(status_code=400, detail="Month must be 1–12")
+    brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=False)
+    msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
+    reply = await run_generation_prep_chat(_brand_to_dict(brand), body.month, body.year, msgs)
+    return {"message": reply}
+
+
+@router.post("/bulk-remove-from-calendar")
+async def bulk_remove_from_calendar(
+    body: BulkDeleteContentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Clears calendar placement fields so posts disappear from the month grid.
+    Rows (and images) remain — Directory and asset URLs are unchanged.
+    """
+    ids = [str(x).strip() for x in (body.content_ids or []) if str(x).strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="content_ids required")
+    removed = 0
+    for cid in ids[:200]:
+        r = await db.execute(select(ContentItem).where(ContentItem.id == cid))
+        item = r.scalar_one_or_none()
+        if not item:
+            continue
+        await _get_brand_and_check_access(item.brand_id, current_user.id, db)
+        item.scheduled_date = None
+        item.generation_month = None
+        item.generation_year = None
+        removed += 1
+    await db.commit()
+    return {"removed": removed}
+
+
 # ── Param routes AFTER literal routes ──────────────────────────────
 
 @router.get("/{content_id}", response_model=ContentOut)
@@ -388,6 +462,7 @@ async def regenerate_visual(
         )
         if bb_urls:
             item.image_urls = bb_urls
+        await _apply_brand_logo_to_visuals(item, post, brand_dict)
         lint = await lint_final_image((item.image_urls or [None])[0], brand_dict, sab)
         th = dict(item.theme) if isinstance(item.theme, dict) else dict(random.choice(THEMES))
         th["cc_meta"] = {
@@ -429,15 +504,29 @@ async def _do_generate_month(
     platforms: list[str], format_mix: str, posts_per_week: int,
     topic_override: str | None, template_topics: list[str] | None,
     template_id: str | None,
+    user_id: str,
+    country_code: str | None,
+    include_holidays_in_content: bool,
+    generation_brief: str | None,
 ):
     from app.db.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         try:
+            holiday_context = await build_month_holiday_context(
+                db,
+                user_id,
+                country_code,
+                year,
+                month,
+                include_holidays=include_holidays_in_content,
+            )
             posts = await generate_monthly_plan(
                 brand=brand_dict, month=month, year=year,
                 platforms=platforms, format_mix=format_mix,
                 posts_per_week=posts_per_week,
                 topic_override=topic_override, template_topics=template_topics,
+                holiday_context=holiday_context or None,
+                generation_brief=generation_brief,
             )
             saved_items = []
             for post in posts:
@@ -501,6 +590,7 @@ async def _do_generate_month(
                     "visual_archetype": sab["archetype_id"],
                     "art_brief": sab,
                     "visual_lint": None,
+                    "visual_type": post.get("visual_type"),
                 }
                 item.theme = th
                 logger.info(
@@ -542,7 +632,8 @@ async def _do_generate_month(
                 )
                 if bb_urls:
                     item.image_urls = bb_urls
-                    await db.commit()
+                await _apply_brand_logo_to_visuals(item, post_data, brand_dict)
+                await db.commit()
             except Exception as e:
                 logger.error(f"Bannerbear failed for post {item.id}: {e}")
 
@@ -617,6 +708,11 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
     if isinstance(cm, dict):
         arch = cm.get("visual_archetype")
         ab = cm.get("art_brief") if isinstance(cm.get("art_brief"), dict) else None
+    vt = "real_people"
+    if isinstance(cm, dict):
+        v = cm.get("visual_type")
+        if v in ("real_people", "illustration"):
+            vt = v
     return {
         "topic": item.topic,
         "caption": item.caption or "",
@@ -627,7 +723,7 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         "description": item.description,
         "visual_direction": item.visual_direction,
         "image_prompt": item.image_prompt,
-        "visual_type": "real_people",
+        "visual_type": vt,
         "visual_archetype": arch,
         "art_brief": ab,
     }
