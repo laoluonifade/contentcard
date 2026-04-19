@@ -126,7 +126,27 @@ async def _openai_chat(
             },
             json=payload,
         )
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            status_code = e.response.status_code
+            logger.error(f"OpenAI API error {status_code}: {e.response.text[:200]}")
+            if status_code == 429:
+                raise RuntimeError(
+                    "Our AI service is currently at capacity. Please try again in a few minutes."
+                )
+            elif status_code in (401, 403):
+                raise RuntimeError(
+                    "AI service is temporarily unavailable. Please contact support."
+                )
+            elif status_code >= 500:
+                raise RuntimeError(
+                    "AI service is temporarily unavailable. Please try again shortly."
+                )
+            else:
+                raise RuntimeError(
+                    "An error occurred while generating content. Please try again."
+                )
         return resp.json()["choices"][0]["message"]["content"]
 
 

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap } from 'lucide-react'
+import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { trendsApi } from '../api'
+import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 
 const PLATFORMS = ['instagram', 'twitter', 'linkedin', 'facebook']
 
@@ -162,6 +163,66 @@ export default function DashboardPage() {
           <Layers size={15} /> Generate content
         </button>
       </div>
+
+      {/* ── Onboarding Tip banner ── */}
+      {activeBrand && !loading && (() => {
+        const missing = getMissingFields(activeBrand)
+        const brandReady = missing.length === 0
+        const hasContent = stats.total > 0
+
+        // Brand kit incomplete — show what to fill in
+        if (!brandReady) return (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={15} className="text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-0.5">Onboarding Tip</p>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Complete your brand kit to unlock AI generation</h4>
+                <p className="text-ink/50 text-xs mb-3">
+                  Fill in {missing.length} required {missing.length === 1 ? 'field' : 'fields'} so ContentCard can create on-brand content for you:
+                </p>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {missing.map(f => (
+                    <span key={f.label} className="text-[10px] font-semibold px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full">
+                      {f.label}
+                    </span>
+                  ))}
+                </div>
+                <button onClick={() => navigate('/dashboard/brand-kit')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 hover:text-amber-900 transition-colors">
+                  Complete brand kit <ArrowRight size={12} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+
+        // Brand ready, no content yet — nudge to generate
+        if (brandReady && !hasContent) return (
+          <div className="bg-brand-500/8 border border-brand-400/30 rounded-2xl p-5 mb-6">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-brand-500/15 flex items-center justify-center flex-shrink-0">
+                <Sparkles size={15} className="text-brand-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600 mb-0.5">Onboarding Tip</p>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Your brand is ready — generate your first month of content</h4>
+                <p className="text-ink/50 text-xs mb-3">
+                  ContentCard knows your brand voice. Hit Generate to create a full month of posts in under a minute.
+                </p>
+                <button onClick={() => navigate('/dashboard/calendar')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-xs font-semibold transition-colors">
+                  <Zap size={12} /> Generate content
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+
+        return null
+      })()}
 
       {/* No brand CTA */}
       {!activeBrandId && !loading && (

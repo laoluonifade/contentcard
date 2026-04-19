@@ -60,6 +60,36 @@ async def _get_brand_and_check_access(
     return brand
 
 
+# ── Brand readiness check ───────────────────────────────────────────
+
+def _validate_brand_readiness(brand: Brand) -> list[str]:
+    """
+    Returns human-readable labels for required fields that are missing.
+    Empty list means the brand is ready to generate content.
+    """
+    kit = brand.brand_kit or {}
+    missing = []
+
+    if not (brand.target_audience or '').strip():
+        missing.append("Target audience (Audience tab)")
+
+    if not brand.tone_tags or len(brand.tone_tags) == 0:
+        missing.append("Tone tags (Voice tab)")
+
+    if not (brand.language_style or '').strip():
+        missing.append("Language style (Voice tab)")
+
+    ws = str(kit.get('writing_style') or '').strip()
+    if not ws:
+        missing.append("Writing style (Voice tab)")
+
+    km = kit.get('key_messages') or []
+    if not km or (isinstance(km, list) and len(km) == 0) or (isinstance(km, str) and not km.strip()):
+        missing.append("Key messages (Messaging tab)")
+
+    return missing
+
+
 # ── Literal routes FIRST — before any /{param} routes ─────────────
 
 @router.post("/generate-month", status_code=202)
@@ -77,6 +107,13 @@ async def generate_month(
         raise HTTPException(status_code=400, detail="Select at least one platform")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+
+    missing = _validate_brand_readiness(brand)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Your brand kit is incomplete. Fill in these fields before generating: {', '.join(missing)}",
+        )
 
     template_topics = None
     if body.template_id:
