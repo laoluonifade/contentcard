@@ -29,3 +29,6 @@ class SubscriptionOut(BaseModel):
     free_generations_used: int = 0
     card: CardOut | None = None
     next_payment_date: datetime | None = None
+    # When the owner has multiple workspaces, subscription/card may live on `billing_workspace_id`
+    billing_workspace_id: str | None = None
+    subscription_covers_owned_workspaces: bool = False

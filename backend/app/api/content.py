@@ -44,6 +44,7 @@ from app.services.image_service import (
     generate_post_image,
 )
 from app.services.bannerbear_service import generate_post_images
+from app.services.billing_entitlements import effective_plan_for_owner, total_free_generations_used_by_owner
 from datetime import date
 import logging
 
@@ -173,18 +174,20 @@ async def generate_month(
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
 
-    # Fetch workspace to check/update generation limit
+    # Fetch workspace to check/update generation limit (free tier is pooled across all workspaces you own)
     ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
     workspace = ws_r.scalar_one_or_none()
-    if workspace and workspace.plan not in ("starter", "smb", "pro"):
-        used = workspace.free_generations_used or 0
-        if used >= 2:
-            raise HTTPException(
-                status_code=402,
-                detail="You've used your 2 free content generations. Subscribe to continue.",
-            )
-        workspace.free_generations_used = used + 1
-        await db.commit()
+    if workspace:
+        effective = await effective_plan_for_owner(db, workspace.owner_id)
+        if effective not in ("starter", "smb", "pro"):
+            total_used = await total_free_generations_used_by_owner(db, workspace.owner_id)
+            if total_used >= 2:
+                raise HTTPException(
+                    status_code=402,
+                    detail="You've used your 2 free content generations. Subscribe to continue.",
+                )
+            workspace.free_generations_used = (workspace.free_generations_used or 0) + 1
+            await db.commit()
 
     missing = _validate_brand_readiness(brand)
     if missing:
@@ -494,14 +497,39 @@ async def brand_form_coach(
         await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
 
     msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
+
+    research_block: str | None = None
+    research_sources: list[dict] = []
     try:
-        out = await run_brand_form_coach_chat(mode, body.form_snapshot or {}, msgs)
+        from app.services.brand_research_fetch import extract_urls_from_text, gather_research_context
+
+        explicit = [u.strip() for u in (body.research_urls or []) if (u or "").strip()]
+        last_text = ""
+        if body.messages:
+            last_text = body.messages[-1].content or ""
+        from_msg = extract_urls_from_text(last_text) if body.fetch_urls_from_message else []
+        block, research_sources = await gather_research_context(explicit, from_msg)
+        research_block = block.strip() if block.strip() else None
+    except Exception as e:
+        logger.warning("brand research fetch skipped: %s", e)
+
+    try:
+        out = await run_brand_form_coach_chat(
+            mode,
+            body.form_snapshot or {},
+            msgs,
+            research_context=research_block,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
-    return BrandFormCoachResponse(reply=out["reply"], patch=out.get("patch"))
+    return BrandFormCoachResponse(
+        reply=out["reply"],
+        patch=out.get("patch"),
+        research_sources=research_sources,
+    )
 
 
 @router.post("/bulk-remove-from-calendar")

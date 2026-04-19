@@ -77,11 +77,16 @@ class BrandFormCoachRequest(BaseModel):
     brand_id: str | None = None
     form_snapshot: dict = {}
     messages: list[BrandFormCoachMessage]
+    # Optional extra URLs to fetch (HTTPS) and pass as research context to the model.
+    research_urls: list[str] = Field(default_factory=list)
+    # When true, https:// URLs in the latest user message are fetched server-side (SSRF-hardened).
+    fetch_urls_from_message: bool = True
 
 
 class BrandFormCoachResponse(BaseModel):
     reply: str
     patch: dict | None = None
+    research_sources: list[dict] = Field(default_factory=list)
 
 
 class BulkDeleteContentRequest(BaseModel):

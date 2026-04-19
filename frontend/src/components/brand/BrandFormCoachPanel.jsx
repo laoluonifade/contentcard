@@ -27,6 +27,8 @@ export default function BrandFormCoachPanel({
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [lastFetchNote, setLastFetchNote] = useState(null)
+  const [activeUrlFetch, setActiveUrlFetch] = useState(false)
   const bottomRef = useRef(null)
 
   useEffect(() => {
@@ -38,16 +40,31 @@ export default function BrandFormCoachPanel({
     if (!text || sending) return
     const userMsg = { role: 'user', content: text }
     const next = [...messages, userMsg]
+    const mayFetchUrl = /https?:\/\//i.test(text)
     setMessages(next)
     setInput('')
     setSending(true)
+    setActiveUrlFetch(mayFetchUrl)
+    setLastFetchNote(null)
     try {
       const res = await contentApi.brandFormCoach({
         mode,
         brand_id: mode === 'brand_kit' ? brandId : null,
         form_snapshot: formSnapshot || {},
         messages: next.map((m) => ({ role: m.role, content: m.content })),
+        research_urls: [],
+        fetch_urls_from_message: true,
       })
+      const src = res.research_sources
+      if (Array.isArray(src) && src.length) {
+        const ok = src.filter((s) => s.fetched).length
+        const fail = src.length - ok
+        setLastFetchNote(
+          ok || fail
+            ? `Web research: ${ok} page(s) loaded${fail ? `, ${fail} could not be fetched` : ''}.`
+            : null
+        )
+      }
       setMessages((prev) => [...prev, { role: 'assistant', content: res.reply }])
       if (res.patch && typeof res.patch === 'object' && Object.keys(res.patch).length > 0) {
         onApplyPatch?.(res.patch)
@@ -57,6 +74,7 @@ export default function BrandFormCoachPanel({
       toast(e.response?.data?.detail || e.message || 'Assistant unavailable', 'error')
     } finally {
       setSending(false)
+      setActiveUrlFetch(false)
     }
   }
 
@@ -70,16 +88,25 @@ export default function BrandFormCoachPanel({
         </div>
         <div>
           <p className="text-sm font-bold text-ink">Brand profile assistant</p>
-          <p className="text-[11px] text-ink/45">Free. Only helps fill this form, not generate posts.</p>
+          <p className="text-[11px] text-ink/45">
+            Free. Fill one field or the whole kit. Paste a https:// link and we will fetch public pages to draft
+            fields (verify before publishing).
+          </p>
         </div>
       </div>
+
+      {lastFetchNote && (
+        <div className="px-3 py-2 bg-brand-500/10 border-b border-brand-500/15 text-[11px] text-ink/70">
+          {lastFetchNote}
+        </div>
+      )}
 
       <div className="flex-1 min-h-[220px] max-h-[min(52vh,420px)] overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && (
           <div className="rounded-xl border border-dashed border-fog bg-mist/40 p-3 text-xs text-ink/55 leading-relaxed">
             <MessageCircle size={14} className="inline mr-1 text-ink/35 align-text-bottom" />
-            Ask for help with any field. The assistant asks short questions and can drop answers straight into the
-            form when you are happy with them. You can still edit everything yourself.
+            Examples: “Fill everything with what you know about Paystack” or “Fill the brand kit from
+            https://contentcard.co” (we fetch the site text server-side). You can still edit every field yourself.
           </div>
         )}
         {messages.map((m, i) => (
@@ -96,7 +123,8 @@ export default function BrandFormCoachPanel({
         ))}
         {sending && (
           <div className="flex items-center gap-2 text-xs text-ink/40 px-2">
-            <Loader2 size={14} className="animate-spin" /> Thinking…
+            <Loader2 size={14} className="animate-spin" />{' '}
+            {activeUrlFetch ? 'Fetching pages & generating…' : 'Thinking…'}
           </div>
         )}
         <div ref={bottomRef} />
@@ -107,7 +135,7 @@ export default function BrandFormCoachPanel({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), send())}
-          placeholder="e.g. We sell organic snacks in Lagos to young parents…"
+placeholder="e.g. Fill everything with what you know about Paystack, or paste your website URL…"
           className="flex-1 min-w-0 px-3 py-2.5 rounded-xl border border-fog bg-mist text-sm text-ink placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-brand-400/40"
           disabled={sending}
         />

@@ -18,6 +18,13 @@ from app.services.billing_service import (
     cancel_paystack_subscription,
     PLANS,
 )
+from app.services.billing_entitlements import (
+    billing_anchor_workspace,
+    checkout_target_workspace,
+    effective_plan_for_owner,
+    owned_workspaces,
+    total_free_generations_used_by_owner,
+)
 from app.schemas.billing import (
     CheckoutRequest, CheckoutResponse, SubscriptionOut, CardOut,
 )
@@ -74,15 +81,22 @@ async def get_subscription(
     db: AsyncSession = Depends(get_db),
 ):
     ws = await _require_owner(workspace_id, current_user.id, db)
+    owner_id = current_user.id
+    effective = await effective_plan_for_owner(db, owner_id)
+    anchor = await billing_anchor_workspace(db, owner_id) or ws
+    owned_list = await owned_workspaces(db, owner_id)
+    shared = len(owned_list) > 1
     return SubscriptionOut(
-        plan=ws.plan,
-        provider=ws.payment_provider,
-        trial_ends_at=ws.trial_ends_at,
-        is_active=ws.is_active,
-        subscription_id=ws.subscription_id,
-        free_generations_used=ws.free_generations_used or 0,
-        card=_build_card(ws),
-        next_payment_date=ws.next_payment_date,
+        plan=effective,
+        provider=anchor.payment_provider,
+        trial_ends_at=anchor.trial_ends_at,
+        is_active=anchor.is_active,
+        subscription_id=anchor.subscription_id,
+        free_generations_used=await total_free_generations_used_by_owner(db, owner_id),
+        card=_build_card(anchor),
+        next_payment_date=anchor.next_payment_date,
+        billing_workspace_id=anchor.id,
+        subscription_covers_owned_workspaces=shared and effective in ("starter", "smb", "pro"),
     )
 
 
@@ -97,19 +111,20 @@ async def create_checkout(
         raise HTTPException(status_code=400, detail=f"Invalid plan: {body.plan}")
 
     ws = await _require_owner(body.workspace_id, current_user.id, db)
-    ws.payment_provider = "paystack"
+    target_ws = await checkout_target_workspace(db, current_user.id, ws)
+    target_ws.payment_provider = "paystack"
     await db.flush()
 
     api_base = str(request.base_url).rstrip("/")
     callback_url = (
         f"{api_base}/api/v1/billing/webhook/paystack/verify"
-        f"?workspace={ws.id}&plan={body.plan}"
+        f"?workspace={target_ws.id}&plan={body.plan}"
     )
 
     checkout_url = await create_paystack_checkout(
         email=current_user.email,
         plan=body.plan,
-        workspace_id=ws.id,
+        workspace_id=target_ws.id,
         callback_url=callback_url,
     )
 
@@ -126,8 +141,13 @@ async def remove_card(
     """
     Remove the saved card and cancel the active subscription.
     The user can re-subscribe at any time.
+    For owners with multiple workspaces, this applies to the workspace that holds the subscription.
     """
-    ws = await _require_owner(workspace_id, current_user.id, db)
+    await _require_owner(workspace_id, current_user.id, db)
+    anchor = await billing_anchor_workspace(db, current_user.id)
+    if not anchor:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    ws = anchor
 
     # Cancel Paystack subscription (best effort)
     if ws.subscription_id:
@@ -158,8 +178,13 @@ async def cancel_subscription(
     """
     Cancel the subscription but keep the saved card on file.
     The user can re-subscribe with one click using the saved card.
+    For owners with multiple workspaces, this applies to the workspace that holds the subscription.
     """
-    ws = await _require_owner(workspace_id, current_user.id, db)
+    await _require_owner(workspace_id, current_user.id, db)
+    anchor = await billing_anchor_workspace(db, current_user.id)
+    if not anchor:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    ws = anchor
     if ws.plan not in ("starter", "smb", "pro"):
         raise HTTPException(status_code=400, detail="No active subscription to cancel")
 
