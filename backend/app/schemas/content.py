@@ -1,4 +1,4 @@
-from pydantic import BaseModel, computed_field
+from pydantic import BaseModel, Field, computed_field
 from datetime import datetime, date
 from app.models.content import ContentStatus, ContentPlatform, ContentFormat
 
@@ -16,6 +16,8 @@ class GenerateMonthRequest(BaseModel):
     include_holidays_in_content: bool = True
     # Optional notes from the calendar prep chat (product updates, screenshots described, etc.)
     generation_brief: str | None = None
+    # Set true after the UI confirms generating again for a month that already has posts.
+    confirm_duplicate: bool = False
 
 
 class GenerationPrepMessage(BaseModel):
@@ -28,6 +30,39 @@ class GenerationPrepChatRequest(BaseModel):
     month: int
     year: int
     messages: list[GenerationPrepMessage]
+
+
+class PrepChatChoice(BaseModel):
+    id: str
+    label: str
+
+
+class PrepChatDesignIntent(BaseModel):
+    """Structured hint from the prep model so the UI can offer a one-click visual refresh."""
+
+    action: str = "none"  # none | regenerate_visuals
+    scope: str = "none"  # none | selected | month
+    reason: str | None = None
+
+
+class GenerationPrepChatResponse(BaseModel):
+    message: str
+    choices: list[PrepChatChoice] = Field(default_factory=list)
+    design_intent: PrepChatDesignIntent | None = None
+
+
+class PrepExecuteVisualRequest(BaseModel):
+    brand_id: str
+    month: int
+    year: int
+    content_ids: list[str]
+    mode: str = "same_archetype"
+    new_archetype: str | None = None
+
+
+class PrepExecuteVisualResponse(BaseModel):
+    updated_ids: list[str] = Field(default_factory=list)
+    errors: list[dict] = Field(default_factory=list)
 
 
 class BrandFormCoachMessage(BaseModel):

@@ -47,6 +47,10 @@ export default function AdminTrendsPage() {
 
   return (
     <AdminLayout>
+      <div className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/90 leading-relaxed">
+        This screen is a <strong className="text-amber-50">local preview only</strong>. Rows are not persisted to the
+        database. Live trends for customers are generated in-app per brand.
+      </div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-white">Trends</h1>

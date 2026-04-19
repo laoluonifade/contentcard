@@ -313,16 +313,21 @@ export default function DashboardPage() {
                 ? <p className="text-ink/30 text-sm">No upcoming posts in the next 7 days.</p>
                 : upcoming.map(post => {
                     const d = parseLocalDate(post.scheduled_date)
+                    const cover = post.image_url || post.image_urls?.[0]
                     return (
                       <div key={post.id}
                         className="flex items-center gap-3 py-2.5 border-b border-fog last:border-0 cursor-pointer hover:opacity-70 transition-opacity"
                         onClick={() => navigate('/dashboard/calendar')}>
+                        {cover ? (
+                          <img src={cover} alt="" className="w-11 h-11 rounded-xl object-cover border border-fog flex-shrink-0 bg-mist" />
+                        ) : (
                         <div className="w-9 h-9 rounded-xl flex flex-col items-center justify-center flex-shrink-0 bg-mist">
                           {d && <>
                             <span className="text-ink/40 text-[8px] font-semibold uppercase">{d.toLocaleString('default', { month: 'short' })}</span>
                             <span className="text-ink text-xs font-bold leading-none">{d.getDate()}</span>
                           </>}
                         </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="text-ink text-xs font-medium truncate">{post.topic}</p>
                           <p className="text-ink/40 text-[10px] mt-0.5 capitalize">{post.platform} · {post.format}</p>

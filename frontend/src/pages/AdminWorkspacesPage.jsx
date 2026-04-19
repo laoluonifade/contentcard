@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Search, X, RefreshCw, CreditCard } from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
 import { adminApi } from '../api'
+import { formatAdminApiError } from '../lib/adminApiError'
 
 const PLAN_STYLE = {
   trial: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
@@ -10,18 +11,6 @@ const PLAN_STYLE = {
   pro: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
   business: 'bg-brand-500/10 text-brand-400 border border-brand-500/20',
   enterprise: 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20',
-}
-
-function formatApiError(err) {
-  const status = err.response?.status
-  const d = err.response?.data?.detail
-  if (status === 404 && (d === 'Not Found' || !d)) {
-    return 'API route not found (404). Redeploy backend with admin billing routes, or set VITE_API_URL to include /api/v1, e.g. https://your-backend.onrender.com/api/v1'
-  }
-  if (!d) return err.message || 'Request failed'
-  if (typeof d === 'string') return d
-  if (Array.isArray(d)) return d.map((x) => x.msg || JSON.stringify(x)).join('; ')
-  return String(d)
 }
 
 export default function AdminWorkspacesPage() {
@@ -35,15 +24,19 @@ export default function AdminWorkspacesPage() {
   const [workspaces, setWorkspaces] = useState([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
 
   const loadWorkspaces = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       const data = await adminApi.workspaces({ limit: 100 })
       setWorkspaces(data.workspaces || [])
       setTotal(data.total || 0)
-    } catch {
+    } catch (e) {
       setWorkspaces([])
+      setTotal(0)
+      setLoadError(formatAdminApiError(e))
     } finally {
       setLoading(false)
     }
@@ -80,7 +73,7 @@ export default function AdminWorkspacesPage() {
         setReconcileMessage(null)
       }, 1200)
     } catch (err) {
-      setReconcileMessage({ type: 'err', text: formatApiError(err) })
+      setReconcileMessage({ type: 'err', text: formatAdminApiError(err) })
     } finally {
       setReconcileBusy(false)
     }
@@ -121,6 +114,10 @@ export default function AdminWorkspacesPage() {
           </div>
         </div>
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{loadError}</div>
+      )}
 
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden overflow-x-auto">
         {loading ? (

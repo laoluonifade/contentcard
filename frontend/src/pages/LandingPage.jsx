@@ -208,7 +208,7 @@ export default function LandingPage() {
 
       {/* ── Nav ── */}
       <nav className="sticky top-0 z-50 border-b border-white/5 bg-ink/90 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link to="/"><LogoFull size={26} dark /></Link>
           <div className="hidden md:flex items-center gap-7">
             {[['Product', '/features'], ['Solutions', '/solutions/agencies'], ['Enterprise', '/enterprise'], ['Pricing', '/pricing']].map(([l, h]) => (
@@ -229,18 +229,18 @@ export default function LandingPage() {
           <div className="absolute top-0 right-0 w-[700px] h-[700px] rounded-full bg-brand-600/10 blur-[160px]" />
           <div className="absolute bottom-0 left-0 w-[400px] h-[400px] rounded-full bg-teal/5 blur-[120px]" />
         </div>
-        <div className="relative max-w-7xl mx-auto px-6 pt-16 pb-0 grid lg:grid-cols-2 gap-12 items-center">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-0 grid lg:grid-cols-2 gap-8 sm:gap-12 items-center">
 
           {/* Left */}
           <div className="py-12 lg:py-20">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500/10 border border-brand-500/20 rounded-full text-brand-400 text-xs font-bold uppercase tracking-widest mb-8">
               <Zap size={10} /> Trusted by 500+ enterprise marketing teams
             </div>
-            <h1 className="text-5xl lg:text-6xl font-bold leading-[1.05] mb-6" style={{ letterSpacing: '-0.03em' }}>
+            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] mb-6" style={{ letterSpacing: '-0.03em' }}>
               Social content that<br />performs, generated<br />
               <span className="text-brand-400">in seconds.</span>
             </h1>
-            <p className="text-lg text-white/50 mb-10 leading-relaxed max-w-lg">
+            <p className="text-base sm:text-lg text-white/50 mb-10 leading-relaxed max-w-lg">
               ContentCard gives marketing teams, agencies, and growing brands a complete system to plan, generate, and publish on-brand content, without the overhead of agencies or additional headcount.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
@@ -313,7 +313,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Logo bar ── */}
-      <section className="border-y border-white/5 bg-white/[0.015] py-10 px-6">
+      <section className="border-y border-white/5 bg-white/[0.015] py-10 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
           <p className="text-white/25 text-xs font-bold uppercase tracking-widest text-center mb-8">Trusted by content teams at Africa's leading organisations</p>
           <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-5">
@@ -325,7 +325,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── ROI Stats (Hootsuite-style) ── */}
-      <section className="py-24 px-6">
+      <section className="py-20 sm:py-24 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Proven business impact</div>
@@ -351,7 +351,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Features (alternating) ── */}
-      <section id="features" className="py-8 px-6 border-t border-white/5">
+      <section id="features" className="py-8 px-4 sm:px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto space-y-32 py-16">
           {FEATURES.map(({ badge, title, body, bullets, side }, idx) => {
             const Mockup = MOCKUPS[side]
@@ -393,7 +393,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Testimonials ── */}
-      <section className="py-24 px-6 border-t border-white/5 bg-white/[0.01]">
+      <section className="py-20 sm:py-24 px-4 sm:px-6 border-t border-white/5 bg-white/[0.01]">
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">From the people using it</div>
@@ -432,7 +432,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Enterprise ── */}
-      <section id="enterprise" className="py-24 px-6 border-t border-white/5">
+      <section id="enterprise" className="py-20 sm:py-24 px-4 sm:px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto">
           <div className="rounded-3xl border border-brand-500/20 bg-brand-500/5 overflow-hidden">
             <div className="grid lg:grid-cols-2 gap-0">
@@ -488,7 +488,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Pricing ── */}
-      <section id="pricing" className="py-24 px-6 border-t border-white/5">
+      <section id="pricing" className="py-20 sm:py-24 px-4 sm:px-6 border-t border-white/5">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-14">
             <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Pricing</div>
@@ -523,7 +523,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Final CTA ── */}
-      <section className="py-0 px-6 border-t border-white/5">
+      <section className="py-0 px-4 sm:px-6 border-t border-white/5">
         <div className="max-w-7xl mx-auto">
           <div className="rounded-3xl overflow-hidden relative">
             <img
@@ -554,7 +554,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Footer ── */}
-      <footer className="border-t border-white/5 py-12 px-6 mt-24">
+      <footer className="border-t border-white/5 py-12 px-4 sm:px-6 mt-24">
         <div className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>

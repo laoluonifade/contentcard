@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.db.database import get_db
 from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.models.user import User
@@ -15,6 +15,11 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "workspace"
+
+
+async def count_owned_workspaces(db: AsyncSession, user_id: str) -> int:
+    r = await db.execute(select(func.count()).select_from(Workspace).where(Workspace.owner_id == user_id))
+    return int(r.scalar() or 0)
 
 
 async def ensure_unique_slug(db: AsyncSession, base: str) -> str:
@@ -45,6 +50,24 @@ async def create_workspace(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    owned = await count_owned_workspaces(db, current_user.id)
+    if not getattr(current_user, "agency_mode", False):
+        if owned >= 1:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Enable agency mode in Settings → Company to create additional workspaces "
+                    "for different client companies. Each workspace has its own brands and brand kits."
+                ),
+            )
+    else:
+        cap = settings.AGENCY_MAX_OWNED_WORKSPACES
+        if owned >= cap:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximum of {cap} owned workspaces reached. Contact support if you need more.",
+            )
+
     slug = await ensure_unique_slug(db, slugify(body.name))
     ws = Workspace(
         name=body.name,
