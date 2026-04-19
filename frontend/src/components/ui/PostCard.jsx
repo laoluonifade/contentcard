@@ -3,8 +3,6 @@ import { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 're
 const W = 1080
 const H = 1080
 const PAD = 72  // left/right padding
-const PLAT_LABEL = { instagram: 'Instagram', facebook: 'Facebook', twitter: 'Twitter/X' }
-const PLAT_COLOR = { instagram: '#E1306C', facebook: '#1877F2', twitter: '#1DA1F2' }
 
 // ── Colour helpers ─────────────────────────────────────────────────────────
 
@@ -47,7 +45,6 @@ function wrapText(ctx, text, maxW) {
   return lines
 }
 
-// Returns bottom Y after drawing
 function drawWrapped(ctx, text, x, y, maxW, lineH, maxLines=99) {
   const lines = wrapText(ctx, text, maxW).slice(0, maxLines)
   lines.forEach((l, i) => ctx.fillText(l.trim(), x, y + i * lineH))
@@ -78,27 +75,9 @@ function loadImage(url) {
   })
 }
 
-// ── Organic shapes (flat crisp blobs, no blur) ────────────────────────────
-
-function drawBlob(ctx, cx, cy, rx, ry, color, opacity=1) {
-  ctx.save()
-  ctx.globalAlpha = opacity
-  ctx.fillStyle = color
-  ctx.beginPath()
-  // Smooth organic blob via bezier approximation of ellipse
-  const kx = rx * 0.552, ky = ry * 0.552
-  ctx.moveTo(cx, cy - ry)
-  ctx.bezierCurveTo(cx+kx, cy-ry, cx+rx, cy-ky, cx+rx, cy)
-  ctx.bezierCurveTo(cx+rx, cy+ky, cx+kx, cy+ry, cx, cy+ry)
-  ctx.bezierCurveTo(cx-kx, cy+ry, cx-rx, cy+ky, cx-rx, cy)
-  ctx.bezierCurveTo(cx-rx, cy-ky, cx-kx, cy-ry, cx, cy-ry)
-  ctx.closePath()
-  ctx.fill()
-  ctx.restore()
-}
+// ── Organic shapes ────────────────────────────────────────────────────────
 
 function drawOrganicBlob(ctx, cx, cy, r, color, opacity=1, seed=0) {
-  // Slightly irregular blob using randomised radii
   ctx.save()
   ctx.globalAlpha = opacity
   ctx.fillStyle = color
@@ -149,239 +128,11 @@ function buildSlides(post) {
   ].slice(0, count)
 }
 
-// ── COVER slide renderer ───────────────────────────────────────────────────
-// Solid brand color bg, giant headline top-left, decorative shapes bottom half
-
-function renderCover(ctx, post, slide, brand, platLabel, platColor, totalSlides) {
-  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
-  const accentColor = brand?.colors?.[1] || lighten(brandColor, 0.3)
-  const light = isLight(brandColor)
-  const textColor = light ? '#111111' : '#ffffff'
-  const mutedColor = light ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.65)'
-  const shapeColor = light ? darken(brandColor, 0.12) : lighten(brandColor, 0.12)
-  const ff = `'Inter', system-ui, -apple-system, sans-serif`
-
-  // ── Background
-  ctx.fillStyle = brandColor
-  ctx.fillRect(0, 0, W, H)
-
-  // ── Decorative shapes bottom half (flat, same hue, slightly different shade)
-  const seed = Math.abs(hashStr(post?.id || 'x'))
-  const shapes = [
-    { cx: W * 0.85, cy: H * 0.82, r: 310 },
-    { cx: W * 0.15, cy: H * 0.92, r: 220 },
-    { cx: W * 0.6,  cy: H * 1.05, r: 280 },
-    { cx: W * 0.92, cy: H * 0.58, r: 160 },
-  ]
-  shapes.forEach((s, i) => {
-    const c = i % 2 === 0 ? shapeColor : (light ? lighten(brandColor, 0.1) : darken(brandColor, 0.1))
-    drawOrganicBlob(ctx, s.cx, s.cy, s.r, c, 0.6, seed + i)
-  })
-
-  // ── Brand name top-left
-  ctx.font = `600 28px ${ff}`
-  ctx.fillStyle = mutedColor
-  ctx.fillText((brand?.name || 'Your Brand').toUpperCase(), PAD, PAD + 28)
-
-  // ── Platform badge top-right
-  drawPlatBadge(ctx, platLabel, platColor, W - PAD, PAD, ff)
-
-  // ── Giant headline
-  const headline = slide.topic || 'Untitled'
-  const headSize = headline.length > 40 ? 90 : headline.length > 25 ? 108 : 126
-  ctx.font = `900 ${headSize}px ${ff}`
-  ctx.fillStyle = textColor
-  const headY = PAD + 100
-  const bottomY = drawWrapped(ctx, headline, PAD, headY, W - PAD * 2, headSize * 1.1, 4)
-
-  // ── Subtitle (caption first sentence)
-  const firstSentence = (slide.body || post?.caption || '')
-    .split(/[.!?]/)[0]
-    .trim()
-    .slice(0, 100)
-  if (firstSentence) {
-    ctx.font = `400 38px ${ff}`
-    ctx.fillStyle = mutedColor
-    drawWrapped(ctx, firstSentence, PAD, bottomY + 32, W - PAD * 2, 52, 2)
-  }
-
-  // ── Swipe pill bottom-left
-  const pillLabel = totalSlides > 1 ? 'Swipe →' : ''
-  if (pillLabel) {
-    ctx.save()
-    ctx.font = `600 28px ${ff}`
-    const tw = ctx.measureText(pillLabel).width
-    const pw = tw + 52, ph = 60, px = PAD, py = H - PAD - ph
-    ctx.fillStyle = light ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.22)'
-    rrect(ctx, px, py, pw, ph, 30)
-    ctx.fill()
-    ctx.fillStyle = textColor
-    ctx.fillText(pillLabel, px + 26, py + 39)
-    ctx.restore()
-  }
-
-  // ── Slide counter badge top-right (below plat badge)
-  if (totalSlides > 1) {
-    drawSlideBadge(ctx, 1, totalSlides, W - PAD, PAD + 58, ff)
-  }
-}
-
-// ── CONTENT slide renderer ─────────────────────────────────────────────────
-// White/cream bg, thick accent border, headline in brand color, dark body text
-
-function renderContent(ctx, post, slide, brand, platLabel, platColor, slideIdx, totalSlides) {
-  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
-  const accentColor = brand?.colors?.[1] || darken(brandColor, 0.1)
-  const ff = `'Inter', system-ui, -apple-system, sans-serif`
-
-  const BORDER = 28
-
-  // ── Cream/white background
-  ctx.fillStyle = '#f5f3ef'
-  ctx.fillRect(0, 0, W, H)
-
-  // ── Thick accent border
-  ctx.fillStyle = brandColor
-  ctx.fillRect(0, 0, W, BORDER)           // top
-  ctx.fillRect(0, H - BORDER, W, BORDER)  // bottom
-  ctx.fillRect(0, 0, BORDER, H)           // left
-  ctx.fillRect(W - BORDER, 0, BORDER, H)  // right
-
-  // ── Brand name top-left (inside border)
-  ctx.font = `600 26px ${ff}`
-  ctx.fillStyle = alpha(brandColor, 0.7)
-  ctx.fillText((brand?.name || 'Your Brand').toUpperCase(), PAD, BORDER + 54)
-
-  // ── Slide counter badge top-right
-  drawSlideBadge(ctx, slideIdx + 1, totalSlides, W - PAD, BORDER + 28, ff)
-
-  if (slide.isCTA) {
-    // CTA slide — centered content
-    const mid = H / 2
-    ctx.font = `900 80px ${ff}`
-    ctx.fillStyle = brandColor
-    ctx.textAlign = 'center'
-    const lines = wrapText(ctx, slide.topic || 'Follow for more', W - PAD * 2)
-    lines.slice(0, 3).forEach((l, i) => ctx.fillText(l.trim(), W / 2, mid - 60 + i * 96))
-
-    ctx.font = `400 36px ${ff}`
-    ctx.fillStyle = 'rgba(0,0,0,0.45)'
-    ctx.fillText(slide.body || '', W / 2, mid + lines.length * 96 - 20)
-    ctx.textAlign = 'left'
-
-    // CTA button
-    const btnLabel = '→ Follow for updates'
-    ctx.font = `700 32px ${ff}`
-    const tw = ctx.measureText(btnLabel).width
-    const bw = tw + 60, bh = 68, bx = W/2 - bw/2, by = mid + 120 + lines.length * 40
-    ctx.fillStyle = brandColor
-    rrect(ctx, bx, by, bw, bh, 34)
-    ctx.fill()
-    ctx.fillStyle = isLight(brandColor) ? '#111' : '#fff'
-    ctx.textAlign = 'center'
-    ctx.fillText(btnLabel, W/2, by + 43)
-    ctx.textAlign = 'left'
-  } else {
-    // Regular content slide
-    const contentTop = BORDER + 120
-
-    // ── Large colored headline
-    const headline = slide.topic || ''
-    ctx.font = `800 74px ${ff}`
-    ctx.fillStyle = brandColor
-    const headBottom = drawWrapped(ctx, headline, PAD, contentTop, W - PAD * 2, 88, 3)
-
-    // ── Thin accent rule under headline
-    ctx.fillStyle = accentColor
-    ctx.fillRect(PAD, headBottom + 12, 80, 5)
-
-    // ── Body text in dark
-    if (slide.body) {
-      ctx.font = `400 40px ${ff}`
-      ctx.fillStyle = 'rgba(0,0,0,0.72)'
-      drawWrapped(ctx, slide.body, PAD, headBottom + 56, W - PAD * 2, 60, 7)
-    }
-
-    // ── >> navigation arrow bottom-right
-    ctx.font = `600 40px ${ff}`
-    ctx.fillStyle = alpha(brandColor, 0.5)
-    ctx.textAlign = 'right'
-    ctx.fillText('\u00BB', W - PAD, H - BORDER - 36)
-    ctx.textAlign = 'left'
-  }
-
-  // ── Brand website bottom-center
-  if (brand?.website) {
-    ctx.font = `400 22px ${ff}`
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'
-    ctx.textAlign = 'center'
-    ctx.fillText(brand.website.replace(/^https?:\/\//, ''), W / 2, H - BORDER - 28)
-    ctx.textAlign = 'left'
-  }
-}
-
-// ── QUOTE slide renderer ───────────────────────────────────────────────────
-// Used for single "quote" format posts
-
-function renderQuote(ctx, post, slide, brand, platLabel, platColor) {
-  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
-  const light = isLight(brandColor)
-  const textColor = light ? '#111111' : '#ffffff'
-  const ff = `'Inter', system-ui, -apple-system, sans-serif`
-  const BORDER = 28
-
-  ctx.fillStyle = brandColor
-  ctx.fillRect(0, 0, W, H)
-
-  // Border inset
-  ctx.fillStyle = light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)'
-  ctx.fillRect(BORDER*2, BORDER*2, W - BORDER*4, H - BORDER*4)
-  ctx.fillStyle = brandColor
-  ctx.fillRect(BORDER*2+4, BORDER*2+4, W - BORDER*4 - 8, H - BORDER*4 - 8)
-
-  // Giant quote mark
-  ctx.font = `900 320px Georgia, serif`
-  ctx.fillStyle = light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.08)'
-  ctx.fillText('\u201C', PAD - 24, PAD + 260)
-
-  // Brand name
-  ctx.font = `600 28px ${ff}`
-  ctx.fillStyle = light ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.55)'
-  ctx.fillText((brand?.name || 'Your Brand').toUpperCase(), PAD, H - PAD - 24)
-
-  // Quote text centered vertically
-  const quote = slide.topic || slide.body || post?.caption || ''
-  ctx.font = `700 72px ${ff}`
-  ctx.fillStyle = textColor
-  const lines = wrapText(ctx, quote, W - PAD * 2.5).slice(0, 5)
-  const totalH = lines.length * 88
-  const startY = (H - totalH) / 2 + 40
-  lines.forEach((l, i) => ctx.fillText(l.trim(), PAD, startY + i * 88))
-
-  // Platform badge
-  drawPlatBadge(ctx, platLabel, platColor, W - PAD, PAD, ff)
-}
-
-// ── Shared UI elements ─────────────────────────────────────────────────────
-
-function drawPlatBadge(ctx, label, color, right, top, ff) {
-  ctx.save()
-  ctx.font = `700 22px ${ff}`
-  const tw = ctx.measureText(label).width
-  const bw = tw + 44, bh = 46, bx = right - bw, by = top
-  ctx.fillStyle = color
-  ctx.globalAlpha = 0.9
-  rrect(ctx, bx, by, bw, bh, 23)
-  ctx.fill()
-  ctx.globalAlpha = 1
-  ctx.fillStyle = '#fff'
-  ctx.fillText(label, bx + 22, by + 31)
-  ctx.restore()
-}
+// ── Shared element ─────────────────────────────────────────────────────────
 
 function drawSlideBadge(ctx, current, total, right, top, ff) {
   ctx.save()
-  const label = `${current}/${total}`
+  const label = `${current} / ${total}`
   ctx.font = `600 22px ${ff}`
   const tw = ctx.measureText(label).width
   const bw = tw + 36, bh = 40, bx = right - bw, by = top
@@ -393,82 +144,79 @@ function drawSlideBadge(ctx, current, total, right, top, ff) {
   ctx.restore()
 }
 
-// ── TEMPLATE A: Overlay ────────────────────────────────────────────────────
-// Full-bleed background photo + dark gradient + large white text over bottom third.
-// Used for: cover slides with design_style 'bold' (default).
+// ──────────────────────────────────────────────────────────────────────────
+// TEMPLATE A — Overlay
+// Full-bleed photo + gradient over bottom half + headline only.
+// Design rules:
+//   • NO logo drawn on top (AI image carries the brand)
+//   • NO caption / subtitle text on the photo
+//   • NO platform badge
+//   • Headline sits in the bottom third only
+// Used for: all cover slides (single & carousel) when an AI image exists
+// ──────────────────────────────────────────────────────────────────────────
 
-async function renderOverlay(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage) {
-  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
+async function renderOverlay(ctx, post, slide, brand, totalSlides, bgImage) {
+  const brandColor = brand?.colors?.[0] || '#6C63FF'
   const ff = `'Inter', system-ui, -apple-system, sans-serif`
 
-  // Background: photo or solid brand color fallback
+  // Background
   if (bgImage) {
     const scale = Math.max(W / bgImage.naturalWidth, H / bgImage.naturalHeight)
     const iw = bgImage.naturalWidth * scale, ih = bgImage.naturalHeight * scale
     ctx.drawImage(bgImage, (W - iw) / 2, (H - ih) / 2, iw, ih)
   } else {
-    ctx.fillStyle = brandColor
+    const grad = ctx.createLinearGradient(0, 0, W, H)
+    grad.addColorStop(0, brandColor)
+    grad.addColorStop(1, darken(brandColor, 0.30))
+    ctx.fillStyle = grad
     ctx.fillRect(0, 0, W, H)
   }
 
-  // Gradient: transparent → near-black over bottom 60%
-  const grad = ctx.createLinearGradient(0, H * 0.35, 0, H)
+  // Gradient: bottom 45% only — transparent → near-black
+  const grad = ctx.createLinearGradient(0, H * 0.42, 0, H)
   grad.addColorStop(0, 'rgba(0,0,0,0)')
-  grad.addColorStop(0.45, 'rgba(0,0,0,0.52)')
-  grad.addColorStop(1, 'rgba(0,0,0,0.86)')
+  grad.addColorStop(0.38, 'rgba(0,0,0,0.48)')
+  grad.addColorStop(1, 'rgba(0,0,0,0.88)')
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, W, H)
 
-  // Logo — top left, if present
-  if (brand?.logo_url) {
-    try {
-      const logo = await loadImage(brand.logo_url)
-      const lh = 130
-      const lw = Math.min(320, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
-      ctx.drawImage(logo, PAD, PAD + 16, lw, lh)
-    } catch (_) { /* logo unavailable — skip */ }
-  }
-
-  // Headline — large, bottom area
+  // Headline — white, positioned in the lower third
   const headline = slide.topic || ''
-  const headSize = headline.length > 45 ? 76 : headline.length > 28 ? 92 : 108
+  const headSize = headline.length > 45 ? 78 : headline.length > 30 ? 96 : 114
   ctx.font = `900 ${headSize}px ${ff}`
   ctx.fillStyle = '#ffffff'
-  const headY = H * 0.54
-  const bottomY = drawWrapped(ctx, headline, PAD, headY, W - PAD * 2, headSize * 1.1, 3)
+  const headY = H * 0.60
+  drawWrapped(ctx, headline, PAD, headY, W - PAD * 2, headSize * 1.1, 3)
 
-  // Subtext — first sentence of caption
-  const sub = (slide.body || post?.caption || '').split(/[.!?]/)[0].trim().slice(0, 110)
-  if (sub) {
-    ctx.font = `400 34px ${ff}`
-    ctx.fillStyle = 'rgba(255,255,255,0.72)'
-    drawWrapped(ctx, sub, PAD, bottomY + 22, W - PAD * 2, 48, 2)
-  }
-
-  // Swipe pill — bottom left (carousel only)
+  // Swipe indicator — bottom right (carousel only, subtle pill)
   if (totalSlides > 1) {
-    const label = 'Swipe →'
-    ctx.font = `600 26px ${ff}`
+    const label = 'Swipe  →'
+    ctx.font = `500 24px ${ff}`
     const tw = ctx.measureText(label).width
-    const pw = tw + 48, ph = 52, px = PAD, py = H - PAD - ph
-    ctx.fillStyle = 'rgba(255,255,255,0.18)'
-    rrect(ctx, px, py, pw, ph, 26)
+    const pw = tw + 44, ph = 48
+    const px = W - PAD - pw, py = H - PAD - ph
+    ctx.fillStyle = 'rgba(255,255,255,0.16)'
+    rrect(ctx, px, py, pw, ph, 24)
     ctx.fill()
-    ctx.fillStyle = '#ffffff'
-    ctx.fillText(label, px + 24, py + 34)
+    ctx.fillStyle = 'rgba(255,255,255,0.85)'
+    ctx.fillText(label, px + 22, py + 31)
   }
 }
 
-// ── TEMPLATE B: Split ──────────────────────────────────────────────────────
-// Left half: solid brand color with headline and subtext.
-// Right half: photo cropped to fill the panel.
-// Used for: cover slides with design_style 'split'.
+// ──────────────────────────────────────────────────────────────────────────
+// TEMPLATE B — Split Cover
+// Left half: solid brand color + headline. Right half: photo.
+// Design rules:
+//   • Logo in left panel only (text side)
+//   • NO subtitle / caption on photo
+//   • NO platform badge
+// Used for: cover slides when brand design_style === 'split'
+// ──────────────────────────────────────────────────────────────────────────
 
-async function renderSplit(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage) {
-  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
+async function renderSplit(ctx, post, slide, brand, totalSlides, bgImage) {
+  const brandColor = brand?.colors?.[0] || '#6C63FF'
   const light = isLight(brandColor)
   const textColor = light ? '#111111' : '#ffffff'
-  const mutedColor = light ? 'rgba(0,0,0,0.52)' : 'rgba(255,255,255,0.62)'
   const ff = `'Inter', system-ui, -apple-system, sans-serif`
   const SPLIT = W / 2
 
@@ -491,117 +239,286 @@ async function renderSplit(ctx, post, slide, brand, platLabel, platColor, totalS
   ctx.fillStyle = brandColor
   ctx.fillRect(0, 0, SPLIT, H)
 
-  // Divider line
-  ctx.fillStyle = light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'
-  ctx.fillRect(SPLIT - 2, 0, 4, H)
-
-  // Logo — top left of left panel
+  // Logo — top of left panel
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
-      const lh = 110
-      const lw = Math.min(280, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
+      const lh = 100
+      const lw = Math.min(260, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
       ctx.drawImage(logo, PAD, PAD + 24, lw, lh)
-    } catch (_) { /* skip */ }
+    } catch (_) {}
+  } else if (brand?.name) {
+    ctx.font = `700 28px ${ff}`
+    ctx.fillStyle = light ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.55)'
+    ctx.fillText((brand.name).toUpperCase(), PAD, PAD + 56)
   }
 
-  // Headline — left panel, large
+  // Headline
   const headline = slide.topic || ''
-  const headSize = headline.length > 32 ? 68 : headline.length > 20 ? 82 : 96
+  const headSize = headline.length > 32 ? 68 : headline.length > 20 ? 84 : 100
   ctx.font = `900 ${headSize}px ${ff}`
   ctx.fillStyle = textColor
-  const hY = PAD + 210
-  const hBottom = drawWrapped(ctx, headline, PAD, hY, SPLIT - PAD * 1.5, headSize * 1.1, 4)
+  const hY = PAD + 200
+  drawWrapped(ctx, headline, PAD, hY, SPLIT - PAD * 1.5, headSize * 1.1, 4)
 
-  // Thin accent rule
-  ctx.fillStyle = light ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.28)'
-  ctx.fillRect(PAD, hBottom + 14, 56, 4)
-
-  // Subtext
-  const sub = (slide.body || post?.caption || '').split(/[.!?]/)[0].trim().slice(0, 120)
-  if (sub) {
-    ctx.font = `400 30px ${ff}`
-    ctx.fillStyle = mutedColor
-    drawWrapped(ctx, sub, PAD, hBottom + 42, SPLIT - PAD * 1.5, 44, 3)
-  }
-
-  // Slide counter — top right of left panel
+  // Slide counter — top-right corner (right panel)
   if (totalSlides > 1) {
-    drawSlideBadge(ctx, 1, totalSlides, SPLIT - PAD / 2, PAD, ff)
+    drawSlideBadge(ctx, 1, totalSlides, W - PAD, PAD + 28, ff)
   }
 }
 
-// ── TEMPLATE C: Editorial ──────────────────────────────────────────────────
-// Image occupies top 52% of canvas; white panel below holds headline + body.
-// Brand-color rule separates the two halves.
-// Used for: cover with design_style 'minimal'/'clean', and all content slides.
+// ──────────────────────────────────────────────────────────────────────────
+// TEMPLATE C — Carousel Body Slide
+// Clean white + brand accent — NO background image.
+// This template is intentionally image-free so the text is always crisp
+// and never competes with the AI photo already seen on the cover.
+// Design rules:
+//   • White background, brand-color bars top + bottom
+//   • Headline in brand color, body in dark gray
+//   • Logo bottom-right (only logo, no text watermark except fallback)
+//   • Slide counter top-right
+// Used for: all carousel body slides (slide index ≥ 2, not CTA)
+// ──────────────────────────────────────────────────────────────────────────
 
-async function renderEditorial(ctx, post, slide, brand, platLabel, platColor, slideIdx, totalSlides, bgImage) {
-  const brandColor = brand?.colors?.[0] || platColor || '#6C63FF'
-  const accentColor = brand?.colors?.[1] || darken(brandColor, 0.1)
+async function renderCarouselBody(ctx, post, slide, brand, slideIdx, totalSlides) {
+  const brandColor = brand?.colors?.[0] || '#6C63FF'
+  const accentColor = brand?.colors?.[1] || darken(brandColor, 0.12)
   const ff = `'Inter', system-ui, -apple-system, sans-serif`
-  const IMG_H = Math.round(H * 0.52)
+  const BAR = 18   // brand accent bar thickness
 
-  // Top: photo (cropped to fill width × IMG_H)
-  if (bgImage) {
-    ctx.save()
-    ctx.beginPath()
-    ctx.rect(0, 0, W, IMG_H)
-    ctx.clip()
-    const scale = Math.max(W / bgImage.naturalWidth, IMG_H / bgImage.naturalHeight)
-    const iw = bgImage.naturalWidth * scale, ih = bgImage.naturalHeight * scale
-    ctx.drawImage(bgImage, (W - iw) / 2, 0, iw, ih)
-    ctx.restore()
-  } else {
-    const grad = ctx.createLinearGradient(0, 0, W, IMG_H)
-    grad.addColorStop(0, brandColor)
-    grad.addColorStop(1, darken(brandColor, 0.22))
-    ctx.fillStyle = grad
-    ctx.fillRect(0, 0, W, IMG_H)
-  }
-
-  // Bottom: white
+  // White background
   ctx.fillStyle = '#ffffff'
-  ctx.fillRect(0, IMG_H, W, H - IMG_H)
+  ctx.fillRect(0, 0, W, H)
 
-  // Brand-color rule between halves
+  // Brand color top bar
   ctx.fillStyle = brandColor
-  ctx.fillRect(0, IMG_H, W, 6)
+  ctx.fillRect(0, 0, W, BAR)
 
-  const textTop = IMG_H + 56
+  // Brand color bottom bar
+  ctx.fillStyle = brandColor
+  ctx.fillRect(0, H - BAR, W, BAR)
 
-  // Headline in brand color
+  // Subtle brand-tinted rectangle — top-right decoration
+  ctx.fillStyle = alpha(brandColor, 0.06)
+  ctx.fillRect(W - 220, BAR, 220, 220)
+
+  // Subtle brand-tinted rectangle — bottom-left decoration
+  ctx.fillStyle = alpha(brandColor, 0.04)
+  ctx.fillRect(0, H - BAR - 180, 200, 180)
+
+  // Slide counter pill — top-right
+  ctx.save()
+  const countLabel = `${slideIdx + 1}  /  ${totalSlides}`
+  ctx.font = `500 24px ${ff}`
+  const tw = ctx.measureText(countLabel).width
+  const bw = tw + 40, bh = 46, bx = W - PAD - bw, by = BAR + PAD * 0.75
+  ctx.fillStyle = alpha(brandColor, 0.10)
+  rrect(ctx, bx, by, bw, bh, 23)
+  ctx.fill()
+  ctx.fillStyle = brandColor
+  ctx.fillText(countLabel, bx + 20, by + 31)
+  ctx.restore()
+
+  // Large headline in brand color
   const headline = slide.topic || ''
-  const headSize = headline.length > 45 ? 60 : headline.length > 28 ? 72 : 84
+  const headSize = headline.length > 48 ? 68 : headline.length > 30 ? 84 : 100
   ctx.font = `800 ${headSize}px ${ff}`
   ctx.fillStyle = brandColor
-  const hBottom = drawWrapped(ctx, headline, PAD, textTop, W - PAD * 2, headSize * 1.12, 3)
+  const headLeft = PAD
+  const headTop = BAR + PAD + 80
+  const hBottom = drawWrapped(ctx, headline, headLeft, headTop, W - PAD * 2, headSize * 1.13, 3)
 
-  // Accent rule
-  ctx.fillStyle = accentColor
-  ctx.fillRect(PAD, hBottom + 12, 60, 4)
+  // Thin accent rule under headline
+  ctx.fillStyle = alpha(accentColor, 0.45)
+  ctx.fillRect(headLeft, hBottom + 18, 80, 5)
 
   // Body text
   if (slide.body) {
-    ctx.font = `400 36px ${ff}`
-    ctx.fillStyle = 'rgba(0,0,0,0.64)'
-    drawWrapped(ctx, slide.body, PAD, hBottom + 46, W - PAD * 2, 54, 4)
+    ctx.font = `400 40px ${ff}`
+    ctx.fillStyle = 'rgba(0,0,0,0.65)'
+    drawWrapped(ctx, slide.body, headLeft, hBottom + 62, W - PAD * 2, 62, 7)
   }
 
-  // Logo — bottom right of white panel
+  // Logo — bottom-right (above bottom bar)
   if (brand?.logo_url) {
     try {
       const logo = await loadImage(brand.logo_url)
-      const lh = 110
-      const lw = Math.min(280, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
-      ctx.drawImage(logo, W - PAD - lw, H - PAD - lh, lw, lh)
-    } catch (_) { /* skip */ }
+      const lh = 88
+      const lw = Math.min(220, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
+      ctx.drawImage(logo, W - PAD - lw, H - BAR - PAD - lh, lw, lh)
+    } catch (_) {}
+  } else if (brand?.name) {
+    ctx.font = `600 26px ${ff}`
+    ctx.fillStyle = alpha(brandColor, 0.40)
+    ctx.textAlign = 'right'
+    ctx.fillText((brand.name || '').toUpperCase(), W - PAD, H - BAR - PAD)
+    ctx.textAlign = 'left'
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// TEMPLATE D — Carousel CTA Slide
+// Solid brand color, centered CTA text, logo centered.
+// Used for: last slide of any carousel format
+// ──────────────────────────────────────────────────────────────────────────
+
+async function renderCarouselCTA(ctx, post, slide, brand) {
+  const brandColor = brand?.colors?.[0] || '#6C63FF'
+  const light = isLight(brandColor)
+  const textColor = light ? '#111111' : '#ffffff'
+  const mutedColor = light ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.65)'
+  const ff = `'Inter', system-ui, -apple-system, sans-serif`
+
+  ctx.fillStyle = brandColor
+  ctx.fillRect(0, 0, W, H)
+
+  // Decorative blobs
+  const seed = Math.abs(hashStr(post?.id || 'x'))
+  drawOrganicBlob(ctx, W * 0.88, H * 0.18, 280, light ? darken(brandColor, 0.14) : lighten(brandColor, 0.12), 0.55, seed)
+  drawOrganicBlob(ctx, W * 0.12, H * 0.82, 240, light ? darken(brandColor, 0.10) : lighten(brandColor, 0.09), 0.45, seed + 3)
+
+  const mid = H / 2
+
+  // Logo — above main text
+  let logoBottom = mid - 120
+  if (brand?.logo_url) {
+    try {
+      const logo = await loadImage(brand.logo_url)
+      const lh = 120
+      const lw = Math.min(300, Math.round((logo.naturalWidth / logo.naturalHeight) * lh))
+      ctx.drawImage(logo, W / 2 - lw / 2, mid - 280, lw, lh)
+      logoBottom = mid - 280 + lh + 24
+    } catch (_) {}
   }
 
-  // Slide counter
+  // Main CTA headline
+  ctx.font = `900 96px ${ff}`
+  ctx.fillStyle = textColor
+  ctx.textAlign = 'center'
+  const lines = wrapText(ctx, slide.topic || 'Save this post', W - PAD * 2)
+  const lineH = 108
+  const blockH = lines.length * lineH
+  const textStartY = Math.max(logoBottom + 24, mid - blockH / 2)
+  lines.slice(0, 3).forEach((l, i) => ctx.fillText(l.trim(), W / 2, textStartY + i * lineH))
+
+  // Sub text
+  ctx.font = `400 42px ${ff}`
+  ctx.fillStyle = mutedColor
+  ctx.fillText(slide.body || 'Follow for more', W / 2, textStartY + lines.length * lineH + 40)
+
+  // CTA button
+  const btnLabel = '→ Follow for updates'
+  ctx.font = `600 34px ${ff}`
+  const bw = ctx.measureText(btnLabel).width + 68, bh = 72
+  const bx = W / 2 - bw / 2, by = textStartY + lines.length * lineH + 120
+  ctx.fillStyle = light ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.20)'
+  rrect(ctx, bx, by, bw, bh, 36)
+  ctx.fill()
+  ctx.fillStyle = textColor
+  ctx.fillText(btnLabel, W / 2, by + 46)
+  ctx.textAlign = 'left'
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// FALLBACK — Cover (no AI image)
+// Solid brand color, decorative shapes, large headline.
+// ──────────────────────────────────────────────────────────────────────────
+
+function renderCover(ctx, post, slide, brand, totalSlides) {
+  const brandColor = brand?.colors?.[0] || '#6C63FF'
+  const light = isLight(brandColor)
+  const textColor = light ? '#111111' : '#ffffff'
+  const mutedColor = light ? 'rgba(0,0,0,0.55)' : 'rgba(255,255,255,0.65)'
+  const shapeColor = light ? darken(brandColor, 0.12) : lighten(brandColor, 0.12)
+  const ff = `'Inter', system-ui, -apple-system, sans-serif`
+
+  ctx.fillStyle = brandColor
+  ctx.fillRect(0, 0, W, H)
+
+  const seed = Math.abs(hashStr(post?.id || 'x'))
+  const shapes = [
+    { cx: W * 0.85, cy: H * 0.82, r: 310 },
+    { cx: W * 0.15, cy: H * 0.92, r: 220 },
+    { cx: W * 0.6,  cy: H * 1.05, r: 280 },
+    { cx: W * 0.92, cy: H * 0.58, r: 160 },
+  ]
+  shapes.forEach((s, i) => {
+    const c = i % 2 === 0 ? shapeColor : (light ? lighten(brandColor, 0.1) : darken(brandColor, 0.1))
+    drawOrganicBlob(ctx, s.cx, s.cy, s.r, c, 0.6, seed + i)
+  })
+
+  // Giant headline — starts high
+  const headline = slide.topic || 'Untitled'
+  const headSize = headline.length > 40 ? 90 : headline.length > 25 ? 108 : 126
+  ctx.font = `900 ${headSize}px ${ff}`
+  ctx.fillStyle = textColor
+  const headY = PAD + 80
+  drawWrapped(ctx, headline, PAD, headY, W - PAD * 2, headSize * 1.1, 4)
+
+  // Swipe pill — bottom left (carousel only)
   if (totalSlides > 1) {
-    drawSlideBadge(ctx, slideIdx + 1, totalSlides, W - PAD, IMG_H + 32, ff)
+    const label = 'Swipe  →'
+    ctx.font = `600 26px ${ff}`
+    const tw = ctx.measureText(label).width
+    const pw = tw + 48, ph = 56, px = PAD, py = H - PAD - ph
+    ctx.fillStyle = light ? 'rgba(0,0,0,0.14)' : 'rgba(255,255,255,0.18)'
+    rrect(ctx, px, py, pw, ph, 28)
+    ctx.fill()
+    ctx.fillStyle = textColor
+    ctx.fillText(label, px + 24, py + 36)
   }
+
+  // Brand watermark — bottom right, subtle
+  if (brand?.name) {
+    ctx.font = `500 24px ${ff}`
+    ctx.fillStyle = mutedColor
+    ctx.textAlign = 'right'
+    ctx.fillText((brand.name || '').toUpperCase(), W - PAD, H - PAD)
+    ctx.textAlign = 'left'
+  }
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// FALLBACK — Quote (no AI image)
+// Brand color bg, giant quote mark, centered quote text
+// ──────────────────────────────────────────────────────────────────────────
+
+function renderQuote(ctx, post, slide, brand) {
+  const brandColor = brand?.colors?.[0] || '#6C63FF'
+  const light = isLight(brandColor)
+  const textColor = light ? '#111111' : '#ffffff'
+  const ff = `'Inter', system-ui, -apple-system, sans-serif`
+  const BORDER = 28
+
+  ctx.fillStyle = brandColor
+  ctx.fillRect(0, 0, W, H)
+
+  // Border inset
+  ctx.fillStyle = light ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.12)'
+  ctx.fillRect(BORDER*2, BORDER*2, W - BORDER*4, H - BORDER*4)
+  ctx.fillStyle = brandColor
+  ctx.fillRect(BORDER*2+4, BORDER*2+4, W - BORDER*4 - 8, H - BORDER*4 - 8)
+
+  // Giant decorative quote mark
+  ctx.font = `900 320px Georgia, serif`
+  ctx.fillStyle = light ? 'rgba(0,0,0,0.07)' : 'rgba(255,255,255,0.08)'
+  ctx.fillText('\u201C', PAD - 24, PAD + 260)
+
+  // Brand watermark bottom-left
+  if (brand?.name) {
+    ctx.font = `600 28px ${ff}`
+    ctx.fillStyle = light ? 'rgba(0,0,0,0.5)' : 'rgba(255,255,255,0.55)'
+    ctx.fillText((brand.name || '').toUpperCase(), PAD, H - PAD - 24)
+  }
+
+  // Quote text — centered vertically
+  const quote = slide.topic || slide.body || post?.caption || ''
+  ctx.font = `700 72px ${ff}`
+  ctx.fillStyle = textColor
+  const lines = wrapText(ctx, quote, W - PAD * 2.5).slice(0, 5)
+  const totalH = lines.length * 88
+  const startY = (H - totalH) / 2 + 40
+  lines.forEach((l, i) => ctx.fillText(l.trim(), PAD, startY + i * 88))
 }
 
 // ── Master render function ─────────────────────────────────────────────────
@@ -614,57 +531,55 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
   const slides = buildSlides(post)
   const slide = slides[Math.min(slideIndex, slides.length - 1)]
   const totalSlides = slides.length
-  const platLabel = PLAT_LABEL[post?.platform] || post?.platform || ''
-  const platColor = PLAT_COLOR[post?.platform] || '#6C63FF'
   const format = post?.format || 'single'
 
-  // Load DALL-E background if available.
-  // post.image_url holds the raw background; post.image_urls holds Bannerbear
-  // final renders (never used here — PostCard shows those as <img> directly).
-  // Only slide 0 gets the background; content slides use plain brand-color fills.
-  const bgUrl = post?.image_url || null
+  // Load AI background — only for cover slides (slide 0).
+  // Body slides use the clean text-only renderCarouselBody template.
+  const bgUrl = (slide.isCover || format === 'quote') ? (post?.image_url || null) : null
   let bgImage = null
   if (bgUrl) {
-    try { bgImage = await loadImage(bgUrl) } catch (_) { /* fallback */ }
+    try { bgImage = await loadImage(bgUrl) } catch (_) {}
   }
 
   const designStyle = brand?.design_style || 'bold'
 
-  if (bgImage) {
-    // ── Image-backed template routing ──────────────────────────────────────
-    if (format === 'quote' || slide.isCTA) {
-      // Quotes and CTAs always use Overlay (text over full-bleed photo)
-      await renderOverlay(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage)
-    } else if (slide.isCover) {
-      if (designStyle === 'minimal' || designStyle === 'clean') {
-        await renderEditorial(ctx, post, slide, brand, platLabel, platColor, slideIndex, totalSlides, bgImage)
-      } else if (designStyle === 'split') {
-        await renderSplit(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage)
+  // ── CTA slide — always the clean brand-color template
+  if (slide.isCTA) {
+    await renderCarouselCTA(ctx, post, slide, brand)
+    return
+  }
+
+  // ── Quote format
+  if (format === 'quote') {
+    if (bgImage) {
+      await renderOverlay(ctx, post, slide, brand, totalSlides, bgImage)
+    } else {
+      renderQuote(ctx, post, slide, brand)
+    }
+    return
+  }
+
+  // ── Cover slide
+  if (slide.isCover) {
+    if (bgImage) {
+      if (designStyle === 'split') {
+        await renderSplit(ctx, post, slide, brand, totalSlides, bgImage)
       } else {
-        // 'bold' and all other styles → Overlay
-        await renderOverlay(ctx, post, slide, brand, platLabel, platColor, totalSlides, bgImage)
+        // 'bold', 'minimal', 'clean', 'editorial', and all others → Overlay
+        // Gives the AI photo maximum impact; text in lower third only
+        await renderOverlay(ctx, post, slide, brand, totalSlides, bgImage)
       }
     } else {
-      // Content slides always use Editorial regardless of design_style
-      // (keeps body copy readable — white panel, no competing photo)
-      await renderEditorial(ctx, post, slide, brand, platLabel, platColor, slideIndex, totalSlides, bgImage)
+      renderCover(ctx, post, slide, brand, totalSlides)
     }
-  } else {
-    // ── Fallback: existing no-image renderers ───────────────────────────────
-    if (format === 'quote') {
-      renderQuote(ctx, post, slide, brand, platLabel, platColor)
-    } else if (slide.isCover) {
-      renderCover(ctx, post, slide, brand, platLabel, platColor, totalSlides)
-    } else {
-      renderContent(ctx, post, slide, brand, platLabel, platColor, slideIndex, totalSlides)
-    }
+    return
   }
+
+  // ── Carousel body slide — ALWAYS use clean text layout, never editorial split
+  await renderCarouselBody(ctx, post, slide, brand, slideIndex, totalSlides)
 }
 
 // ── Helper: get Bannerbear final-render URL for a slide ───────────────────
-// Returns a URL only when Bannerbear has produced a fully composited slide
-// (text + brand design applied server-side). Returns null otherwise so the
-// canvas renderer can run and composite text onto the DALL-E background.
 
 function getBannerbearUrl(post, slideIndex) {
   if (!post) return null
@@ -691,14 +606,10 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
   const canvasRef = useRef(null)
   const [rendering, setRendering] = useState(false)
 
-  // bannerbearUrl: Bannerbear has fully rendered this slide (text + design applied).
-  // When present, show as <img> — no canvas work needed.
-  // When absent, canvas renders text layout on top of DALL-E background (or solid fallback).
   const bannerbearUrl = getBannerbearUrl(post, slideIndex)
 
   useImperativeHandle(ref, () => ({
     async download(filename) {
-      // Prefer Bannerbear output; fall back to canvas render (includes DALL-E background)
       const bbUrl = getBannerbearUrl(post, slideIndex)
       if (bbUrl) { await downloadUrl(bbUrl, filename || 'post.png'); return }
       const c = canvasRef.current; if (!c) return
@@ -711,7 +622,6 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
       const count = Math.max(1, post?.slide_count || 1)
       const base = `${post.platform}-${post.scheduled_date}`
 
-      // Check whether all slides have Bannerbear renders
       const bbUrls = Array.from({ length: count }, (_, i) => getBannerbearUrl(post, i))
       if (bbUrls.every(Boolean)) {
         if (count === 1) { await downloadUrl(bbUrls[0], `${base}.png`); return }
@@ -728,7 +638,6 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
         return
       }
 
-      // Mixed or no Bannerbear — render each slide to canvas (composites DALL-E bg + text)
       if (count === 1) {
         const bbUrl = getBannerbearUrl(post, 0)
         if (bbUrl) { await downloadUrl(bbUrl, `${base}.png`); return }
@@ -761,9 +670,6 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
   }))
 
   useEffect(() => {
-    // Always run canvas — it composites text layout over DALL-E background.
-    // If bannerbearUrl is set the canvas is hidden, but we still keep it rendered
-    // for instant fallback if the Bannerbear URL expires or fails to load.
     const canvas = canvasRef.current; if (!canvas || !post) return
     setRendering(true)
     renderSlideToCanvas(canvas, post, brand, slideIndex).finally(() => setRendering(false))
@@ -771,7 +677,6 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
 
   return (
     <div className={`relative ${className}`} style={{ width: size, height: size }}>
-      {/* Bannerbear final render — shown on top when available */}
       {bannerbearUrl && (
         <img
           src={bannerbearUrl}
@@ -784,7 +689,6 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
           }}
         />
       )}
-      {/* Canvas — always rendered; visible when Bannerbear URL absent */}
       <canvas
         ref={canvasRef}
         style={{
