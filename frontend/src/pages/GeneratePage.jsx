@@ -5,6 +5,7 @@ import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
 import { contentApi } from '../api'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
+import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
 const MONTHS_LIST = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December']
@@ -50,8 +51,18 @@ const PLATFORM_LOGO = {
 export default function GeneratePage() {
   const navigate  = useNavigate()
   const location  = useLocation()
-  const { activeBrandId, generateMonth, generatingMonth, generationPollCount, trends, brands } = useAppStore()
+  const {
+    activeBrandId,
+    activeWorkspace,
+    generateMonth,
+    generatingMonth,
+    generationPollCount,
+    trends,
+    brands,
+    fetchTrends,
+  } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
+  const showTrends = planIncludesTrendingTopics(activeWorkspace?.plan)
 
   const now = new Date()
   const [selPlatform, setSelPlatform]   = useState('instagram')
@@ -64,6 +75,12 @@ export default function GeneratePage() {
   useEffect(() => {
     if (location.state?.topic) { setTopic(location.state.topic); setSelTrend(null) }
   }, [location.state])
+
+  useEffect(() => {
+    if (!showTrends) return
+    if (trends.length) return
+    fetchTrends().catch(() => {})
+  }, [showTrends, activeWorkspace?.id])
 
   const monthOptions = Array.from({ length: 8 }, (_, i) => {
     const mi = (now.getMonth() + i) % 12 + 1
@@ -239,15 +256,27 @@ export default function GeneratePage() {
           )}
         </div>
 
-        {/* Trends sidebar */}
+        {/* Trends sidebar — Growth + Pro only (matches Billing) */}
         <div className="bg-white border border-fog rounded-2xl p-4 sticky top-6">
           <div className="flex items-center gap-2 mb-3">
             <Zap size={12} className="text-ink/30" />
             <span className="text-xs font-medium text-ink/40">Trending now</span>
           </div>
-          {trends.length === 0
-            ? <p className="text-ink/30 text-xs">Loading trends…</p>
-            : trends.slice(0, 10).map((t, i) => (
+          {!showTrends ? (
+            <div className="text-ink/40 text-xs leading-relaxed">
+              <p className="mb-3">AI trending topics are on the Growth and Pro plans.</p>
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard/billing')}
+                className="text-xs font-semibold text-brand-600 hover:text-brand-700"
+              >
+                View plans →
+              </button>
+            </div>
+          ) : trends.length === 0 ? (
+            <p className="text-ink/30 text-xs">Loading trends…</p>
+          ) : (
+            trends.slice(0, 10).map((t, i) => (
               <button key={t.id} onClick={() => { setTopic(t.topic); setSelTrend(t.id) }}
                 className={`w-full flex items-start gap-2 p-2.5 rounded-lg transition-all text-left mb-1 ${
                   selTrend === t.id ? 'bg-mist' : 'hover:bg-mist'
@@ -259,7 +288,7 @@ export default function GeneratePage() {
                 </div>
               </button>
             ))
-          }
+          )}
         </div>
       </div>
     </div>

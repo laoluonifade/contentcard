@@ -5,6 +5,7 @@ import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { trendsApi } from '../api'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
+import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
 const PLATFORMS = ['instagram', 'twitter', 'linkedin', 'facebook']
 
@@ -32,7 +33,7 @@ function StatCard({ icon: Icon, val, lbl, loading }) {
 export default function DashboardPage() {
   const navigate  = useNavigate()
   const { user }  = useAuthStore()
-  const { activeBrandId, brands, trends, fetchTrends, fetchMonthContent, refreshTrends } = useAppStore()
+  const { activeBrandId, activeWorkspace, brands, trends, fetchTrends, fetchMonthContent, refreshTrends } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
@@ -72,8 +73,10 @@ export default function DashboardPage() {
         setLoading(false)
       })
       .catch(() => setLoading(false))
-    if (!trends.length) fetchTrends().catch(() => {})
-  }, [activeBrandId])
+    if (planIncludesTrendingTopics(activeWorkspace?.plan) && !trends.length) {
+      fetchTrends().catch(() => {})
+    }
+  }, [activeBrandId, activeWorkspace?.plan])
 
   const greet = () => {
     const h = now.getHours()
@@ -121,7 +124,8 @@ export default function DashboardPage() {
       setGenResult(result)
     } catch (e) {
       console.error('Generate from trend failed:', e)
-      setGenResult({ error: 'Generation failed — please try again.' })
+      const msg = e.response?.data?.detail || 'Generation failed — please try again.'
+      setGenResult({ error: typeof msg === 'string' ? msg : 'Generation failed — please try again.' })
     } finally {
       setGenLoading(false)
     }
@@ -336,7 +340,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Trending topics */}
+      {/* Trending topics — Growth + Pro only */}
       <div className="bg-white border border-fog rounded-2xl p-6">
         <div className="flex items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-2">
@@ -344,17 +348,33 @@ export default function DashboardPage() {
             <h3 className="text-sm font-semibold text-ink">Trending in Nigeria</h3>
             <span className="text-xs text-ink/30 hidden sm:inline">· Powered by AI</span>
           </div>
-          <button
-            onClick={handleRefreshTrends}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-fog text-xs font-medium text-ink/50 hover:bg-mist hover:text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
-            <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? 'Refreshing…' : 'Refresh trends'}
-          </button>
+          {planIncludesTrendingTopics(activeWorkspace?.plan) && (
+            <button
+              onClick={handleRefreshTrends}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-fog text-xs font-medium text-ink/50 hover:bg-mist hover:text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
+              <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
+              {refreshing ? 'Refreshing…' : 'Refresh trends'}
+            </button>
+          )}
         </div>
 
-        {trends.length === 0
-          ? (
+        {!planIncludesTrendingTopics(activeWorkspace?.plan) ? (
+          <div className="text-center py-8 px-4">
+            <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
+            <p className="text-ink/50 text-sm mb-1 max-w-md mx-auto">
+              AI trending topics are included on <span className="font-semibold text-ink/70">Growth</span> and{' '}
+              <span className="font-semibold text-ink/70">Pro</span> — upgrade to see what&apos;s trending and spin up quick posts.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard/billing')}
+              className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors"
+            >
+              View plans <ArrowRight size={14} />
+            </button>
+          </div>
+        ) : trends.length === 0 ? (
             <div className="text-center py-8">
               <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
               <p className="text-ink/30 text-sm mb-3">No trends loaded yet.</p>
@@ -363,8 +383,7 @@ export default function DashboardPage() {
                 <Sparkles size={14} /> {refreshing ? 'Fetching trends…' : 'Fetch trending topics'}
               </button>
             </div>
-          )
-          : (
+          ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {trends.slice(0, 6).map((t, i) => (
                 <div key={t.id} className="flex flex-col gap-2 p-3 rounded-xl border border-fog hover:border-ink/20 hover:bg-mist transition-all group">

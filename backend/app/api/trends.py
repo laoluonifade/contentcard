@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -6,6 +6,8 @@ from app.db.database import get_db
 from app.models.trend import TrendingTopic
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
+from app.services.billing_service import plan_includes_trending_topics
 from datetime import datetime, timezone, timedelta
 import logging
 
@@ -14,6 +16,31 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/trends", tags=["trends"])
 
 CACHE_TTL_HOURS = 6
+
+
+async def _workspace_for_member(db: AsyncSession, user_id: str, workspace_id: str) -> Workspace | None:
+    r = await db.execute(
+        select(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(
+            WorkspaceMember.user_id == user_id,
+            WorkspaceMember.workspace_id == workspace_id,
+            Workspace.is_active == True,
+        )
+    )
+    return r.scalar_one_or_none()
+
+
+async def _require_trending_topics_plan(db: AsyncSession, user_id: str, workspace_id: str) -> Workspace:
+    ws = await _workspace_for_member(db, user_id, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    if not plan_includes_trending_topics(ws.plan):
+        raise HTTPException(
+            status_code=403,
+            detail="AI trending topics are available on Growth and Pro. Upgrade your plan to use this feature.",
+        )
+    return ws
 
 
 async def _refresh_trends(db: AsyncSession, industry: str | None, country_code: str | None):
@@ -42,10 +69,13 @@ async def _refresh_trends(db: AsyncSession, industry: str | None, country_code: 
 
 @router.get("")
 async def list_trends(
+    workspace_id: str = Query(..., description="Active workspace (plan gates trending topics)"),
     industry: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
+    await _require_trending_topics_plan(db, current_user.id, workspace_id)
+
     conditions = [TrendingTopic.is_active == True]
     if industry:
         from sqlalchemy import or_
@@ -94,10 +124,13 @@ async def list_trends(
 
 @router.post("/refresh")
 async def force_refresh_trends(
+    workspace_id: str = Query(..., description="Active workspace (plan gates trending topics)"),
     industry: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    await _require_trending_topics_plan(db, current_user.id, workspace_id)
+
     country_code = getattr(current_user, "country_code", None)
     success = await _refresh_trends(db, industry, country_code)
     return {"success": success, "message": "Trends refreshed" if success else "Failed to refresh"}
@@ -130,6 +163,14 @@ async def generate_post_from_trend(
     ))
     if not member_r.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Access denied")
+
+    ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
+    ws = ws_r.scalar_one_or_none()
+    if not ws or not plan_includes_trending_topics(ws.plan):
+        raise HTTPException(
+            status_code=403,
+            detail="AI trending topics are available on Growth and Pro. Upgrade your plan to use this feature.",
+        )
 
     brand_dict = {
         "name": brand.name,
