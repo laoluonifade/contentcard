@@ -35,6 +35,7 @@ class Workspace(Base):
     customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Stripe or Paystack
     payment_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)  # stripe | paystack
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    free_generations_used: Mapped[int] = mapped_column(default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

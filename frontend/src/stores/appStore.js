@@ -207,6 +207,13 @@ const useAppStore = create(
         if (!wsId) throw new Error('No active workspace')
         return billingApi.createCheckout({ plan, workspace_id: wsId })
       },
+
+      cancelSubscription: async () => {
+        const wsId = get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        await billingApi.cancelSubscription(wsId)
+        await get().fetchSubscription()
+      },
     }),
     {
       name: 'contentcard-app',

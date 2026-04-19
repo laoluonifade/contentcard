@@ -108,6 +108,19 @@ async def generate_month(
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
 
+    # Fetch workspace to check/update generation limit
+    ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
+    workspace = ws_r.scalar_one_or_none()
+    if workspace and workspace.plan not in ("starter", "smb", "pro"):
+        used = workspace.free_generations_used or 0
+        if used >= 2:
+            raise HTTPException(
+                status_code=402,
+                detail="You've used your 2 free content generations. Subscribe to continue.",
+            )
+        workspace.free_generations_used = used + 1
+        await db.commit()
+
     missing = _validate_brand_readiness(brand)
     if missing:
         raise HTTPException(
