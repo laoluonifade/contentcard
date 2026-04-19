@@ -89,6 +89,7 @@ async def get_subscription(
 @router.post("/checkout", response_model=CheckoutResponse)
 async def create_checkout(
     body: CheckoutRequest,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -99,9 +100,10 @@ async def create_checkout(
     ws.payment_provider = "paystack"
     await db.flush()
 
+    api_base = str(request.base_url).rstrip("/")
     callback_url = (
-        f"{settings.FRONTEND_URL}/dashboard/billing"
-        f"?success=1&workspace={ws.id}&plan={body.plan}"
+        f"{api_base}/api/v1/billing/webhook/paystack/verify"
+        f"?workspace={ws.id}&plan={body.plan}"
     )
 
     checkout_url = await create_paystack_checkout(
