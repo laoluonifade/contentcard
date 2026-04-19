@@ -72,11 +72,13 @@ async def get_active_workspace(
 
 
 def check_trial_or_active(workspace: Workspace) -> None:
-    """Raise 402 if workspace has no active plan and trial has expired."""
-    if workspace.plan != "trial":
+    """Raise 402 if workspace has exhausted free generations and has no paid plan."""
+    if workspace.plan in ("starter", "smb", "pro"):
         return  # paid plan — always allowed
-    if workspace.trial_ends_at and datetime.now(timezone.utc) > workspace.trial_ends_at:
+    # Free / trial: enforce 2-generation cap
+    used = workspace.free_generations_used or 0
+    if used >= 2:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="Free trial has expired. Please subscribe to continue.",
+            detail="You've used your 2 free content generations. Subscribe to continue generating unlimited content.",
         )

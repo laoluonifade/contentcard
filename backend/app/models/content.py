@@ -17,6 +17,7 @@ class ContentPlatform(str, enum.Enum):
     INSTAGRAM = "instagram"
     FACEBOOK = "facebook"
     TWITTER = "twitter"
+    LINKEDIN = "linkedin"
 
 
 class ContentFormat(str, enum.Enum):
@@ -52,7 +53,16 @@ class ContentItem(Base):
     user_photo_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     mood: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    # Generated images (Bannerbear)
+    # Content engine fields
+    content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    content_idea: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cta: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    visual_direction: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    image_prompt_explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Generated images
     image_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     image_urls: Mapped[list | None] = mapped_column(JSON, nullable=True)
 

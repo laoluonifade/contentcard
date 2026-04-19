@@ -70,6 +70,16 @@ export const brandApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then(r => r.data)
   },
+  aiInsights: (wsId, brandId) => api.post(`/workspaces/${wsId}/brands/${brandId}/ai-insights`).then(r => r.data),
+  uploadPhoto: (wsId, brandId, file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post(`/workspaces/${wsId}/brands/${brandId}/photos`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  deletePhoto: (wsId, brandId, idx) =>
+    api.delete(`/workspaces/${wsId}/brands/${brandId}/photos/${idx}`).then(r => r.data),
 }
 
 // ─── Content ────────────────────────────────────────────────────
@@ -78,6 +88,7 @@ export const contentApi = {
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
+  directory:  (workspaceId)   => api.get('/content/directory', { params: { workspace_id: workspaceId } }).then(r => r.data),
   get:        (id)             => api.get(`/content/${id}`).then(r => r.data),
   update:     (id, data)       => api.put(`/content/${id}`, data).then(r => r.data),
   regenerate: (id, data)       => api.post(`/content/${id}/regenerate`, data).then(r => r.data),
@@ -95,16 +106,17 @@ export const templateApi = {
 
 // ─── Billing ────────────────────────────────────────────────────
 export const billingApi = {
-  getSubscription: (wsId) => api.get(`/billing/${wsId}`).then(r => r.data),
-  createCheckout:  (data) => api.post('/billing/checkout', data).then(r => r.data),
-  cancel:          (wsId) => api.post(`/billing/cancel/${wsId}`, {}).then(r => r.data),
-  removeCard:      (wsId) => api.delete(`/billing/card/${wsId}`).then(r => r.data),
-  verifyPaystackSession: (data) => api.post('/billing/paystack/verify-session', data).then(r => r.data),
+  getSubscription:    (wsId) => api.get(`/billing/${wsId}`).then(r => r.data),
+  createCheckout:     (data) => api.post('/billing/checkout', data).then(r => r.data),
+  cancelSubscription: (wsId) => api.post(`/billing/cancel/${wsId}`).then(r => r.data),
+  removeCard:         (wsId) => api.delete(`/billing/card/${wsId}`).then(r => r.data),
 }
 
 // ─── Trends ─────────────────────────────────────────────────────
 export const trendsApi = {
-  list: (industry) => api.get('/trends', { params: industry ? { industry } : {} }).then(r => r.data),
+  list:         (industry) => api.get('/trends', { params: industry ? { industry } : {} }).then(r => r.data),
+  refresh:      (industry) => api.post('/trends/refresh', null, { params: industry ? { industry } : {} }).then(r => r.data),
+  generatePost: (data)     => api.post('/trends/generate-post', data).then(r => r.data),
 }
 
 // ─── Upload ─────────────────────────────────────────────────────
@@ -152,12 +164,16 @@ adminAxios.interceptors.response.use(
 )
 
 export const adminApi = {
-  login:      (data)        => axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api/v1' }).post('/auth/login', data).then(r => r.data),
-  stats:      ()            => adminAxios.get('/admin/stats').then(r => r.data),
-  users:      (params)      => adminAxios.get('/admin/users', { params }).then(r => r.data),
-  workspaces: (params)      => adminAxios.get('/admin/workspaces', { params }).then(r => r.data),
-  brands:     (params)      => adminAxios.get('/admin/brands', { params }).then(r => r.data),
-  content:    (params)      => adminAxios.get('/admin/content', { params }).then(r => r.data),
+  login:              (data)    => axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api/v1' }).post('/auth/login', data).then(r => r.data),
+  stats:              ()        => adminAxios.get('/admin/stats').then(r => r.data),
+  users:              (params)  => adminAxios.get('/admin/users', { params }).then(r => r.data),
+  workspaces:         (params)  => adminAxios.get('/admin/workspaces', { params }).then(r => r.data),
+  brands:             (params)  => adminAxios.get('/admin/brands', { params }).then(r => r.data),
+  content:            (params)  => adminAxios.get('/admin/content', { params }).then(r => r.data),
+  deleteContentByUser:(email)   => adminAxios.delete(`/admin/content/by-user/${encodeURIComponent(email)}`).then(r => r.data),
+  seedNairaVault:     (email)   => adminAxios.post(`/admin/seed-nairavault/${encodeURIComponent(email)}`).then(r => r.data),
+  syncAllAssistants:  ()        => adminAxios.post('/admin/sync-all-assistants').then(r => r.data),
+  syncAssistant:      (brandId) => adminAxios.post(`/admin/sync-assistant/${brandId}`).then(r => r.data),
 }
 
 export default api

@@ -1,7 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import logging
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 from app.db.database import engine, AsyncSessionLocal
 from app.db.database import Base
 
@@ -60,6 +63,27 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS country_code VARCHAR(10)",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_url VARCHAR(1000)",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_urls JSON",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS linkedin_handle VARCHAR(100)",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS brand_kit JSON",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS content_type VARCHAR(100)",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS content_idea VARCHAR(300)",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS description TEXT",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS cta VARCHAR(300)",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS visual_direction TEXT",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_prompt TEXT",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS image_prompt_explanation TEXT",
+            "ALTER TYPE contentplatform ADD VALUE IF NOT EXISTS 'linkedin'",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS openai_assistant_id VARCHAR(100)",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS openai_vector_store_id VARCHAR(100)",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS free_generations_used INTEGER DEFAULT 0",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS brand_photos JSON",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS paystack_authorization_code VARCHAR(255)",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_last4 VARCHAR(10)",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_type VARCHAR(50)",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_bank VARCHAR(100)",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_exp_month VARCHAR(5)",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_exp_year VARCHAR(5)",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS next_payment_date TIMESTAMPTZ",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))
@@ -69,6 +93,13 @@ async def lifespan(app: FastAPI):
     # Seed default trending topics
     async with AsyncSessionLocal() as db:
         await seed_trends(db)
+
+    # Ensure Paystack subscription plans exist
+    from app.services.billing_service import ensure_paystack_plans
+    try:
+        await ensure_paystack_plans()
+    except Exception as e:
+        logger.warning(f"Paystack plan setup failed (non-fatal): {e}")
 
     yield
 

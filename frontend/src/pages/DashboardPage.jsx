@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles } from 'lucide-react'
+import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
+import { trendsApi } from '../api'
+import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 
-const PLAT_COLOR = { instagram: '#E1306C', facebook: '#1877F2', twitter: '#1DA1F2' }
-const PLAT_BG    = { instagram: '#E1306C15', facebook: '#1877F215', twitter: '#1DA1F215' }
+const PLATFORMS = ['instagram', 'twitter', 'linkedin', 'facebook']
+
 
 function parseLocalDate(str) {
   if (!str) return null
@@ -13,16 +15,39 @@ function parseLocalDate(str) {
   return new Date(y, m - 1, d)
 }
 
+function StatCard({ icon: Icon, val, lbl, loading }) {
+  return (
+    <div className="bg-white border border-fog rounded-2xl p-5">
+      <div className="w-8 h-8 rounded-xl bg-mist flex items-center justify-center mb-4">
+        <Icon size={15} className="text-ink/40" />
+      </div>
+      <div className="text-2xl font-semibold text-ink mb-0.5" style={{ letterSpacing: '-0.02em' }}>
+        {loading ? <div className="h-7 w-10 bg-mist rounded shimmer" /> : val}
+      </div>
+      <div className="text-xs text-ink/40">{lbl}</div>
+    </div>
+  )
+}
+
 export default function DashboardPage() {
   const navigate  = useNavigate()
   const { user }  = useAuthStore()
-  const { activeBrandId, brands, trends, fetchTrends, fetchMonthContent } = useAppStore()
+  const { activeBrandId, brands, trends, fetchTrends, fetchMonthContent, refreshTrends } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
-  const [stats, setStats]     = useState({ total: 0, ready: 0, drafts: 0, ig: 0, fb: 0, tw: 0 })
+  const [stats, setStats]       = useState({ total: 0, ready: 0, drafts: 0, ig: 0, fb: 0, tw: 0 })
   const [upcoming, setUpcoming] = useState([])
   const [loading, setLoading]   = useState(true)
+
+  // Trends refresh
+  const [refreshing, setRefreshing] = useState(false)
+
+  // Generate-post modal
+  const [genModal, setGenModal]   = useState(null)   // { topic, platform }
+  const [genResult, setGenResult] = useState(null)   // { caption, hashtags }
+  const [genLoading, setGenLoading] = useState(false)
+  const [copied, setCopied]       = useState(false)
 
   useEffect(() => {
     if (!activeBrandId) { setLoading(false); return }
@@ -56,104 +81,212 @@ export default function DashboardPage() {
   }
 
   const firstName = user?.full_name?.split(' ')[0] || 'there'
+  const monthLabel = now.toLocaleString('default', { month: 'long', year: 'numeric' })
+
+  async function handleRefreshTrends() {
+    setRefreshing(true)
+    try {
+      await refreshTrends()
+    } catch (e) {
+      console.error('Trend refresh failed:', e)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  function openGenModal(trend) {
+    if (!activeBrandId) return
+    setGenResult(null)
+    setCopied(false)
+    const modal = { topic: trend.topic, platform: 'instagram' }
+    setGenModal(modal)
+    doGenerate(modal)
+  }
+
+  function closeGenModal() {
+    setGenModal(null)
+    setGenResult(null)
+    setCopied(false)
+  }
+
+  async function doGenerate(modal) {
+    setGenLoading(true)
+    setGenResult(null)
+    try {
+      const result = await trendsApi.generatePost({
+        brand_id: activeBrandId,
+        trend_topic: modal.topic,
+        platform: modal.platform,
+      })
+      setGenResult(result)
+    } catch (e) {
+      console.error('Generate from trend failed:', e)
+      setGenResult({ error: 'Generation failed — please try again.' })
+    } finally {
+      setGenLoading(false)
+    }
+  }
+
+  function changePlatform(platform) {
+    const updated = { ...genModal, platform }
+    setGenModal(updated)
+    doGenerate(updated)
+  }
+
+  function handleCopy() {
+    if (!genResult?.caption) return
+    const text = genResult.caption + (genResult.hashtags?.length ? '\n\n' + genResult.hashtags.map(h => `#${h}`).join(' ') : '')
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>
-            {greet()}, {firstName} 👋
+          <h1 className="text-2xl font-semibold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
+            {greet()}, {firstName}
           </h1>
-          <p className="text-zinc-500 text-sm">
-            {loading ? 'Loading your content…' :
+          <p className="text-ink/40 text-sm">
+            {loading ? 'Loading…' :
              !activeBrandId ? 'Set up your brand to get started.' :
              stats.total > 0 ? `${stats.total} posts generated for ${now.toLocaleString('default', { month: 'long' })}` :
-             `No content yet for ${now.toLocaleString('default', { month: 'long' })} — generate your first month!`}
+             `No content yet for ${now.toLocaleString('default', { month: 'long' })} — generate your first month.`}
           </p>
         </div>
-        <button onClick={() => navigate('/dashboard/generate')}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0">
+        <button onClick={() => navigate('/dashboard/calendar')}
+          className="btn-primary text-sm px-4 py-2.5 flex-shrink-0">
           <Layers size={15} /> Generate content
         </button>
       </div>
 
-      {/* No brand CTa */}
-      {!activeBrandId && !loading && (
-        <div className="bg-violet-600/10 border border-violet-600/20 rounded-2xl p-8 text-center mb-6">
-          <div className="w-12 h-12 bg-violet-600/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <Sparkles size={22} className="text-violet-400" />
+      {/* ── Onboarding Tip banner ── */}
+      {activeBrand && !loading && (() => {
+        const missing = getMissingFields(activeBrand)
+        const brandReady = missing.length === 0
+        const hasContent = stats.total > 0
+
+        // Brand kit incomplete — show what to fill in
+        if (!brandReady) return (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={15} className="text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-0.5">Onboarding Tip</p>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Complete your brand kit to unlock AI generation</h4>
+                <p className="text-ink/50 text-xs mb-3">
+                  Fill in {missing.length} required {missing.length === 1 ? 'field' : 'fields'} so ContentCard can create on-brand content for you:
+                </p>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {missing.map(f => (
+                    <span key={f.label} className="text-[10px] font-semibold px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full">
+                      {f.label}
+                    </span>
+                  ))}
+                </div>
+                <button onClick={() => navigate('/dashboard/brand-kit')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 hover:text-amber-900 transition-colors">
+                  Complete brand kit <ArrowRight size={12} />
+                </button>
+              </div>
+            </div>
           </div>
-          <h2 className="text-white font-bold text-lg mb-2">Let's set up your brand</h2>
-          <p className="text-zinc-400 text-sm mb-5 max-w-sm mx-auto">Before generating content, tell us about your brand so every post sounds exactly like you.</p>
-          <button onClick={() => navigate('/onboarding')}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors">
-            Set up my brand <ArrowRight size={15} />
+        )
+
+        // Brand ready, no content yet — nudge to generate
+        if (brandReady && !hasContent) return (
+          <div className="bg-brand-500/8 border border-brand-400/30 rounded-2xl p-5 mb-6">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-brand-500/15 flex items-center justify-center flex-shrink-0">
+                <Sparkles size={15} className="text-brand-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600 mb-0.5">Onboarding Tip</p>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Your brand is ready — generate your first month of content</h4>
+                <p className="text-ink/50 text-xs mb-3">
+                  ContentCard knows your brand voice. Hit Generate to create a full month of posts in under a minute.
+                </p>
+                <button onClick={() => navigate('/dashboard/calendar')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-xs font-semibold transition-colors">
+                  <Zap size={12} /> Generate content
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+
+        return null
+      })()}
+
+      {/* No brand CTA */}
+      {!activeBrandId && !loading && (
+        <div className="bg-mist border border-fog rounded-2xl p-10 text-center mb-8">
+          <div className="w-10 h-10 bg-white border border-fog rounded-xl flex items-center justify-center mx-auto mb-4">
+            <Sparkles size={18} className="text-brand-500" />
+          </div>
+          <h2 className="text-ink font-semibold text-base mb-2">Set up your brand</h2>
+          <p className="text-ink/40 text-sm mb-5 max-w-sm mx-auto">Tell us about your brand so every post sounds exactly like you.</p>
+          <button onClick={() => navigate('/onboarding')} className="btn-primary text-sm">
+            Get started <ArrowRight size={14} />
           </button>
         </div>
       )}
 
-      {/* Banner */}
+      {/* Month summary bar */}
       {activeBrandId && (
-        <div className="relative bg-violet-600 rounded-2xl p-6 mb-6 overflow-hidden">
-          <div className="absolute top-0 right-0 w-48 h-48 bg-violet-500/30 rounded-full blur-2xl translate-x-12 -translate-y-12 pointer-events-none" />
-          <div className="relative flex items-center justify-between gap-4">
-            <div>
-              <p className="text-violet-200 text-xs font-semibold uppercase tracking-widest mb-1">{now.toLocaleString('default', { month: 'long', year: 'numeric' })}</p>
-              <h2 className="text-white text-xl font-bold mb-1" style={{ letterSpacing: '-0.02em' }}>
-                {loading ? '…' : stats.total > 0 ? `${stats.ready} / ${stats.total} posts ready` : 'No content yet'}
-              </h2>
-              <p className="text-violet-200 text-sm">
-                {stats.total > 0 ? 'Keep posting consistently to grow your audience.' : 'Hit Generate to fill your entire month in seconds.'}
-              </p>
-            </div>
-            <div className="w-14 h-14 bg-white/10 rounded-2xl flex items-center justify-center flex-shrink-0">
-              <Layers size={24} className="text-white" />
-            </div>
+        <div className="flex items-center justify-between bg-white border border-fog rounded-2xl px-5 py-4 mb-6">
+          <div>
+            <p className="text-xs text-ink/40 font-medium mb-0.5">{monthLabel}</p>
+            <p className="text-ink font-semibold text-sm">
+              {loading ? 'Loading…' : stats.total > 0 ? `${stats.ready} of ${stats.total} posts ready` : 'No content generated yet'}
+            </p>
           </div>
+          <button onClick={() => navigate('/dashboard/calendar')}
+            className="text-xs text-brand-500 hover:text-brand-600 font-medium flex items-center gap-1 transition-colors">
+            View calendar <ArrowRight size={12} />
+          </button>
         </div>
       )}
 
       {/* Stats */}
       {activeBrandId && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-          {[
-            { icon: FileText,    bg: 'rgba(139,92,246,.15)', color: '#8b5cf6', val: loading ? '—' : stats.total,  lbl: 'Total posts' },
-            { icon: CheckCircle, bg: 'rgba(16,185,129,.12)', color: '#10b981', val: loading ? '—' : stats.ready,  lbl: 'Ready to post' },
-            { icon: Clock,       bg: 'rgba(245,158,11,.12)', color: '#f59e0b', val: loading ? '—' : stats.drafts, lbl: 'Drafts' },
-            { icon: Calendar,    bg: 'rgba(225,48,108,.12)', color: '#E1306C', val: loading ? '—' : stats.ig,     lbl: 'Instagram' },
-          ].map(({ icon: Icon, bg, color, val, lbl }) => (
-            <div key={lbl} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center mb-4" style={{ background: bg }}>
-                <Icon size={16} style={{ color }} />
-              </div>
-              <div className="text-2xl font-bold text-white mb-1">{val}</div>
-              <div className="text-xs text-zinc-500 font-medium">{lbl}</div>
-            </div>
-          ))}
+          <StatCard icon={FileText}    val={stats.total}  lbl="Total posts"    loading={loading} />
+          <StatCard icon={CheckCircle} val={stats.ready}  lbl="Ready to post"  loading={loading} />
+          <StatCard icon={Clock}       val={stats.drafts} lbl="Drafts"         loading={loading} />
+          <StatCard icon={Calendar}    val={stats.ig}     lbl="Instagram"      loading={loading} />
         </div>
       )}
 
       {activeBrandId && (
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
+
           {/* Platform breakdown */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-            <h3 className="text-white font-semibold mb-5">Platform breakdown</h3>
+          <div className="bg-white border border-fog rounded-2xl p-6">
+            <h3 className="text-sm font-semibold text-ink mb-5">Platform breakdown</h3>
             {loading || stats.total === 0
-              ? <p className="text-zinc-600 text-sm">{loading ? 'Loading…' : 'Generate content to see breakdown.'}</p>
+              ? <p className="text-ink/30 text-sm">{loading ? 'Loading…' : 'Generate content to see breakdown.'}</p>
               : (
                 <div className="space-y-4">
-                  {[['instagram', stats.ig], ['facebook', stats.fb], ['twitter', stats.tw]].map(([p, count]) => (
-                    <div key={p} className="flex items-center gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex justify-between mb-1.5">
-                          <span className="text-sm text-zinc-300 font-medium capitalize">{p}</span>
-                          <span className="text-sm font-bold text-white">{count}</span>
-                        </div>
-                        <div className="h-1.5 bg-zinc-800 rounded-full overflow-hidden">
-                          <div className="h-full rounded-full transition-all duration-700"
-                            style={{ width: `${stats.total ? Math.round(count / stats.total * 100) : 0}%`, background: PLAT_COLOR[p] }} />
-                        </div>
+                  {[
+                    { id: 'instagram', label: 'Instagram', count: stats.ig },
+                    { id: 'facebook',  label: 'Facebook',  count: stats.fb },
+                    { id: 'twitter',   label: 'Twitter/X', count: stats.tw },
+                  ].map(({ label, count }) => (
+                    <div key={label}>
+                      <div className="flex justify-between mb-1.5">
+                        <span className="text-sm text-ink/60">{label}</span>
+                        <span className="text-sm font-semibold text-ink">{count}</span>
+                      </div>
+                      <div className="h-1 bg-mist rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-brand-500 transition-all duration-700"
+                          style={{ width: `${stats.total ? Math.round(count / stats.total * 100) : 0}%` }} />
                       </div>
                     </div>
                   ))}
@@ -162,40 +295,36 @@ export default function DashboardPage() {
           </div>
 
           {/* Upcoming posts */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+          <div className="bg-white border border-fog rounded-2xl p-6">
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-white font-semibold">Upcoming posts</h3>
+              <h3 className="text-sm font-semibold text-ink">Upcoming posts</h3>
               <button onClick={() => navigate('/dashboard/calendar')}
-                className="text-xs text-violet-400 hover:text-violet-300 font-semibold flex items-center gap-1 transition-colors">
-                View calendar <ArrowRight size={12} />
+                className="text-xs text-brand-500 hover:text-brand-600 font-medium flex items-center gap-1 transition-colors">
+                View all <ArrowRight size={12} />
               </button>
             </div>
             {loading
-              ? <p className="text-zinc-600 text-sm">Loading…</p>
+              ? <p className="text-ink/30 text-sm">Loading…</p>
               : upcoming.length === 0
-                ? <p className="text-zinc-600 text-sm">No upcoming posts in the next 7 days.</p>
+                ? <p className="text-ink/30 text-sm">No upcoming posts in the next 7 days.</p>
                 : upcoming.map(post => {
                     const d = parseLocalDate(post.scheduled_date)
                     return (
                       <div key={post.id}
-                        className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-zinc-800/60 transition-colors cursor-pointer mb-1.5"
+                        className="flex items-center gap-3 py-2.5 border-b border-fog last:border-0 cursor-pointer hover:opacity-70 transition-opacity"
                         onClick={() => navigate('/dashboard/calendar')}>
-                        <div className="w-10 h-10 rounded-xl flex flex-col items-center justify-center flex-shrink-0 bg-violet-500/15">
+                        <div className="w-9 h-9 rounded-xl flex flex-col items-center justify-center flex-shrink-0 bg-mist">
                           {d && <>
-                            <span className="text-violet-400 text-[8px] font-bold uppercase">{d.toLocaleString('default', { month: 'short' })}</span>
-                            <span className="text-violet-400 text-sm font-bold leading-none">{d.getDate()}</span>
+                            <span className="text-ink/40 text-[8px] font-semibold uppercase">{d.toLocaleString('default', { month: 'short' })}</span>
+                            <span className="text-ink text-xs font-bold leading-none">{d.getDate()}</span>
                           </>}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-white text-xs font-semibold truncate">{post.topic}</p>
-                          <p className="text-zinc-500 text-[10px] mt-0.5 capitalize">{post.format}</p>
+                          <p className="text-ink text-xs font-medium truncate">{post.topic}</p>
+                          <p className="text-ink/40 text-[10px] mt-0.5 capitalize">{post.platform} · {post.format}</p>
                         </div>
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-full flex-shrink-0 capitalize"
-                          style={{ background: PLAT_BG[post.platform], color: PLAT_COLOR[post.platform] }}>
-                          {post.platform.slice(0,2).toUpperCase()}
-                        </span>
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 capitalize ${
-                          post.status === 'ready' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-zinc-800 text-zinc-500'
+                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                          post.status === 'ready' ? 'bg-brand-50 text-brand-600' : 'bg-mist text-ink/40'
                         }`}>
                           {post.status}
                         </span>
@@ -208,38 +337,145 @@ export default function DashboardPage() {
       )}
 
       {/* Trending topics */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-        <div className="flex items-center gap-2 mb-5">
-          <TrendingUp size={16} className="text-violet-400" />
-          <h3 className="text-white font-semibold">Trending topics</h3>
-          <span className="text-xs text-zinc-600">· Click to use as your next post topic</span>
+      <div className="bg-white border border-fog rounded-2xl p-6">
+        <div className="flex items-center justify-between gap-3 mb-5">
+          <div className="flex items-center gap-2">
+            <TrendingUp size={15} className="text-ink/40" />
+            <h3 className="text-sm font-semibold text-ink">Trending in Nigeria</h3>
+            <span className="text-xs text-ink/30 hidden sm:inline">· Powered by AI</span>
+          </div>
+          <button
+            onClick={handleRefreshTrends}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-fog text-xs font-medium text-ink/50 hover:bg-mist hover:text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
+            <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Refreshing…' : 'Refresh trends'}
+          </button>
         </div>
+
         {trends.length === 0
-          ? <p className="text-zinc-600 text-sm">Loading trends…</p>
+          ? (
+            <div className="text-center py-8">
+              <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
+              <p className="text-ink/30 text-sm mb-3">No trends loaded yet.</p>
+              <button onClick={handleRefreshTrends} disabled={refreshing}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
+                <Sparkles size={14} /> {refreshing ? 'Fetching trends…' : 'Fetch trending topics'}
+              </button>
+            </div>
+          )
           : (
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {trends.slice(0, 6).map((t, i) => (
-                <button key={t.id}
-                  onClick={() => navigate('/dashboard/generate', { state: { topic: t.topic } })}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-zinc-800 hover:border-violet-500/30 hover:bg-violet-500/5 text-left transition-all group">
-                  <span className="text-zinc-700 text-xs font-bold w-5 flex-shrink-0">{String(i + 1).padStart(2,'0')}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-zinc-200 text-xs font-semibold truncate group-hover:text-white transition-colors">{t.topic}</p>
-                    <p className="text-zinc-600 text-[10px] mt-0.5">{t.volume}</p>
+                <div key={t.id} className="flex flex-col gap-2 p-3 rounded-xl border border-fog hover:border-ink/20 hover:bg-mist transition-all group">
+                  <div className="flex items-start gap-3">
+                    <span className="text-ink/20 text-xs font-medium w-5 flex-shrink-0 tabular-nums mt-0.5">{String(i + 1).padStart(2,'0')}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-ink/70 text-xs font-medium leading-snug group-hover:text-ink transition-colors">{t.topic}</p>
+                      {t.description && (
+                        <p className="text-ink/30 text-[10px] mt-0.5 leading-snug line-clamp-2">{t.description}</p>
+                      )}
+                      <p className="text-ink/25 text-[10px] mt-1">{t.volume}</p>
+                    </div>
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-mist text-ink/40 flex-shrink-0 capitalize">
+                      {t.badge}
+                    </span>
                   </div>
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
-                    t.badge === 'viral'   ? 'bg-red-500/15 text-red-400' :
-                    t.badge === 'rising'  ? 'bg-emerald-500/15 text-emerald-400' :
-                                           'bg-blue-500/15 text-blue-400'
-                  }`}>
-                    {t.badge}
-                  </span>
-                </button>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => navigate('/dashboard/calendar', { state: { topic: t.topic } })}
+                      className="flex-1 py-1.5 text-[10px] font-medium text-ink/50 hover:text-ink border border-fog hover:border-ink/20 rounded-lg transition-colors flex items-center justify-center gap-1">
+                      <Layers size={10} /> Use topic
+                    </button>
+                    {activeBrandId && (
+                      <button
+                        onClick={() => openGenModal(t)}
+                        className="flex-1 py-1.5 text-[10px] font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors flex items-center justify-center gap-1">
+                        <Zap size={10} /> Quick post
+                      </button>
+                    )}
+                  </div>
+                </div>
               ))}
             </div>
           )
         }
       </div>
+
+      {/* Generate-post modal */}
+      {genModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={closeGenModal}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            {/* Modal header */}
+            <div className="flex items-start justify-between p-5 pb-0">
+              <div>
+                <p className="text-[10px] text-ink/35 font-bold uppercase tracking-widest mb-1">Quick post from trend</p>
+                <h3 className="text-ink font-bold text-base leading-snug">{genModal.topic}</h3>
+              </div>
+              <button onClick={closeGenModal} className="text-ink/30 hover:text-ink transition-colors ml-3 flex-shrink-0 mt-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Platform selector */}
+            <div className="flex gap-1.5 px-5 pt-4 pb-0 flex-wrap">
+              {PLATFORMS.map(p => (
+                <button key={p} onClick={() => !genLoading && changePlatform(p)}
+                  disabled={genLoading}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors capitalize disabled:cursor-wait ${
+                    genModal.platform === p
+                      ? 'bg-brand-500 text-white'
+                      : 'bg-fog text-ink/50 hover:bg-brand-50 hover:text-brand-600'
+                  }`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+
+            {/* Content area */}
+            <div className="p-5">
+              {genLoading ? (
+                <div className="flex items-center justify-center py-10 gap-3">
+                  <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-ink/40 text-sm">Writing your post…</span>
+                </div>
+              ) : genResult?.error ? (
+                <div className="bg-red-50 text-red-600 rounded-xl p-4 text-sm text-center">
+                  {genResult.error}
+                  <button onClick={() => doGenerate(genModal)} className="block mt-2 text-xs font-semibold text-red-500 hover:text-red-700 mx-auto">
+                    Try again
+                  </button>
+                </div>
+              ) : genResult ? (
+                <div>
+                  <div className="bg-mist rounded-xl p-4 mb-3">
+                    <p className="text-ink text-sm leading-relaxed">{genResult.caption}</p>
+                    {genResult.hashtags?.length > 0 && (
+                      <p className="text-brand-500 text-xs mt-2 font-medium">
+                        {genResult.hashtags.map(h => `#${h}`).join(' ')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2 mb-2">
+                    <button onClick={handleCopy}
+                      className="flex-1 py-2 border border-fog rounded-xl text-xs font-semibold text-ink/60 hover:bg-mist transition-colors flex items-center justify-center gap-1.5">
+                      <Copy size={12} /> {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                    <button onClick={() => { closeGenModal(); navigate('/dashboard/calendar', { state: { topic: genModal.topic } }) }}
+                      className="flex-1 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5">
+                      <Layers size={12} /> Full month
+                    </button>
+                  </div>
+                  <button onClick={() => doGenerate(genModal)}
+                    className="w-full py-1.5 text-[10px] text-ink/35 hover:text-ink/60 transition-colors">
+                    Regenerate
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

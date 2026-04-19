@@ -17,7 +17,7 @@ const CATEGORY_STYLE = {
   'Marketing':    'bg-brand-500/10 text-brand-400 border border-brand-500/20',
   'Brand':        'bg-teal/10 text-teal border border-teal/20',
   'Social Proof': 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20',
-  'Education':    'bg-purple-500/10 text-purple-400 border border-purple-500/20',
+  'Education':    'bg-brand-500/10 text-brand-400 border border-brand-500/20',
 }
 
 const inp = "bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-brand-500/40 w-full"

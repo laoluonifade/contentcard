@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Shield, ArrowRight } from 'lucide-react'
-import useAuthStore from '../stores/authStore'
+import { adminApi } from '../api'
 
-const ADMIN_EMAILS = ['laoluonifade@gmail.com', 'admin@contentcard.io']
+const ADMIN_EMAILS = ['laoluonifade@gmail.com', 'hellovoya@gmail.com']
 
 export default function AdminLogin() {
   const navigate = useNavigate()
-  const login = useAuthStore(s => s.login)
   const [form, setForm] = useState({ email: '', password: '' })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -17,13 +16,15 @@ export default function AdminLogin() {
     setError('')
     setLoading(true)
     try {
-      const res = await login({ email: form.email, password: form.password })
+      const res = await adminApi.login({ email: form.email, password: form.password })
       const email = res?.user?.email || form.email
       if (!ADMIN_EMAILS.includes(email)) {
         setError('This account does not have admin access.')
         setLoading(false)
         return
       }
+      // Store admin token separately — never touches contentcard-auth
+      localStorage.setItem('contentcard-admin-token', res.access_token)
       localStorage.setItem('contentcard-admin', JSON.stringify({ email, role: 'super_admin' }))
       navigate('/admindash')
     } catch {
@@ -53,7 +54,7 @@ export default function AdminLogin() {
           <div>
             <label className="block text-white/50 text-xs font-bold uppercase tracking-widest mb-2">Email</label>
             <input required type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-              placeholder="admin@contentcard.io"
+              placeholder="hellovoya@gmail.com"
               className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-white/20 focus:outline-none focus:border-brand-500/50 transition-colors" />
           </div>
           <div>

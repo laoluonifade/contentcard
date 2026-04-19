@@ -29,7 +29,7 @@ export default function AdminBrandsPage() {
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
           <input value={search} onChange={e => setSearch(e.target.value)}
             placeholder="Search brands..."
-            className="pl-8 pr-4 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-white text-sm placeholder-white/25 focus:outline-none focus:border-violet-500/40 w-56" />
+            className="pl-8 pr-4 py-2 bg-white/[0.04] border border-white/10 rounded-xl text-white text-sm placeholder-white/25 focus:outline-none focus:border-brand-500/40 w-56" />
         </div>
       </div>
 
@@ -68,7 +68,7 @@ export default function AdminBrandsPage() {
                     {new Date(b.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </td>
                   <td className="px-5 py-3">
-                    <button onClick={() => setSelected(b)} className="p-1.5 rounded-lg bg-white/5 hover:bg-violet-500/20 text-white/40 hover:text-violet-400 transition-all">
+                    <button onClick={() => setSelected(b)} className="p-1.5 rounded-lg bg-white/5 hover:bg-brand-500/20 text-white/40 hover:text-brand-400 transition-all">
                       <Eye size={13} />
                     </button>
                   </td>

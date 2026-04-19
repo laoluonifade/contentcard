@@ -23,12 +23,12 @@ import LegalPage            from './pages/LegalPage'
 import PitchDeckPage        from './pages/PitchDeckPage'
 import DashboardLayout      from './components/layout/DashboardLayout'
 import DashboardPage        from './pages/DashboardPage'
-import GeneratePage         from './pages/GeneratePage'
 import CalendarPage         from './pages/CalendarPage'
 import BrandKitPage         from './pages/BrandKitPage'
 import TemplatesPage        from './pages/TemplatesPage'
 import SettingsPage         from './pages/SettingsPage'
 import BillingPage          from './pages/BillingPage'
+import DirectoryPage        from './pages/DirectoryPage'
 
 // Admin
 import AdminLogin           from './pages/AdminLogin'
@@ -92,12 +92,12 @@ export default function App() {
         {/* Dashboard */}
         <Route path="/dashboard" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
           <Route index             element={<DashboardPage />} />
-          <Route path="generate"   element={<GeneratePage />} />
           <Route path="calendar"   element={<CalendarPage />} />
           <Route path="templates"  element={<TemplatesPage />} />
           <Route path="brand-kit"  element={<BrandKitPage />} />
           <Route path="settings"   element={<SettingsPage />} />
           <Route path="billing"    element={<BillingPage />} />
+          <Route path="directory"  element={<DirectoryPage />} />
         </Route>
 
         {/* Admin */}

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Users, Layers, Zap, TrendingUp, TrendingDown, Building2 } from 'lucide-react'
+import { Users, Layers, Zap, TrendingUp, TrendingDown, Building2, DollarSign } from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
 import { adminApi } from '../api'
 
@@ -61,7 +61,7 @@ export default function AdminDashPage() {
     return (
       <AdminLayout>
         <div className="flex items-center justify-center h-64">
-          <div className="w-8 h-8 border-2 border-violet-500/30 border-t-violet-500 rounded-full animate-spin" />
+          <div className="w-8 h-8 border-2 border-brand-500/30 border-t-brand-500 rounded-full animate-spin" />
         </div>
       </AdminLayout>
     )
@@ -76,8 +76,8 @@ export default function AdminDashPage() {
       delta: s.user_delta != null ? `${s.user_delta >= 0 ? '+' : ''}${s.user_delta} this week` : null,
       up: (s.user_delta || 0) >= 0,
       icon: Users,
-      color: 'text-violet-400',
-      bg: 'bg-violet-500/10',
+      color: 'text-brand-400',
+      bg: 'bg-brand-500/10',
     },
     {
       label: 'Workspaces',
@@ -106,6 +106,15 @@ export default function AdminDashPage() {
       color: 'text-pink-400',
       bg: 'bg-pink-500/10',
     },
+    {
+      label: 'Avg Spend / Company',
+      value: s.avg_spend_per_workspace != null ? `$${s.avg_spend_per_workspace.toFixed(3)}` : '—',
+      delta: s.total_estimated_spend != null ? `$${s.total_estimated_spend.toFixed(3)} total` : null,
+      up: true,
+      icon: DollarSign,
+      color: 'text-orange-400',
+      bg: 'bg-orange-500/10',
+    },
   ]
 
   return (
@@ -115,7 +124,7 @@ export default function AdminDashPage() {
         <p className="text-white/35 text-sm mt-0.5">ContentCard platform at a glance</p>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         {statCards.map(card => <Stat key={card.label} {...card} />)}
       </div>
 
@@ -126,7 +135,7 @@ export default function AdminDashPage() {
               <div className="text-white font-semibold text-sm">New signups</div>
               <div className="text-white/30 text-xs mt-0.5">Last 7 days</div>
             </div>
-            <div className="text-2xl font-bold text-violet-400">
+            <div className="text-2xl font-bold text-brand-400">
               {(s.daily_signups || []).reduce((a, b) => a + b, 0)}
             </div>
           </div>
@@ -149,7 +158,7 @@ export default function AdminDashPage() {
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
           <div className="text-white font-semibold text-sm">Recent signups</div>
-          <a href="/admindash/users" className="text-violet-400 text-xs font-semibold hover:text-violet-300 transition-colors">View all →</a>
+          <a href="/admindash/users" className="text-brand-400 text-xs font-semibold hover:text-brand-300 transition-colors">View all →</a>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full">

@@ -42,7 +42,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <div className="font-semibold text-white text-sm">Email us</div>
-                  <a href="mailto:hello@contentcard.io" className="text-white/40 text-sm hover:text-brand-400 transition-colors">hello@contentcard.io</a>
+                  <a href="mailto:hellovoya@gmail.com" className="text-white/40 text-sm hover:text-brand-400 transition-colors">hellovoya@gmail.com</a>
                 </div>
               </div>
               <div className="flex items-start gap-4">
@@ -51,7 +51,7 @@ export default function ContactPage() {
                 </div>
                 <div>
                   <div className="font-semibold text-white text-sm">Support</div>
-                  <a href="mailto:support@contentcard.io" className="text-white/40 text-sm hover:text-brand-400 transition-colors">support@contentcard.io</a>
+                  <a href="mailto:hellovoya@gmail.com" className="text-white/40 text-sm hover:text-brand-400 transition-colors">hellovoya@gmail.com</a>
                 </div>
               </div>
             </div>
