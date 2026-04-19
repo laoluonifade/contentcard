@@ -168,6 +168,10 @@ export const adminApi = {
   stats:              ()        => adminAxios.get('/admin/stats').then(r => r.data),
   users:              (params)  => adminAxios.get('/admin/users', { params }).then(r => r.data),
   workspaces:         (params)  => adminAxios.get('/admin/workspaces', { params }).then(r => r.data),
+  reconcileWorkspacePaystack: (workspaceId, data) =>
+    adminAxios
+      .post(`/admin/workspaces/${encodeURIComponent(workspaceId)}/billing/reconcile-paystack`, data)
+      .then((r) => r.data),
   brands:             (params)  => adminAxios.get('/admin/brands', { params }).then(r => r.data),
   content:            (params)  => adminAxios.get('/admin/content', { params }).then(r => r.data),
   deleteContentByUser:(email)   => adminAxios.delete(`/admin/content/by-user/${encodeURIComponent(email)}`).then(r => r.data),
