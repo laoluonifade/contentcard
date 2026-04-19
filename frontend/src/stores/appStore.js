@@ -214,6 +214,13 @@ const useAppStore = create(
         await billingApi.cancelSubscription(wsId)
         await get().fetchSubscription()
       },
+
+      removeCard: async () => {
+        const wsId = get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        await billingApi.removeCard(wsId)
+        await get().fetchSubscription()
+      },
     }),
     {
       name: 'contentcard-app',
