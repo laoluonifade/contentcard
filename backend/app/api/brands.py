@@ -104,6 +104,17 @@ async def get_brand(
     return BrandOut.model_validate(brand)
 
 
+def _deep_merge_dict(base: dict, patch: dict) -> dict:
+    """Recursively merge patch into base (patch wins for scalars; dict values merge)."""
+    out = dict(base)
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge_dict(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
 @router.put("/{brand_id}", response_model=BrandOut)
 async def update_brand(
     workspace_id: str, brand_id: str, body: BrandUpdate,
@@ -120,7 +131,11 @@ async def update_brand(
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
-    for key, val in body.model_dump(exclude_none=True).items():
+    data = body.model_dump(exclude_none=True)
+    if "brand_kit" in data and isinstance(data["brand_kit"], dict):
+        data["brand_kit"] = _deep_merge_dict(dict(brand.brand_kit or {}), data["brand_kit"])
+
+    for key, val in data.items():
         setattr(brand, key, val)
 
     await db.commit()

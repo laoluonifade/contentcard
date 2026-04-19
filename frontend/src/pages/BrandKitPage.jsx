@@ -5,8 +5,12 @@ import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
+import { normalizeHex } from '../lib/brandVisualValidate'
 
-const TABS = ['Basics','Audience','Identity','Voice','Compliance','Rules']
+const TABS = ['Basics', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
+
+const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
+
 const inpCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 const taCls  = `${inpCls} resize-none`
 const cardCls = "bg-white border border-fog rounded-2xl p-6"
@@ -26,6 +30,38 @@ const FONTS = [
   { value: 'oswald',      label: 'Oswald',        style: { fontFamily: 'Oswald, sans-serif' } },
   { value: 'sourceserif', label: 'Source Serif',  style: { fontFamily: '"Source Serif 4", serif' } },
 ]
+
+const ALLOWED_FONT_IDS = new Set(FONTS.map((f) => f.value))
+
+function mergeVisualSystem(kit, brandColors, brandFont) {
+  const cur = (kit && kit.visual_system) || {}
+  const bf = (brandFont || 'inter').toLowerCase()
+  const hf = ALLOWED_FONT_IDS.has((cur.heading_font || '').toLowerCase())
+    ? (cur.heading_font || '').toLowerCase()
+    : bf
+  const bod = ALLOWED_FONT_IDS.has((cur.body_font || '').toLowerCase())
+    ? (cur.body_font || '').toLowerCase()
+    : bf
+  const def = {
+    version: 1,
+    primary_hex: cur.primary_hex || brandColors[0] || '#6366f1',
+    secondary_hex: cur.secondary_hex || brandColors[1] || brandColors[0] || '#6366f1',
+    accent_hex: cur.accent_hex || brandColors[2] || brandColors[1] || '#6366f1',
+    neutral_hex: cur.neutral_hex || '#f4f4f5',
+    heading_font: hf,
+    body_font: bod,
+    logo_placement: cur.logo_placement || 'bottom_right',
+    logo_min_width_px: cur.logo_min_width_px ?? 80,
+    allowed_archetypes: Array.isArray(cur.allowed_archetypes) && cur.allowed_archetypes.length
+      ? cur.allowed_archetypes
+      : [...VISUAL_ARCHETYPES],
+    never_show_motifs: Array.isArray(cur.never_show_motifs) ? cur.never_show_motifs : [],
+    reference_urls: Array.isArray(cur.reference_urls) ? cur.reference_urls : [],
+    reference_rights_attested: !!cur.reference_rights_attested,
+    forbidden_hexes: Array.isArray(cur.forbidden_hexes) ? cur.forbidden_hexes : [],
+  }
+  return { ...def, ...cur, allowed_archetypes: cur.allowed_archetypes?.length ? cur.allowed_archetypes : def.allowed_archetypes }
+}
 
 const LANGUAGE_OPTIONS_BY_COUNTRY = {
   NG: [['english','English'],['nigerian_english','Nigerian English'],['pidgin','Pidgin (Naija)'],['mix','Mix (code-switching)']],
@@ -152,6 +188,28 @@ function computeScores(form) {
       if (words < 25)  return s('good', 'Good rules. List any remaining edge cases or formatting preferences for Excellent.')
       return s('excellent', 'Comprehensive guidelines. AI will apply these editorial standards to every post.')
     },
+    visual_system: () => {
+      const vs = (form.brand_kit || {}).visual_system || {}
+      for (const k of ['primary_hex', 'secondary_hex', 'accent_hex']) {
+        const v = vs[k]
+        if (v != null && String(v).trim() !== '' && !normalizeHex(String(v))) {
+          return s('poor', `Invalid ${k.replace(/_/g, ' ')} — use #RRGGBB (e.g. #0A1B2C).`)
+        }
+      }
+      if (vs.neutral_hex != null && String(vs.neutral_hex).trim() !== '' && !normalizeHex(String(vs.neutral_hex))) {
+        return s('poor', 'Invalid neutral hex — use #RRGGBB or leave blank for default.')
+      }
+      for (const h of vs.forbidden_hexes || []) {
+        if (String(h).trim() && !normalizeHex(String(h))) {
+          return s('fair', 'One or more forbidden hex colours are invalid — fix or remove the bad line.')
+        }
+      }
+      const refs = vs.reference_urls || []
+      if (refs.length > 0 && !vs.reference_rights_attested) {
+        return s('fair', 'Reference URLs need the rights confirmation checked (or remove the URLs) before generating.')
+      }
+      return s('excellent', 'Visual tokens are valid for generation.')
+    },
   }
 }
 
@@ -255,7 +313,10 @@ export default function BrandKitPage() {
   const [form, setForm]     = useState({})
 
   useEffect(() => {
-    if (brand) setForm({ ...brand, compliance_rules: brand.compliance_rules || {} })
+    if (!brand) return
+    const kit = { ...(brand.brand_kit || {}) }
+    kit.visual_system = mergeVisualSystem(kit, brand.brand_colors || [], brand.brand_font)
+    setForm({ ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} })
   }, [brand?.id])
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
@@ -278,6 +339,23 @@ export default function BrandKitPage() {
   }
 
   const setCompliance = (key, val) => set('compliance_rules', { ...(form.compliance_rules || {}), [key]: val })
+
+  const vs = () => ({ ...((form.brand_kit || {}).visual_system || {}) })
+  const setVs = (patch) => {
+    const kit = { ...(form.brand_kit || {}) }
+    kit.visual_system = { ...vs(), ...patch }
+    setForm((f) => ({ ...f, brand_kit: kit }))
+  }
+
+  const toggleArchetype = (id) => {
+    const cur = vs().allowed_archetypes || [...VISUAL_ARCHETYPES]
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+    if (next.length === 0) {
+      toast('Keep at least one layout archetype', 'error')
+      return
+    }
+    setVs({ allowed_archetypes: next })
+  }
 
   const applyCompliancePreset = (preset) => {
     set('compliance_rules', { ...(form.compliance_rules || {}), ...COMPLIANCE_PRESETS[preset] })
@@ -435,7 +513,195 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {/* ── IDENTITY ── */}
+          {/* ── VISUAL (VBS) ── */}
+          {tab === 'Visual' && (
+            <div className={`${cardCls} space-y-5`}>
+              <div>
+                <h3 className={sectionTitleCls}>Visual brand system</h3>
+                <ScoreBadge score={S.visual_system} />
+                <p className="text-ink/40 text-xs mt-1 max-w-xl">
+                  Tokens drive generated backgrounds, logo placement, and Bannerbear accents. Set primary colours to
+                  match your real brand (not generic AI defaults).
+                </p>
+              </div>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <label className="space-y-1">
+                  <span className={labelCls}>Primary hex</span>
+                  <input
+                    className={inpCls}
+                    value={vs().primary_hex || ''}
+                    onChange={(e) => setVs({ primary_hex: e.target.value })}
+                    placeholder="#0033FF"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Secondary hex</span>
+                  <input
+                    className={inpCls}
+                    value={vs().secondary_hex || ''}
+                    onChange={(e) => setVs({ secondary_hex: e.target.value })}
+                    placeholder="#FF0066"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Accent hex</span>
+                  <input
+                    className={inpCls}
+                    value={vs().accent_hex || ''}
+                    onChange={(e) => setVs({ accent_hex: e.target.value })}
+                  />
+                </label>
+                <label className="space-y-1 sm:col-span-3">
+                  <span className={labelCls}>Neutral / background hex</span>
+                  <input
+                    className={inpCls}
+                    maxLength={7}
+                    value={vs().neutral_hex || ''}
+                    onChange={(e) => setVs({ neutral_hex: e.target.value })}
+                    placeholder="#f4f4f5"
+                  />
+                </label>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <label className="space-y-1">
+                  <span className={labelCls}>Heading font (slides)</span>
+                  <select
+                    className={inpCls}
+                    value={vs().heading_font || 'inter'}
+                    onChange={(e) => setVs({ heading_font: e.target.value })}
+                  >
+                    {FONTS.map((f) => (
+                      <option key={f.value} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Body font (slides)</span>
+                  <select
+                    className={inpCls}
+                    value={vs().body_font || 'inter'}
+                    onChange={(e) => setVs({ body_font: e.target.value })}
+                  >
+                    {FONTS.map((f) => (
+                      <option key={`b-${f.value}`} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="space-y-1 block">
+                <span className={labelCls}>Forbidden hex colours (one per line)</span>
+                <textarea
+                  className={taCls}
+                  rows={2}
+                  value={(vs().forbidden_hexes || []).join('\n')}
+                  onChange={(e) =>
+                    setVs({
+                      forbidden_hexes: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder={'#00ff88\n#ff00ff'}
+                />
+              </label>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <label className="space-y-1">
+                  <span className={labelCls}>Logo placement (raster)</span>
+                  <select
+                    className={inpCls}
+                    value={vs().logo_placement || 'bottom_right'}
+                    onChange={(e) => setVs({ logo_placement: e.target.value })}
+                  >
+                    <option value="bottom_right">Bottom right</option>
+                    <option value="bottom_left">Bottom left</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Logo min width (px)</span>
+                  <input
+                    type="number"
+                    min={48}
+                    className={inpCls}
+                    value={vs().logo_min_width_px ?? 80}
+                    onChange={(e) => setVs({ logo_min_width_px: parseInt(e.target.value, 10) || 80 })}
+                  />
+                </label>
+              </div>
+              <div>
+                <span className={labelCls}>Allowed layout archetypes</span>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {VISUAL_ARCHETYPES.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => toggleArchetype(id)}
+                      className={clsx(
+                        'text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors',
+                        (vs().allowed_archetypes || []).includes(id)
+                          ? 'border-brand-500 bg-brand-500/10 text-brand-700'
+                          : 'border-fog text-ink/40 hover:border-ink/20'
+                      )}
+                    >
+                      {id.replace(/_/g, ' ')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="space-y-1 block">
+                <span className={labelCls}>Never show (one motif per line)</span>
+                <textarea
+                  className={taCls}
+                  rows={3}
+                  value={(vs().never_show_motifs || []).join('\n')}
+                  onChange={(e) =>
+                    setVs({
+                      never_show_motifs: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder={'floating stock tickers\ngeneric shield + checkmark icon'}
+                />
+              </label>
+              <label className="space-y-1 block">
+                <span className={labelCls}>Reference URLs (style only, max 10)</span>
+                <textarea
+                  className={taCls}
+                  rows={2}
+                  value={(vs().reference_urls || []).join('\n')}
+                  onChange={(e) =>
+                    setVs({
+                      reference_urls: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                        .slice(0, 10),
+                    })
+                  }
+                  placeholder="https://…"
+                />
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!vs().reference_rights_attested}
+                  onChange={(e) => setVs({ reference_rights_attested: e.target.checked })}
+                  className="mt-1"
+                />
+                <span className="text-ink/60 text-xs">
+                  I confirm I have rights to use the reference URLs for style guidance (not to copy third-party
+                  trademarks).
+                </span>
+              </label>
+            </div>
+          )}
+
           {tab === 'Identity' && (
             <div className="space-y-4">
               <div className={cardCls}>

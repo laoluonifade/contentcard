@@ -11,10 +11,19 @@ from app.models.template import ContentTemplate
 from app.models.user import User
 from app.core.dependencies import get_current_user
 from app.schemas.content import (
-    GenerateMonthRequest, GeneratePhotoCaption, RegenerateSingleCaption,
-    CaptionUpdateRequest, ContentOut,
+    GenerateMonthRequest,
+    GeneratePhotoCaption,
+    RegenerateSingleCaption,
+    RegenerateVisualRequest,
+    CaptionUpdateRequest,
+    ContentOut,
 )
 from app.services.ai_service import generate_monthly_plan, generate_single_caption, generate_photo_caption
+from app.services.visual_tokens import apply_visual_system_defaults
+from app.services.art_brief_service import build_art_brief
+from app.services.visual_lint_service import lint_final_image
+from app.services.image_service import generate_post_image
+from app.services.bannerbear_service import generate_post_images
 from datetime import date
 import logging
 
@@ -344,6 +353,59 @@ async def regenerate_caption(
     return ContentOut.model_validate(item)
 
 
+@router.post("/{content_id}/regenerate-visual", response_model=ContentOut)
+async def regenerate_visual(
+    content_id: str,
+    body: RegenerateVisualRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.services.art_brief_service import ARCHETYPE_IDS
+
+    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
+    item = r.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    brand = await _get_brand_and_check_access(item.brand_id, current_user.id, db)
+    brand_dict = apply_visual_system_defaults(_brand_to_dict(brand))
+
+    post = _content_item_to_post_dict(item)
+    if body.mode == "new_archetype" and body.new_archetype:
+        na = body.new_archetype.strip().lower()
+        if na not in ARCHETYPE_IDS:
+            raise HTTPException(status_code=400, detail=f"Invalid archetype. Use one of: {', '.join(ARCHETYPE_IDS)}")
+        post["visual_archetype"] = na
+
+    sab = build_art_brief(post, brand_dict)
+    post["art_brief"] = sab
+
+    try:
+        bg_urls = await generate_post_image(post, brand_dict)
+        if bg_urls:
+            item.image_url = bg_urls[0]
+        bb_urls = await generate_post_images(
+            post, brand_dict, background_image_url=item.image_url or None
+        )
+        if bb_urls:
+            item.image_urls = bb_urls
+        lint = await lint_final_image((item.image_urls or [None])[0], brand_dict, sab)
+        th = dict(item.theme) if isinstance(item.theme, dict) else dict(random.choice(THEMES))
+        th["cc_meta"] = {
+            "visual_archetype": sab["archetype_id"],
+            "art_brief": sab,
+            "visual_lint": lint,
+        }
+        item.theme = th
+        await db.commit()
+        await db.refresh(item)
+        return ContentOut.model_validate(item)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"regenerate-visual failed for {content_id}: {e}")
+        raise HTTPException(status_code=502, detail="Visual regeneration failed — try again shortly")
+
+
 @router.delete("/{content_id}", status_code=204)
 async def delete_content(
     content_id: str,
@@ -369,7 +431,6 @@ async def _do_generate_month(
     template_id: str | None,
 ):
     from app.db.database import AsyncSessionLocal
-    from app.services.bannerbear_service import generate_post_images
     async with AsyncSessionLocal() as db:
         try:
             posts = await generate_monthly_plan(
@@ -402,7 +463,12 @@ async def _do_generate_month(
                     template_id=template_id,
                     topic=str(post.get("topic", ""))[:500],
                     content_type=str(post.get("content_type", ""))[:100] or None,
+                    content_idea=(str(post.get("content_idea", ""))[:300] or None),
                     description=post.get("description") or None,
+                    cta=(str(post.get("cta", ""))[:300] or None),
+                    visual_direction=post.get("visual_direction") or None,
+                    image_prompt=post.get("image_prompt") or None,
+                    image_prompt_explanation=post.get("image_prompt_explanation") or None,
                     platform=platform,
                     format=fmt,
                     status=ContentStatus.DRAFT,
@@ -423,6 +489,27 @@ async def _do_generate_month(
             # roll back text that has already been generated successfully.
             await db.commit()
             logger.info(f"Saved {len(saved_items)} posts (text) for brand {brand_id} {month}/{year}")
+
+            # ── Art brief + cc_meta on theme (PRD) ─────────────────────────────────
+            for i in range(len(saved_items)):
+                item, post = saved_items[i]
+                sab = build_art_brief(post, brand_dict)
+                enriched = {**post, "art_brief": sab}
+                saved_items[i] = (item, enriched)
+                th = dict(item.theme) if isinstance(item.theme, dict) else dict(random.choice(THEMES))
+                th["cc_meta"] = {
+                    "visual_archetype": sab["archetype_id"],
+                    "art_brief": sab,
+                    "visual_lint": None,
+                }
+                item.theme = th
+                logger.info(
+                    "contentcard.visual post_id=%s archetype=%s colors=%s",
+                    item.id,
+                    sab.get("archetype_id"),
+                    sab.get("dominant_colors_from_tokens"),
+                )
+            await db.commit()
 
         except json.JSONDecodeError as e:
             logger.error(f"AI returned invalid JSON for brand {brand_id}: {e}")
@@ -458,6 +545,21 @@ async def _do_generate_month(
                     await db.commit()
             except Exception as e:
                 logger.error(f"Bannerbear failed for post {item.id}: {e}")
+
+        # ── Phase 3: visual lint (async-friendly, non-blocking of assets) ───────────
+        for item, post_data in saved_items:
+            try:
+                sab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else {}
+                cover = (item.image_urls or [None])[0]
+                lint = await lint_final_image(cover, brand_dict, sab)
+                th = dict(item.theme) if isinstance(item.theme, dict) else {}
+                cm = dict(th.get("cc_meta") or {})
+                cm["visual_lint"] = lint
+                th["cc_meta"] = cm
+                item.theme = th
+                await db.commit()
+            except Exception as e:
+                logger.warning(f"visual_lint failed for post {item.id}: {e}")
 
 
 def _brand_to_dict(brand: Brand) -> dict:
@@ -504,4 +606,28 @@ def _brand_to_dict(brand: Brand) -> dict:
     # brand_motifs, mission_statement, value_proposition, key_messages, etc.)
     # Individual column values above take priority over kit values.
     merged = {**kit, **base}
-    return merged
+    return apply_visual_system_defaults(merged)
+
+
+def _content_item_to_post_dict(item: ContentItem) -> dict:
+    """Rebuild the post payload used by image + Bannerbear from a persisted row."""
+    cm = (item.theme or {}).get("cc_meta") if isinstance(item.theme, dict) else None
+    arch = None
+    ab = None
+    if isinstance(cm, dict):
+        arch = cm.get("visual_archetype")
+        ab = cm.get("art_brief") if isinstance(cm.get("art_brief"), dict) else None
+    return {
+        "topic": item.topic,
+        "caption": item.caption or "",
+        "platform": item.platform.value if item.platform else "instagram",
+        "format": item.format.value if item.format else "single",
+        "slide_count": item.slide_count,
+        "content_idea": item.content_idea,
+        "description": item.description,
+        "visual_direction": item.visual_direction,
+        "image_prompt": item.image_prompt,
+        "visual_type": "real_people",
+        "visual_archetype": arch,
+        "art_brief": ab,
+    }

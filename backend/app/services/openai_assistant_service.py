@@ -109,7 +109,15 @@ def _build_brand_kit_document(brand) -> str:
 - **Imagery Style**: {_fmt(kit.get('imagery_style'))}
 - **Lighting Style**: {_fmt(kit.get('lighting_style'))}
 - **Brand Motifs**: {_lst(kit.get('brand_motifs'))}
-- **Logo Description**: {_fmt(kit.get('logo_description'))}""",
+- **Logo Description**: {_fmt(kit.get('logo_description'))}
+- **Visual system (tokens for generated graphics)**:
+  - Primary hex: {_fmt((kit.get('visual_system') or {}).get('primary_hex'))}
+  - Secondary hex: {_fmt((kit.get('visual_system') or {}).get('secondary_hex'))}
+  - Accent hex: {_fmt((kit.get('visual_system') or {}).get('accent_hex'))}
+  - Logo placement (raster): {_fmt((kit.get('visual_system') or {}).get('logo_placement'))}
+  - Allowed layout archetypes: {_lst((kit.get('visual_system') or {}).get('allowed_archetypes'))}
+  - Never show motifs: {_lst((kit.get('visual_system') or {}).get('never_show_motifs'))}
+  - Forbidden hexes: {_lst((kit.get('visual_system') or {}).get('forbidden_hexes'))}""",
 
         f"""## 5. Messaging Framework
 - **Value Pillars**: {_lst(kit.get('value_pillars'))}
