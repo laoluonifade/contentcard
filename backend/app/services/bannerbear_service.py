@@ -60,31 +60,51 @@ def _primary_color(brand_dict: dict) -> str:
     return colors[0] if colors else "#6C63FF"
 
 
-def _cover_mods(topic: str, caption: str, brand_dict: dict) -> list[dict]:
+def _cover_mods(
+    topic: str, caption: str, brand_dict: dict,
+    background_image_url: str | None = None,
+) -> list[dict]:
     subtitle = caption.split(".")[0].strip()[:150] if caption else ""
-    return [
+    mods = [
         {"name": "headline",   "text": topic[:100]},
         {"name": "subtitle",   "text": subtitle},
         {"name": "brand_name", "text": brand_dict.get("name", "Brand").upper()},
         {"name": "background", "color": _primary_color(brand_dict)},
     ]
+    # Inject DALL-E background into Bannerbear template image layer if present.
+    # The template must have a layer named "background_image" for this to apply.
+    if background_image_url:
+        mods.append({"name": "background_image", "image_url": background_image_url})
+    return mods
 
 
-def _content_mods(headline: str, body: str, brand_dict: dict) -> list[dict]:
-    return [
+def _content_mods(
+    headline: str, body: str, brand_dict: dict,
+    background_image_url: str | None = None,
+) -> list[dict]:
+    mods = [
         {"name": "headline",   "text": headline[:100]},
         {"name": "body",       "text": body[:300]},
         {"name": "brand_name", "text": brand_dict.get("name", "Brand").upper()},
         {"name": "accent",     "color": _primary_color(brand_dict)},
     ]
+    if background_image_url:
+        mods.append({"name": "background_image", "image_url": background_image_url})
+    return mods
 
 
-def _quote_mods(quote: str, brand_dict: dict) -> list[dict]:
-    return [
+def _quote_mods(
+    quote: str, brand_dict: dict,
+    background_image_url: str | None = None,
+) -> list[dict]:
+    mods = [
         {"name": "quote_text", "text": quote[:200]},
         {"name": "brand_name", "text": brand_dict.get("name", "Brand").upper()},
         {"name": "background", "color": _primary_color(brand_dict)},
     ]
+    if background_image_url:
+        mods.append({"name": "background_image", "image_url": background_image_url})
+    return mods
 
 
 def _split_sentences(text: str) -> list[str]:
@@ -93,9 +113,20 @@ def _split_sentences(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-async def generate_post_images(post_data: dict, brand_dict: dict) -> list[str]:
+async def generate_post_images(
+    post_data: dict,
+    brand_dict: dict,
+    background_image_url: str | None = None,
+) -> list[str]:
     """
     Generate Bannerbear images for all slides of a post.
+
+    background_image_url: URL of the DALL-E generated background photo.
+        Passed to Bannerbear as the 'background_image' layer on the cover slide
+        so typography is composited on top of a real photograph rather than a
+        flat brand-color fill. Content slides intentionally omit the background
+        image to keep them clean and readable.
+
     Returns a list of PNG URLs (one per slide). Returns [] if Bannerbear not configured.
     """
     if not settings.BANNERBEAR_API_KEY:
@@ -112,7 +143,7 @@ async def generate_post_images(post_data: dict, brand_dict: dict) -> list[str]:
             return []
         url = await _create_image(
             settings.BANNERBEAR_TEMPLATE_QUOTE,
-            _quote_mods(caption or topic, brand_dict),
+            _quote_mods(caption or topic, brand_dict, background_image_url),
         )
         return [url] if url else []
 
@@ -122,7 +153,8 @@ async def generate_post_images(post_data: dict, brand_dict: dict) -> list[str]:
 
     cover_url = await _create_image(
         settings.BANNERBEAR_TEMPLATE_COVER,
-        _cover_mods(topic, caption, brand_dict),
+        # Background image only on cover — gives the photographic hero shot
+        _cover_mods(topic, caption, brand_dict, background_image_url),
     )
     if not cover_url:
         return []
@@ -131,6 +163,8 @@ async def generate_post_images(post_data: dict, brand_dict: dict) -> list[str]:
         return [cover_url]
 
     # ── Carousel — cover + content slides + CTA
+    # Content slides get NO background image: plain brand-color + text is more
+    # readable for body copy and keeps the carousel visually consistent.
     urls = [cover_url]
 
     if settings.BANNERBEAR_TEMPLATE_CONTENT and slide_count > 2:
@@ -146,7 +180,7 @@ async def generate_post_images(post_data: dict, brand_dict: dict) -> list[str]:
                 _content_mods(topic, body, brand_dict),
             ))
 
-        # CTA slide
+        # CTA slide — no background image, brand color only
         tasks.append(_create_image(
             settings.BANNERBEAR_TEMPLATE_CONTENT,
             _content_mods("Save this post", "Follow for more content like this →", brand_dict),

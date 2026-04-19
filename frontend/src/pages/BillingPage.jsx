@@ -1,217 +1,386 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { CreditCard, Check, AlertCircle, ExternalLink } from 'lucide-react'
+import {
+  Check, AlertCircle, CreditCard, Trash2, Zap, X, Shield, RefreshCw,
+} from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
+
+// ── Plan definitions ──────────────────────────────────────────────────────────
 
 const PLANS = [
   {
     id: 'starter',
     name: 'Starter',
-    usd: '$25',
-    ngn: '₦20,000',
-    desc: 'For solo creators getting started.',
-    features: ['50 posts/month','All 3 platforms','Basic brand kit','1 brand'],
-    dim: ['AI trending topics','Team members'],
+    price: '₦20,000',
+    priceRaw: 20000,
+    desc: 'For solo creators.',
+    features: [
+      'Unlimited content generation',
+      'Instagram, Facebook, X, LinkedIn',
+      'Full brand kit',
+      'AI-generated images',
+      '1 brand',
+    ],
   },
   {
     id: 'smb',
-    name: 'SMB',
-    usd: '$50',
-    ngn: '₦50,000',
-    desc: 'For growing businesses needing more.',
-    features: ['Unlimited posts','All 3 platforms','Full brand kit','AI trending topics','3 brands','5 team members'],
-    dim: [],
+    name: 'Growth',
+    price: '₦50,000',
+    priceRaw: 50000,
+    desc: 'For growing businesses.',
+    features: [
+      'Everything in Starter',
+      'AI trending topics',
+      '3 brands',
+      '5 team members',
+    ],
     featured: true,
   },
   {
     id: 'pro',
     name: 'Pro',
-    usd: '$100',
-    ngn: '₦200,000',
-    desc: 'For agencies managing multiple brands.',
-    features: ['Unlimited posts','All 3 platforms','Full brand kit','AI trending topics','10 brands','Unlimited team members'],
-    dim: [],
+    price: '₦200,000',
+    priceRaw: 200000,
+    desc: 'For agencies.',
+    features: [
+      'Everything in Growth',
+      '10 brands',
+      'Unlimited team members',
+      'Priority support',
+    ],
   },
 ]
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function GenerationMeter({ used }) {
+  const remaining = Math.max(0, 2 - used)
+  const pct = Math.min(100, (used / 2) * 100)
+  const exhausted = used >= 2
+  return (
+    <div className={`rounded-2xl p-5 border ${exhausted ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+      <div className="flex items-start gap-3">
+        <AlertCircle size={18} className={`flex-shrink-0 mt-0.5 ${exhausted ? 'text-red-500' : 'text-amber-500'}`} />
+        <div className="flex-1">
+          <p className={`text-sm font-semibold mb-0.5 ${exhausted ? 'text-red-800' : 'text-amber-800'}`}>
+            {exhausted ? 'Free generations used up' : `${remaining} free generation${remaining !== 1 ? 's' : ''} remaining`}
+          </p>
+          <p className={`text-xs mb-3 ${exhausted ? 'text-red-600' : 'text-amber-600'}`}>
+            {exhausted
+              ? 'Subscribe to unlock unlimited content generation.'
+              : `You've used ${used} of 2 free generations. Subscribe for unlimited access.`}
+          </p>
+          <div className="h-1.5 bg-white/70 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${exhausted ? 'bg-red-500' : 'bg-amber-500'}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex justify-between mt-1.5">
+            <span className={`text-[10px] ${exhausted ? 'text-red-400' : 'text-amber-400'}`}>{used} used</span>
+            <span className={`text-[10px] ${exhausted ? 'text-red-400' : 'text-amber-400'}`}>2 free</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SavedCard({ card, onRemove, removing }) {
+  const typeLabel = (card.card_type || 'Card').charAt(0).toUpperCase() + (card.card_type || 'Card').slice(1)
+  return (
+    <div className="rounded-2xl border border-fog bg-white p-5 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-4">
+        {/* Card chip visual */}
+        <div className="w-12 h-8 rounded-md bg-gradient-to-br from-ink/80 to-ink flex items-center justify-center flex-shrink-0">
+          <CreditCard size={16} className="text-white/80" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-ink">
+            {typeLabel} •••• {card.last4}
+          </p>
+          <p className="text-xs text-ink/40 mt-0.5">
+            {card.bank ? `${card.bank} · ` : ''}Expires {card.exp_month}/{card.exp_year}
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={onRemove}
+        disabled={removing}
+        className="flex items-center gap-1.5 text-xs text-ink/40 hover:text-red-500 font-medium transition-colors disabled:opacity-40"
+        title="Remove card and cancel subscription"
+      >
+        {removing
+          ? <><RefreshCw size={13} className="animate-spin" /> Removing…</>
+          : <><Trash2 size={13} /> Remove</>}
+      </button>
+    </div>
+  )
+}
+
+function ConfirmModal({ title, body, confirmLabel, confirmClass, onConfirm, onClose, loading }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+        <div className="flex items-start justify-between mb-3">
+          <h3 className="text-ink font-semibold">{title}</h3>
+          <button onClick={onClose} className="text-ink/30 hover:text-ink transition-colors">
+            <X size={18} />
+          </button>
+        </div>
+        <p className="text-ink/60 text-sm mb-5 leading-relaxed">{body}</p>
+        <div className="flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="flex-1 py-2.5 rounded-xl border border-fog text-ink/60 text-sm font-medium hover:bg-mist transition-colors"
+          >
+            Keep subscription
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className={`flex-1 py-2.5 rounded-xl text-white text-sm font-medium transition-colors disabled:opacity-60 ${confirmClass}`}
+          >
+            {loading ? 'Please wait…' : confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function BillingPage() {
   const [searchParams] = useSearchParams()
   const {
-    activeWorkspace,
-    activeWorkspaceId,
-    subscription,
-    fetchSubscription,
-    createCheckout,
-    verifyPaystackSession,
+    activeWorkspace, subscription,
+    fetchSubscription, createCheckout, cancelSubscription, removeCard,
   } = useAppStore()
-  const [loading, setLoading] = useState(null)
-  const [verifyingPayment, setVerifyingPayment] = useState(false)
 
-  const isNigeria = activeWorkspace?.payment_provider === 'paystack'
+  const [loading, setLoading] = useState(null)          // plan id being checked out
+  const [showCancelModal, setShowCancelModal] = useState(false)
+  const [showRemoveModal, setShowRemoveModal] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
+  const [removing, setRemoving] = useState(false)
+
+  const isSubscribed = ['starter', 'smb', 'pro'].includes(subscription?.plan)
+  const freeUsed = subscription?.free_generations_used ?? 0
+  const card = subscription?.card || null
+  const currentPlan = PLANS.find(p => p.id === subscription?.plan)
 
   useEffect(() => {
-    if (!activeWorkspaceId) return
     fetchSubscription().catch(() => {})
-  }, [activeWorkspaceId, fetchSubscription])
-
-  useEffect(() => {
-    const success = searchParams.get('success')
-    const cancelled = searchParams.get('cancelled')
-    const reference = searchParams.get('reference')
-
-    if (cancelled) toast('Checkout cancelled.', 'error')
-    if (!success) return
-
-    if (isNigeria && reference && activeWorkspaceId) {
-      setVerifyingPayment(true)
-      verifyPaystackSession(reference)
-        .then(() => toast('Subscription activated and card saved successfully.'))
-        .catch((err) => toast(err.message || 'Payment verification failed. Please refresh.', 'error'))
-        .finally(() => setVerifyingPayment(false))
-      return
+    if (searchParams.get('success')) {
+      toast('Payment confirmed — your plan is now active!')
+      fetchSubscription().catch(() => {})
     }
-
-    toast('Subscription activated! Welcome to ContentCard.')
-    fetchSubscription().catch(() => {})
-  }, [searchParams, isNigeria, activeWorkspaceId, verifyPaystackSession, fetchSubscription])
+  }, [])
 
   const handleSubscribe = async (planId) => {
+    if (!activeWorkspace?.id) return
     setLoading(planId)
     try {
       const { checkout_url } = await createCheckout(planId)
       window.location.href = checkout_url
     } catch (err) {
-      toast(err.message || 'Failed to start checkout', 'error')
-    } finally {
+      toast(err.response?.data?.detail || err.message || 'Checkout failed — please try again', 'error')
       setLoading(null)
     }
   }
 
-  const trialDays = () => {
-    if (!subscription?.trial_ends_at) return null
-    const diff = new Date(subscription.trial_ends_at) - new Date()
-    return Math.max(0, Math.ceil(diff / 86400000))
+  const handleCancel = async () => {
+    setCancelling(true)
+    try {
+      await cancelSubscription()
+      setShowCancelModal(false)
+      toast('Subscription cancelled. Your card stays saved — re-subscribe anytime.')
+    } catch (err) {
+      toast(err.response?.data?.detail || 'Cancellation failed', 'error')
+    } finally {
+      setCancelling(false)
+    }
   }
 
-  const days = trialDays()
+  const handleRemoveCard = async () => {
+    setRemoving(true)
+    try {
+      await removeCard()
+      setShowRemoveModal(false)
+      toast('Card removed and subscription cancelled.')
+    } catch (err) {
+      toast(err.response?.data?.detail || 'Failed to remove card', 'error')
+    } finally {
+      setRemoving(false)
+    }
+  }
+
+  const formatDate = (iso) => {
+    if (!iso) return null
+    try {
+      return new Date(iso).toLocaleDateString('en-NG', { day: 'numeric', month: 'long', year: 'numeric' })
+    } catch { return null }
+  }
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
+
+      {/* Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>Billing</h1>
-        <p className="text-zinc-500 text-sm">Manage your subscription and plan.</p>
+        <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Billing</h1>
+        <p className="text-ink/40 text-sm">Manage your subscription and saved payment method.</p>
       </div>
 
-      {/* Current plan */}
-      {subscription && (
-        <div className={`rounded-2xl p-6 mb-8 flex items-center justify-between ${subscription.plan !== 'trial' ? 'bg-violet-600 border border-violet-500' : 'bg-zinc-900 border border-zinc-800'}`}>
+      {/* ── Active subscription status ── */}
+      {isSubscribed && (
+        <div className="rounded-2xl bg-white border border-fog p-5 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <p className={`text-xs font-bold uppercase tracking-widest mb-1 ${subscription.plan !== 'trial' ? 'text-violet-200' : 'text-zinc-500'}`}>Current plan</p>
-            <p className={`text-2xl font-bold capitalize ${subscription.plan !== 'trial' ? 'text-white' : 'text-white'}`}>{subscription.plan === 'trial' ? 'Free trial' : subscription.plan}</p>
-            {days !== null && subscription.plan === 'trial' && (
-              <p className={`text-sm mt-1 ${days === 0 ? 'text-red-400' : 'text-zinc-400'}`}>
-                {days === 0 ? 'Trial expired — subscribe to continue' : `${days} day${days !== 1 ? 's' : ''} remaining`}
-              </p>
-            )}
-            {subscription.plan !== 'trial' && (
-              <p className="text-violet-200 text-sm mt-1">
-                {isNigeria ? 'Paystack · auto-renews monthly' : 'Stripe · auto-renews monthly'}
+            <p className="text-xs font-semibold uppercase tracking-widest text-ink/40 mb-1">Active plan</p>
+            <p className="text-xl font-bold text-ink" style={{ letterSpacing: '-0.01em' }}>
+              {currentPlan?.name} — {currentPlan?.price}<span className="text-ink/40 font-normal text-sm">/mo</span>
+            </p>
+            {subscription?.next_payment_date && (
+              <p className="text-xs text-ink/40 mt-1">
+                Next billing: {formatDate(subscription.next_payment_date)}
               </p>
             )}
           </div>
-          <div>
-            <span className={`inline-block px-3 py-1.5 rounded-full text-xs font-bold ${subscription.plan !== 'trial' ? 'bg-white/20 text-white' : days === 0 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/15 text-amber-400'}`}>
-              {subscription.plan !== 'trial' ? 'Active' : days === 0 ? 'Expired' : 'Trial'}
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-brand-50 text-brand-600 border border-brand-100">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
+              Active
             </span>
+            <button
+              onClick={() => setShowCancelModal(true)}
+              className="text-xs text-ink/40 hover:text-red-500 font-medium transition-colors"
+            >
+              Cancel plan
+            </button>
           </div>
         </div>
       )}
 
-      {verifyingPayment && (
-        <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-4 mb-6 text-sm text-violet-200">
-          Verifying your Paystack payment and syncing subscription...
+      {/* ── Saved card ── */}
+      {card ? (
+        <div className="mb-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-ink/40 mb-2">Payment method</p>
+          <SavedCard
+            card={card}
+            onRemove={() => setShowRemoveModal(true)}
+            removing={removing}
+          />
+        </div>
+      ) : !isSubscribed && (
+        <div className="mb-5">
+          <GenerationMeter used={freeUsed} />
         </div>
       )}
 
-      {subscription?.saved_card && (
-        <div className="rounded-2xl p-6 mb-8 border border-zinc-800 bg-zinc-900">
-          <p className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3">Saved payment card</p>
-          <div className="flex items-center gap-3 text-zinc-200">
-            <CreditCard size={16} className="text-zinc-400" />
-            <span className="text-sm">
-              {subscription.saved_card.card_type || 'Card'} ending in {subscription.saved_card.last4 || '****'}
-              {subscription.saved_card.exp_month && subscription.saved_card.exp_year
-                ? ` · exp ${subscription.saved_card.exp_month}/${subscription.saved_card.exp_year}`
-                : ''}
-              {subscription.saved_card.bank ? ` · ${subscription.saved_card.bank}` : ''}
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Currency note */}
-      <div className="flex items-center gap-2 mb-6 text-sm text-zinc-500">
-        <AlertCircle size={14} />
-        <span>Prices shown in {isNigeria ? '₦ Naira (Paystack)' : '$ USD (Stripe)'} based on your location.</span>
-      </div>
-
-      {/* Plan cards */}
-      <div className="grid md:grid-cols-3 gap-4 mb-8">
-        {PLANS.map(plan => {
-          const isCurrent = subscription?.plan === plan.id
-          return (
-            <div key={plan.id} className={`rounded-2xl p-6 flex flex-col relative ${plan.featured ? 'border-2 border-violet-500 bg-violet-500/5' : 'border border-zinc-800 bg-zinc-900'}`}>
-              {plan.featured && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-violet-600 text-white text-xs font-bold px-3 py-1 rounded-full">Most popular</div>
-              )}
-              {isCurrent && (
-                <div className="absolute -top-3 right-4 bg-emerald-500 text-white text-xs font-bold px-3 py-1 rounded-full">Current plan</div>
-              )}
-              <div className="mb-5">
-                <div className="text-zinc-400 text-xs font-bold uppercase tracking-widest mb-2">{plan.name}</div>
-                <div className="text-3xl font-bold text-white mb-1">{isNigeria ? plan.ngn : plan.usd}</div>
-                <div className="text-zinc-500 text-xs">/month</div>
-                <div className="text-zinc-500 text-xs mt-2 leading-relaxed">{plan.desc}</div>
-              </div>
-              <div className="flex-1 mb-5 space-y-2.5">
-                {plan.features.map(f => (
-                  <div key={f} className="flex items-center gap-2 text-xs text-zinc-300">
-                    <div className="w-4 h-4 bg-violet-500/15 border border-violet-500/25 rounded flex items-center justify-center flex-shrink-0">
-                      <Check size={9} className="text-violet-400" />
-                    </div>
-                    {f}
-                  </div>
-                ))}
-                {plan.dim.map(f => (
-                  <div key={f} className="flex items-center gap-2 text-xs text-zinc-600">
-                    <div className="w-4 h-4 bg-zinc-800 border border-zinc-700 rounded flex-shrink-0" />
-                    {f}
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => !isCurrent && handleSubscribe(plan.id)}
-                disabled={isCurrent || loading === plan.id}
-                className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${isCurrent ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 cursor-default' : plan.featured ? 'bg-violet-600 hover:bg-violet-700 text-white' : 'bg-zinc-800 hover:bg-zinc-700 text-white border border-zinc-700'}`}
+      {/* ── Plans ── */}
+      <div className="mb-3">
+        <p className="text-xs font-semibold uppercase tracking-widest text-ink/40 mb-4">
+          {isSubscribed ? 'Switch plan' : 'Choose a plan'}
+        </p>
+        <div className="grid md:grid-cols-3 gap-4">
+          {PLANS.map(plan => {
+            const isCurrent = subscription?.plan === plan.id
+            const isLoading = loading === plan.id
+            return (
+              <div
+                key={plan.id}
+                className={`rounded-2xl p-6 flex flex-col relative transition-all ${
+                  plan.featured
+                    ? 'border-2 border-brand-400 bg-brand-500/5'
+                    : 'border border-fog bg-white'
+                } ${isCurrent ? 'ring-2 ring-brand-500/20' : ''}`}
               >
-                {loading === plan.id ? (
-                  <div className="flex items-center justify-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Redirecting…</div>
-                ) : isCurrent ? (
-                  <span className="flex items-center justify-center gap-1.5"><Check size={14} />Current plan</span>
-                ) : (
-                  <span className="flex items-center justify-center gap-1.5">Subscribe<ExternalLink size={13} /></span>
+                {plan.featured && !isCurrent && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-500 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">
+                    Most popular
+                  </div>
                 )}
-              </button>
-            </div>
-          )
-        })}
+                {isCurrent && (
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-ink text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">
+                    Current plan
+                  </div>
+                )}
+
+                <div className="mb-5">
+                  <p className="text-ink/50 text-xs font-bold uppercase tracking-widest mb-2">{plan.name}</p>
+                  <p className="text-3xl font-bold text-ink mb-0.5" style={{ letterSpacing: '-0.02em' }}>{plan.price}</p>
+                  <p className="text-ink/40 text-xs">/month · billed monthly</p>
+                  <p className="text-ink/40 text-xs mt-2 leading-relaxed">{plan.desc}</p>
+                </div>
+
+                <div className="flex-1 mb-5 space-y-2.5">
+                  {plan.features.map(f => (
+                    <div key={f} className="flex items-start gap-2 text-xs text-ink/70">
+                      <div className="w-4 h-4 bg-brand-500/15 border border-brand-500/25 rounded flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Check size={9} className="text-brand-500" />
+                      </div>
+                      {f}
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => !isCurrent && handleSubscribe(plan.id)}
+                  disabled={isCurrent || !!loading}
+                  className={`w-full py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                    isCurrent
+                      ? 'bg-mist text-ink/40 cursor-default'
+                      : plan.featured
+                        ? 'bg-brand-500 hover:bg-brand-600 text-white shadow-sm shadow-brand-500/30'
+                        : 'bg-white hover:bg-mist text-ink border border-fog'
+                  } disabled:opacity-60`}
+                >
+                  {isLoading ? (
+                    <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Redirecting to Paystack…</>
+                  ) : isCurrent ? (
+                    <><Check size={14} />Current plan</>
+                  ) : (
+                    <><Zap size={13} />{card ? 'Switch plan' : 'Subscribe'}</>
+                  )}
+                </button>
+              </div>
+            )
+          })}
+        </div>
       </div>
 
-      <div className="text-center text-zinc-600 text-xs">
-        All plans auto-renew monthly. Cancel anytime. Questions?{' '}
-        <a href="mailto:support@contentcard.io" className="text-violet-400 hover:text-violet-300 transition-colors">support@contentcard.io</a>
+      {/* Trust footer */}
+      <div className="flex items-center justify-center gap-2 mt-6 text-ink/30 text-xs">
+        <Shield size={13} />
+        <span>Payments processed securely by Paystack · Cancel anytime · Questions? <a href="mailto:hellovoya@gmail.com" className="text-brand-500 hover:text-brand-600 transition-colors">hellovoya@gmail.com</a></span>
       </div>
+
+      {/* ── Cancel modal ── */}
+      {showCancelModal && (
+        <ConfirmModal
+          title="Cancel subscription?"
+          body={`Your plan stays active until the end of the billing period. Your saved card remains on file — re-subscribe with one click anytime.`}
+          confirmLabel="Yes, cancel"
+          confirmClass="bg-red-500 hover:bg-red-600"
+          onConfirm={handleCancel}
+          onClose={() => setShowCancelModal(false)}
+          loading={cancelling}
+        />
+      )}
+
+      {/* ── Remove card modal ── */}
+      {showRemoveModal && (
+        <ConfirmModal
+          title="Remove saved card?"
+          body="This will cancel your active subscription and remove your card. You'll need to re-enter card details to subscribe again."
+          confirmLabel="Remove card"
+          confirmClass="bg-red-500 hover:bg-red-600"
+          onConfirm={handleRemoveCard}
+          onClose={() => setShowRemoveModal(false)}
+          loading={removing}
+        />
+      )}
     </div>
   )
 }

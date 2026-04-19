@@ -11,11 +11,11 @@ import { useTheme } from '../hooks/useTheme'
 const TABS = ['Profile','Company','Team','Notifications']
 const ROLES = ['admin','editor','viewer','approver']
 
-const inputCls = "w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all text-sm"
+const inputCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 
 function Toggle({ on, onChange }) {
   return (
-    <button onClick={() => onChange(!on)} className={`w-11 h-6 rounded-full relative transition-colors flex-shrink-0 ${on ? 'bg-violet-600' : 'bg-zinc-600'}`}>
+    <button onClick={() => onChange(!on)} className={`w-11 h-6 rounded-full relative transition-colors flex-shrink-0 ${on ? 'bg-brand-500' : 'bg-fog'}`}>
       <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${on ? 'left-6' : 'left-1'}`} />
     </button>
   )
@@ -34,6 +34,7 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('editor')
   const [inviting, setInviting] = useState(false)
+  const [lastInviteLink, setLastInviteLink] = useState(null)
 
   const nameParts = (user?.full_name || '').split(' ')
   const [profileForm, setProfileForm] = useState({
@@ -83,7 +84,10 @@ export default function SettingsPage() {
       const inv = await inviteApi.send(activeWorkspaceId, { email: inviteEmail, role: inviteRole })
       setInvites(iv => [inv, ...iv])
       setInviteEmail('')
-      toast(`Invite sent to ${inv.email}`)
+      const inviteLink = `${window.location.origin}/accept-invite?token=${inv.token}`
+      toast(`Invite link created — share it with ${inv.email}`)
+      // Also show the link in the UI
+      setLastInviteLink(inviteLink)
     } catch (err) { toast(err.message, 'error') }
     finally { setInviting(false) }
   }
@@ -108,15 +112,15 @@ export default function SettingsPage() {
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>Settings</h1>
-        <p className="text-zinc-500 text-sm">Manage your account and workspace</p>
+        <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Settings</h1>
+        <p className="text-ink/40 text-sm">Manage your account and workspace</p>
       </div>
 
       <div className="grid lg:grid-cols-[185px_1fr] gap-6 items-start">
-        <nav className="bg-zinc-900 border border-zinc-800 rounded-2xl p-2">
+        <nav className="bg-white border border-fog rounded-2xl p-2">
           {TABS.map(t => (
             <button key={t} onClick={() => { setTab(t); if (t === 'Team') loadTeam() }}
-              className={clsx('flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left mb-0.5', tab === t ? 'bg-violet-600 text-white' : 'text-white/60 hover:text-white hover:bg-zinc-800')}>
+              className={clsx('flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-medium transition-all text-left mb-0.5', tab === t ? 'bg-mist text-ink' : 'text-ink/40 hover:text-ink hover:bg-mist')}>
               {t}
             </button>
           ))}
@@ -125,32 +129,32 @@ export default function SettingsPage() {
         <div>
           {tab === 'Profile' && (
             <div className="space-y-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-1">Your profile</h3>
-                <p className="text-zinc-500 text-xs mb-5">Update your personal information</p>
-                <div className="flex items-center gap-4 mb-5 pb-5 border-b border-zinc-800">
-                  <div className="w-12 h-12 rounded-full bg-violet-600 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
+              <div className="bg-white border border-fog rounded-2xl p-6">
+                <h3 className="text-ink font-bold text-sm mb-1">Your profile</h3>
+                <p className="text-ink/40 text-xs mb-5">Update your personal information</p>
+                <div className="flex items-center gap-4 mb-5 pb-5 border-b border-fog">
+                  <div className="w-12 h-12 rounded-full bg-mist border border-fog flex items-center justify-center text-ink/60 font-semibold text-base flex-shrink-0">
                     {user?.full_name?.slice(0, 2).toUpperCase() || 'NS'}
                   </div>
-                  <div><div className="text-white font-bold">{user?.full_name}</div><div className="text-zinc-500 text-xs mt-0.5">{user?.email}</div></div>
+                  <div><div className="text-ink font-bold">{user?.full_name}</div><div className="text-ink/40 text-xs mt-0.5">{user?.email}</div></div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">First name</label>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">First name</label>
                     <input value={profileForm.first_name} onChange={e => setProfileForm(f => ({ ...f, first_name: e.target.value }))} placeholder="Ada" className={inputCls} />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Last name</label>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Last name</label>
                     <input value={profileForm.last_name} onChange={e => setProfileForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Okonkwo" className={inputCls} />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Email</label>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Email</label>
                     <input value={profileForm.email} disabled className={`${inputCls} opacity-50 cursor-not-allowed`} />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Country</label>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Country</label>
                     <select value={profileForm.country_code} onChange={e => setProfileForm(f => ({ ...f, country_code: e.target.value }))}
                       className={`${inputCls} cursor-pointer`}>
                       <option value="">Select your country</option>
@@ -160,31 +164,31 @@ export default function SettingsPage() {
                     </select>
                   </div>
                 </div>
-                <p className="text-zinc-600 text-xs mb-4">Country is used to show local public holidays on your content calendar.</p>
+                <p className="text-ink/30 text-xs mb-4">Country is used to show local public holidays on your content calendar.</p>
                 <div className="flex justify-end">
-                  <button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
+                  <button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors">
                     <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
                   </button>
                 </div>
               </div>
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-1">Change password</h3>
-                <p className="text-zinc-500 text-xs mb-5">Min. 8 characters</p>
+              <div className="bg-white border border-fog rounded-2xl p-6">
+                <h3 className="text-ink font-bold text-sm mb-1">Change password</h3>
+                <p className="text-ink/40 text-xs mb-5">Min. 8 characters</p>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Current password</label>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Current password</label>
                     <div className="relative">
                       <input type={showPw ? 'text' : 'password'} value={pwForm.current_password} onChange={e => setPwForm(f => ({ ...f, current_password: e.target.value }))} placeholder="Current password" className={`${inputCls} pr-12`} />
-                      <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">{showPw ? <EyeOff size={15} /> : <Eye size={15} />}</button>
+                      <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/40 hover:text-ink/70">{showPw ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                     </div>
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">New password</label>
+                    <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">New password</label>
                     <input type="password" value={pwForm.new_password} onChange={e => setPwForm(f => ({ ...f, new_password: e.target.value }))} placeholder="New password" className={inputCls} />
                   </div>
                 </div>
                 <div className="flex justify-end">
-                  <button onClick={changePw} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
+                  <button onClick={changePw} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors">
                     <Check size={14} />Update password
                   </button>
                 </div>
@@ -193,51 +197,65 @@ export default function SettingsPage() {
           )}
 
           {tab === 'Company' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-1">Workspace</h3>
-              <p className="text-zinc-500 text-xs mb-5">{activeWorkspace?.name}</p>
+            <div className="bg-white border border-fog rounded-2xl p-6">
+              <h3 className="text-ink font-bold text-sm mb-1">Workspace</h3>
+              <p className="text-ink/40 text-xs mb-5">{activeWorkspace?.name}</p>
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Plan</label><div className="px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-sm capitalize">{activeWorkspace?.plan || 'trial'}</div></div>
-                <div><label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Payment provider</label><div className="px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-sm capitalize">{activeWorkspace?.payment_provider || '—'}</div></div>
+                <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Plan</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.plan || 'trial'}</div></div>
+                <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Payment provider</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.payment_provider || '—'}</div></div>
               </div>
             </div>
           )}
 
           {tab === 'Team' && (
             <div className="space-y-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-1">Invite member</h3>
-                <p className="text-zinc-500 text-xs mb-4">They'll receive a link to create their account and join.</p>
+              <div className="bg-white border border-fog rounded-2xl p-6">
+                <h3 className="text-ink font-bold text-sm mb-1">Invite member</h3>
+                <p className="text-ink/40 text-xs mb-4">They'll receive a link to create their account and join.</p>
                 <div className="flex gap-3">
                   <input value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} onKeyDown={e => e.key === 'Enter' && sendInvite()} placeholder="colleague@company.com" className={`${inputCls} flex-1`} />
-                  <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} className="px-3 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-sm capitalize cursor-pointer outline-none">
+                  <select value={inviteRole} onChange={e => setInviteRole(e.target.value)} className="px-3 py-3 bg-mist border border-fog rounded-xl text-sm capitalize cursor-pointer outline-none">
                     {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                   </select>
-                  <button onClick={sendInvite} disabled={inviting} className="px-4 py-3 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors whitespace-nowrap">
+                  <button onClick={sendInvite} disabled={inviting} className="px-4 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap">
                     {inviting ? '…' : 'Send invite'}
                   </button>
                 </div>
+                {lastInviteLink && (
+                  <div className="mt-3 p-3 bg-mist rounded-xl border border-fog">
+                    <p className="text-xs font-medium text-ink/60 mb-1.5">Share this invite link with your team member:</p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs text-brand-600 flex-1 truncate">{lastInviteLink}</code>
+                      <button
+                        type="button"
+                        onClick={() => { navigator.clipboard.writeText(lastInviteLink); toast('Copied!') }}
+                        className="text-xs font-medium text-brand-500 hover:text-brand-600 px-2 py-1 border border-brand-200 rounded-lg flex-shrink-0">
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-4">Members</h3>
-                {members.length === 0 ? <p className="text-zinc-600 text-sm">No members loaded yet.</p> : members.map(m => (
-                  <div key={m.id} className="flex items-center gap-3 py-3 border-b border-zinc-800 last:border-0">
-                    <div className="w-8 h-8 rounded-full bg-violet-600/30 flex items-center justify-center text-violet-300 text-xs font-bold flex-shrink-0">
+              <div className="bg-white border border-fog rounded-2xl p-6">
+                <h3 className="text-ink font-bold text-sm mb-4">Members</h3>
+                {members.length === 0 ? <p className="text-ink/30 text-sm">No members loaded yet.</p> : members.map(m => (
+                  <div key={m.id} className="flex items-center gap-3 py-3 border-b border-fog last:border-0">
+                    <div className="w-8 h-8 rounded-full bg-mist border border-fog flex items-center justify-center text-ink/50 text-xs font-semibold flex-shrink-0">
                       {(m.user_name || m.user_email || '?').slice(0, 2).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-white text-sm font-semibold truncate">{m.user_name || m.user_email}</p>
-                      <p className="text-zinc-500 text-xs">{m.user_email}</p>
+                      <p className="text-ink text-sm font-semibold truncate">{m.user_name || m.user_email}</p>
+                      <p className="text-ink/40 text-xs">{m.user_email}</p>
                     </div>
                     {m.role === 'owner' ? (
-                      <span className="text-xs font-bold px-2 py-1 bg-violet-500/15 text-violet-300 rounded-full">Owner</span>
+                      <span className="text-xs font-medium px-2 py-1 bg-mist text-ink/50 rounded-full border border-fog">Owner</span>
                     ) : (
                       <>
-                        <select value={m.role} onChange={e => updateRole(m.id, e.target.value)} className="px-2 py-1 bg-zinc-950 border border-zinc-800 rounded-lg text-white text-xs capitalize cursor-pointer outline-none">
+                        <select value={m.role} onChange={e => updateRole(m.id, e.target.value)} className="px-2 py-1 bg-mist border border-fog rounded-lg text-ink text-xs capitalize cursor-pointer outline-none">
                           {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                         </select>
-                        <button onClick={() => removeMember(m.id)} className="text-zinc-600 hover:text-red-400 transition-colors text-sm font-bold">Remove</button>
+                        <button onClick={() => removeMember(m.id)} className="text-ink/30 hover:text-red-400 transition-colors text-sm font-bold">Remove</button>
                       </>
                     )}
                   </div>
@@ -245,14 +263,14 @@ export default function SettingsPage() {
 
                 {invites.filter(i => i.status === 'pending').length > 0 && (
                   <>
-                    <h4 className="text-zinc-500 text-xs font-bold uppercase tracking-widest mt-5 mb-3">Pending invites</h4>
+                    <h4 className="text-ink/40 text-xs font-bold uppercase tracking-widest mt-5 mb-3">Pending invites</h4>
                     {invites.filter(i => i.status === 'pending').map(inv => (
-                      <div key={inv.id} className="flex items-center gap-3 py-2.5 border-b border-zinc-800 last:border-0">
+                      <div key={inv.id} className="flex items-center gap-3 py-2.5 border-b border-fog last:border-0">
                         <div className="flex-1 min-w-0">
-                          <p className="text-zinc-300 text-sm truncate">{inv.email}</p>
-                          <p className="text-zinc-600 text-xs capitalize">{inv.role} · invited</p>
+                          <p className="text-ink/70 text-sm truncate">{inv.email}</p>
+                          <p className="text-ink/30 text-xs capitalize">{inv.role} · invited</p>
                         </div>
-                        <span className="text-xs font-bold px-2 py-1 bg-amber-500/10 text-amber-400 rounded-full">Pending</span>
+                        <span className="text-xs font-medium px-2 py-1 bg-mist text-ink/40 rounded-full border border-fog">Pending</span>
                       </div>
                     ))}
                   </>
@@ -263,24 +281,24 @@ export default function SettingsPage() {
 
           {tab === 'Notifications' && (
             <div className="space-y-4">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-1">Appearance</h3>
-              <p className="text-zinc-500 text-xs mb-5">Choose your preferred interface theme</p>
+            <div className="bg-white border border-fog rounded-2xl p-6">
+              <h3 className="text-ink font-bold text-sm mb-1">Appearance</h3>
+              <p className="text-ink/40 text-xs mb-5">Choose your preferred interface theme</p>
               <div className="flex gap-3">
                 {[
                   { value: 'dark',  label: 'Dark',  icon: Moon },
                   { value: 'light', label: 'Light', icon: Sun  },
                 ].map(({ value, label, icon: Icon }) => (
                   <button key={value} onClick={() => { if (theme !== value) toggleTheme() }}
-                    className={`flex-1 flex items-center gap-2 py-3 px-4 rounded-xl border-2 font-semibold text-sm transition-all ${theme === value ? 'border-violet-500 bg-violet-500/5 text-violet-300' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+                    className={`flex-1 flex items-center gap-2 py-3 px-4 rounded-xl border font-medium text-sm transition-all ${theme === value ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}>
                     <Icon size={16} /> {label}
                   </button>
                 ))}
               </div>
             </div>
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-1">Notification preferences</h3>
-              <p className="text-zinc-500 text-xs mb-5">Control what you hear about</p>
+            <div className="bg-white border border-fog rounded-2xl p-6">
+              <h3 className="text-ink font-bold text-sm mb-1">Notification preferences</h3>
+              <p className="text-ink/40 text-xs mb-5">Control what you hear about</p>
               {[
                 ['daily','Daily post reminder','Morning digest of today\'s posts'],
                 ['weekly','Weekly summary','Performance digest every Monday'],
@@ -288,13 +306,13 @@ export default function SettingsPage() {
                 ['updates','Product updates','New features and announcements'],
                 ['marketing','Marketing emails','Tips, case studies and inspiration'],
               ].map(([key, label, sub]) => (
-                <div key={key} className="flex items-center justify-between py-3.5 border-b border-zinc-800 last:border-0">
-                  <div><p className="text-zinc-200 text-sm font-semibold">{label}</p><p className="text-zinc-500 text-xs mt-0.5">{sub}</p></div>
+                <div key={key} className="flex items-center justify-between py-3.5 border-b border-fog last:border-0">
+                  <div><p className="text-ink text-sm font-semibold">{label}</p><p className="text-ink/40 text-xs mt-0.5">{sub}</p></div>
                   <Toggle on={notifs[key]} onChange={v => setNotifs(n => ({ ...n, [key]: v }))} />
                 </div>
               ))}
               <div className="flex justify-end mt-4">
-                <button onClick={() => toast('Preferences saved!')} className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold rounded-xl transition-colors"><Check size={14} />Save preferences</button>
+                <button onClick={() => toast('Preferences saved!')} className="btn-primary text-sm"><Check size={14} />Save preferences</button>
               </div>
             </div>
             </div>

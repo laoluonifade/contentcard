@@ -95,18 +95,21 @@ const useAppStore = create(
 
           try {
             const status = await contentApi.getStatus(brandId, year, month)
+            if (status.error) throw new Error(status.error)
             if (status.ready && status.count > 0) {
               const items = await get().fetchMonthContent(month, year)
               return items.length
             }
-          } catch {
-            // status endpoint failed — try fetching directly
+          } catch (e) {
+            if (e.message && !e.message.includes('fetch') && !e.message.includes('Network')) throw e
+            // status endpoint network failure — try fetching directly
             const items = await get().fetchMonthContent(month, year)
             if (items.length > 0) return items.length
           }
         }
-        // Final attempt: fetch whatever's there
+        // Final attempt: fetch whatever's there, throw if still empty
         const items = await get().fetchMonthContent(month, year)
+        if (items.length === 0) throw new Error('Generation timed out — no posts were created. Please try again in a moment.')
         return items.length
       },
 
@@ -178,6 +181,13 @@ const useAppStore = create(
         return trends
       },
 
+      refreshTrends: async () => {
+        await trendsApi.refresh()
+        const trends = await trendsApi.list()
+        set({ trends })
+        return trends
+      },
+
       // ── Billing ─────────────────────────────────────────────────
       fetchSubscription: async () => {
         const wsId = get().activeWorkspaceId
@@ -198,12 +208,18 @@ const useAppStore = create(
         return billingApi.createCheckout({ plan, workspace_id: wsId })
       },
 
-      verifyPaystackSession: async (reference) => {
+      cancelSubscription: async () => {
         const wsId = get().activeWorkspaceId
         if (!wsId) throw new Error('No active workspace')
-        const result = await billingApi.verifyPaystackSession({ reference, workspace_id: wsId })
+        await billingApi.cancelSubscription(wsId)
         await get().fetchSubscription()
-        return result
+      },
+
+      removeCard: async () => {
+        const wsId = get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        await billingApi.removeCard(wsId)
+        await get().fetchSubscription()
       },
     }),
     {

@@ -3,21 +3,21 @@ from datetime import datetime
 
 
 class CheckoutRequest(BaseModel):
-    plan: str  # starter | smb | pro
+    plan: str           # starter | smb | pro
     workspace_id: str
-
-
-class SavedCardOut(BaseModel):
-    card_type: str | None = None
-    last4: str | None = None
-    exp_month: str | None = None
-    exp_year: str | None = None
-    bank: str | None = None
 
 
 class CheckoutResponse(BaseModel):
     checkout_url: str
-    provider: str  # stripe | paystack
+    provider: str       # paystack
+
+
+class CardOut(BaseModel):
+    last4: str
+    card_type: str      # visa | mastercard | verve | etc.
+    bank: str | None
+    exp_month: str
+    exp_year: str
 
 
 class SubscriptionOut(BaseModel):
@@ -26,4 +26,6 @@ class SubscriptionOut(BaseModel):
     trial_ends_at: datetime | None
     is_active: bool
     subscription_id: str | None
-    saved_card: SavedCardOut | None = None
+    free_generations_used: int = 0
+    card: CardOut | None = None
+    next_payment_date: datetime | None = None

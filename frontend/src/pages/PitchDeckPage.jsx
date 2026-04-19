@@ -12,7 +12,7 @@ const SLIDE_STYLES = `
   }
 `
 
-const BRAND = '#6C63FF'
+const BRAND = '#10A37F'
 const TEAL  = '#43B89C'
 const DARK  = '#0D0D1A'
 const CARD  = '#13131F'
@@ -348,7 +348,7 @@ export default function PitchDeckPage() {
                 </a>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, maxWidth: 480, margin: '0 auto' }}>
-                {[['hello@contentcard.io', 'Email us'],['contentcard-1.onrender.com', 'Live product'],['14-day trial', 'No card needed']].map(([val, label]) => (
+                {[['hellovoya@gmail.com', 'Email us'],['contentcard-1.onrender.com', 'Live product'],['14-day trial', 'No card needed']].map(([val, label]) => (
                   <div key={val} style={{ padding: '12px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.6)', marginBottom: 2 }}>{val}</div>
                     <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{label}</div>

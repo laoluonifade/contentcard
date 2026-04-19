@@ -46,6 +46,16 @@ class Brand(Base):
     instagram_handle: Mapped[str | None] = mapped_column(String(100), nullable=True)
     facebook_handle: Mapped[str | None] = mapped_column(String(100), nullable=True)
     twitter_handle: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    linkedin_handle: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+    # Extended brand kit — all structured fields in one JSON column
+    # Sections: audience_ext, voice_ext, visual_ext, messaging, strategy, guardrails, examples, ai_meta
+    brand_kit: Mapped[dict | None] = mapped_column(JSON, default=dict)
+
+    # OpenAI Assistants API — one Assistant + Vector Store per brand for persistent brand memory
+    openai_assistant_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    openai_vector_store_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    brand_photos: Mapped[list | None] = mapped_column(JSON, default=list)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

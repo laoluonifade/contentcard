@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Layers, ArrowRight, Zap } from 'lucide-react'
 import useAppStore from '../stores/appStore'
@@ -9,9 +9,10 @@ const MONTHS_LIST = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December']
 
 const PLATFORMS = [
-  { id: 'instagram', label: 'Instagram', color: '#E1306C', bg: '#E1306C18' },
-  { id: 'facebook',  label: 'Facebook',  color: '#1877F2', bg: '#1877F218' },
-  { id: 'twitter',   label: 'Twitter/X', color: '#1DA1F2', bg: '#1DA1F218' },
+  { id: 'instagram', label: 'Instagram' },
+  { id: 'facebook',  label: 'Facebook'  },
+  { id: 'twitter',   label: 'Twitter/X' },
+  { id: 'linkedin',  label: 'LinkedIn'  },
 ]
 
 const FREQ_OPTIONS = [
@@ -21,6 +22,29 @@ const FREQ_OPTIONS = [
   { value: 4, label: '4×', desc: 'per week' },
   { value: 5, label: '5×', desc: 'per week' },
 ]
+
+const PLATFORM_LOGO = {
+  instagram: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+    </svg>
+  ),
+  facebook: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+    </svg>
+  ),
+  twitter: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.74l7.73-8.835L1.254 2.25H8.08l4.259 5.631 5.905-5.631zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
+    </svg>
+  ),
+  linkedin: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+    </svg>
+  ),
+}
 
 export default function GeneratePage() {
   const navigate  = useNavigate()
@@ -68,7 +92,7 @@ export default function GeneratePage() {
         posts_per_week: postsPerWeek,
         topic_override: topic.trim() || null,
       })
-      toast(`${MONTHS_LIST[selMonth - 1]} ${selYear} — content ready!`)
+      toast(`${MONTHS_LIST[selMonth - 1]} ${selYear} — content ready`)
       navigate('/dashboard/calendar')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Generation failed', 'error')
@@ -76,7 +100,7 @@ export default function GeneratePage() {
   }
 
   const progressLabel = () => {
-    if (generationPollCount === 0) return 'Sending to Claude…'
+    if (generationPollCount === 0) return 'Generating your content…'
     if (generationPollCount < 3)  return 'Writing captions…'
     if (generationPollCount < 7)  return 'Crafting posts…'
     return 'Almost done…'
@@ -84,64 +108,60 @@ export default function GeneratePage() {
 
   const progressPct = () => Math.min(95, Math.round((generationPollCount / 10) * 100))
 
-  const inp = "w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-xl text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all text-sm"
-
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>Generate content</h1>
-        <p className="text-zinc-500 text-sm">
-          {activeBrand ? `Generating for: ${activeBrand.name}` : 'Select or create a brand to get started.'}
+        <h1 className="text-2xl font-semibold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Generate content</h1>
+        <p className="text-ink/40 text-sm">
+          {activeBrand ? `Generating for ${activeBrand.name}` : 'Select or create a brand to get started.'}
         </p>
       </div>
 
       {!activeBrandId && (
-        <div className="bg-zinc-900 border border-dashed border-zinc-700 rounded-2xl p-10 text-center mb-6">
-          <p className="text-zinc-500 text-sm mb-4">You need a brand before generating content.</p>
-          <button onClick={() => navigate('/onboarding')}
-            className="inline-flex items-center gap-2 px-5 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors">
+        <div className="border border-dashed border-fog rounded-2xl p-10 text-center mb-6">
+          <p className="text-ink/40 text-sm mb-4">You need a brand profile before generating content.</p>
+          <button onClick={() => navigate('/onboarding')} className="btn-primary text-sm">
             Create your brand
           </button>
         </div>
       )}
 
-      <div className="grid lg:grid-cols-[1fr_260px] gap-6 items-start">
-        <div className="space-y-4">
+      <div className="grid lg:grid-cols-[1fr_240px] gap-6 items-start">
+        <div className="space-y-3">
 
           {/* Step 1 — Platform */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center text-white text-[10px] font-bold">1</div>
-              <span className="text-white font-semibold text-sm">Platform</span>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              {PLATFORMS.map(({ id, label, color, bg }) => (
+          <div className="bg-white border border-fog rounded-2xl p-5">
+            <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">1</span>
+              Platform
+            </p>
+            <div className="grid grid-cols-4 gap-2">
+              {PLATFORMS.map(({ id, label }) => (
                 <button key={id} onClick={() => setSelPlatform(id)}
-                  className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${selPlatform === id ? 'border-violet-500 bg-violet-500/5' : 'border-zinc-800 hover:border-zinc-700'}`}>
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-sm" style={{ background: bg, color }}>
-                    {id.slice(0, 2).toUpperCase()}
-                  </div>
-                  <span className={`text-xs font-bold ${selPlatform === id ? 'text-violet-300' : 'text-zinc-500'}`}>{label}</span>
-                  {selPlatform === id && (
-                    <div className="absolute top-2 right-2 w-4 h-4 bg-violet-500 rounded-full flex items-center justify-center">
-                      <div className="w-1.5 h-1.5 bg-white rounded-full" />
-                    </div>
-                  )}
+                  className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${
+                    selPlatform === id ? 'border-ink bg-mist' : 'border-fog hover:border-ink/20'
+                  }`}>
+                  <span className={selPlatform === id ? 'text-ink' : 'text-ink/40'}>{PLATFORM_LOGO[id]}</span>
+                  <span className={`text-[10px] font-medium ${selPlatform === id ? 'text-ink' : 'text-ink/40'}`}>
+                    {label.split('/')[0]}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
 
           {/* Step 2 — Month */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center text-white text-[10px] font-bold">2</div>
-              <span className="text-white font-semibold text-sm">Month</span>
-            </div>
+          <div className="bg-white border border-fog rounded-2xl p-5">
+            <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">2</span>
+              Month
+            </p>
             <div className="flex flex-wrap gap-2">
               {monthOptions.map(({ mi, yi, label }) => (
                 <button key={`${yi}-${mi}`} onClick={() => { setSelMonth(mi); setSelYear(yi) }}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${selMonth === mi && selYear === yi ? 'border-violet-500 bg-violet-500/10 text-violet-300' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    selMonth === mi && selYear === yi ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'
+                  }`}>
                   {label}
                 </button>
               ))}
@@ -149,39 +169,43 @@ export default function GeneratePage() {
           </div>
 
           {/* Step 3 — Posting frequency */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-5 h-5 rounded-full bg-violet-600 flex items-center justify-center text-white text-[10px] font-bold">3</div>
-              <span className="text-white font-semibold text-sm">Posting frequency</span>
-            </div>
-            <p className="text-zinc-600 text-xs mb-4 ml-7">How many times per week do you post on {PLATFORMS.find(p => p.id === selPlatform)?.label}?</p>
-            <div className="flex gap-3">
+          <div className="bg-white border border-fog rounded-2xl p-5">
+            <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">3</span>
+              Posting frequency
+            </p>
+            <p className="text-ink/30 text-xs mb-4 ml-6">
+              How often do you post on {PLATFORMS.find(p => p.id === selPlatform)?.label}?
+            </p>
+            <div className="flex gap-2">
               {FREQ_OPTIONS.map(({ value, label, desc }) => (
                 <button key={value} onClick={() => setPostsPerWeek(value)}
-                  className={`flex-1 flex flex-col items-center py-3 rounded-xl border-2 transition-all ${postsPerWeek === value ? 'border-violet-500 bg-violet-500/10' : 'border-zinc-800 hover:border-zinc-700'}`}>
-                  <span className={`text-lg font-bold ${postsPerWeek === value ? 'text-violet-300' : 'text-zinc-300'}`}>{label}</span>
-                  <span className="text-[10px] text-zinc-600 mt-0.5">{desc}</span>
+                  className={`flex-1 flex flex-col items-center py-3 rounded-xl border transition-all ${
+                    postsPerWeek === value ? 'border-ink bg-mist' : 'border-fog hover:border-ink/20'
+                  }`}>
+                  <span className={`text-base font-semibold ${postsPerWeek === value ? 'text-ink' : 'text-ink/50'}`}>{label}</span>
+                  <span className="text-[10px] text-ink/25 mt-0.5">{desc}</span>
                 </button>
               ))}
             </div>
-            <p className="text-zinc-600 text-xs mt-3">
-              ≈ <span className="text-zinc-400 font-semibold">{totalPosts} posts</span> will be generated for this month
+            <p className="text-ink/30 text-xs mt-3">
+              ≈ <span className="text-ink/50 font-medium">{totalPosts} posts</span> will be generated for this month
             </p>
           </div>
 
-          {/* Step 4 — Topic (optional) */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="w-5 h-5 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-400 text-[10px] font-bold">4</div>
-              <span className="text-white font-semibold text-sm">Focus topic <span className="text-zinc-600 font-normal text-xs">— optional</span></span>
-            </div>
-            <p className="text-zinc-600 text-xs mb-3 ml-7">Leave blank and Claude will vary topics automatically</p>
+          {/* Step 4 — Topic */}
+          <div className="bg-white border border-fog rounded-2xl p-5">
+            <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/30 text-[9px] font-bold flex items-center justify-center">4</span>
+              Focus topic <span className="text-ink/25 font-normal ml-1">— optional</span>
+            </p>
+            <p className="text-ink/30 text-xs mb-3 ml-6">Leave blank for varied topics, automatically selected</p>
             <input value={topic} onChange={e => setTopic(e.target.value)}
-              placeholder="e.g. Product launch, Brand story, Client wins…" className={inp} />
+              placeholder="e.g. Product launch, Brand story, Client wins…" className="input" />
             <div className="flex flex-wrap gap-2 mt-3">
               {['Product launch','Behind the scenes','Client win','Brand story','Tips & education','Testimonial'].map(chip => (
                 <button key={chip} onClick={() => setTopic(chip)}
-                  className="px-3 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-full text-xs font-medium transition-all border border-zinc-700">
+                  className="px-3 py-1 bg-mist hover:bg-fog text-ink/50 hover:text-ink/70 rounded-full text-xs font-medium transition-all border border-fog">
                   {chip}
                 </button>
               ))}
@@ -190,40 +214,42 @@ export default function GeneratePage() {
 
           {/* Generate button */}
           <button onClick={handleGenerate} disabled={generatingMonth || !activeBrandId}
-            className="w-full py-4 rounded-2xl bg-violet-600 hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-bold text-base flex items-center justify-center gap-3 transition-all">
+            className="btn-primary w-full justify-center py-4 rounded-2xl text-sm">
             {generatingMonth
-              ? <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />{progressLabel()}</>
-              : <><Layers size={18} />Generate {MONTHS_LIST[selMonth - 1]} {selYear}<ArrowRight size={16} /></>
+              ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{progressLabel()}</>
+              : <><Layers size={16} />Generate {MONTHS_LIST[selMonth - 1]} {selYear}<ArrowRight size={15} /></>
             }
           </button>
 
           {generatingMonth && (
             <div className="space-y-2">
-              <div className="w-full bg-zinc-800 rounded-full h-2 overflow-hidden">
-                <div className="h-full bg-violet-500 rounded-full transition-all duration-700" style={{ width: `${progressPct()}%` }} />
+              <div className="w-full bg-fog rounded-full h-1.5 overflow-hidden">
+                <div className="h-full bg-ink/30 rounded-full transition-all duration-700" style={{ width: `${progressPct()}%` }} />
               </div>
-              <p className="text-center text-zinc-500 text-xs">
-                Usually takes 30–60 seconds. You'll be taken to the calendar when done.
+              <p className="text-center text-ink/30 text-xs">
+                Usually takes 30–60 seconds. You'll be redirected to your calendar when done.
               </p>
             </div>
           )}
         </div>
 
         {/* Trends sidebar */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 sticky top-6">
+        <div className="bg-white border border-fog rounded-2xl p-4 sticky top-6">
           <div className="flex items-center gap-2 mb-3">
-            <Zap size={13} className="text-violet-400" />
-            <span className="text-xs font-bold text-zinc-500 uppercase tracking-widest">AI Trending</span>
+            <Zap size={12} className="text-ink/30" />
+            <span className="text-xs font-medium text-ink/40">Trending now</span>
           </div>
           {trends.length === 0
-            ? <p className="text-zinc-600 text-xs">Loading trends…</p>
+            ? <p className="text-ink/30 text-xs">Loading trends…</p>
             : trends.slice(0, 10).map((t, i) => (
               <button key={t.id} onClick={() => { setTopic(t.topic); setSelTrend(t.id) }}
-                className={`w-full flex items-start gap-2 p-2.5 rounded-lg border transition-all text-left mb-1.5 ${selTrend === t.id ? 'border-violet-500 bg-violet-500/10' : 'border-transparent hover:border-zinc-700 hover:bg-zinc-800/60'}`}>
-                <span className="text-zinc-700 text-xs font-bold w-4 flex-shrink-0 mt-0.5">{String(i + 1).padStart(2, '0')}</span>
+                className={`w-full flex items-start gap-2 p-2.5 rounded-lg transition-all text-left mb-1 ${
+                  selTrend === t.id ? 'bg-mist' : 'hover:bg-mist'
+                }`}>
+                <span className="text-ink/20 text-xs font-medium w-4 flex-shrink-0 mt-0.5 tabular-nums">{String(i + 1).padStart(2, '0')}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="text-zinc-300 text-xs font-semibold leading-snug truncate">{t.topic}</p>
-                  <p className="text-zinc-600 text-[10px] mt-0.5">{t.volume}</p>
+                  <p className="text-ink/60 text-xs font-medium leading-snug truncate">{t.topic}</p>
+                  <p className="text-ink/25 text-[10px] mt-0.5">{t.volume}</p>
                 </div>
               </button>
             ))

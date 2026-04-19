@@ -45,7 +45,7 @@ export default function MarketingLayout({ children }) {
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-white/5 bg-ink/90 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link to="/"><LogoFull size={26} /></Link>
+          <Link to="/"><LogoFull size={26} dark /></Link>
           <div className="hidden md:flex items-center gap-7">
             {NAV_ITEMS.map(({ label, href }) => (
               <Link key={label} to={href} className="text-white/45 hover:text-white text-sm font-medium transition-colors">{label}</Link>
@@ -67,8 +67,8 @@ export default function MarketingLayout({ children }) {
         <div className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
-              <LogoFull size={24} />
-              <p className="text-white/30 text-sm mt-4 leading-relaxed">AI-powered social content for enterprise teams, agencies, and startups.</p>
+              <LogoFull size={24} dark />
+              <p className="text-white/30 text-sm mt-4 leading-relaxed">Build consistent, on-brand social content at scale — without expanding your team.</p>
             </div>
             {Object.entries(FOOTER_LINKS).map(([heading, links]) => (
               <div key={heading}>

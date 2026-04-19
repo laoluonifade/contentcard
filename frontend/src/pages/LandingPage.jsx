@@ -5,19 +5,19 @@ import { LogoFull } from '../components/ui/Logo'
 /* ─── Data ──────────────────────────────────────────────────────── */
 
 const LOGOS = [
-  { name: 'MTN',          style: { color: '#FFCC00', fontWeight: 900, letterSpacing: '-0.02em' } },
-  { name: 'Flutterwave',  style: { color: '#F5A623', fontWeight: 800 } },
-  { name: 'Interswitch',  style: { color: '#E63946', fontWeight: 800 } },
-  { name: 'Zenith Bank',  style: { color: '#6EC1E4', fontWeight: 800 } },
-  { name: 'UBA',          style: { color: '#E63946', fontWeight: 900, letterSpacing: '0.05em' } },
-  { name: 'Paystack',     style: { color: '#00C3F7', fontWeight: 800 } },
-  { name: 'Konga',        style: { color: '#FF6B35', fontWeight: 800 } },
+  { name: 'Stridepay',    style: { color: '#FFCC00', fontWeight: 900, letterSpacing: '-0.02em' } },
+  { name: 'Wavesend',     style: { color: '#F5A623', fontWeight: 800 } },
+  { name: 'Novabridg',    style: { color: '#E63946', fontWeight: 800 } },
+  { name: 'Axle Bank',    style: { color: '#6EC1E4', fontWeight: 800 } },
+  { name: 'OBA',          style: { color: '#E63946', fontWeight: 900, letterSpacing: '0.05em' } },
+  { name: 'Zenastack',    style: { color: '#00C3F7', fontWeight: 800 } },
+  { name: 'Shopriva',     style: { color: '#FF6B35', fontWeight: 800 } },
 ]
 
 const ROI_STATS = [
-  { stat: '3×',   label: 'engagement increase', company: 'Flutterwave Marketing', detail: 'after switching from manual content creation to ContentCard' },
-  { stat: '68%',  label: 'reduction in content costs', company: 'MTN Digital Team', detail: 'vs. previous agency and in-house hybrid model' },
-  { stat: '₦4.2M', label: 'in social-driven revenue', company: 'Konga', detail: 'generated in Q1 2025 directly attributed to daily posting' },
+  { stat: '3×',   label: 'engagement increase', company: 'Wavesend Marketing', detail: 'after switching from manual content creation to ContentCard' },
+  { stat: '68%',  label: 'reduction in content costs', company: 'Stridepay Digital Team', detail: 'vs. previous agency and in-house hybrid model' },
+  { stat: '₦4.2M', label: 'in social-driven revenue', company: 'Shopriva', detail: 'generated in Q1 2025 directly attributed to daily posting' },
 ]
 
 const FEATURES = [
@@ -57,7 +57,7 @@ const TESTIMONIALS = [
     quote: 'As a CMO, I care about pipeline. Our social channels went from vanity metrics to an actual revenue channel. ContentCard made it possible to post every single day without hiring more people.',
     name: 'Emeka Adeyemi',
     title: 'Chief Marketing Officer',
-    company: 'Zenith Bank Digital',
+    company: 'Axle Bank Digital',
     result: '3× social-driven leads',
     img: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=120&h=120&auto=format&fit=crop&q=80',
   },
@@ -65,7 +65,7 @@ const TESTIMONIALS = [
     quote: 'We replaced a $1,800/month agency retainer with ContentCard. The quality is better, we have more control, and our regional teams can all work from one place. It\'s a no-brainer.',
     name: 'Fatima Al-Hassan',
     title: 'VP, Brand & Communications',
-    company: 'Interswitch Group',
+    company: 'Novabridg Group',
     result: '$1,800/mo agency replaced',
     img: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=120&h=120&auto=format&fit=crop&q=80',
   },
@@ -93,7 +93,7 @@ function GenerateMockup() {
       </div>
       <div className="p-4 space-y-2">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-white/50 text-xs">Brand: <span className="text-white/80 font-semibold">Zenith Digital</span></span>
+          <span className="text-white/50 text-xs">Brand: <span className="text-white/80 font-semibold">Axle Digital</span></span>
           <div className="bg-brand-500 text-white text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 cursor-pointer">
             <Zap size={9} /> Generate month
           </div>
@@ -110,7 +110,7 @@ function GenerateMockup() {
         ))}
         <div className="mt-3 p-3 rounded-xl bg-brand-500/5 border border-brand-500/20">
           <div className="text-white/40 text-[10px] mb-1.5 font-mono">AI caption preview</div>
-          <p className="text-white/65 text-xs leading-relaxed">"The future of banking isn't just digital — it's personal. Here's how we're redefining what service means for 2026. 🚀 #FinanceForward #ZenithDigital"</p>
+          <p className="text-white/65 text-xs leading-relaxed">"The future of banking isn't just digital — it's personal. Here's how we're redefining what service means for 2026. 🚀 #FinanceForward #AxleDigital"</p>
         </div>
       </div>
     </div>
@@ -158,7 +158,7 @@ function TrendsMockup() {
 
 function TeamMockup() {
   const members = [
-    { name: 'Adaeze O.', role: 'Admin',    avatar: '#6C63FF', action: 'Generated April content' },
+    { name: 'Adaeze O.', role: 'Admin',    avatar: '#10A37F', action: 'Generated April content' },
     { name: 'Emeka A.',  role: 'Approver', avatar: '#43B89C', action: 'Approved 12 posts' },
     { name: 'Fatima H.', role: 'Editor',   avatar: '#FF6584', action: 'Edited 3 captions' },
   ]
@@ -166,7 +166,7 @@ function TeamMockup() {
     <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
       <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
         {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Team Workspace — Interswitch</span>
+        <span className="text-white/20 text-xs ml-2 font-mono">Team Workspace — Novabridg</span>
       </div>
       <div className="p-4">
         <div className="grid grid-cols-3 gap-2 mb-4">
@@ -209,7 +209,7 @@ export default function LandingPage() {
       {/* ── Nav ── */}
       <nav className="sticky top-0 z-50 border-b border-white/5 bg-ink/90 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link to="/"><LogoFull size={26} /></Link>
+          <Link to="/"><LogoFull size={26} dark /></Link>
           <div className="hidden md:flex items-center gap-7">
             {[['Product', '/features'], ['Solutions', '/solutions/agencies'], ['Enterprise', '/enterprise'], ['Pricing', '/pricing']].map(([l, h]) => (
               <Link key={l} to={h} className="text-white/45 hover:text-white text-sm font-medium transition-colors">{l}</Link>
@@ -234,21 +234,21 @@ export default function LandingPage() {
           {/* Left */}
           <div className="py-12 lg:py-20">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500/10 border border-brand-500/20 rounded-full text-brand-400 text-xs font-bold uppercase tracking-widest mb-8">
-              <Zap size={10} /> Trusted by 500+ enterprise teams
+              <Zap size={10} /> Trusted by 500+ enterprise marketing teams
             </div>
             <h1 className="text-5xl lg:text-6xl font-bold leading-[1.05] mb-6" style={{ letterSpacing: '-0.03em' }}>
-              Drive real business<br />impact with AI social<br />
-              <span className="text-brand-400">content at scale.</span>
+              Social content that<br />performs — generated<br />
+              <span className="text-brand-400">in seconds.</span>
             </h1>
             <p className="text-lg text-white/50 mb-10 leading-relaxed max-w-lg">
-              ContentCard gives enterprise marketing teams, agencies, and startups everything they need to publish daily, protect brand equity, and grow revenue from social — without growing headcount.
+              ContentCard gives marketing teams, agencies, and growing brands a complete system to plan, generate, and publish on-brand content — without the overhead of agencies or additional headcount.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
-              <button onClick={() => navigate('/demo')} className="btn-primary px-7 py-3.5 text-base">
-                Get a free demo <ArrowRight size={16} />
+              <button onClick={() => navigate('/signup')} className="btn-primary px-7 py-3.5 text-base">
+                Start your free trial <ArrowRight size={16} />
               </button>
-              <button onClick={() => navigate('/features')} className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
-                <Play size={13} className="fill-white/60" /> Watch 2-min overview
+              <button onClick={() => navigate('/demo')} className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
+                <Play size={13} className="fill-white/60" /> See how it works
               </button>
             </div>
             <div className="flex items-center gap-4">
@@ -315,7 +315,7 @@ export default function LandingPage() {
       {/* ── Logo bar ── */}
       <section className="border-y border-white/5 bg-white/[0.015] py-10 px-6">
         <div className="max-w-7xl mx-auto">
-          <p className="text-white/25 text-xs font-bold uppercase tracking-widest text-center mb-8">Powering content teams at Africa's leading companies</p>
+          <p className="text-white/25 text-xs font-bold uppercase tracking-widest text-center mb-8">Trusted by content teams at Africa's leading organisations</p>
           <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-5">
             {LOGOS.map(({ name, style }) => (
               <span key={name} className="text-base opacity-60 hover:opacity-100 transition-opacity cursor-default" style={style}>{name}</span>
@@ -330,9 +330,9 @@ export default function LandingPage() {
           <div className="text-center mb-16">
             <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Proven business impact</div>
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-4" style={{ letterSpacing: '-0.02em' }}>
-              What ContentCard does for your business
+              Measurable business outcomes
             </h2>
-            <p className="text-white/40 text-lg max-w-xl mx-auto">Real results, real companies. Not vanity metrics.</p>
+            <p className="text-white/40 text-lg max-w-xl mx-auto">Real results from real organisations, across marketing, cost, and revenue.</p>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
             {ROI_STATS.map(({ stat, label, company, detail }) => (
@@ -398,9 +398,9 @@ export default function LandingPage() {
           <div className="text-center mb-16">
             <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">From the people using it</div>
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-3" style={{ letterSpacing: '-0.02em' }}>
-              Leaders who chose ContentCard
+              The teams behind the results
             </h2>
-            <p className="text-white/40 text-lg">Hear it from the CMOs, agency directors, and brand leads themselves.</p>
+            <p className="text-white/40 text-lg">CMOs, agency directors, and brand leaders share what changed after switching to ContentCard.</p>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
             {TESTIMONIALS.map(({ quote, name, title, company, result, img }) => (
@@ -440,10 +440,10 @@ export default function LandingPage() {
               <div className="p-12 lg:p-16">
                 <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-6">Enterprise</div>
                 <h2 className="text-4xl font-bold text-white mb-5" style={{ letterSpacing: '-0.02em' }}>
-                  Scaling across markets, brands, and teams?
+                  Built for complex organisations at scale
                 </h2>
                 <p className="text-white/50 leading-relaxed mb-8 text-lg">
-                  ContentCard Enterprise is built for organisations with complex needs — multiple regional brands, large marketing teams, and compliance requirements around brand consistency.
+                  ContentCard Enterprise supports organisations managing multiple regional brands, large distributed marketing teams, and strict requirements around brand consistency and compliance.
                 </p>
                 <div className="space-y-3 mb-10">
                   {[
@@ -492,8 +492,8 @@ export default function LandingPage() {
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-14">
             <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Pricing</div>
-            <h2 className="text-4xl font-bold text-white mb-3" style={{ letterSpacing: '-0.02em' }}>Simple. Transparent. No surprises.</h2>
-            <p className="text-white/40 text-sm max-w-md mx-auto">Nigerian businesses pay in ₦ via Paystack. International via Stripe. Geo-detected automatically.</p>
+            <h2 className="text-4xl font-bold text-white mb-3" style={{ letterSpacing: '-0.02em' }}>Clear pricing, no hidden costs.</h2>
+            <p className="text-white/40 text-sm max-w-md mx-auto">Nigerian teams pay in ₦ via Paystack. International billing via Stripe. Currency is detected automatically.</p>
           </div>
           <div className="grid md:grid-cols-3 gap-5">
             {PLANS.map(p => (
@@ -531,13 +531,13 @@ export default function LandingPage() {
               alt="Team celebrating results"
               className="w-full h-[480px] object-cover object-center"
             />
-            <div className="absolute inset-0 bg-gradient-to-r from-ink via-ink/80 to-ink/40" />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#0F172A] via-[#0F172A]/85 to-[#0F172A]/40" />
             <div className="absolute inset-0 flex items-center px-12 lg:px-20">
               <div className="max-w-xl">
                 <h2 className="text-4xl lg:text-5xl font-bold text-white mb-5" style={{ letterSpacing: '-0.03em' }}>
-                  Ready to make social a real revenue driver?
+                  Your content operation, transformed.
                 </h2>
-                <p className="text-white/50 text-lg mb-8">Join 500+ enterprise teams using ContentCard to publish daily, grow faster, and do more with less.</p>
+                <p className="text-white/50 text-lg mb-8">Join 500+ marketing teams using ContentCard to publish consistently, strengthen brand equity, and deliver measurable results from social.</p>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button onClick={() => navigate('/signup')} className="btn-primary px-8 py-4 text-base">
                     Start your free trial <ArrowRight size={17} />
@@ -546,7 +546,7 @@ export default function LandingPage() {
                     Request a demo
                   </button>
                 </div>
-                <p className="text-white/25 text-sm mt-5">No credit card · 14-day free trial · Cancel anytime</p>
+                <p className="text-white/25 text-sm mt-5">14-day free trial · No credit card required · Cancel anytime</p>
               </div>
             </div>
           </div>
@@ -558,7 +558,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
-              <Link to="/"><LogoFull size={24} /></Link>
+              <Link to="/"><LogoFull size={24} dark /></Link>
               <p className="text-white/30 text-sm mt-4 leading-relaxed">AI-powered social content for enterprise teams, agencies, and startups.</p>
             </div>
             {[

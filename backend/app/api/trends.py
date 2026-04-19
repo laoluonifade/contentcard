@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 from app.db.database import get_db
@@ -6,6 +7,9 @@ from app.models.trend import TrendingTopic
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from datetime import datetime, timezone, timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/trends", tags=["trends"])
 
@@ -96,4 +100,55 @@ async def force_refresh_trends(
 ) -> dict:
     country_code = getattr(current_user, "country_code", None)
     success = await _refresh_trends(db, industry, country_code)
-    return {"success": success, "message": "Trends refreshed with Claude" if success else "Failed to refresh"}
+    return {"success": success, "message": "Trends refreshed" if success else "Failed to refresh"}
+
+
+class GenerateTrendPostBody(BaseModel):
+    brand_id: str
+    trend_topic: str
+    platform: str = "instagram"
+
+
+@router.post("/generate-post")
+async def generate_post_from_trend(
+    body: GenerateTrendPostBody,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    from app.models.brand import Brand
+    from app.models.workspace import WorkspaceMember
+    from app.services.ai_service import generate_single_caption
+
+    r = await db.execute(select(Brand).where(Brand.id == body.brand_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    member_r = await db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == brand.workspace_id,
+        WorkspaceMember.user_id == current_user.id,
+    ))
+    if not member_r.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    brand_dict = {
+        "name": brand.name,
+        "tone_tags": brand.tone_tags or [],
+        "language_style": brand.language_style or "english",
+        "personality_score": brand.personality_score or 50,
+        "target_audience": brand.target_audience or "",
+        "words_to_avoid": brand.words_to_avoid or [],
+        "guidelines": brand.guidelines or "",
+    }
+
+    try:
+        result = await generate_single_caption(
+            brand=brand_dict,
+            topic=body.trend_topic,
+            platform=body.platform,
+            description=f"Trending in Nigeria right now: {body.trend_topic}. Make it timely and culturally relevant.",
+        )
+        return {"caption": result.get("caption", ""), "hashtags": result.get("hashtags", [])}
+    except Exception as e:
+        logger.error(f"Trend post generation error: {e}")
+        raise HTTPException(status_code=502, detail="AI generation failed — please try again")
