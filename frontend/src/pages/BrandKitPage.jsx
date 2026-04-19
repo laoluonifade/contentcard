@@ -6,6 +6,7 @@ import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
 import { normalizeHex } from '../lib/brandVisualValidate'
+import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 
 const TABS = ['Basics', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
 
@@ -133,38 +134,38 @@ function computeScores(form) {
   return {
     name: () => {
       const v = (form.name || '').trim()
-      if (!v) return s('poor', 'Add your brand name — it anchors every AI-generated post and visual.')
+      if (!v) return s('poor', 'Add your brand name: it anchors every AI-generated post and visual.')
       return s('excellent', 'Brand name set.')
     },
     industry: () => {
       if (!form.industry) return s('poor', 'Select your industry so AI uses the right market language and references.')
-      return s('excellent', 'Industry set — AI will align language and examples to your sector.')
+      return s('excellent', 'Industry set: AI will align language and examples to your sector.')
     },
     description: () => {
       const words = wc(form.description)
       if (words === 0) return s('poor', 'Most important field. Describe what your company does, who you serve, and the problem you solve.')
       if (words < 15)  return s('fair', 'Too brief. Add who your customers are, what you offer, and what makes you different.')
-      if (words < 40)  return s('good', 'Solid. Strengthen it by adding a specific outcome — e.g. "helping X achieve Y in Z timeframe".')
+      if (words < 40)  return s('good', 'Solid. Strengthen it by adding a specific outcome: e.g. "helping X achieve Y in Z timeframe".')
       return s('excellent', 'Strong description. AI has rich context to generate on-brand content every time.')
     },
     target_audience: () => {
       const words = wc(form.target_audience)
-      if (words === 0) return s('poor', 'Define who you\'re speaking to — age, occupation, location, and what drives their behaviour.')
+      if (words === 0) return s('poor', 'Define who you\'re speaking to: age, occupation, location, and what drives their behaviour.')
       if (words < 12)  return s('fair', 'Too vague. Add age range, occupation, location, and their mindset.')
       if (words < 30)  return s('good', 'Good detail. Add what motivates their decisions to reach Excellent.')
       return s('excellent', 'Rich audience profile. AI will produce highly targeted content for this persona.')
     },
     pain_point: () => {
       const words = wc(form.pain_point)
-      if (words === 0) return s('poor', 'Pain points create emotional hooks. Describe at least 2–3 specific frustrations your customer faces.')
-      if (words < 8)   return s('fair', 'Expand it. Describe the emotional weight of the problem — what keeps them up at night?')
+      if (words === 0) return s('poor', 'Pain points create emotional hooks. Describe at least 2 to 3 specific frustrations your customer faces.')
+      if (words < 8)   return s('fair', 'Expand it. Describe the emotional weight of the problem: what keeps them up at night?')
       if (words < 20)  return s('good', 'Good. Add the downstream consequence of unresolved pain for an Excellent score.')
       return s('excellent', 'Strong pain point context. AI will write empathy-driven content that resonates.')
     },
     brand_colors: () => {
       const n = arrLen(form.brand_colors)
-      if (n === 0) return s('poor', 'Add your primary brand colours — used in generated visuals and slide backgrounds.')
-      if (n === 1) return s('fair', 'Add at least 2–3 colours. A primary + accent gives AI a proper palette.')
+      if (n === 0) return s('poor', 'Add your primary brand colours: used in generated visuals and slide backgrounds.')
+      if (n === 1) return s('fair', 'Add at least 2 to 3 colours. A primary + accent gives AI a proper palette.')
       if (n === 2) return s('good', 'Good. A third colour (accent or neutral) gives more visual flexibility.')
       return s('excellent', 'Great colour palette. AI will use these consistently in all generated visuals.')
     },
@@ -173,14 +174,14 @@ function computeScores(form) {
       return s('good', 'Font set. AI will incorporate this into visual style descriptions.')
     },
     design_style: () => {
-      if (!form.design_style) return s('poor', 'Select a design style — it directly controls the visual feel of every AI-generated image.')
+      if (!form.design_style) return s('poor', 'Select a design style: it directly controls the visual feel of every AI-generated image.')
       return s('excellent', 'Design style set. AI-generated visuals will follow this aesthetic.')
     },
     tone_tags: () => {
       const n = arrLen(form.tone_tags)
-      if (n === 0) return s('poor', 'Tone tags define your brand voice. Select at least 3–4 that describe how your brand speaks.')
+      if (n === 0) return s('poor', 'Tone tags define your brand voice. Select at least 3 to 4 that describe how your brand speaks.')
       if (n <= 2)  return s('fair', 'Select at least 3 tone tags. The combination is what makes your voice distinctive.')
-      if (n <= 4)  return s('good', 'Good voice definition. Adding 1–2 more tags sharpens the AI\'s tonal range.')
+      if (n <= 4)  return s('good', 'Good voice definition. Adding 1 to 2 more tags sharpens the AI\'s tonal range.')
       return s('excellent', 'Strong voice profile. AI will consistently hit this tone across every post.')
     },
     language_style: () => {
@@ -189,13 +190,13 @@ function computeScores(form) {
     },
     words_to_avoid: () => {
       const n = arrLen(form.words_to_avoid)
-      if (n === 0) return s('fair', 'Add words AI must never use — brand terms, competitor names, or overpromising language.')
+      if (n === 0) return s('fair', 'Add words AI must never use: brand terms, competitor names, or overpromising language.')
       if (n <= 2)  return s('fair', 'Add a few more. Think about buzzwords, competitor names, or phrases that feel off-brand.')
       return s('good', 'Good guardrail list. AI will avoid all these terms in generated captions.')
     },
     guidelines: () => {
       const words = wc(form.guidelines)
-      if (words === 0) return s('fair', 'Add brand guidelines — e.g. "always end with a CTA", "use active voice", "never mention competitors".')
+      if (words === 0) return s('fair', 'Add brand guidelines: e.g. "always end with a CTA", "use active voice", "never mention competitors".')
       if (words < 10)  return s('fair', 'Add more rules. The more specific, the better AI follows your brand\'s editorial standards.')
       if (words < 25)  return s('good', 'Good rules. List any remaining edge cases or formatting preferences for Excellent.')
       return s('excellent', 'Comprehensive guidelines. AI will apply these editorial standards to every post.')
@@ -205,15 +206,15 @@ function computeScores(form) {
       for (const k of ['primary_hex', 'secondary_hex', 'accent_hex']) {
         const v = vs[k]
         if (v != null && String(v).trim() !== '' && !normalizeHex(String(v))) {
-          return s('poor', `Invalid ${k.replace(/_/g, ' ')} — use #RRGGBB (e.g. #0A1B2C).`)
+          return s('poor', `Invalid ${k.replace(/_/g, ' ')}: use #RRGGBB (e.g. #0A1B2C).`)
         }
       }
       if (vs.neutral_hex != null && String(vs.neutral_hex).trim() !== '' && !normalizeHex(String(vs.neutral_hex))) {
-        return s('poor', 'Invalid neutral hex — use #RRGGBB or leave blank for default.')
+        return s('poor', 'Invalid neutral hex: use #RRGGBB or leave blank for default.')
       }
       for (const h of vs.forbidden_hexes || []) {
         if (String(h).trim() && !normalizeHex(String(h))) {
-          return s('fair', 'One or more forbidden hex colours are invalid — fix or remove the bad line.')
+          return s('fair', 'One or more forbidden hex colours are invalid: fix or remove the bad line.')
         }
       }
       const refs = vs.reference_urls || []
@@ -267,7 +268,7 @@ function StrengthBanner({ overall, overallLevel }) {
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${dot}`} />
             <span className={`text-sm font-bold ${text}`}>{label}</span>
-            <span className="text-zinc-600 text-xs">— {overall}% complete</span>
+            <span className="text-zinc-600 text-xs">· {overall}% complete</span>
           </div>
         </div>
         <span className={`text-2xl font-bold tabular-nums ${text}`}>
@@ -279,9 +280,9 @@ function StrengthBanner({ overall, overallLevel }) {
       </div>
       {overallLevel !== 'excellent' && (
         <p className="text-zinc-600 text-[11px] mt-2 leading-snug">
-          {overallLevel === 'poor' && 'Fill in description, audience, and tone first — these drive the most AI quality.'}
+          {overallLevel === 'poor' && 'Fill in description, audience, and tone first: these drive the most AI quality.'}
           {overallLevel === 'fair' && 'Making progress. Focus on any fields still showing Poor or Can Be Better.'}
-          {overallLevel === 'good' && 'Almost there — a few more fields will push you to Excellent.'}
+          {overallLevel === 'good' && 'Almost there: a few more fields will push you to Excellent.'}
         </p>
       )}
     </div>
@@ -391,7 +392,7 @@ export default function BrandKitPage() {
     setNewWord('')
   }
 
-  // Live scores — recomputed on every keystroke
+  // Live scores: recomputed on every keystroke
   const { S, overall, overallLevel } = useBrandScores(form)
 
   if (!brand) {
@@ -402,7 +403,7 @@ export default function BrandKitPage() {
         <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
           <h2 className="text-ink font-bold text-lg mb-2">No brand yet</h2>
           <p className="text-ink/40 text-sm mb-6 max-w-sm mx-auto">
-            Create your brand profile so ContentCard knows your tone, audience, and voice — and generates content that sounds exactly like you.
+            Create your brand profile so ContentCard knows your tone, audience, and voice, and generates content that sounds exactly like you.
           </p>
           <button onClick={() => navigate('/onboarding')}
             className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
@@ -414,7 +415,7 @@ export default function BrandKitPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
@@ -429,7 +430,8 @@ export default function BrandKitPage() {
       {/* Brand Strength Banner */}
       <StrengthBanner overall={overall} overallLevel={overallLevel} />
 
-      <div className="grid lg:grid-cols-[190px_1fr] gap-6 items-start">
+      <div className="grid xl:grid-cols-[1fr_min(360px,100%)] gap-8 items-start">
+        <div className="grid lg:grid-cols-[190px_1fr] gap-6 items-start min-w-0">
         <nav className="bg-white border border-fog rounded-2xl p-2 sticky top-6">
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
@@ -502,13 +504,13 @@ export default function BrandKitPage() {
                 <label className={`${labelCls} mb-2`}>Who are they?</label>
                 <ScoreBadge score={S.target_audience} />
                 <textarea value={form.target_audience || ''} onChange={e => set('target_audience', e.target.value)} rows={3}
-                  placeholder="Small business owners aged 25–40, looking to grow their social media presence…"
+                  placeholder="Small business owners aged 25 to 40, looking to grow their social media presence…"
                   className={clsx(taCls, 'mt-2')} />
               </div>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className={`${labelCls} mb-2`}>Age range</label>
-                  <input value={form.audience_age_range || ''} onChange={e => set('audience_age_range', e.target.value)} placeholder="25–40" className={inpCls} />
+                  <input value={form.audience_age_range || ''} onChange={e => set('audience_age_range', e.target.value)} placeholder="25 to 40" className={inpCls} />
                 </div>
                 <div>
                   <label className={`${labelCls} mb-2`}>Location</label>
@@ -634,7 +636,7 @@ export default function BrandKitPage() {
                     <option value="mixed">Mix (vary by post)</option>
                   </select>
                   <p className="text-ink/35 text-[11px] mt-1.5">
-                    Controls how month generation and image prompts treat humans — photoreal, illustrated, or both across the month.
+                    Controls how month generation and image prompts treat humans: photoreal, illustrated, or both across the month.
                   </p>
                 </label>
                 <label className="space-y-1">
@@ -804,7 +806,7 @@ export default function BrandKitPage() {
               </div>
               <div className="mb-5">
                 <label className={`${labelCls} mb-3`}>
-                  Personality — {(form.personality_score || 50) < 35 ? 'Serious & corporate' : (form.personality_score || 50) > 65 ? 'Casual & relaxed' : 'Balanced'}
+                  Personality: {(form.personality_score || 50) < 35 ? 'Serious & corporate' : (form.personality_score || 50) > 65 ? 'Casual & relaxed' : 'Balanced'}
                 </label>
                 <div className="flex items-center gap-3">
                   <span className="text-xs text-ink/40">Serious</span>
@@ -863,7 +865,7 @@ export default function BrandKitPage() {
                 {[
                   ['disclaimer', 'Include disclaimer on every post', 'Adds "This is not financial/legal/medical advice" where appropriate'],
                   ['no_guarantees', 'No guarantees or promises', 'Avoids language like "guaranteed results" or "100% success"'],
-                  ['not_financial_advice', 'Not financial advice notice', 'Appends "Not financial advice – DYOR" on investment-related posts'],
+                  ['not_financial_advice', 'Not financial advice notice', 'Appends "Not financial advice  to  DYOR" on investment-related posts'],
                   ['no_medical_claims', 'No medical/health claims', 'Avoids unverified health or cure claims'],
                   ['age_gate', 'Age-restricted content flag', 'Marks content as 18+ where required'],
                   ['responsible_messaging', 'Responsible messaging', 'Adds responsible use messaging for regulated products'],
@@ -944,6 +946,20 @@ export default function BrandKitPage() {
             </button>
           </div>
         </div>
+        </div>
+
+        <aside className="space-y-2 xl:sticky xl:top-24">
+          <BrandFormCoachPanel
+            mode="brand_kit"
+            brandId={activeBrandId}
+            formSnapshot={form}
+            onApplyPatch={(patch) => setForm((f) => mergeBrandFormPatch(f, patch))}
+            className="min-h-[320px]"
+          />
+          <p className="text-[11px] text-ink/45 px-1">
+            Suggestions merge into the form. Review tabs, then use Save changes when you are ready.
+          </p>
+        </aside>
       </div>
     </div>
   )

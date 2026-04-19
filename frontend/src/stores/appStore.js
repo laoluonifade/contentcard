@@ -108,7 +108,7 @@ const useAppStore = create(
         }
       },
 
-      // Poll with exponential backoff — returns number of posts found
+      // Poll with exponential backoff: returns number of posts found
       _pollForContent: async (brandId, month, year) => {
         const maxAttempts = 20
         const delays = [3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
@@ -127,14 +127,14 @@ const useAppStore = create(
             }
           } catch (e) {
             if (e.message && !e.message.includes('fetch') && !e.message.includes('Network')) throw e
-            // status endpoint network failure — try fetching directly
+            // status endpoint network failure: try fetching directly
             const items = await get().fetchMonthContent(month, year)
             if (items.length > 0) return items.length
           }
         }
         // Final attempt: fetch whatever's there, throw if still empty
         const items = await get().fetchMonthContent(month, year)
-        if (items.length === 0) throw new Error('Generation timed out — no posts were created. Please try again in a moment.')
+        if (items.length === 0) throw new Error('Generation timed out: no posts were created. Please try again in a moment.')
         return items.length
       },
 

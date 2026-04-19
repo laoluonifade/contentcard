@@ -21,7 +21,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     Build a photorealistic background-only prompt for DALL-E 3.
 
     Reads the full brand kit for visual identity signals, but never asks DALL-E
-    to render text, logos, UI elements, or graphic design — all of that is handled
+    to render text, logos, UI elements, or graphic design. All of that is handled
     post-generation by the canvas layout system and Bannerbear templates.
 
     When post["art_brief"] is present (Structured Art Brief), composition and
@@ -72,7 +72,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     nigerian = "nigerian" in language.lower() or "pidgin" in language.lower()
     if nigerian:
         cultural_note = (
-            "Cultural energy: Lagos meets luxury — African excellence, aspirational, modern. "
+            "Cultural energy: Lagos meets luxury; African excellence, aspirational, modern. "
             "NOT Western stock photography aesthetic."
         )
         subject_default = (
@@ -103,11 +103,11 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         "pov_comic": "Candid documentary POV of real life, natural handheld energy, photojournalism, never cartoon or stylised character.",
     }
     arch_notes_illus = {
-        "photo_hero": "Bold illustrated hero scene with clear focal subject and generous negative space — no text or logos.",
-        "portrait_story": "Stylised illustrated character or silhouette treatment — premium brand illustration, not photoreal faces.",
-        "pattern_headline": "Rich illustrated pattern fields and geometric brand shapes — no letters or typography in-frame.",
-        "flat_edu": "Clean modern flat illustration with crisp shapes and editorial infographic energy — no photoreal humans.",
-        "pov_comic": "Playful illustrated POV scene with expressive line and colour — tasteful brand comic, not childish clip-art.",
+        "photo_hero": "Bold illustrated hero scene with clear focal subject and generous negative space; no text or logos.",
+        "portrait_story": "Stylised illustrated character or silhouette treatment; premium brand illustration, not photoreal faces.",
+        "pattern_headline": "Rich illustrated pattern fields and geometric brand shapes; no letters or typography in-frame.",
+        "flat_edu": "Clean modern flat illustration with crisp shapes and editorial infographic energy; no photoreal humans.",
+        "pov_comic": "Playful illustrated POV scene with expressive line and colour; tasteful brand comic, not childish clip-art.",
     }
     arch_note = (arch_notes_illus if vt == "illustration" else arch_notes_photo).get(arch, "")
 
@@ -116,10 +116,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         if fmt == "carousel":
             format_note = "Strong first-frame illustrated hero; full-bleed brand art with no typography in the frame."
         elif fmt == "quote":
-            format_note = "Wide illustrated scene with open colour fields — no words or lettering in the image."
+            format_note = "Wide illustrated scene with open colour fields; no words or lettering in the image."
         else:
             format_note = (
-                "Premium 2D brand illustration or modern flat graphic when figures appear — stylised, cohesive, not photoreal. "
+                "Premium 2D brand illustration or modern flat graphic when figures appear; stylised, cohesive, not photoreal. "
                 "Full-bleed artwork with no typography, titles, or UI in the frame."
             )
     else:
@@ -172,7 +172,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     if ai_image_prompt and len(ai_image_prompt) > 50:
         # AI-generated prompt is primary; append brand enforcement and negatives
         if vt == "illustration":
-            style_close = "Premium illustrated brand key visual — cohesive shapes and colour, never stock photo."
+            style_close = "Premium illustrated brand key visual; cohesive shapes and colour, never stock photo."
             cam_line = "Illustration execution: crisp edges, intentional colour blocking, print-quality vector-adjacent finish."
         else:
             style_close = "Photorealistic editorial photograph of real people and real environments, never stock illustration."
@@ -191,7 +191,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         if vt == "illustration":
             opener = f"Premium brand illustration for {brand_name}, a {industry} brand."
             cam_block = "Execution: cohesive illustrated scene with intentional colour hierarchy and modern brand-graphic polish."
-            style_close = "High-end illustrated campaign key visual — not stock photography."
+            style_close = "High-end illustrated campaign key visual; not stock photography."
         else:
             opener = f"Photorealistic lifestyle photograph for {brand_name}, a {industry} brand."
             cam_block = (
@@ -283,7 +283,7 @@ async def _upload_to_cloudinary(
 ) -> str | None:
     """Upload raw image bytes to Cloudinary and return the permanent secure URL."""
     if not all([settings.CLOUDINARY_CLOUD_NAME, settings.CLOUDINARY_API_KEY, settings.CLOUDINARY_API_SECRET]):
-        logger.warning("Cloudinary not configured — generated image URL will not be persisted")
+        logger.warning("Cloudinary not configured; generated image URL will not be persisted")
         return None
     try:
         import cloudinary
@@ -411,11 +411,11 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                     temp_url = item["url"]
                     img_resp = await client.get(temp_url)
                     if img_resp.status_code != 200:
-                        logger.warning(f"Could not download image {idx} from temp URL — skipping")
+                        logger.warning(f"Could not download image {idx} from temp URL; skipping")
                         continue
                     image_bytes = img_resp.content
                 else:
-                    logger.warning(f"Image {idx} had neither b64_json nor url — skipping")
+                    logger.warning(f"Image {idx} had neither b64_json nor url; skipping")
                     continue
 
                 # Logo is composited after Bannerbear (or here if caller uses raster-only flow).
@@ -424,7 +424,7 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                     urls.append(permanent_url)
                     logger.info(f"Image {idx} stored at Cloudinary: {permanent_url}")
                 else:
-                    logger.warning(f"Cloudinary unavailable for image {idx} — dropping")
+                    logger.warning(f"Cloudinary unavailable for image {idx}; dropping")
 
             logger.info(f"{model}: {len(urls)}/{n} images generated for '{topic}'")
             return urls

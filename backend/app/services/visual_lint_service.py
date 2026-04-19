@@ -93,14 +93,14 @@ async def lint_final_image(image_url: str | None, brand: dict[str, Any], art_bri
     status = "pass"
     if not palette_ok:
         status = "warn_palette"
-        hints.append("Dominant colours drift from VBS tokens — try a stronger archetype or adjust never_show motifs.")
+        hints.append("Dominant colours drift from VBS tokens. Try a stronger archetype or adjust never_show motifs.")
     if forbidden_hit:
         status = "warn_palette"
-        hints.append("Image average is close to a forbidden colour — adjust palette or negatives.")
+        hints.append("Image average is close to a forbidden colour. Adjust palette or negatives.")
     if not contrast_ok:
         if status == "pass":
             status = "warn_contrast"
-        hints.append("Low tonal spread — headline overlay may lack separation; check Bannerbear contrast.")
+        hints.append("Low tonal spread: headline overlay may lack separation; check Bannerbear contrast.")
 
     out["status"] = status
     out["hints"] = hints

@@ -1,5 +1,5 @@
 /**
- * Brand kit readiness — shared between BrandKitPage, CalendarPage, DashboardPage.
+ * Brand kit readiness: shared between BrandKitPage, CalendarPage, DashboardPage.
  *
  * These are the five fields the AI relies on most heavily to produce
  * on-brand content. Generation is blocked until all are filled.

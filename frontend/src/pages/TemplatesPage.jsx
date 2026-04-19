@@ -67,7 +67,7 @@ export default function TemplatesPage() {
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Templates</h1>
-          <p className="text-ink/40 text-sm">Recurring content patterns — set once, generate whenever needed.</p>
+          <p className="text-ink/40 text-sm">Recurring content patterns: set once, generate whenever needed.</p>
         </div>
         <button onClick={() => setShowModal(true)} className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0">
           <Plus size={15} /> New template

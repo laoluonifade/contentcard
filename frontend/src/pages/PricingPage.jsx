@@ -25,7 +25,7 @@ const PLANS = [
 
 const FAQS = [
   { q: 'Can I change my plan at any time?', a: 'Yes. Upgrade or downgrade at any time. Changes take effect on your next billing cycle. There are no cancellation penalties.' },
-  { q: 'Is there really no credit card required for the trial?', a: 'Correct — your 14-day free trial requires no payment information. You only enter billing details when you decide to subscribe.' },
+  { q: 'Is there really no credit card required for the trial?', a: 'Correct: your 14-day free trial requires no payment information. You only enter billing details when you decide to subscribe.' },
   { q: 'How does billing work for Nigerian businesses?', a: 'We automatically detect your location at signup. Nigerian businesses are billed in ₦ via Paystack. International customers are billed in $ via Stripe.' },
   { q: 'What happens when I hit the post limit on Starter?', a: 'You\'ll be notified when you\'re close to your limit. You can upgrade to Business for unlimited posts at any time.' },
   { q: 'Can I manage multiple brands on one account?', a: 'Yes. Starter supports 1 brand, Business supports 3, and Enterprise supports 10+. Each brand has its own kit, voice settings, and calendar.' },

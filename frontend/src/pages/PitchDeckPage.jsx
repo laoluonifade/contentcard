@@ -19,7 +19,7 @@ const CARD  = '#13131F'
 
 export default function PitchDeckPage() {
   useEffect(() => {
-    document.title = 'ContentCard — Pitch Deck'
+    document.title = 'ContentCard: Pitch Deck'
     return () => { document.title = 'ContentCard' }
   }, [])
 
@@ -29,7 +29,7 @@ export default function PitchDeckPage() {
     <div style={{ fontFamily: "'Inter', system-ui, sans-serif", background: '#f4f4f8', minHeight: '100vh' }}>
       <style>{SLIDE_STYLES}</style>
 
-      {/* Nav bar — hidden on print */}
+      {/* Nav bar: hidden on print */}
       <div className="no-print" style={{ background: DARK, padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 50, borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <Link to="/" style={{ color: 'rgba(255,255,255,0.6)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600 }}>
           <ArrowLeft size={15} /> Back to ContentCard
@@ -59,7 +59,7 @@ export default function PitchDeckPage() {
                 <span style={{ background: `linear-gradient(90deg, ${BRAND}, ${TEAL})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>Built for Growing Businesses.</span>
               </h1>
               <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 17, maxWidth: 520, margin: '0 auto 40px', lineHeight: 1.6 }}>
-                Generate a full month of on-brand social media content — captions, hashtags, and a publishing calendar — in under 60 seconds.
+                Generate a full month of on-brand social media content: captions, hashtags, and a publishing calendar: in under 60 seconds.
               </p>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
                 {['Seed / Series A', 'April 2026', 'Confidential'].map(t => (
@@ -89,7 +89,7 @@ export default function PitchDeckPage() {
             <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#f87171', marginTop: 6, flexShrink: 0 }} />
               <p style={{ color: '#7f1d1d', fontSize: 14, lineHeight: 1.6, margin: 0 }}>
-                <strong>The real cost isn't just money — it's lost momentum.</strong> When businesses post inconsistently, their algorithm reach collapses. The average business loses 40% of their organic reach after just 2 weeks of inactivity.
+                <strong>The real cost isn't just money: it's lost momentum.</strong> When businesses post inconsistently, their algorithm reach collapses. The average business loses 40% of their organic reach after just 2 weeks of inactivity.
               </p>
             </div>
           </div>
@@ -101,7 +101,7 @@ export default function PitchDeckPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
             <div style={{ background: `linear-gradient(135deg, ${DARK}, #1a1535)`, borderRadius: 16, padding: 28, color: 'white' }}>
               <p style={{ fontSize: 15, lineHeight: 1.7, color: 'rgba(255,255,255,0.7)', marginBottom: 20, margin: '0 0 20px' }}>
-                ContentCard learns your brand voice, your audience, and your goals — then generates a complete month of social content in seconds, not days.
+                ContentCard learns your brand voice, your audience, and your goals: then generates a complete month of social content in seconds, not days.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {[
@@ -140,7 +140,7 @@ export default function PitchDeckPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginBottom: 24 }}>
             {[
               { step: '01', icon: Heart, title: 'Build your brand kit', body: 'Add your brand name, industry, tone, voice guidelines, target audience and brand colors. ContentCard saves it all and uses it on every generation.' },
-              { step: '02', icon: Zap, title: 'Generate a month', body: 'Pick your platforms, month, and optional topic focus. Hit Generate — the AI writes every caption, adds hashtags, and lays it all out in a calendar.' },
+              { step: '02', icon: Zap, title: 'Generate a month', body: 'Pick your platforms, month, and optional topic focus. Hit Generate: the AI writes every caption, adds hashtags, and lays it all out in a calendar.' },
               { step: '03', icon: Calendar, title: 'Publish or export', body: 'Review your content in the visual calendar. Edit any post, mark it ready, copy to clipboard, or regenerate individual captions. Then post.' },
             ].map(({ step, icon: Icon, title, body }) => (
               <div key={step} style={{ background: 'white', border: '1px solid #e8e8f0', borderRadius: 14, padding: 24, boxShadow: '0 2px 12px rgba(0,0,0,0.04)', position: 'relative' }}>
@@ -160,17 +160,17 @@ export default function PitchDeckPage() {
 
         {/* ── SLIDE 5: Features ── */}
         <Slide label="Key Features">
-          <SlideHeader label="04" title="Everything your content team needs — in one platform." />
+          <SlideHeader label="04" title="Everything your content team needs: in one platform." />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             {[
-              { icon: Zap,       color: BRAND,   title: 'AI Month Generator',       body: 'Generate 20–30 posts across all platforms in a single click. Each post tailored to your brand voice and monthly focus.' },
+              { icon: Zap,       color: BRAND,   title: 'AI Month Generator',       body: 'Generate 20 to 30 posts across all platforms in a single click. Each post tailored to your brand voice and monthly focus.' },
               { icon: Calendar,  color: '#f59e0b', title: 'Visual Content Calendar', body: 'Drag-and-view calendar with holiday overlays, platform filters, and inline editing. Never miss a date.' },
               { icon: Heart,     color: '#ec4899', title: 'Brand Kit Memory',        body: 'AI remembers your tone, fonts, colours, words to avoid, and guidelines. Every output sounds unmistakably like you.' },
               { icon: Globe2,    color: TEAL,    title: 'Multi-Country Holidays',    body: '30+ countries. Global + local holidays automatically shown on your calendar. Dismiss any you don\'t need.' },
               { icon: Users,     color: '#8b5cf6', title: 'Team Collaboration',      body: 'Invite your team with roles: owner, admin, editor, viewer, approver. Full workspace-level access control.' },
               { icon: Shield,    color: '#10b981', title: 'Compliance Assistant',    body: 'Automatic disclosure suggestions, industry-specific disclaimers, and platform policy flags per post.' },
-              { icon: BarChart3, color: '#f97316', title: 'Template Library',        body: 'Global and custom templates — Product Launch, Client Win, Weekly Tips, Flash Sale, and more.' },
-              { icon: Layers,    color: '#06b6d4', title: 'Photo Caption Generator', body: 'Describe a photo in 20 words. Get a platform-ready caption with hashtags, mood, and brand voice — instantly.' },
+              { icon: BarChart3, color: '#f97316', title: 'Template Library',        body: 'Global and custom templates: Product Launch, Client Win, Weekly Tips, Flash Sale, and more.' },
+              { icon: Layers,    color: '#06b6d4', title: 'Photo Caption Generator', body: 'Describe a photo in 20 words. Get a platform-ready caption with hashtags, mood, and brand voice: instantly.' },
             ].map(({ icon: Icon, color, title, body }) => (
               <div key={title} style={{ display: 'flex', gap: 14, padding: '16px 18px', background: 'white', border: '1px solid #e8e8f0', borderRadius: 12, boxShadow: '0 1px 6px rgba(0,0,0,0.04)' }}>
                 <div style={{ width: 36, height: 36, background: `${color}15`, borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 2 }}>
@@ -192,7 +192,7 @@ export default function PitchDeckPage() {
             {[
               { segment: 'Startups & Scaleups', icon: '🚀', desc: 'Lean teams needing to build brand presence fast without hiring a full marketing team.', size: '4.4M companies' },
               { segment: 'SMEs & Entrepreneurs', icon: '🏪', desc: 'Business owners in Africa, Southeast Asia, and emerging markets who post manually and inconsistently.', size: '$22B market' },
-              { segment: 'Marketing Agencies', icon: '🎯', desc: 'Agencies managing 10–50 client brands who need to scale content production without scaling headcount.', size: '500K+ agencies' },
+              { segment: 'Marketing Agencies', icon: '🎯', desc: 'Agencies managing 10 to 50 client brands who need to scale content production without scaling headcount.', size: '500K+ agencies' },
             ].map(({ segment, icon, desc, size }) => (
               <div key={segment} style={{ background: 'white', border: '1px solid #e8e8f0', borderRadius: 14, padding: 22, boxShadow: '0 2px 10px rgba(0,0,0,0.04)' }}>
                 <div style={{ fontSize: 28, marginBottom: 10 }}>{icon}</div>
@@ -209,7 +209,7 @@ export default function PitchDeckPage() {
             </div>
             <div style={{ background: `linear-gradient(135deg, ${TEAL}10, ${BRAND}10)`, border: `1px solid ${TEAL}20`, borderRadius: 12, padding: '16px 20px' }}>
               <div style={{ fontSize: 24, fontWeight: 900, color: TEAL, marginBottom: 4 }}>Africa-First</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>Built for Nigeria and African markets first — where the gap between need and tooling is largest</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>Built for Nigeria and African markets first: where the gap between need and tooling is largest</div>
             </div>
           </div>
         </Slide>
@@ -259,7 +259,7 @@ export default function PitchDeckPage() {
                 { title: 'AI is production-ready', body: 'Claude Sonnet & GPT-4 have crossed the quality threshold for brand-safe content. Captions are now indistinguishable from human-written.' },
                 { title: 'African digital commerce is booming', body: 'Nigeria alone has 33M+ social media users. SME digital spend grew 67% in 2023. The market is here, it\'s just underserved.' },
                 { title: 'Content costs are unsustainable', body: 'Agency costs are rising while AI costs are falling. The arbitrage window is open right now.' },
-                { title: 'First-mover advantage in key markets', body: 'No AI-native content platform is built for African market nuances — pidgin, local holidays, local industry context.' },
+                { title: 'First-mover advantage in key markets', body: 'No AI-native content platform is built for African market nuances: pidgin, local holidays, local industry context.' },
               ].map(({ title, body }) => (
                 <div key={title} style={{ display: 'flex', gap: 12 }}>
                   <div style={{ width: 6, background: BRAND, borderRadius: 3, flexShrink: 0, marginTop: 3 }} />
@@ -294,7 +294,7 @@ export default function PitchDeckPage() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
             {[
               { metric: '10 min', label: 'To your first generated calendar', icon: '⚡' },
-              { metric: '20–30', label: 'Posts generated per month per brand', icon: '📝' },
+              { metric: '20 to 30', label: 'Posts generated per month per brand', icon: '📝' },
               { metric: '60 sec', label: 'Average generation time for a full month', icon: '⏱' },
               { metric: '3 hrs', label: 'Saved per week vs. manual content creation', icon: '🕐' },
             ].map(({ metric, label, icon }) => (
@@ -311,14 +311,14 @@ export default function PitchDeckPage() {
             <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 16 }}>ContentCard replaces or reduces reliance on:</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
               {[
-                ['Social media managers', '$2,500–5,000/mo', '#fef3f2'],
-                ['Content agencies', '$3,000–8,000/mo', '#fff7ed'],
-                ['Freelance copywriters', '$800–2,000/mo', '#fefce8'],
+                ['Social media managers', '$2,500 to 5,000/mo', '#fef3f2'],
+                ['Content agencies', '$3,000 to 8,000/mo', '#fff7ed'],
+                ['Freelance copywriters', '$800 to 2,000/mo', '#fefce8'],
               ].map(([role, cost, bg]) => (
                 <div key={role} style={{ background: bg, borderRadius: 10, padding: '12px 14px', textAlign: 'center' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginBottom: 4 }}>{role}</div>
                   <div style={{ fontSize: 11, color: '#9ca3af', textDecoration: 'line-through' }}>{cost}</div>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: BRAND, marginTop: 4 }}>→ $19–49/mo</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: BRAND, marginTop: 4 }}>→ $19 to 49/mo</div>
                 </div>
               ))}
             </div>

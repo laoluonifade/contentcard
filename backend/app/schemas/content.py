@@ -30,6 +30,25 @@ class GenerationPrepChatRequest(BaseModel):
     messages: list[GenerationPrepMessage]
 
 
+class BrandFormCoachMessage(BaseModel):
+    role: str  # user | assistant
+    content: str
+
+
+class BrandFormCoachRequest(BaseModel):
+    """Free coach: only helps fill brand profile fields (onboarding or brand kit)."""
+
+    mode: str  # onboarding | brand_kit
+    brand_id: str | None = None
+    form_snapshot: dict = {}
+    messages: list[BrandFormCoachMessage]
+
+
+class BrandFormCoachResponse(BaseModel):
+    reply: str
+    patch: dict | None = None
+
+
 class BulkDeleteContentRequest(BaseModel):
     content_ids: list[str]
 

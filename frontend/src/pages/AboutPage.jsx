@@ -12,8 +12,8 @@ const TEAM = [
 const VALUES = [
   { title: 'Outcomes over outputs',   desc: 'We don\'t measure success by posts generated. We measure it by the revenue and growth our customers drive from those posts.' },
   { title: 'Built for the builder',   desc: 'ContentCard is designed for people who are running a business, not studying marketing full-time. It should work for you, not require you to work for it.' },
-  { title: 'Africa first',            desc: 'We built for the African market first because we know it best. Nigerian English, Pidgin, ₦ billing, and Paystack support are not afterthoughts — they\'re the foundation.' },
-  { title: 'Honest and simple',       desc: 'No dark patterns. No pricing surprises. No features you didn\'t ask for. Simple, transparent, and honest — always.' },
+  { title: 'Africa first',            desc: 'We built for the African market first because we know it best. Nigerian English, Pidgin, ₦ billing, and Paystack support are not afterthoughts: they\'re the foundation.' },
+  { title: 'Honest and simple',       desc: 'No dark patterns. No pricing surprises. No features you didn\'t ask for. Simple, transparent, and honest: always.' },
 ]
 
 export default function AboutPage() {
@@ -32,7 +32,7 @@ export default function AboutPage() {
               ContentCard started with a simple frustration: why does creating a month of social media content still take days of human effort, inconsistent quality, and expensive agency retainers?
             </p>
             <p className="text-white/40 leading-relaxed">
-              We built ContentCard to change that — AI-powered content that's on-brand, platform-ready, and generated in seconds. Not just for big brands with big budgets, but for every business that deserves to show up daily.
+              We built ContentCard to change that: AI-powered content that's on-brand, platform-ready, and generated in seconds. Not just for big brands with big budgets, but for every business that deserves to show up daily.
             </p>
           </div>
           <div className="relative">
@@ -98,7 +98,7 @@ export default function AboutPage() {
       <section className="py-24 px-6 text-center">
         <div className="max-w-xl mx-auto">
           <h2 className="text-3xl font-bold text-white mb-4" style={{ letterSpacing: '-0.02em' }}>Come build with us</h2>
-          <p className="text-white/45 mb-8">We're hiring. If you care about AI, brand, and building for Africa — we'd love to meet you.</p>
+          <p className="text-white/45 mb-8">We're hiring. If you care about AI, brand, and building for Africa: we'd love to meet you.</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <button onClick={() => navigate('/careers')} className="btn-primary px-8 py-3.5">View open roles <ArrowRight size={15} /></button>
             <button onClick={() => navigate('/contact')} className="px-8 py-3.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">Get in touch</button>

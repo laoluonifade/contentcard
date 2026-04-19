@@ -192,4 +192,4 @@ async def generate_post_from_trend(
         return {"caption": result.get("caption", ""), "hashtags": result.get("hashtags", [])}
     except Exception as e:
         logger.error(f"Trend post generation error: {e}")
-        raise HTTPException(status_code=502, detail="AI generation failed — please try again")
+        raise HTTPException(status_code=502, detail="AI generation failed. Please try again.")

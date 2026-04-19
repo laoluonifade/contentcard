@@ -378,7 +378,7 @@ export default function CalendarPage() {
         include_holidays_in_content: includeHolidays,
         generation_brief,
       })
-      toast(`${MONTHS[month-1]} ${year} — content ready`)
+      toast(`${MONTHS[month-1]} ${year} · content ready`)
       setShowGenPanel(false)
       setLoading(true)
       fetchMonthContent(month, year).then(items => { setPosts(items); setLoading(false) }).catch(() => setLoading(false))
@@ -658,7 +658,7 @@ export default function CalendarPage() {
             </div>
 
             <div>
-              <p className="label mb-2">Focus topic <span className="text-ink/20 font-normal normal-case tracking-normal">— optional</span></p>
+              <p className="label mb-2">Focus topic <span className="text-ink/20 font-normal normal-case tracking-normal">(optional)</span></p>
               <input value={genTopic} onChange={e=>setGenTopic(e.target.value)}
                 placeholder="Leave blank for varied topics"
                 className="input"/>
@@ -684,7 +684,7 @@ export default function CalendarPage() {
                 <ul className="text-[11px] text-ink/50 list-disc pl-4 space-y-0.5 max-h-28 overflow-y-auto">
                   {monthHolidays.slice(0, 16).map((h) => (
                     <li key={`${h.date}-${h.name}`}>
-                      {h.date} — {h.name}
+                      {h.date}: {h.name}
                     </li>
                   ))}
                 </ul>
@@ -731,7 +731,7 @@ export default function CalendarPage() {
             <div className="p-5">
               <div className="grid sm:grid-cols-[auto_1fr] gap-6">
 
-                {/* Left — image + actions */}
+                {/* Left: image + actions */}
                 <div className="flex flex-col items-center gap-3">
                   <PostCard ref={cardRef} post={modal} brand={activeBrand} size={280} slideIndex={slideIdx}/>
 
@@ -776,7 +776,7 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
-                {/* Right — caption + details */}
+                {/* Right: caption + details */}
                 <div className="space-y-4">
 
                   {/* Caption */}
@@ -802,7 +802,7 @@ export default function CalendarPage() {
                   {/* Divider */}
                   <div className="h-px bg-fog" />
 
-                  {/* Supporting info — typography-only separation, no colored boxes */}
+                  {/* Supporting info: typography-only separation, no colored boxes */}
                   {modal.description && (
                     <div>
                       <p className="label">Strategy note</p>

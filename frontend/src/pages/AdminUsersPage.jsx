@@ -59,7 +59,7 @@ export default function AdminUsersPage() {
                     <div className="text-white text-sm font-medium">{u.full_name}</div>
                     <div className="text-white/35 text-xs">{u.email}</div>
                   </td>
-                  <td className="px-5 py-3 text-white/50 text-sm">{u.country_code || '—'}</td>
+                  <td className="px-5 py-3 text-white/50 text-sm">{u.country_code || 'Not set'}</td>
                   <td className="px-5 py-3">
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${u.is_active ? STATUS_STYLE.active : STATUS_STYLE.inactive}`}>
                       {u.is_active ? 'active' : 'inactive'}
@@ -92,7 +92,7 @@ export default function AdminUsersPage() {
                 ['ID', selected.id],
                 ['Name', selected.full_name],
                 ['Email', selected.email],
-                ['Country', selected.country_code || '—'],
+                ['Country', selected.country_code || 'Not set'],
                 ['Active', selected.is_active ? 'Yes' : 'No'],
                 ['Joined', new Date(selected.created_at).toLocaleString()],
               ].map(([k, v]) => (

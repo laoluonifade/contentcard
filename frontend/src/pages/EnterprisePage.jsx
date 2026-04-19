@@ -3,7 +3,7 @@ import { ArrowRight, Check, Shield, Users, BarChart2, Zap, Star, TrendingUp } fr
 import MarketingLayout from '../components/layout/MarketingLayout'
 
 const ENTERPRISE_FEATURES = [
-  { icon: Users,     title: 'Unlimited team seats',        desc: 'Add your entire marketing department, all regional teams, and agency partners — no per-seat fees.' },
+  { icon: Users,     title: 'Unlimited team seats',        desc: 'Add your entire marketing department, all regional teams, and agency partners: no per-seat fees.' },
   { icon: Shield,    title: 'SSO & advanced permissions',  desc: 'Single sign-on, granular role controls, and full audit trails for compliance-conscious organisations.' },
   { icon: BarChart2, title: 'Dedicated CSM',               desc: 'A dedicated customer success manager who knows your account, onboards your team, and is always reachable.' },
   { icon: Zap,       title: 'Priority generation',         desc: 'Your content generation queue jumps the line. Faster outputs, even at peak usage times.' },
@@ -46,7 +46,7 @@ export default function EnterprisePage() {
               ContentCard for<br /><span className="text-brand-400">Enterprise.</span>
             </h1>
             <p className="text-xl text-white/50 mb-10 leading-relaxed">
-              Built for organisations that need scale, control, and accountability across every social channel — with a team that stands behind you.
+              Built for organisations that need scale, control, and accountability across every social channel: with a team that stands behind you.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <button onClick={() => navigate('/demo')} className="btn-primary px-8 py-4">
@@ -86,7 +86,7 @@ export default function EnterprisePage() {
         <div className="max-w-7xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-4xl font-bold text-white mb-4" style={{ letterSpacing: '-0.02em' }}>Everything your enterprise needs</h2>
-            <p className="text-white/45 text-lg max-w-xl mx-auto">ContentCard Enterprise is more than software — it's a partnership.</p>
+            <p className="text-white/45 text-lg max-w-xl mx-auto">ContentCard Enterprise is more than software: it's a partnership.</p>
           </div>
           <div className="grid md:grid-cols-2 gap-5">
             {ENTERPRISE_FEATURES.map(({ icon: Icon, title, desc }) => (

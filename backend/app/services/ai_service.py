@@ -7,6 +7,32 @@ from app.services.art_brief_service import ARCHETYPE_IDS, infer_default_archetyp
 
 logger = logging.getLogger(__name__)
 
+# Strip dash-like punctuation models often overuse in social copy (em/en dash, double hyphen).
+def _sanitize_ai_copy_dashes(text: str | None) -> str | None:
+    if text is None or not isinstance(text, str):
+        return text
+    t = text.replace("\u2014", ", ").replace("\u2013", ", ")
+    t = re.sub(r"\s*--\s*", ", ", t)
+    t = re.sub(r"(?<=\w)--(?=\w)", ", ", t)
+    t = re.sub(r",\s*,+", ", ", t)
+    return t
+
+
+def _sanitize_post_copy_fields(post: dict) -> dict:
+    for key in (
+        "caption",
+        "cta",
+        "description",
+        "content_idea",
+        "topic",
+        "visual_direction",
+        "image_prompt_explanation",
+    ):
+        if key in post:
+            post[key] = _sanitize_ai_copy_dashes(post.get(key))
+    return post
+
+
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 TEXT_MODEL = "gpt-4o"
 
@@ -15,14 +41,15 @@ TEXT_MODEL = "gpt-4o"
 
 SYSTEM_PROMPT = """You are an AI content engine inside ContentCard.
 
-HARD CONSTRAINTS — violating any of these is a failure:
-- Return ONLY a valid JSON object. No markdown. No code fences. No preamble. No trailing text.
-- Match the brand's language style, tone tags, and writing style EXACTLY as specified in the brand context.
-- NEVER use words listed in words_to_avoid.
-- NEVER produce generic captions (e.g. "Unlock your potential", "Level up", "Game changer", "Join the journey"). Every caption must be specific to the brand, audience, and content idea.
-- NEVER hallucinate brand details. Use only what is provided in the brand context.
-- For Nigerian English or Pidgin, use authentic local expressions — not stereotypes.
-- Captions must be platform-native: short/punchy for Instagram/Twitter, longer/professional for LinkedIn."""
+HARD CONSTRAINTS (violating any of these is a failure):
+• Return ONLY a valid JSON object. No markdown. No code fences. No preamble. No trailing text.
+• Match the brand's language style, tone tags, and writing style EXACTLY as specified in the brand context.
+• NEVER use words listed in words_to_avoid.
+• NEVER produce generic captions (e.g. "Unlock your potential", "Level up", "Game changer", "Join the journey"). Every caption must be specific to the brand, audience, and content idea.
+• NEVER hallucinate brand details. Use only what is provided in the brand context.
+• For Nigerian English or Pidgin, use authentic local expressions, not stereotypes.
+• Captions must be platform-native: short/punchy for Instagram/Twitter, longer/professional for LinkedIn.
+• In caption, cta, description, content_idea, topic, and visual_direction: never use the long dash character, the en dash, or two hyphens in a row as punctuation. Use commas, periods, semicolons, or parentheses. Hyphens inside ordinary compound words are fine."""
 
 
 # ── Output validation ──────────────────────────────────────────────────────────
@@ -42,7 +69,7 @@ def _image_prompt_ending_for_style(ips: str) -> str:
     if ips == "illustration":
         return (
             'Must end with: "No text, no logos, no watermarks, no typography, no UI elements, '
-            'premium brand illustration or modern flat graphic only — no photorealistic humans."'
+            'premium brand illustration or modern flat graphic only; no photorealistic humans."'
         )
     return (
         "End by forbidding logos and readable text in-image; describe EITHER photorealistic humans OR "
@@ -55,15 +82,15 @@ def _visual_type_rule_for_style(ips: str) -> str:
         return 'always the string "real_people"'
     if ips == "illustration":
         return 'always the string "illustration"'
-    return 'per post either "real_people" OR "illustration" — intentionally vary across the month'
+    return 'per post either "real_people" OR "illustration"; vary intentionally across the month'
 
 
 def _hard_visual_type_rule(ips: str) -> str:
     if ips == "real_people":
-        return '- visual_type must be exactly "real_people" for every post'
+        return '• visual_type must be exactly "real_people" for every post'
     if ips == "illustration":
-        return '- visual_type must be exactly "illustration" for every post'
-    return '- visual_type must be either "real_people" or "illustration" per post (vary intentionally)'
+        return '• visual_type must be exactly "illustration" for every post'
+    return '• visual_type must be either "real_people" or "illustration" per post (vary intentionally)'
 
 
 def _visual_system_prompt_block(brand: dict) -> str:
@@ -80,8 +107,8 @@ def _visual_system_prompt_block(brand: dict) -> str:
         f"Allowed visual_archetype values: {', '.join(str(a) for a in arch)}. "
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
         f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; mixed = vary by post). "
-        f"The brand logo is composited automatically after image generation — do NOT instruct the image model to draw, render, or place a logo. "
-        f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else '—'}."
+        f"The brand logo is composited automatically after image generation. Do NOT instruct the image model to draw, render, or place a logo. "
+        f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
     )
 
 
@@ -96,13 +123,13 @@ def _validate_posts(
     valid = []
     for i, post in enumerate(posts):
         if not isinstance(post, dict):
-            logger.warning(f"Post {i}: not a dict — dropped")
+            logger.warning(f"Post {i}: not a dict; dropped")
             continue
 
         # Required field check
         missing = REQUIRED_POST_FIELDS - post.keys()
         if missing:
-            logger.warning(f"Post {i}: missing required fields {missing} — dropped")
+            logger.warning(f"Post {i}: missing required fields {missing}; dropped")
             continue
 
         # Coerce format
@@ -137,7 +164,7 @@ def _validate_posts(
         else:
             post["visual_type"] = vt_ai if vt_ai in ("real_people", "illustration") else "real_people"
 
-        # visual_archetype — layout family for VBS / art brief (PRD)
+        # visual_archetype: layout family for VBS / art brief (PRD)
         va = str(post.get("visual_archetype", "")).strip().lower()
         if not va or va not in VALID_VISUAL_ARCHETYPES:
             post["visual_archetype"] = infer_default_archetype(post["visual_type"])
@@ -155,7 +182,7 @@ def _validate_posts(
             logger.warning(f"Post {i} caption truncated to 600 chars")
         post["caption"] = caption
 
-        # words_to_avoid check — log violations but keep the post
+        # words_to_avoid check: log violations but keep the post
         if avoid:
             caption_lower = caption.lower()
             violations = [w for w in avoid if w in caption_lower]
@@ -164,7 +191,7 @@ def _validate_posts(
                     f"Post {i} ('{post.get('topic')}') contains forbidden words: {violations}"
                 )
 
-        valid.append(post)
+        valid.append(_sanitize_post_copy_fields(post))
 
     return valid
 
@@ -282,7 +309,7 @@ async def _generate_for_platform(
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
     rng = random.Random(seed)
     assigned_types = [content_types[rng.randint(0, len(content_types) - 1)] for _ in posting_dates]
-    type_instructions = '\n'.join([f"- {d}: {t}" for d, t in zip(posting_dates, assigned_types)])
+    type_instructions = "\n".join([f"• {d}: {t}" for d, t in zip(posting_dates, assigned_types)])
 
     platform_notes = {
         "instagram": "Instagram square 1:1",
@@ -298,31 +325,31 @@ async def _generate_for_platform(
     ips = ips.lower() if ips in ("real_people", "illustration", "mixed") else "real_people"
     if ips == "real_people":
         img_style_rules = (
-            "- ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
-            "- NEVER mention logos, wordmarks, or typography in image_prompt — raster is logo-free and text-free; logo is added in post-production\n"
-            "- ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
-            "- People must be photorealistic real humans matching target_audience demographics — never cartoon, 3D, or toy-like characters\n"
-            "- NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", or \"modern design\""
+            "• ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
+            "• NEVER mention logos, wordmarks, or typography in image_prompt. Raster is logo-free and text-free; logo is added in post-production\n"
+            "• ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
+            "• People must be photorealistic real humans matching target_audience demographics; never cartoon, 3D, or toy-like characters\n"
+            "• NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", or \"modern design\""
         ).format(bn=brand_name)
     elif ips == "illustration":
         img_style_rules = (
-            f"- ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
-            "- image_prompt may use premium 2D illustration, flat brand graphics, or tasteful vector-adjacent art — on-brand, not childish\n"
-            "- NEVER mention logos or typography in-image — logo is added in post-production\n"
-            "- People may be illustrated (stylised but professional), not photoreal stock\n"
-            "- NEVER use generic AI-art clichés"
+            f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
+            "• image_prompt may use premium 2D illustration, flat brand graphics, or tasteful vector-adjacent art; keep it on-brand, not childish\n"
+            "• NEVER mention logos or typography in-image. Logo is added in post-production\n"
+            "• People may be illustrated (stylised but professional), not photoreal stock\n"
+            "• NEVER use generic AI-art clichés"
         )
     else:
         img_style_rules = (
-            f"- ALWAYS name the brand ({brand_name}) and honour VISUAL IDENTITY colours and motifs\n"
-            "- Vary the month: some posts photorealistic humans, others premium illustrated or flat brand graphics — pick the stronger fit per post\n"
-            "- NEVER logos or readable text inside the image; logo is added in post-production\n"
-            "- NEVER generic stock or clichéd \"AI slop\""
+            f"• ALWAYS name the brand ({brand_name}) and honour VISUAL IDENTITY colours and motifs\n"
+            "• Vary the month: some posts photorealistic humans, others premium illustrated or flat brand graphics; pick the stronger fit per post\n"
+            "• NEVER logos or readable text inside the image; logo is added in post-production\n"
+            "• NEVER generic stock or clichéd \"AI slop\""
         )
 
     brand_system = f"""You are a world-class social media strategist and creative director working exclusively for {brand_name}. Today is {today.isoformat()}.
 
-=== BRAND CONTEXT (memorise this — every post must reflect it) ===
+=== BRAND CONTEXT (every post must reflect this) ===
 {brand_ctx}
 
 === YOUR ROLE ===
@@ -332,12 +359,12 @@ When writing image_prompt fields:
 {img_style_rules}
 
 When writing captions:
-- Match the language style and tone tags exactly
-- Respect all words_to_avoid — NEVER include any of them
-- Use the writing style and emotional tone specified
-- Incorporate key messages and value pillars naturally
-- Honour all guardrails and regulatory constraints
-- First line must be a strong hook — never start with the brand name"""
+• Match the language style and tone tags exactly
+• Respect all words_to_avoid; NEVER include any of them
+• Use the writing style and emotional tone specified
+• Incorporate key messages and value pillars naturally
+• Honour all guardrails and regulatory constraints
+• First line must be a strong hook; never start with the brand name"""
 
     creative_brief = f"""Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
 
@@ -350,29 +377,29 @@ Assign one post to each date:
 
 For EACH post return ALL these fields:
 
-1. content_type — exactly as assigned above
-2. content_idea — punchy post title, max 8 words
-3. description — 2-3 sentences: what this post achieves, why this angle, who it speaks to
-4. caption — full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
-5. cta — standalone call to action, max 12 words
-6. hashtags — array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction — 3-4 sentences for a designer: scene, composition, lighting, subjects, mood. Do NOT describe text overlaid on the image — copy lives only in the caption field.
-8. image_prompt — background-only prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience. Must NOT mention logos or readable text in-image.
+1. content_type: exactly as assigned above
+2. content_idea: punchy post title, max 8 words
+3. description: 2-3 sentences: what this post achieves, why this angle, who it speaks to
+4. caption: full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
+5. cta: standalone call to action, max 12 words
+6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
+7. visual_direction: 3-4 sentences for a designer: scene, composition, lighting, subjects, mood. Do NOT describe text overlaid on the image. Copy lives only in the caption field.
+8. image_prompt: background-only prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience. Must NOT mention logos or readable text in-image.
 {_image_prompt_ending_for_style(ips)}
-9. image_prompt_explanation — 2 sentences: why this visual was chosen
-10. visual_type — {_visual_type_rule_for_style(ips)}
-11. visual_archetype — one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story" — must align with content_type and visual_type
-12. format — "single", "carousel", or "quote"
-13. slide_count — 1 for single/quote, 2-5 for carousel
-14. date — posting date in YYYY-MM-DD format exactly as listed above
+9. image_prompt_explanation: 2 sentences: why this visual was chosen
+10. visual_type: {_visual_type_rule_for_style(ips)}
+11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story"; must align with content_type and visual_type
+12. format: "single", "carousel", or "quote"
+13. slide_count: 1 for single/quote, 2-5 for carousel
+14. date: posting date in YYYY-MM-DD format exactly as listed above
 
 HARD RULES:
-- Each post must feel distinctly different — vary tone, angle, format, and style
-- NEVER use words from the words_to_avoid list
-- NEVER produce generic AI-sounding captions
-- topic must equal content_idea exactly
+• Each post must feel distinctly different; vary tone, angle, format, and style
+• NEVER use words from the words_to_avoid list
+• NEVER produce generic AI-sounding captions
+• topic must equal content_idea exactly
 {_hard_visual_type_rule(ips)}
-- image_prompt and visual_direction must never ask for text, titles, captions, or logos drawn into the image
+• image_prompt and visual_direction must never ask for text, titles, captions, or logos drawn into the image
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""
@@ -398,7 +425,7 @@ Return a JSON object with a single key "posts" containing the array:
                     raw = await generate_with_assistant(assistant_id, brief_with_context)
                     logger.info(f"Assistant responded (attempt {attempt + 1}), first 200: {raw[:200]}")
                 except Exception as e:
-                    logger.warning(f"Assistant failed: {e} — using chat completions")
+                    logger.warning(f"Assistant failed: {e}; using chat completions")
                     raw = None
 
             if raw is None:
@@ -465,8 +492,8 @@ async def generate_monthly_plan(
     industry = brand.get('industry', 'General')
     words_to_avoid = brand.get('words_to_avoid') or []
 
-    def _fmt(v): return v if v else "—"
-    def _lst(v): return ', '.join(v) if isinstance(v, list) and v else (v if v else "—")
+    def _fmt(v): return v if v else "N/A"
+    def _lst(v): return ', '.join(v) if isinstance(v, list) and v else (v if v else "N/A")
 
     brand_ctx = f"""
 === BRAND IDENTITY ===
@@ -509,7 +536,7 @@ Lighting style: {_fmt(brand.get('lighting_style'))}
 Brand motifs: {_lst(brand.get('brand_motifs'))}
 Logo description: {_fmt(brand.get('logo_description'))}
 
-=== VISUAL BRAND SYSTEM (tokens — honour archetypes) ===
+=== VISUAL BRAND SYSTEM (tokens; honour archetypes) ===
 {_visual_system_prompt_block(brand)}
 
 === MESSAGING ===
@@ -597,8 +624,8 @@ Tone: {', '.join(brand.get('tone_tags') or [])}
 Language: {brand.get('language_style', 'english')}
 Personality: {brand.get('personality_score', 50)}/100
 Audience: {brand.get('target_audience', '')}
-Key messages: {', '.join(brand.get('key_messages') or []) or '—'}
-CTA style: {brand.get('cta_style') or '—'}
+Key messages: {', '.join(brand.get('key_messages') or []) or 'N/A'}
+CTA style: {brand.get('cta_style') or 'N/A'}
 Words to avoid (NEVER use): {avoid}
 Guidelines: {brand.get('guidelines', '')}""".strip()
 
@@ -611,7 +638,7 @@ Mood: {mood or 'same as original'}
 Original caption: {existing_caption}
 
 Return JSON object: {{"caption": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: max 100 words, platform-native, no generic phrases, no forbidden words."""
+Rules: max 100 words, platform-native, no generic phrases, no forbidden words. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption."""
     else:
         prompt = f"""Write one {platform} caption for {brand.get('name', 'the brand')}.
 Brand profile:
@@ -621,7 +648,7 @@ Topic: {topic}
 {f'Context: {description}' if description else ''}
 
 Return JSON object: {{"caption": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: max 100 words, platform-native, strong hook on first line, no generic phrases, no forbidden words, max 2 hashtags."""
+Rules: max 100 words, platform-native, strong hook on first line, no generic phrases, no forbidden words, max 2 hashtags. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption."""
 
     raw = await _openai_chat(
         messages=[
@@ -641,13 +668,350 @@ Rules: max 100 words, platform-native, strong hook on first line, no generic phr
         result["hashtags"] = []
     result["hashtags"] = [str(h).lstrip("#") for h in result["hashtags"]][:2]
 
+    if isinstance(result.get("caption"), str):
+        result["caption"] = _sanitize_ai_copy_dashes(result["caption"]) or ""
+
     return result
+
+
+# ── Brand form coach (onboarding + brand kit, free, form-only scope) ───────────
+
+_ONBOARDING_INDUSTRIES = frozenset(
+    {
+        "Fashion & Beauty",
+        "Food & Beverage",
+        "Technology",
+        "Finance & Fintech",
+        "Health & Wellness",
+        "Real Estate",
+        "Education",
+        "Entertainment & Media",
+        "E-commerce & Retail",
+        "Marketing & Creative Agency",
+        "Church & Ministry",
+        "Events & Hospitality",
+        "Legal & Professional Services",
+        "Other",
+    }
+)
+
+_ONBOARDING_PATCH_KEYS = frozenset(
+    {
+        "name",
+        "industry",
+        "description",
+        "target_audience",
+        "tone_tags",
+        "language_style",
+        "personality_score",
+        "instagram_handle",
+        "facebook_handle",
+        "twitter_handle",
+    }
+)
+
+_BRAND_KIT_TOP_PATCH_KEYS = frozenset(
+    {
+        "name",
+        "industry",
+        "description",
+        "website",
+        "location",
+        "target_audience",
+        "audience_age_range",
+        "audience_location",
+        "pain_point",
+        "language_style",
+        "personality_score",
+        "brand_colors",
+        "design_style",
+        "brand_font",
+        "words_to_avoid",
+        "competitors",
+        "guidelines",
+        "instagram_handle",
+        "facebook_handle",
+        "twitter_handle",
+        "linkedin_handle",
+    }
+)
+
+_BRAND_KIT_NESTED_KEYS = frozenset(
+    {
+        "mission_statement",
+        "value_proposition",
+        "tagline",
+        "business_model",
+        "writing_style",
+        "communication_style",
+        "emotional_tone",
+        "verbosity_level",
+        "clarity_level",
+        "key_messages",
+        "value_pillars",
+        "cta_style",
+        "brand_narratives",
+        "imagery_style",
+        "lighting_style",
+        "brand_motifs",
+        "logo_description",
+        "strategy_note",
+        "campaign_name",
+        "campaign_theme",
+        "campaign_angle",
+        "seasonal_context",
+        "good_examples",
+        "bad_examples",
+        "regulatory_constraints",
+        "forbidden_claims",
+        "required_keywords",
+        "tone_restrictions",
+        "brand_safety_rules",
+        "income_level",
+        "psychographics",
+        "aspirations",
+        "objections",
+        "content_goals",
+        "funnel_stages",
+    }
+)
+
+_ALLOWED_LANG = frozenset(
+    {
+        "english",
+        "nigerian_english",
+        "pidgin",
+        "mix",
+        "ghanaian_english",
+        "twi_mix",
+        "swahili",
+        "sheng",
+        "sa_english",
+        "zulu_mix",
+        "luganda_mix",
+        "camfranglais",
+        "amharic_mix",
+        "arabic",
+        "french",
+        "german",
+        "spanish",
+        "italian",
+        "dutch",
+        "portuguese",
+        "hinglish",
+        "hindi",
+    }
+)
+
+
+def _truncate_str(val: str, n: int) -> str:
+    s = val.strip()
+    return s if len(s) <= n else s[:n]
+
+
+def _filter_brand_form_patch(mode: str, patch: dict | None) -> dict | None:
+    if not patch or not isinstance(patch, dict):
+        return None
+    out: dict = {}
+    if mode == "onboarding":
+        for k, v in patch.items():
+            if k not in _ONBOARDING_PATCH_KEYS:
+                continue
+            if k == "tone_tags":
+                if isinstance(v, list):
+                    out[k] = [_truncate_str(str(x), 40) for x in v if str(x).strip()][:12]
+                continue
+            if k == "personality_score":
+                try:
+                    out[k] = max(0, min(100, int(v)))
+                except (TypeError, ValueError):
+                    pass
+                continue
+            if k == "industry":
+                if isinstance(v, str) and v.strip() in _ONBOARDING_INDUSTRIES:
+                    out[k] = v.strip()
+                continue
+            if k == "language_style":
+                ls = str(v).strip().lower()
+                if ls in _ALLOWED_LANG:
+                    out[k] = ls
+                continue
+            if isinstance(v, str):
+                lim = 8000 if k in ("description", "target_audience") else 500
+                out[k] = _truncate_str(v, lim)
+        return out or None
+
+    # brand_kit mode
+    for k, v in patch.items():
+        if k == "brand_kit" and isinstance(v, dict):
+            nested: dict = {}
+            for nk, nv in v.items():
+                if nk not in _BRAND_KIT_NESTED_KEYS:
+                    continue
+                if isinstance(nv, list):
+                    nested[nk] = [str(x).strip() for x in nv if str(x).strip()][:40]
+                elif isinstance(nv, str):
+                    nested[nk] = _truncate_str(nv, 8000)
+            if nested:
+                out["brand_kit"] = nested
+            continue
+        if k not in _BRAND_KIT_TOP_PATCH_KEYS:
+            continue
+        if k == "tone_tags" and isinstance(v, list):
+            out[k] = [_truncate_str(str(x), 40) for x in v if str(x).strip()][:20]
+            continue
+        if k == "brand_colors" and isinstance(v, list):
+            cols = []
+            for c in v[:12]:
+                cs = str(c).strip()
+                if len(cs) <= 20 and cs.startswith("#") and len(cs) == 7:
+                    cols.append(cs.lower())
+            if cols:
+                out[k] = cols
+            continue
+        if k == "words_to_avoid" and isinstance(v, list):
+            out[k] = [_truncate_str(str(x), 80) for x in v if str(x).strip()][:50]
+            continue
+        if k == "personality_score":
+            try:
+                out[k] = max(0, min(100, int(v)))
+            except (TypeError, ValueError):
+                pass
+            continue
+        if k == "language_style":
+            ls = str(v).strip().lower()
+            if ls in _ALLOWED_LANG:
+                out[k] = ls
+            continue
+        if isinstance(v, str):
+            lim = 8000 if k in ("description", "target_audience", "guidelines", "pain_point", "competitors") else 500
+            out[k] = _truncate_str(v, lim)
+    return out or None
+
+
+_BRAND_FORM_COACH_BASE = """You are ContentCard's Brand Profile Coach. This is a free feature for every user.
+
+STRICT SCOPE (violations are failures):
+• ONLY help the user complete their brand profile form: ask focused questions, reflect what they said, suggest field values.
+• NEVER draft social posts, ads, emails, blogs, scripts, or calendar content.
+• NEVER give broad marketing strategy, growth tactics, competitor analysis, or legal advice. Stay inside "what should we put in this field".
+• If the user goes off topic, answer in one short sentence that you only help fill this profile, then ask one concrete question for the next missing field.
+• Never invent company facts. If unsure, ask a follow up instead of putting guesses in patch.
+
+OUTPUT (return ONLY valid JSON, no markdown):
+{"reply": "<1 to 4 short paragraphs or bullet lines, plain and friendly>", "patch": <object or null>}
+
+Rules for patch:
+• Include patch only when the user's latest message clearly supplies values you are confident about.
+• Only use allowed keys for this mode (listed in the mode section). Omit patch entirely (null) when you are only asking questions.
+• Strings must be plain text suitable for form fields. No emojis unless the user used them first.
+• Do not use long dash, en dash, or two hyphens in a row in reply text. Use commas or periods.
+"""
+
+
+_BRAND_FORM_COACH_ONBOARDING = (
+    _BRAND_FORM_COACH_BASE
+    + """
+MODE: onboarding (first-time brand profile).
+
+Allowed patch keys ONLY (omit any other key):
+name, industry, description, target_audience, tone_tags, language_style, personality_score,
+instagram_handle, facebook_handle, twitter_handle.
+
+Industry MUST be exactly one of:
+Fashion & Beauty, Food & Beverage, Technology, Finance & Fintech, Health & Wellness, Real Estate,
+Education, Entertainment & Media, E-commerce & Retail, Marketing & Creative Agency, Church & Ministry,
+Events & Hospitality, Legal & Professional Services, Other.
+
+tone_tags: array of short labels (Title Case is fine), max 12, drawn from common brand tones such as
+Bold, Authentic, Energetic, Playful, Luxury, Minimal, Warm, Professional, Witty, Inspirational, Confident, Friendly.
+
+language_style: prefer one of english, nigerian_english, pidgin, mix unless the user clearly needs another supported dialect.
+
+personality_score: integer 0 (formal) to 100 (casual).
+
+Guide the user step by step across basics, audience, and voice. When they describe the business, you may propose description and audience text in patch.
+"""
+)
+
+
+_BRAND_FORM_COACH_BRAND_KIT = (
+    _BRAND_FORM_COACH_BASE
+    + """
+MODE: brand_kit (full brand profile in the app).
+
+Top-level patch keys allowed (omit others):
+name, industry, description, website, location, target_audience, audience_age_range, audience_location,
+pain_point, language_style, personality_score, brand_colors, design_style, brand_font, words_to_avoid,
+competitors, guidelines, instagram_handle, facebook_handle, twitter_handle, linkedin_handle.
+
+Additionally you may set "brand_kit" to a shallow object whose keys are ONLY from this list (one level, no deep nesting):
+mission_statement, value_proposition, tagline, business_model, writing_style, communication_style,
+emotional_tone, verbosity_level, clarity_level, key_messages, value_pillars, cta_style, brand_narratives,
+imagery_style, lighting_style, brand_motifs, logo_description, strategy_note, campaign_name, campaign_theme,
+campaign_angle, seasonal_context, good_examples, bad_examples, regulatory_constraints, forbidden_claims,
+required_keywords, tone_restrictions, brand_safety_rules, income_level, psychographics, aspirations, objections,
+content_goals, funnel_stages.
+
+key_messages and similar list fields must be arrays of short strings when you patch them.
+
+design_style: use one of bold, minimal, warm, premium when suggesting.
+
+Help the user strengthen weak sections tab by tab. When they paste details, map them into patch fields the UI can apply.
+"""
+)
+
+
+async def run_brand_form_coach_chat(mode: str, form_snapshot: dict, messages: list[dict]) -> dict:
+    import json as json_lib
+
+    m = (mode or "").strip().lower()
+    if m not in ("onboarding", "brand_kit"):
+        raise ValueError("mode must be onboarding or brand_kit")
+
+    try:
+        snap = json_lib.dumps(form_snapshot or {}, ensure_ascii=False)[:14000]
+    except Exception:
+        snap = "{}"
+
+    system = _BRAND_FORM_COACH_ONBOARDING if m == "onboarding" else _BRAND_FORM_COACH_BRAND_KIT
+    msgs: list[dict] = [
+        {"role": "system", "content": system + "\n\nCurrent form_snapshot JSON (refresh each turn):\n" + snap},
+    ]
+    for row in messages[-18:]:
+        r = (row.get("role") or "user").lower()
+        if r not in ("user", "assistant"):
+            r = "user"
+        msgs.append({"role": r, "content": str(row.get("content", ""))[:8000]})
+
+    raw = await _openai_chat(msgs, max_tokens=1400, temperature=0.4, json_mode=True)
+    try:
+        data = _parse_json_safe(raw)
+    except Exception:
+        return {
+            "reply": "Sorry, something went wrong parsing the reply. Please try again with a shorter message.",
+            "patch": None,
+        }
+
+    if not isinstance(data, dict):
+        return {"reply": "Sorry, I could not read that response. Please try again.", "patch": None}
+
+    reply = data.get("reply")
+    if not isinstance(reply, str) or not reply.strip():
+        reply = "Let me know a bit more about your brand so we can fill the next fields together."
+    reply = (_sanitize_ai_copy_dashes(reply.strip()) or reply.strip())
+
+    patch_raw = data.get("patch")
+    patch_f = _filter_brand_form_patch(m, patch_raw if isinstance(patch_raw, dict) else None)
+
+    return {"reply": reply, "patch": patch_f}
 
 
 _PREP_CHAT_SYSTEM = """You are a friendly strategist helping prepare one calendar month of social posts.
 Ask one or two short, concrete questions at a time (product updates, launches, promos, screenshots, events, partnerships, seasonal angles).
-When you have enough to brief a copywriter, reply with 3–6 bullet lines summarising what to emphasise, then say the user can open Generate when ready.
-Stay under the brand's industry; never invent product facts."""
+When you have enough to brief a copywriter, reply with 3 to 6 bullet lines summarising what to emphasise, then say the user can open Generate when ready.
+Stay under the brand's industry; never invent product facts.
+Do not use long dash, en dash, or two hyphens in a row as punctuation in your replies. Use commas or periods instead."""
 
 
 async def run_generation_prep_chat(brand: dict, month: int, year: int, messages: list[dict]) -> str:
@@ -658,7 +1022,7 @@ async def run_generation_prep_chat(brand: dict, month: int, year: int, messages:
     intro = (
         f"{_PREP_CHAT_SYSTEM}\n\n"
         f"Calendar month: {mn} {year}.\n"
-        f"Brand: {bn} — industry: {brand.get('industry', 'General')}."
+        f"Brand: {bn}. Industry: {brand.get('industry', 'General')}."
     )
     msgs: list[dict] = [
         {"role": "system", "content": intro},
@@ -669,7 +1033,8 @@ async def run_generation_prep_chat(brand: dict, month: int, year: int, messages:
         if r not in ("user", "assistant"):
             r = "user"
         msgs.append({"role": r, "content": str(m.get("content", ""))[:8000]})
-    return await _openai_chat(msgs, max_tokens=900, temperature=0.55, json_mode=False)
+    reply = await _openai_chat(msgs, max_tokens=900, temperature=0.55, json_mode=False)
+    return _sanitize_ai_copy_dashes(reply) or ""
 
 
 # ── Trends ─────────────────────────────────────────────────────────────────────
@@ -686,7 +1051,7 @@ Mix of Nigerian entertainment, fintech, lifestyle, relatable everyday experience
 Return a JSON object with a single key "trends" containing an array of exactly 12 objects:
 {{"trends": [{{"topic": "...", "description": "...", "volume": "...", "badge": "viral|rising|steady"}}]}}
 
-Rules: topic 2-5 words titlecase, description one sentence, volume e.g. "4.2M posts", badge must be viral/rising/steady."""
+Rules: topic 2-5 words titlecase, description one sentence, volume e.g. "4.2M posts", badge must be viral/rising/steady. Never use long dash, en dash, or two hyphens in a row as punctuation in topic or description strings."""
 
     raw = await _openai_chat(
         messages=[
@@ -713,9 +1078,11 @@ Rules: topic 2-5 words titlecase, description one sentence, volume e.g. "4.2M po
     for t in result:
         if t.get("topic"):
             badge = t.get("badge", "rising")
+            desc = str(t["description"])[:500] if t.get("description") else None
+            topic_raw = str(t["topic"])
             valid.append({
-                "topic": str(t["topic"])[:255],
-                "description": str(t["description"])[:500] if t.get("description") else None,
+                "topic": str(_sanitize_ai_copy_dashes(topic_raw) or topic_raw)[:255],
+                "description": (_sanitize_ai_copy_dashes(desc) if desc else None),
                 "volume": str(t["volume"])[:50] if t.get("volume") else None,
                 "badge": badge if badge in ("viral", "rising", "steady") else "rising",
             })
@@ -735,7 +1102,7 @@ async def generate_photo_caption(
 Tone: {', '.join(brand.get('tone_tags') or [])}
 Language: {brand.get('language_style', 'english')}
 Audience: {brand.get('target_audience', '')}
-Key messages: {', '.join(brand.get('key_messages') or []) or '—'}
+Key messages: {', '.join(brand.get('key_messages') or []) or 'N/A'}
 Words to avoid (NEVER use): {avoid}""".strip()
 
     prompt = f"""Write a {platform} caption for a photo.
@@ -745,7 +1112,7 @@ Photo description: {description}
 {f'Mood: {mood}' if mood else ''}
 
 Return JSON object: {{"caption": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: platform-native, strong hook, no generic phrases, no forbidden words, max 2 hashtags."""
+Rules: platform-native, strong hook, no generic phrases, no forbidden words, max 2 hashtags. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption."""
 
     raw = await _openai_chat(
         messages=[
@@ -763,5 +1130,8 @@ Rules: platform-native, strong hook, no generic phrases, no forbidden words, max
     if not isinstance(result.get("hashtags"), list):
         result["hashtags"] = []
     result["hashtags"] = [str(h).lstrip("#") for h in result["hashtags"]][:2]
+
+    if isinstance(result.get("caption"), str):
+        result["caption"] = _sanitize_ai_copy_dashes(result["caption"]) or ""
 
     return result

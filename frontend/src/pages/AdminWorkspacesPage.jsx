@@ -158,7 +158,7 @@ export default function AdminWorkspacesPage() {
                       <div className="text-white/30 text-xs font-mono">{w.id.slice(0, 8)}…</div>
                     </td>
                     <td className="px-5 py-3 text-white/55 text-xs break-all max-w-[200px]">
-                      {w.owner_email || '—'}
+                      {w.owner_email || 'Not set'}
                     </td>
                     <td className="px-5 py-3">
                       <span
@@ -215,7 +215,7 @@ export default function AdminWorkspacesPage() {
               {[
                 ['ID', selected.id],
                 ['Name', selected.name],
-                ['Owner', selected.owner_email || '—'],
+                ['Owner', selected.owner_email || 'Not set'],
                 ['Plan', selected.plan],
                 ['Created', new Date(selected.created_at).toLocaleString()],
               ].map(([k, v]) => (
@@ -274,7 +274,7 @@ export default function AdminWorkspacesPage() {
                   <span className="text-white/50">Workspace:</span> {syncWorkspace.name}
                 </div>
                 <div>
-                  <span className="text-white/50">Owner:</span> {syncWorkspace.owner_email || '—'}
+                  <span className="text-white/50">Owner:</span> {syncWorkspace.owner_email || 'Not set'}
                 </div>
               </div>
               <label className="block">

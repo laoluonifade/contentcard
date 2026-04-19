@@ -1,9 +1,9 @@
 """
-OpenAI Assistants API layer — one Assistant + Vector Store per brand.
+OpenAI Assistants API layer: one Assistant + Vector Store per brand.
 
 Each brand gets:
-  - A Vector Store containing the brand kit as a structured markdown document
-  - An Assistant configured to use that vector store via file_search
+  • A Vector Store containing the brand kit as a structured markdown document
+  • An Assistant configured to use that vector store via file_search
 
 When generating content, only the creative brief is sent per request; the
 assistant retrieves brand context from the vector store automatically.
@@ -24,18 +24,20 @@ logger = logging.getLogger(__name__)
 ASSISTANT_INSTRUCTIONS = """You are a dedicated brand content strategist inside ContentCard.
 
 Your sole job is to generate social media content that is 100% aligned with the brand's identity. Before generating anything, ALWAYS search the brand kit document to retrieve:
-- Brand name, industry, mission, tagline, and value proposition
-- Target audience demographics, psychographics, aspirations, and objections
-- Exact brand colors (hex values), design style, imagery style, and lighting style
-- Tone tags, language style, writing style, and communication style
-- Key messages, value pillars, CTA style, and brand narratives
-- Guardrails: words to avoid, forbidden claims, tone restrictions, regulatory constraints
-- Good and bad copy examples
-- Active campaign context
+• Brand name, industry, mission, tagline, and value proposition
+• Target audience demographics, psychographics, aspirations, and objections
+• Exact brand colors (hex values), design style, imagery style, and lighting style
+• Tone tags, language style, writing style, and communication style
+• Key messages, value pillars, CTA style, and brand narratives
+• Guardrails: words to avoid, forbidden claims, tone restrictions, regulatory constraints
+• Good and bad copy examples
+• Active campaign context
 
 Every caption, CTA, image prompt, and visual direction you produce must come directly from this brand kit. Generic or off-brand content is unacceptable.
 
-When responding, return ONLY raw JSON. No markdown code fences. No citation markers. No explanatory text outside the JSON structure."""
+When responding, return ONLY raw JSON. No markdown code fences. No citation markers. No explanatory text outside the JSON structure.
+
+In every user-facing string inside JSON (caption, cta, description, content_idea, topic, visual_direction, image_prompt_explanation), never use long dash, en dash, or two hyphens in a row as punctuation. Use commas, periods, semicolons, or parentheses instead."""
 
 
 def _get_client() -> AsyncOpenAI:
@@ -63,94 +65,94 @@ def _build_brand_kit_document(brand) -> str:
         return str(v)
 
     sections = [
-        f"""# {brand.name} — Full Brand Kit
+        f"""# {brand.name}: full brand kit
 
 ## 1. Brand Identity
-- **Name**: {_fmt(brand.name)}
-- **Industry**: {_fmt(brand.industry)}
-- **Description**: {_fmt(brand.description)}
-- **Website**: {_fmt(brand.website)}
-- **Location**: {_fmt(brand.location)}
-- **Mission Statement**: {_fmt(kit.get('mission_statement'))}
-- **Value Proposition**: {_fmt(kit.get('value_proposition'))}
-- **Tagline**: {_fmt(kit.get('tagline'))}
-- **Business Model**: {_fmt(kit.get('business_model'))}
-- **Target Markets**: {_lst(kit.get('target_markets'))}""",
+• **Name**: {_fmt(brand.name)}
+• **Industry**: {_fmt(brand.industry)}
+• **Description**: {_fmt(brand.description)}
+• **Website**: {_fmt(brand.website)}
+• **Location**: {_fmt(brand.location)}
+• **Mission Statement**: {_fmt(kit.get('mission_statement'))}
+• **Value Proposition**: {_fmt(kit.get('value_proposition'))}
+• **Tagline**: {_fmt(kit.get('tagline'))}
+• **Business Model**: {_fmt(kit.get('business_model'))}
+• **Target Markets**: {_lst(kit.get('target_markets'))}""",
 
         f"""## 2. Target Audience
-- **Primary Audience Description**: {_fmt(brand.target_audience)}
-- **Age Range**: {_fmt(brand.audience_age_range)}
-- **Location**: {_fmt(brand.audience_location)}
-- **Pain Point**: {_fmt(brand.pain_point)}
-- **Income Level**: {_fmt(kit.get('income_level'))}
-- **Occupation**: {_lst(kit.get('occupation'))}
-- **Psychographics**: {_lst(kit.get('psychographics'))}
-- **Aspirations**: {_fmt(kit.get('aspirations'))}
-- **Objections to Overcome**: {_lst(kit.get('objections'))}""",
+• **Primary Audience Description**: {_fmt(brand.target_audience)}
+• **Age Range**: {_fmt(brand.audience_age_range)}
+• **Location**: {_fmt(brand.audience_location)}
+• **Pain Point**: {_fmt(brand.pain_point)}
+• **Income Level**: {_fmt(kit.get('income_level'))}
+• **Occupation**: {_lst(kit.get('occupation'))}
+• **Psychographics**: {_lst(kit.get('psychographics'))}
+• **Aspirations**: {_fmt(kit.get('aspirations'))}
+• **Objections to Overcome**: {_lst(kit.get('objections'))}""",
 
         f"""## 3. Brand Voice & Tone
-- **Tone Tags**: {_lst(brand.tone_tags)}
-- **Language Style**: {_fmt(brand.language_style)}
-- **Personality Score** (0 = formal/serious, 100 = casual/playful): {brand.personality_score}
-- **Writing Style**: {_fmt(kit.get('writing_style'))}
-- **Communication Style**: {_fmt(kit.get('communication_style'))}
-- **Emotional Tone**: {_fmt(kit.get('emotional_tone'))}
-- **Verbosity Level**: {_fmt(kit.get('verbosity_level'))}
-- **Clarity Level**: {_fmt(kit.get('clarity_level'))}
-- **Words to Avoid (NEVER use these)**: {_lst(brand.words_to_avoid)}
-- **General Guidelines**: {_fmt(brand.guidelines)}""",
+• **Tone Tags**: {_lst(brand.tone_tags)}
+• **Language Style**: {_fmt(brand.language_style)}
+• **Personality Score** (0 = formal/serious, 100 = casual/playful): {brand.personality_score}
+• **Writing Style**: {_fmt(kit.get('writing_style'))}
+• **Communication Style**: {_fmt(kit.get('communication_style'))}
+• **Emotional Tone**: {_fmt(kit.get('emotional_tone'))}
+• **Verbosity Level**: {_fmt(kit.get('verbosity_level'))}
+• **Clarity Level**: {_fmt(kit.get('clarity_level'))}
+• **Words to Avoid (NEVER use these)**: {_lst(brand.words_to_avoid)}
+• **General Guidelines**: {_fmt(brand.guidelines)}""",
 
         f"""## 4. Visual Identity
-- **Primary Brand Colors (use exact hex values)**: {_lst(brand.brand_colors)}
-- **Secondary Colors**: {_lst(kit.get('secondary_colors'))}
-- **Design Style**: {_fmt(brand.design_style)}
-- **Brand Font**: {_fmt(brand.brand_font)}
-- **Typography Style**: {_fmt(kit.get('typography_style'))}
-- **Imagery Style**: {_fmt(kit.get('imagery_style'))}
-- **Lighting Style**: {_fmt(kit.get('lighting_style'))}
-- **Brand Motifs**: {_lst(kit.get('brand_motifs'))}
-- **Logo Description**: {_fmt(kit.get('logo_description'))}
-- **Visual system (tokens for generated graphics)**:
-  - Primary hex: {_fmt((kit.get('visual_system') or {}).get('primary_hex'))}
-  - Secondary hex: {_fmt((kit.get('visual_system') or {}).get('secondary_hex'))}
-  - Accent hex: {_fmt((kit.get('visual_system') or {}).get('accent_hex'))}
-  - Logo placement (raster): {_fmt((kit.get('visual_system') or {}).get('logo_placement'))}
-  - Allowed layout archetypes: {_lst((kit.get('visual_system') or {}).get('allowed_archetypes'))}
-  - Never show motifs: {_lst((kit.get('visual_system') or {}).get('never_show_motifs'))}
-  - Forbidden hexes: {_lst((kit.get('visual_system') or {}).get('forbidden_hexes'))}""",
+• **Primary Brand Colors (use exact hex values)**: {_lst(brand.brand_colors)}
+• **Secondary Colors**: {_lst(kit.get('secondary_colors'))}
+• **Design Style**: {_fmt(brand.design_style)}
+• **Brand Font**: {_fmt(brand.brand_font)}
+• **Typography Style**: {_fmt(kit.get('typography_style'))}
+• **Imagery Style**: {_fmt(kit.get('imagery_style'))}
+• **Lighting Style**: {_fmt(kit.get('lighting_style'))}
+• **Brand Motifs**: {_lst(kit.get('brand_motifs'))}
+• **Logo Description**: {_fmt(kit.get('logo_description'))}
+• **Visual system (tokens for generated graphics)**:
+  • Primary hex: {_fmt((kit.get('visual_system') or {}).get('primary_hex'))}
+  • Secondary hex: {_fmt((kit.get('visual_system') or {}).get('secondary_hex'))}
+  • Accent hex: {_fmt((kit.get('visual_system') or {}).get('accent_hex'))}
+  • Logo placement (raster): {_fmt((kit.get('visual_system') or {}).get('logo_placement'))}
+  • Allowed layout archetypes: {_lst((kit.get('visual_system') or {}).get('allowed_archetypes'))}
+  • Never show motifs: {_lst((kit.get('visual_system') or {}).get('never_show_motifs'))}
+  • Forbidden hexes: {_lst((kit.get('visual_system') or {}).get('forbidden_hexes'))}""",
 
         f"""## 5. Messaging Framework
-- **Value Pillars**: {_lst(kit.get('value_pillars'))}
-- **Key Messages**:
-{chr(10).join(f'  - {m}' for m in (kit.get('key_messages') or [])) or '  - N/A'}
-- **CTA Style**: {_fmt(kit.get('cta_style'))}
-- **Brand Narratives**: {_lst(kit.get('brand_narratives'))}
-- **Forbidden Claims**: {_fmt(kit.get('forbidden_claims'))}
-- **Required Keywords**: {_lst(kit.get('required_keywords'))}""",
+• **Value Pillars**: {_lst(kit.get('value_pillars'))}
+• **Key Messages**:
+{chr(10).join(f'  • {m}' for m in (kit.get('key_messages') or [])) or '  • N/A'}
+• **CTA Style**: {_fmt(kit.get('cta_style'))}
+• **Brand Narratives**: {_lst(kit.get('brand_narratives'))}
+• **Forbidden Claims**: {_fmt(kit.get('forbidden_claims'))}
+• **Required Keywords**: {_lst(kit.get('required_keywords'))}""",
 
         f"""## 6. Content Strategy
-- **Content Types Supported**: {_lst(kit.get('content_types_supported'))}
-- **Funnel Stages**: {_lst(kit.get('funnel_stages'))}
-- **Content Goals**: {_lst(kit.get('content_goals'))}
-- **Platform Styles**: {_lst(kit.get('platform_styles'))}
-- **Competitor References**: {_lst(kit.get('competitor_references'))}""",
+• **Content Types Supported**: {_lst(kit.get('content_types_supported'))}
+• **Funnel Stages**: {_lst(kit.get('funnel_stages'))}
+• **Content Goals**: {_lst(kit.get('content_goals'))}
+• **Platform Styles**: {_lst(kit.get('platform_styles'))}
+• **Competitor References**: {_lst(kit.get('competitor_references'))}""",
 
         f"""## 7. Guardrails & Compliance
-- **Tone Restrictions (NEVER violate)**: {_lst(kit.get('tone_restrictions'))}
-- **Forbidden Claims (NEVER make these)**: {_fmt(kit.get('forbidden_claims'))}
-- **Regulatory Constraints**: {_fmt(kit.get('regulatory_constraints'))}
-- **Brand Safety Rules**: {_fmt(kit.get('brand_safety_rules'))}
-- **Compliance Rules**: {json.dumps(brand.compliance_rules) if brand.compliance_rules else 'N/A'}""",
+• **Tone Restrictions (NEVER violate)**: {_lst(kit.get('tone_restrictions'))}
+• **Forbidden Claims (NEVER make these)**: {_fmt(kit.get('forbidden_claims'))}
+• **Regulatory Constraints**: {_fmt(kit.get('regulatory_constraints'))}
+• **Brand Safety Rules**: {_fmt(kit.get('brand_safety_rules'))}
+• **Compliance Rules**: {json.dumps(brand.compliance_rules) if brand.compliance_rules else 'N/A'}""",
 
         f"""## 8. Copy Examples
-- **Good Example (follow this pattern)**: {_fmt(kit.get('good_examples'))}
-- **Bad Example (NEVER write like this)**: {_fmt(kit.get('bad_examples'))}""",
+• **Good Example (follow this pattern)**: {_fmt(kit.get('good_examples'))}
+• **Bad Example (NEVER write like this)**: {_fmt(kit.get('bad_examples'))}""",
 
         f"""## 9. Active Campaign Context
-- **Campaign Name**: {_fmt(kit.get('campaign_name'))}
-- **Campaign Theme**: {_fmt(kit.get('campaign_theme'))}
-- **Campaign Angle**: {_fmt(kit.get('campaign_angle'))}
-- **Seasonal Context**: {_fmt(kit.get('seasonal_context'))}""",
+• **Campaign Name**: {_fmt(kit.get('campaign_name'))}
+• **Campaign Theme**: {_fmt(kit.get('campaign_theme'))}
+• **Campaign Angle**: {_fmt(kit.get('campaign_angle'))}
+• **Seasonal Context**: {_fmt(kit.get('seasonal_context'))}""",
     ]
 
     return "\n\n".join(sections)
@@ -166,7 +168,7 @@ async def create_brand_assistant(brand) -> tuple[str, str]:
 
     # 1. Create vector store
     vs = await client.beta.vector_stores.create(
-        name=f"ContentCard — {brand.name} Brand Kit",
+        name=f"ContentCard: {brand.name} Brand Kit",
     )
     logger.info(f"Created vector store {vs.id} for brand {brand.name}")
 
@@ -181,7 +183,7 @@ async def create_brand_assistant(brand) -> tuple[str, str]:
 
     # 3. Create assistant with file_search tool bound to the vector store
     assistant = await client.beta.assistants.create(
-        name=f"ContentCard — {brand.name}",
+        name=f"ContentCard: {brand.name}",
         instructions=ASSISTANT_INSTRUCTIONS,
         model="gpt-4o",
         tools=[{"type": "file_search"}],

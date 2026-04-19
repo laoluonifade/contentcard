@@ -24,14 +24,14 @@ const FEATURES = [
   {
     badge: 'Content Generation',
     title: 'A full month of on-brand content.\nReady in 30 seconds.',
-    body: 'Stop paying agencies and junior staff to spend days producing content that misses the mark. ContentCard generates an entire month of graphics and captions — calibrated to your brand voice — in one click.',
+    body: 'Stop paying agencies and junior staff to spend days producing content that misses the mark. ContentCard generates an entire month of graphics and captions, calibrated to your brand voice, in one click.',
     bullets: ['Instagram, Facebook & Twitter at exact spec', 'Single posts, carousels, and quote cards', 'Brand-voice captions, every time'],
     side: 'mockup-generate',
   },
   {
     badge: 'Trend Intelligence',
     title: 'Post on trends before\nyour competitors do.',
-    body: 'Our live trend engine monitors what your industry is talking about right now and surfaces actionable post ideas. First-mover advantage on every trending moment — built in.',
+    body: 'Our live trend engine monitors what your industry is talking about right now and surfaces actionable post ideas. First-mover advantage on every trending moment, built in.',
     bullets: ['Industry-specific trend feed, updated daily', 'One click to build a post around any trend', 'AI predicts what will perform before it peaks'],
     side: 'mockup-trends',
   },
@@ -89,7 +89,7 @@ function GenerateMockup() {
     <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
       <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
         {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Generate — April 2026</span>
+        <span className="text-white/20 text-xs ml-2 font-mono">Generate: April 2026</span>
       </div>
       <div className="p-4 space-y-2">
         <div className="flex items-center justify-between mb-3">
@@ -110,7 +110,7 @@ function GenerateMockup() {
         ))}
         <div className="mt-3 p-3 rounded-xl bg-brand-500/5 border border-brand-500/20">
           <div className="text-white/40 text-[10px] mb-1.5 font-mono">AI caption preview</div>
-          <p className="text-white/65 text-xs leading-relaxed">"The future of banking isn't just digital — it's personal. Here's how we're redefining what service means for 2026. 🚀 #FinanceForward #AxleDigital"</p>
+          <p className="text-white/65 text-xs leading-relaxed">"The future of banking is not just digital. It is personal. Here is how we are redefining what service means for 2026. 🚀 #FinanceForward #AxleDigital"</p>
         </div>
       </div>
     </div>
@@ -166,7 +166,7 @@ function TeamMockup() {
     <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
       <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
         {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Team Workspace — Novabridg</span>
+        <span className="text-white/20 text-xs ml-2 font-mono">Team Workspace: Novabridg</span>
       </div>
       <div className="p-4">
         <div className="grid grid-cols-3 gap-2 mb-4">
@@ -237,11 +237,11 @@ export default function LandingPage() {
               <Zap size={10} /> Trusted by 500+ enterprise marketing teams
             </div>
             <h1 className="text-5xl lg:text-6xl font-bold leading-[1.05] mb-6" style={{ letterSpacing: '-0.03em' }}>
-              Social content that<br />performs — generated<br />
+              Social content that<br />performs, generated<br />
               <span className="text-brand-400">in seconds.</span>
             </h1>
             <p className="text-lg text-white/50 mb-10 leading-relaxed max-w-lg">
-              ContentCard gives marketing teams, agencies, and growing brands a complete system to plan, generate, and publish on-brand content — without the overhead of agencies or additional headcount.
+              ContentCard gives marketing teams, agencies, and growing brands a complete system to plan, generate, and publish on-brand content, without the overhead of agencies or additional headcount.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <button onClick={() => navigate('/signup')} className="btn-primary px-7 py-3.5 text-base">
@@ -271,7 +271,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Right — hero image */}
+          {/* Right: hero image */}
           <div className="relative hidden lg:block">
             <div className="relative h-[620px]">
               <img
@@ -465,7 +465,7 @@ export default function LandingPage() {
                   Talk to our enterprise team <ArrowRight size={16} />
                 </button>
               </div>
-              {/* Right — image */}
+              {/* Right: image */}
               <div className="relative hidden lg:block">
                 <img
                   src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800&auto=format&fit=crop&q=80"

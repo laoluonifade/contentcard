@@ -124,8 +124,8 @@ export default function DashboardPage() {
       setGenResult(result)
     } catch (e) {
       console.error('Generate from trend failed:', e)
-      const msg = e.response?.data?.detail || 'Generation failed — please try again.'
-      setGenResult({ error: typeof msg === 'string' ? msg : 'Generation failed — please try again.' })
+      const msg = e.response?.data?.detail || 'Generation failed. Please try again.'
+      setGenResult({ error: typeof msg === 'string' ? msg : 'Generation failed. Please try again.' })
     } finally {
       setGenLoading(false)
     }
@@ -159,7 +159,7 @@ export default function DashboardPage() {
             {loading ? 'Loading…' :
              !activeBrandId ? 'Set up your brand to get started.' :
              stats.total > 0 ? `${stats.total} posts generated for ${now.toLocaleString('default', { month: 'long' })}` :
-             `No content yet for ${now.toLocaleString('default', { month: 'long' })} — generate your first month.`}
+             `No content yet for ${now.toLocaleString('default', { month: 'long' })}. Generate your first month.`}
           </p>
         </div>
         <button onClick={() => navigate('/dashboard/calendar')}
@@ -174,7 +174,7 @@ export default function DashboardPage() {
         const brandReady = missing.length === 0
         const hasContent = stats.total > 0
 
-        // Brand kit incomplete — show what to fill in
+        // Brand kit incomplete: show what to fill in
         if (!brandReady) return (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6">
             <div className="flex items-start gap-3">
@@ -203,7 +203,7 @@ export default function DashboardPage() {
           </div>
         )
 
-        // Brand ready, no content yet — nudge to generate
+        // Brand ready, no content yet: nudge to generate
         if (brandReady && !hasContent) return (
           <div className="bg-brand-500/8 border border-brand-400/30 rounded-2xl p-5 mb-6">
             <div className="flex items-start gap-3">
@@ -212,7 +212,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600 mb-0.5">Onboarding Tip</p>
-                <h4 className="text-ink font-semibold text-sm mb-1.5">Your brand is ready — generate your first month of content</h4>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Your brand is ready: generate your first month of content</h4>
                 <p className="text-ink/50 text-xs mb-3">
                   ContentCard knows your brand voice. Hit Generate to create a full month of posts in under a minute.
                 </p>
@@ -340,7 +340,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Trending topics — Growth + Pro only */}
+      {/* Trending topics: Growth + Pro only */}
       <div className="bg-white border border-fog rounded-2xl p-6">
         <div className="flex items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-2">
@@ -364,7 +364,7 @@ export default function DashboardPage() {
             <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
             <p className="text-ink/50 text-sm mb-1 max-w-md mx-auto">
               AI trending topics are included on <span className="font-semibold text-ink/70">Growth</span> and{' '}
-              <span className="font-semibold text-ink/70">Pro</span> — upgrade to see what&apos;s trending and spin up quick posts.
+              <span className="font-semibold text-ink/70">Pro</span>. Upgrade to see what&apos;s trending and spin up quick posts.
             </p>
             <button
               type="button"
