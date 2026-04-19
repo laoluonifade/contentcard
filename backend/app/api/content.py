@@ -483,8 +483,8 @@ async def brand_form_coach(
     Does not consume paid generation quotas.
     """
     mode = (body.mode or "").strip().lower()
-    if mode not in ("onboarding", "brand_kit"):
-        raise HTTPException(status_code=400, detail="mode must be onboarding or brand_kit")
+    if mode not in ("onboarding", "brand_kit", "template"):
+        raise HTTPException(status_code=400, detail="mode must be onboarding, brand_kit, or template")
     if not body.messages:
         raise HTTPException(status_code=400, detail="messages is required")
     last = body.messages[-1]
@@ -494,6 +494,11 @@ async def brand_form_coach(
     if mode == "brand_kit":
         if not body.brand_id:
             raise HTTPException(status_code=400, detail="brand_id is required for brand_kit mode")
+        await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
+
+    if mode == "template":
+        if not body.brand_id:
+            raise HTTPException(status_code=400, detail="brand_id is required for template mode")
         await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
 
     msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]

@@ -11,6 +11,13 @@ import { useTheme } from '../hooks/useTheme'
 
 const TABS = ['Profile', 'Company', 'Team', 'Appearance']
 
+/** Matches billing tiers; `plan` on a workspace row can lag behind pooled subscription. Prefer `effective_plan`. */
+const PLAN_LABELS = { trial: 'Trial', starter: 'Starter', smb: 'Growth', pro: 'Pro' }
+function workspacePlanLabel(ws) {
+  const raw = (ws?.effective_plan || ws?.plan || 'trial').toString().trim().toLowerCase()
+  return PLAN_LABELS[raw] || raw.charAt(0).toUpperCase() + raw.slice(1)
+}
+
 const LINK_INVITE_HINT = '@invite.contentcard.internal'
 const ROLES = ['admin','editor','viewer','approver']
 
@@ -18,7 +25,7 @@ const inputCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink
 
 export default function SettingsPage() {
   const { user, updateUser, fetchMe } = useAuthStore()
-  const { activeWorkspace, activeWorkspaceId } = useAppStore()
+  const { activeWorkspace, activeWorkspaceId, fetchWorkspaces } = useAppStore()
   const { theme, setTheme } = useTheme()
   const [searchParams] = useSearchParams()
   const [tab, setTab] = useState('Profile')
@@ -29,8 +36,11 @@ export default function SettingsPage() {
   }, [searchParams])
 
   useEffect(() => {
-    if (tab === 'Company') fetchMe?.().catch(() => {})
-  }, [tab, fetchMe])
+    if (tab === 'Company') {
+      fetchMe?.().catch(() => {})
+      fetchWorkspaces?.().catch(() => {})
+    }
+  }, [tab, fetchMe, fetchWorkspaces])
   const [saving, setSaving] = useState(false)
   const [showPw, setShowPw] = useState(false)
   const [members, setMembers] = useState([])
@@ -251,7 +261,7 @@ export default function SettingsPage() {
                 <h3 className="text-ink font-bold text-sm mb-1">Active workspace</h3>
                 <p className="text-ink/40 text-xs mb-5">{activeWorkspace?.name}</p>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Plan</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.plan || 'trial'}</div></div>
+                  <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Plan</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm">{workspacePlanLabel(activeWorkspace)}</div></div>
                   <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Payment provider</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.payment_provider || 'Not set'}</div></div>
                 </div>
               </div>

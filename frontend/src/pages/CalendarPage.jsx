@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
@@ -17,6 +17,8 @@ const PLATFORMS = [
   { id: 'twitter',   label: 'Twitter/X', color: '#1DA1F2' },
   { id: 'linkedin',  label: 'LinkedIn',  color: '#0A66C2' },
 ]
+
+const PREP_ASSISTANT_MIN_KEY = 'contentcard.ui.prepAssistantMinimized'
 
 const PLATFORM_LOGO = {
   instagram: (
@@ -236,6 +238,21 @@ export default function CalendarPage() {
   const [prepInput, setPrepInput] = useState('')
   const [prepSending, setPrepSending] = useState(false)
   const [prepExecuteBusy, setPrepExecuteBusy] = useState(false)
+  const [prepMinimized, setPrepMinimized] = useState(() => {
+    try {
+      return localStorage.getItem(PREP_ASSISTANT_MIN_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
+  const setPrepMinimizedPersist = (v) => {
+    setPrepMinimized(v)
+    try {
+      localStorage.setItem(PREP_ASSISTANT_MIN_KEY, v ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
   const [includeHolidays, setIncludeHolidays] = useState(true)
   const [monthHolidays, setMonthHolidays] = useState([])
   const prepScrollAsideRef = useRef(null)
@@ -698,10 +715,18 @@ export default function CalendarPage() {
         </div>
       )}
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-6 lg:items-start">
+      <div
+        className={`lg:grid lg:gap-6 lg:items-start ${
+          prepMinimized ? 'lg:grid-cols-[minmax(0,1fr)_52px]' : 'lg:grid-cols-[minmax(0,1fr)_300px]'
+        }`}
+      >
       <div className="min-w-0">
 
-      <details className="lg:hidden mb-4 border border-fog rounded-2xl bg-white overflow-hidden group">
+      <details
+        className="lg:hidden mb-4 border border-fog rounded-2xl bg-white overflow-hidden group"
+        open={!prepMinimized}
+        onToggle={(e) => setPrepMinimizedPersist(!e.currentTarget.open)}
+      >
         <summary className="list-none cursor-pointer px-4 py-3 flex items-center gap-2 border-b border-fog bg-white [&::-webkit-details-marker]:hidden">
           <MessageSquare size={16} className="text-ink/40 flex-shrink-0" />
           <div className="min-w-0">
@@ -816,29 +841,58 @@ export default function CalendarPage() {
       </div>
 
       <aside className="hidden lg:flex flex-col border border-fog rounded-2xl bg-white overflow-hidden mt-6 lg:mt-0 sticky top-6 max-h-[calc(100vh-5rem)]">
-        <div className="px-4 py-3 border-b border-fog flex items-center gap-2">
-          <MessageSquare size={16} className="text-ink/40" />
-          <div>
-            <p className="text-ink text-sm font-semibold">Prep assistant</p>
-            <p className="text-ink/35 text-[10px] leading-snug">
-              Ask questions or share updates before you generate {MONTHS[month - 1]}.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-col flex-1 min-h-0">
-          <CalendarPrepBody
-            messages={prepMessages}
-            prepSending={prepSending}
-            prepInput={prepInput}
-            setPrepInput={setPrepInput}
-            onSend={sendPrep}
-            scrollRef={prepScrollAsideRef}
-            onPickChoice={(ch) => sendPrepWithText(ch.label)}
-            onExecuteDesignIntent={executePrepDesignIntent}
-            prepExecuteBusy={prepExecuteBusy}
-            activeBrandId={activeBrandId}
-          />
-        </div>
+        {prepMinimized ? (
+          <button
+            type="button"
+            onClick={() => setPrepMinimizedPersist(false)}
+            className="flex flex-col items-center gap-3 py-5 px-1 flex-1 min-h-[min(240px,50vh)] hover:bg-mist/40 transition-colors rounded-2xl"
+            title="Expand Prep assistant"
+            aria-expanded="false"
+          >
+            <MessageSquare size={20} className="text-brand-600 shrink-0" />
+            <span
+              className="text-[10px] font-bold text-ink/50 uppercase tracking-widest"
+              style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+            >
+              Prep
+            </span>
+          </button>
+        ) : (
+          <>
+            <div className="px-3 py-3 border-b border-fog flex items-start gap-2">
+              <MessageSquare size={16} className="text-ink/40 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
+                <p className="text-ink text-sm font-semibold">Prep assistant</p>
+                <p className="text-ink/35 text-[10px] leading-snug">
+                  Ask questions or share updates before you generate {MONTHS[month - 1]}.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPrepMinimizedPersist(true)}
+                className="p-2 rounded-lg text-ink/35 hover:text-ink hover:bg-mist/80 transition-colors shrink-0"
+                title="Minimize Prep assistant"
+                aria-label="Minimize Prep assistant"
+              >
+                <PanelRightClose size={18} />
+              </button>
+            </div>
+            <div className="flex flex-col flex-1 min-h-0">
+              <CalendarPrepBody
+                messages={prepMessages}
+                prepSending={prepSending}
+                prepInput={prepInput}
+                setPrepInput={setPrepInput}
+                onSend={sendPrep}
+                scrollRef={prepScrollAsideRef}
+                onPickChoice={(ch) => sendPrepWithText(ch.label)}
+                onExecuteDesignIntent={executePrepDesignIntent}
+                prepExecuteBusy={prepExecuteBusy}
+                activeBrandId={activeBrandId}
+              />
+            </div>
+          </>
+        )}
       </aside>
 
       </div>
