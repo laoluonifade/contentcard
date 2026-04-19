@@ -88,6 +88,7 @@ export const contentApi = {
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
+  directory:  (workspaceId)   => api.get('/content/directory', { params: { workspace_id: workspaceId } }).then(r => r.data),
   get:        (id)             => api.get(`/content/${id}`).then(r => r.data),
   update:     (id, data)       => api.put(`/content/${id}`, data).then(r => r.data),
   regenerate: (id, data)       => api.post(`/content/${id}/regenerate`, data).then(r => r.data),
