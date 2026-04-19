@@ -18,6 +18,13 @@ ARCHETYPE_IDS = (
     "portrait_story",
 )
 
+LOGO_ZONE_TO_PLACEMENT = {
+    "upper_left": "top_left",
+    "upper_right": "top_right",
+    "lower_left": "bottom_left",
+    "lower_right": "bottom_right",
+}
+
 
 def infer_default_archetype(visual_type: str) -> str:
     """Public helper for AI validation when visual_archetype is missing or invalid."""
@@ -33,6 +40,47 @@ def _infer_archetype(visual_type: str) -> str:
     if vt == "product":
         return "photo_hero"
     return "portrait_story"
+
+
+def _infer_logo_placement_from_content(post: dict[str, Any], arch: str, brand: dict[str, Any]) -> str:
+    """Heuristic when the planner omits logo_safe_zone: avoid corners that are usually busy."""
+    text = " ".join(
+        str(post.get(k) or "")
+        for k in ("content_idea", "topic", "description", "visual_direction", "image_prompt", "caption")
+    ).lower()
+    busy_lower = any(
+        k in text
+        for k in (
+            "desk",
+            "table",
+            "laptop",
+            "plate",
+            "food",
+            "keyboard",
+            "countertop",
+            "floor",
+            "ground",
+            "street",
+            "cityscape",
+            "crowd",
+            "meeting",
+            "hands typing",
+        )
+    )
+    busy_top = any(k in text for k in ("sky", "ceiling", "overhead", "canopy", "sunset sky", "night sky"))
+    if busy_lower and not busy_top:
+        return "top_right" if arch in ("photo_hero", "portrait_story", "pov_comic") else "top_left"
+    if busy_top and not busy_lower:
+        return "bottom_right"
+    vs = brand.get("visual_system") or {}
+    return str(vs.get("logo_placement") or "bottom_right").lower().replace("-", "_")
+
+
+def _resolve_logo_placement(post: dict[str, Any], arch: str, brand: dict[str, Any]) -> str:
+    zone = str(post.get("logo_safe_zone") or "").strip().lower().replace(" ", "_")
+    if zone in LOGO_ZONE_TO_PLACEMENT:
+        return LOGO_ZONE_TO_PLACEMENT[zone]
+    return _infer_logo_placement_from_content(post, arch, brand)
 
 
 def _coerce_archetype(post: dict[str, Any], allowed: list[str]) -> str:
@@ -62,6 +110,14 @@ def build_art_brief(post: dict[str, Any], brand: dict[str, Any]) -> dict[str, An
     photo = arch in ("photo_hero", "portrait_story")
     pattern_intensity = {"pattern_headline": 0.85, "pov_comic": 0.5, "flat_edu": 0.3}.get(arch, 0.15)
 
+    vt = str(post.get("visual_type") or "").lower()
+    if vt == "abstract":
+        render_family = "abstract"
+    elif vt == "product" or photo:
+        render_family = "photo"
+    else:
+        render_family = "illustration"
+
     ref_ids: list[str] = []
     for i, u in enumerate(vs.get("reference_urls") or []):
         if str(u).strip():
@@ -73,15 +129,26 @@ def build_art_brief(post: dict[str, Any], brand: dict[str, Any]) -> dict[str, An
             ["floating holographic stock charts", "generic shield security icons", "neon crypto cityscape"]
         )
 
+    placement = _resolve_logo_placement(post, arch, brand)
+    if placement not in ("top_left", "top_right", "bottom_left", "bottom_right"):
+        placement = "bottom_right"
+
+    try:
+        logo_min = int(vs.get("logo_min_width_px") or 96)
+    except (TypeError, ValueError):
+        logo_min = 96
+    logo_min = max(logo_min, 96)
+
     brief = {
         "version": 1,
         "archetype_id": arch,
         "dominant_colors_from_tokens": [primary, secondary, accent],
-        "photo_vs_illustration": "photo" if photo else "illustration",
+        "photo_vs_illustration": render_family,
         "pattern_intensity": pattern_intensity,
         "headline_zone_bannerbear_only": True,
-        "logo_placement": (vs.get("logo_placement") or "bottom_right").lower(),
-        "logo_min_width_px": int(vs.get("logo_min_width_px") or 80),
+        "logo_placement": placement,
+        "logo_min_width_px": logo_min,
+        "logo_safe_zone": post.get("logo_safe_zone"),
         "safe_text_margins": "upper_third_negative_space" if arch in ("photo_hero", "portrait_story") else "center_block",
         "reference_ids": ref_ids,
         "negative_motifs": negatives[:25],
