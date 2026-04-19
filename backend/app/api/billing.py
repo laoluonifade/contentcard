@@ -364,9 +364,16 @@ async def _handle_subscription_disable(data: dict, db: AsyncSession) -> None:
 # ── Utility ────────────────────────────────────────────────────────────────────
 
 async def _resolve_workspace(workspace_id: str | None, data: dict, db: AsyncSession) -> Workspace | None:
-    """Find workspace by ID from metadata, falling back to customer email."""
+    """Find workspace by metadata, customer_code, then owner email fallback."""
     if workspace_id:
         ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        ws = ws_r.scalar_one_or_none()
+        if ws:
+            return ws
+
+    customer_code = data.get("customer", {}).get("customer_code")
+    if customer_code:
+        ws_r = await db.execute(select(Workspace).where(Workspace.customer_id == customer_code))
         ws = ws_r.scalar_one_or_none()
         if ws:
             return ws
