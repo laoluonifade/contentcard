@@ -5,6 +5,7 @@ import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
 import { contentApi } from '../api'
 import PostCard, { renderSlideToCanvas } from '../components/ui/PostCard'
+import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -50,10 +51,16 @@ function drawThumb(canvas, post, brand) {
   renderSlideToCanvas(canvas, post, brand, 0)
 }
 
+function formatArchetypeLabel(id) {
+  if (!id) return ''
+  return String(id).replace(/_/g, ' ')
+}
+
 function PostThumb({ post, brand, onClick }) {
   const canvasRef = useRef(null)
   const isCarousel = (post?.slide_count||1) > 1
   const imageUrl = post?.image_url || (post?.image_urls?.[0])
+  const arch = post?.visual_archetype
 
   useEffect(() => {
     if (imageUrl) return
@@ -72,6 +79,14 @@ function PostThumb({ post, brand, onClick }) {
           <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded">
             <Layers size={9} className="text-white" />
             <span className="text-white text-[9px] font-semibold">{post.slide_count}</span>
+          </div>
+        )}
+        {arch && (
+          <div
+            className="absolute bottom-2 right-2 max-w-[90%] bg-black/55 backdrop-blur-sm px-1.5 py-0.5 rounded text-white text-[9px] font-medium truncate capitalize"
+            title={formatArchetypeLabel(arch)}
+          >
+            {formatArchetypeLabel(arch)}
           </div>
         )}
       </div>
@@ -106,6 +121,7 @@ export default function CalendarPage() {
   const [editHashtags, setEditHashtags] = useState([])
   const [saving, setSaving]   = useState(false)
   const [regen, setRegen]     = useState(false)
+  const [regenVis, setRegenVis] = useState(false)
   const [filterPlat, setFilterPlat] = useState('all')
   const [showGenPanel, setShowGenPanel] = useState(false)
   const [genPlatform, setGenPlatform]   = useState('instagram')
@@ -182,6 +198,24 @@ export default function CalendarPage() {
     finally { setRegen(false) }
   }
 
+  const regenVisual = async (mode, newArc) => {
+    if (!modal) return
+    setRegenVis(true)
+    try {
+      const updated = await contentApi.regenerateVisual(modal.id, {
+        mode,
+        new_archetype: mode === 'new_archetype' ? newArc : null,
+      })
+      setPosts((ps) => ps.map((p) => (p.id === updated.id ? updated : p)))
+      setModal(updated)
+      toast('Visuals regenerated')
+    } catch (e) {
+      toast(e.response?.data?.detail || 'Visual regen failed', 'error')
+    } finally {
+      setRegenVis(false)
+    }
+  }
+
   const deletePost = async () => {
     if (!confirm('Delete this post?')) return
     try {
@@ -193,6 +227,11 @@ export default function CalendarPage() {
 
   const handleGenerate = async () => {
     if (!activeBrandId) { toast('Select a brand first', 'error'); return }
+    const visErr = brandVisualBlockReason(activeBrand)
+    if (visErr) {
+      toast(visErr, 'error')
+      return
+    }
     try {
       const status = await contentApi.getStatus(activeBrandId, year, month)
       if (status.count > 0) {
@@ -396,6 +435,9 @@ export default function CalendarPage() {
                   {modal.content_type && <span className="ml-2 font-medium text-ink/50">{modal.content_type}</span>}
                 </p>
                 <p className="text-ink font-semibold text-sm truncate max-w-[380px]">{modal.content_idea || modal.topic}</p>
+                {modal.visual_archetype && (
+                  <p className="text-ink/35 text-[10px] mt-1 font-mono">Layout: {modal.visual_archetype}</p>
+                )}
               </div>
               <button onClick={()=>setModal(null)} className="text-ink/30 hover:text-ink p-1.5 transition-colors -mr-1">
                 <X size={20}/>
@@ -498,6 +540,23 @@ export default function CalendarPage() {
                     </div>
                   )}
 
+                  {modal.visual_lint && modal.visual_lint.status && modal.visual_lint.status !== 'skip' && (
+                    <div
+                      className={`rounded-xl border px-3 py-2 text-xs ${
+                        modal.visual_lint.status === 'pass'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                          : 'border-amber-200 bg-amber-50 text-amber-900'
+                      }`}
+                    >
+                      <p className="font-semibold mb-1">Brand check ({modal.visual_lint.status})</p>
+                      {(modal.visual_lint.hints || []).map((h, i) => (
+                        <p key={i} className="opacity-90">
+                          {h}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+
                   {modal.image_prompt && (
                     <details className="group">
                       <summary className="flex items-center gap-2 cursor-pointer list-none select-none">
@@ -528,6 +587,32 @@ export default function CalendarPage() {
                       className="btn-secondary text-xs px-4 py-2">
                       <RotateCcw size={12}/>{regen?'Regenerating…':'Redraft'}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => regenVisual('same_archetype', null)}
+                      disabled={regenVis}
+                      className="btn-secondary text-xs px-3 py-2"
+                      title="New background + slides using the same layout archetype"
+                    >
+                      {regenVis ? '…' : 'Refresh visual'}
+                    </button>
+                    <select
+                      disabled={regenVis}
+                      defaultValue=""
+                      onChange={(e) => {
+                        const v = e.target.value
+                        e.target.value = ''
+                        if (v) regenVisual('new_archetype', v)
+                      }}
+                      className="text-xs border border-fog rounded-lg px-2 py-2 bg-white text-ink/70"
+                    >
+                      <option value="">New layout…</option>
+                      {['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic'].map((a) => (
+                        <option key={a} value={a}>
+                          {a.replace(/_/g, ' ')}
+                        </option>
+                      ))}
+                    </select>
                     <button onClick={deletePost}
                       className="btn-danger text-xs px-3 py-2 ml-auto">
                       <Trash2 size={12}/> Delete

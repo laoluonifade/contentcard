@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
 
+    BANNERBEAR_API_KEY: str = ""
+    BANNERBEAR_TEMPLATE_COVER: str = ""
+    BANNERBEAR_TEMPLATE_CONTENT: str = ""
+    BANNERBEAR_TEMPLATE_QUOTE: str = ""
+    BANNERBEAR_TEMPLATE_HOOK: str = ""
+
     FREE_TRIAL_DAYS: int = 14
     FRONTEND_URL: str = "http://localhost:5173"
 

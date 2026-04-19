@@ -56,20 +56,39 @@ async def _create_image(template_uid: str, modifications: list[dict]) -> str | N
 
 
 def _primary_color(brand_dict: dict) -> str:
+    vs = brand_dict.get("visual_system") or {}
+    hx = vs.get("primary_hex")
+    if isinstance(hx, str) and hx.startswith("#") and len(hx.strip()) >= 4:
+        return hx.strip()
     colors = brand_dict.get("colors") or []
     return colors[0] if colors else "#6C63FF"
+
+
+def _secondary_color(brand_dict: dict) -> str:
+    vs = brand_dict.get("visual_system") or {}
+    hx = vs.get("secondary_hex") or vs.get("accent_hex")
+    if isinstance(hx, str) and hx.startswith("#") and len(hx.strip()) >= 4:
+        return hx.strip()
+    colors = brand_dict.get("colors") or []
+    if len(colors) > 1:
+        return colors[1]
+    return _primary_color(brand_dict)
 
 
 def _cover_mods(
     topic: str, caption: str, brand_dict: dict,
     background_image_url: str | None = None,
+    art_brief: dict | None = None,
 ) -> list[dict]:
     subtitle = caption.split(".")[0].strip()[:150] if caption else ""
+    bg_hex = _primary_color(brand_dict)
+    if art_brief and art_brief.get("dominant_colors_from_tokens"):
+        bg_hex = art_brief["dominant_colors_from_tokens"][0]
     mods = [
         {"name": "headline",   "text": topic[:100]},
         {"name": "subtitle",   "text": subtitle},
         {"name": "brand_name", "text": brand_dict.get("name", "Brand").upper()},
-        {"name": "background", "color": _primary_color(brand_dict)},
+        {"name": "background", "color": bg_hex},
     ]
     # Inject DALL-E background into Bannerbear template image layer if present.
     # The template must have a layer named "background_image" for this to apply.
@@ -81,12 +100,16 @@ def _cover_mods(
 def _content_mods(
     headline: str, body: str, brand_dict: dict,
     background_image_url: str | None = None,
+    art_brief: dict | None = None,
 ) -> list[dict]:
+    accent = _secondary_color(brand_dict)
+    if art_brief and len(art_brief.get("dominant_colors_from_tokens") or []) > 1:
+        accent = art_brief["dominant_colors_from_tokens"][1]
     mods = [
         {"name": "headline",   "text": headline[:100]},
         {"name": "body",       "text": body[:300]},
         {"name": "brand_name", "text": brand_dict.get("name", "Brand").upper()},
-        {"name": "accent",     "color": _primary_color(brand_dict)},
+        {"name": "accent",     "color": accent},
     ]
     if background_image_url:
         mods.append({"name": "background_image", "image_url": background_image_url})
@@ -96,11 +119,15 @@ def _content_mods(
 def _quote_mods(
     quote: str, brand_dict: dict,
     background_image_url: str | None = None,
+    art_brief: dict | None = None,
 ) -> list[dict]:
+    bg = _primary_color(brand_dict)
+    if art_brief and art_brief.get("dominant_colors_from_tokens"):
+        bg = art_brief["dominant_colors_from_tokens"][0]
     mods = [
         {"name": "quote_text", "text": quote[:200]},
         {"name": "brand_name", "text": brand_dict.get("name", "Brand").upper()},
-        {"name": "background", "color": _primary_color(brand_dict)},
+        {"name": "background", "color": bg},
     ]
     if background_image_url:
         mods.append({"name": "background_image", "image_url": background_image_url})
@@ -136,6 +163,7 @@ async def generate_post_images(
     topic = post_data.get("topic") or ""
     caption = post_data.get("caption") or ""
     slide_count = max(1, int(post_data.get("slide_count") or 1))
+    ab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else None
 
     # ── Quote post — single slide
     if fmt == "quote":
@@ -143,7 +171,7 @@ async def generate_post_images(
             return []
         url = await _create_image(
             settings.BANNERBEAR_TEMPLATE_QUOTE,
-            _quote_mods(caption or topic, brand_dict, background_image_url),
+            _quote_mods(caption or topic, brand_dict, background_image_url, ab),
         )
         return [url] if url else []
 
@@ -154,7 +182,7 @@ async def generate_post_images(
     cover_url = await _create_image(
         settings.BANNERBEAR_TEMPLATE_COVER,
         # Background image only on cover — gives the photographic hero shot
-        _cover_mods(topic, caption, brand_dict, background_image_url),
+        _cover_mods(topic, caption, brand_dict, background_image_url, ab),
     )
     if not cover_url:
         return []
@@ -173,17 +201,20 @@ async def generate_post_images(
         per_slide = max(1, len(sentences) // max(1, body_slides))
 
         tasks = []
+        hook_uid = getattr(settings, "BANNERBEAR_TEMPLATE_HOOK", "") or ""
         for i in range(body_slides):
             body = " ".join(sentences[i * per_slide:(i + 1) * per_slide]) or caption[:200]
+            tmpl = hook_uid if (i == 0 and hook_uid) else settings.BANNERBEAR_TEMPLATE_CONTENT
+            headline = "Swipe to learn more →" if (i == 0 and hook_uid) else topic
             tasks.append(_create_image(
-                settings.BANNERBEAR_TEMPLATE_CONTENT,
-                _content_mods(topic, body, brand_dict),
+                tmpl,
+                _content_mods(headline, body, brand_dict, art_brief=ab),
             ))
 
         # CTA slide — no background image, brand color only
         tasks.append(_create_image(
             settings.BANNERBEAR_TEMPLATE_CONTENT,
-            _content_mods("Save this post", "Follow for more content like this →", brand_dict),
+            _content_mods("Save this post", "Follow for more content like this →", brand_dict, art_brief=ab),
         ))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)

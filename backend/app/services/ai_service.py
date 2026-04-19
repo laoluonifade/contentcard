@@ -3,6 +3,7 @@ import re
 import logging
 import httpx
 from app.core.config import settings
+from app.services.art_brief_service import ARCHETYPE_IDS, infer_default_archetype
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,21 @@ HARD CONSTRAINTS — violating any of these is a failure:
 REQUIRED_POST_FIELDS = {"caption", "date", "format"}
 VALID_FORMATS = {"single", "carousel", "quote"}
 VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
+VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
+
+
+def _visual_system_prompt_block(brand: dict) -> str:
+    vs = brand.get("visual_system") or {}
+    if not vs:
+        return "Visual tokens: derive from brand colours; vary visual_archetype across the month."
+    arch = vs.get("allowed_archetypes") or []
+    motifs = vs.get("never_show_motifs") or []
+    return (
+        f"Allowed visual_archetype values: {', '.join(str(a) for a in arch)}. "
+        f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
+        f"Logo placement on generated raster: {vs.get('logo_placement', 'bottom_right')}. "
+        f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else '—'}."
+    )
 
 
 def _validate_posts(posts: list, words_to_avoid: list[str] | None = None) -> list[dict]:
@@ -71,6 +87,13 @@ def _validate_posts(posts: list, words_to_avoid: list[str] | None = None) -> lis
         if vt not in VALID_VISUAL_TYPES:
             vt = "real_people"
         post["visual_type"] = vt
+
+        # visual_archetype — layout family for VBS / art brief (PRD)
+        va = str(post.get("visual_archetype", "")).strip().lower()
+        if not va or va not in VALID_VISUAL_ARCHETYPES:
+            post["visual_archetype"] = infer_default_archetype(vt)
+        else:
+            post["visual_archetype"] = va
 
         # Backfill topic from content_idea
         if not post.get("topic"):
@@ -262,9 +285,10 @@ For EACH post return ALL these fields:
 8. image_prompt — photorealistic background image prompt for gpt-image-1. Must reference: brand name ({brand_name}), exact brand colors, imagery_style, lighting_style, brand_motifs, and audience demographics. Ends with: "No text, no logos, no watermarks, no typography, no UI elements, no illustration, photorealistic photograph only."
 9. image_prompt_explanation — 2 sentences: why this visual was chosen
 10. visual_type — one of: "real_people", "illustration", "abstract", "product" — choose based on the brand's imagery_style and content type
-11. format — "single", "carousel", or "quote"
-12. slide_count — 1 for single/quote, 2-5 for carousel
-13. date — posting date in YYYY-MM-DD format exactly as listed above
+11. visual_archetype — one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story" — must align with content_type and visual_type (e.g. Hot Take → pattern_headline or photo_hero; testimonial → portrait_story)
+12. format — "single", "carousel", or "quote"
+13. slide_count — 1 for single/quote, 2-5 for carousel
+14. date — posting date in YYYY-MM-DD format exactly as listed above
 
 HARD RULES:
 - Each post must feel distinctly different — vary tone, angle, format, and style
@@ -401,6 +425,9 @@ Imagery style: {_fmt(brand.get('imagery_style'))}
 Lighting style: {_fmt(brand.get('lighting_style'))}
 Brand motifs: {_lst(brand.get('brand_motifs'))}
 Logo description: {_fmt(brand.get('logo_description'))}
+
+=== VISUAL BRAND SYSTEM (tokens — honour archetypes) ===
+{_visual_system_prompt_block(brand)}
 
 === MESSAGING ===
 Key messages: {_lst(brand.get('key_messages'))}

@@ -22,7 +22,11 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     Reads the full brand kit for visual identity signals, but never asks DALL-E
     to render text, logos, UI elements, or graphic design — all of that is handled
     post-generation by the canvas layout system and Bannerbear templates.
+
+    When post["art_brief"] is present (Structured Art Brief), composition and
+    colour emphasis follow archetype_id and dominant_colors_from_tokens.
     """
+    ab = post.get("art_brief") if isinstance(post.get("art_brief"), dict) else {}
     brand_name = brand.get("name", "the brand")
     industry = (brand.get("industry") or "General").lower()
     colors = brand.get("colors") or brand.get("brand_colors") or []
@@ -49,7 +53,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     platform_note = PLATFORM_FORMAT.get(platform, "social media post 1:1")
 
     all_colors = colors[:4] + secondary_colors[:2]
-    color_str = ", ".join(all_colors) if all_colors else "bold vibrant brand colors"
+    if ab.get("dominant_colors_from_tokens"):
+        color_str = ", ".join(ab["dominant_colors_from_tokens"][:4])
+    else:
+        color_str = ", ".join(all_colors) if all_colors else "bold vibrant brand colors"
     tone_str = ", ".join(tone_tags) if tone_tags else "premium, modern, confident"
 
     # Lighting: use brand kit value if set, else derive from design_style
@@ -82,6 +89,16 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     audience_parts = [p for p in [target_audience, f"age {audience_age_range}" if audience_age_range else ""] if p]
     audience_note = f"Target audience: {', '.join(audience_parts)}." if audience_parts else ""
 
+    arch = (ab.get("archetype_id") or "").lower()
+    arch_notes = {
+        "photo_hero": "Hero composition: subject in lower two-thirds, generous clean upper third for overlay.",
+        "portrait_story": "Environmental portrait: subject connects with environment, editorial storytelling frame.",
+        "pattern_headline": "Rich environmental texture and bold colour fields; geometric rhythm in environment only, no letters.",
+        "flat_edu": "Clean modern scene with educational props and crisp surfaces; uncluttered, premium studio-adjacent.",
+        "pov_comic": "Candid documentary POV moment, natural handheld energy, relatable everyday scene, not cartoon.",
+    }
+    arch_note = arch_notes.get(arch, "")
+
     # Format note — composition guidance only, no typography or layout direction
     if fmt == "carousel":
         format_note = "Strong first-frame hero composition. Negative space in upper third for text overlay."
@@ -92,6 +109,8 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             "Subject occupies lower two-thirds of frame. "
             "Upper third is clean negative space suitable for text overlay."
         )
+    if arch_note:
+        format_note = f"{arch_note} {format_note}"
 
     # Brand motifs block — environment/props only, never text or graphic elements
     motif_note = f"Environment/props can subtly reference: {', '.join(brand_motifs)}." if brand_motifs else ""
@@ -105,6 +124,15 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         "no borders, no frames, no badges, no icons, no unrealistic lighting, "
         "no floating objects, no abstract art."
     )
+    extra_never = ab.get("negative_motifs") or []
+    if extra_never:
+        negative += " Avoid specifically: " + "; ".join(str(x) for x in extra_never[:10] if x) + "."
+    ref_urls = (brand.get("visual_system") or {}).get("reference_urls") or []
+    if ref_urls and (brand.get("visual_system") or {}).get("reference_rights_attested"):
+        negative += (
+            " Match the colour energy and composition density of a premium consumer brand social campaign; "
+            "still no logos or text in-image."
+        )
 
     if ai_image_prompt and len(ai_image_prompt) > 50:
         # AI-generated prompt is primary; append brand enforcement and negatives
@@ -148,7 +176,13 @@ async def _fetch_logo_bytes(logo_url: str, client: httpx.AsyncClient) -> bytes |
     return None
 
 
-def _composite_logo(image_bytes: bytes, logo_bytes: bytes) -> bytes:
+def _composite_logo(
+    image_bytes: bytes,
+    logo_bytes: bytes,
+    *,
+    placement: str = "bottom_right",
+    min_width_px: int = 80,
+) -> bytes:
     from PIL import Image
     import io
 
@@ -171,15 +205,18 @@ def _composite_logo(image_bytes: bytes, logo_bytes: bytes) -> bytes:
             cleaned.append((r, g, b, a))
     logo.putdata(cleaned)
 
-    # Resize to 18% of image width, preserving aspect ratio
-    logo_max_w = max(80, int(w * 0.18))
+    # Resize: at least min_width_px and ~14–18% of frame width
+    logo_max_w = max(min_width_px, int(w * 0.16))
     lw, lh = logo.size
     scale = logo_max_w / lw
     logo = logo.resize((int(lw * scale), int(lh * scale)), Image.LANCZOS)
 
-    # Place in bottom-right with 3% padding
     pad = max(16, int(w * 0.03))
-    x = w - logo.width - pad
+    pl = (placement or "bottom_right").lower().replace("-", "_")
+    if pl == "bottom_left":
+        x = pad
+    else:
+        x = w - logo.width - pad
     y = h - logo.height - pad
 
     base.paste(logo, (x, y), logo)
@@ -290,7 +327,13 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                 # Composite brand logo onto each background
                 if logo_bytes:
                     try:
-                        image_bytes = _composite_logo(image_bytes, logo_bytes)
+                        ab = post.get("art_brief") if isinstance(post.get("art_brief"), dict) else {}
+                        image_bytes = _composite_logo(
+                            image_bytes,
+                            logo_bytes,
+                            placement=str(ab.get("logo_placement") or "bottom_right"),
+                            min_width_px=int(ab.get("logo_min_width_px") or 80),
+                        )
                     except Exception as e:
                         logger.warning(f"Logo composite failed for image {idx}: {e}")
 

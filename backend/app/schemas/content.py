@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 from datetime import datetime, date
 from app.models.content import ContentStatus, ContentPlatform, ContentFormat
 
@@ -25,6 +25,13 @@ class GeneratePhotoCaption(BaseModel):
 class RegenerateSingleCaption(BaseModel):
     platform: ContentPlatform | None = None
     mood: str | None = None
+
+
+class RegenerateVisualRequest(BaseModel):
+    """Regenerate background + Bannerbear slides from stored or overridden archetype."""
+
+    mode: str = "same_archetype"  # same_archetype | new_archetype
+    new_archetype: str | None = None  # one of art_brief_service.ARCHETYPE_IDS when mode=new_archetype
 
 
 class CaptionUpdateRequest(BaseModel):
@@ -67,6 +74,33 @@ class ContentOut(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+    @computed_field
+    def visual_archetype(self) -> str | None:
+        t = self.theme
+        if isinstance(t, dict):
+            cm = t.get("cc_meta")
+            if isinstance(cm, dict):
+                return cm.get("visual_archetype")
+        return None
+
+    @computed_field
+    def art_brief(self) -> dict | None:
+        t = self.theme
+        if isinstance(t, dict):
+            cm = t.get("cc_meta")
+            if isinstance(cm, dict):
+                return cm.get("art_brief") if isinstance(cm.get("art_brief"), dict) else None
+        return None
+
+    @computed_field
+    def visual_lint(self) -> dict | None:
+        t = self.theme
+        if isinstance(t, dict):
+            cm = t.get("cc_meta")
+            if isinstance(cm, dict):
+                return cm.get("visual_lint") if isinstance(cm.get("visual_lint"), dict) else None
+        return None
 
 
 class ContentListParams(BaseModel):

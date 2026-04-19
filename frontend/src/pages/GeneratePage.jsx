@@ -4,6 +4,7 @@ import { Layers, ArrowRight, Zap } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
 import { contentApi } from '../api'
+import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 
 const MONTHS_LIST = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December']
@@ -74,6 +75,11 @@ export default function GeneratePage() {
 
   const handleGenerate = async () => {
     if (!activeBrandId) { toast('Select or create a brand first', 'error'); return }
+    const visErr = brandVisualBlockReason(activeBrand)
+    if (visErr) {
+      toast(visErr, 'error')
+      return
+    }
     try {
       const status = await contentApi.getStatus(activeBrandId, selYear, selMonth)
       if (status.count > 0) {
