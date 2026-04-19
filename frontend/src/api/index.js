@@ -88,6 +88,7 @@ export const contentApi = {
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
+  directory:  (workspaceId)   => api.get('/content/directory', { params: { workspace_id: workspaceId } }).then(r => r.data),
   get:        (id)             => api.get(`/content/${id}`).then(r => r.data),
   update:     (id, data)       => api.put(`/content/${id}`, data).then(r => r.data),
   regenerate: (id, data)       => api.post(`/content/${id}/regenerate`, data).then(r => r.data),
@@ -170,7 +171,7 @@ export const adminApi = {
   brands:             (params)  => adminAxios.get('/admin/brands', { params }).then(r => r.data),
   content:            (params)  => adminAxios.get('/admin/content', { params }).then(r => r.data),
   deleteContentByUser:(email)   => adminAxios.delete(`/admin/content/by-user/${encodeURIComponent(email)}`).then(r => r.data),
-  seedPiggyVest:      (email)   => adminAxios.post(`/admin/seed-piggyvest/${encodeURIComponent(email)}`).then(r => r.data),
+  seedNairaVault:     (email)   => adminAxios.post(`/admin/seed-nairavault/${encodeURIComponent(email)}`).then(r => r.data),
   syncAllAssistants:  ()        => adminAxios.post('/admin/sync-all-assistants').then(r => r.data),
   syncAssistant:      (brandId) => adminAxios.post(`/admin/sync-assistant/${brandId}`).then(r => r.data),
 }

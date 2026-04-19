@@ -28,6 +28,7 @@ import BrandKitPage         from './pages/BrandKitPage'
 import TemplatesPage        from './pages/TemplatesPage'
 import SettingsPage         from './pages/SettingsPage'
 import BillingPage          from './pages/BillingPage'
+import DirectoryPage        from './pages/DirectoryPage'
 
 // Admin
 import AdminLogin           from './pages/AdminLogin'
@@ -96,6 +97,7 @@ export default function App() {
           <Route path="brand-kit"  element={<BrandKitPage />} />
           <Route path="settings"   element={<SettingsPage />} />
           <Route path="billing"    element={<BillingPage />} />
+          <Route path="directory"  element={<DirectoryPage />} />
         </Route>
 
         {/* Admin */}

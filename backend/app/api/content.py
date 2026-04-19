@@ -9,7 +9,7 @@ from app.models.content import ContentItem, ContentStatus, ContentPlatform, Cont
 from app.models.workspace import WorkspaceMember, WorkspaceRole, Workspace
 from app.models.template import ContentTemplate
 from app.models.user import User
-from app.core.dependencies import get_current_user, check_trial_or_active
+from app.core.dependencies import get_current_user
 from app.schemas.content import (
     GenerateMonthRequest, GeneratePhotoCaption, RegenerateSingleCaption,
     CaptionUpdateRequest, ContentOut,
@@ -51,11 +51,6 @@ async def _get_brand_and_check_access(
         raise HTTPException(status_code=403, detail="Access denied")
     if need_editor and member.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
         raise HTTPException(status_code=403, detail="Editor access required")
-
-    ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
-    workspace = ws_r.scalar_one_or_none()
-    if workspace:
-        check_trial_or_active(workspace)
 
     return brand
 
@@ -204,6 +199,45 @@ async def generation_status(
     items = result.scalars().all()
     return {"count": len(items), "ready": len(items) > 0}
 
+
+
+# ── Directory: all images across all brands in a workspace ───────────
+
+@router.get("/directory", response_model=list[ContentOut])
+async def list_directory(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns all content items that have an image_url, across every brand
+    in the workspace, sorted newest first.  Used by the Directory page.
+    """
+    # Verify user is a member of this workspace
+    member_r = await db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace_id,
+        WorkspaceMember.user_id == current_user.id,
+    ))
+    if not member_r.scalar_one_or_none():
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    # Fetch all brand IDs for this workspace
+    brands_r = await db.execute(
+        select(Brand.id).where(Brand.workspace_id == workspace_id)
+    )
+    brand_ids = [row[0] for row in brands_r.all()]
+    if not brand_ids:
+        return []
+
+    result = await db.execute(
+        select(ContentItem)
+        .where(
+            ContentItem.brand_id.in_(brand_ids),
+            ContentItem.image_url.isnot(None),
+        )
+        .order_by(ContentItem.created_at.desc())
+    )
+    return [ContentOut.model_validate(c) for c in result.scalars().all()]
 
 
 # ── List content ────────────────────────────────────────────────────

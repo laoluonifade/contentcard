@@ -1,25 +1,27 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X } from 'lucide-react'
+import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
 
 const NAV = [
-  { to: '/dashboard',           icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/dashboard/calendar',  icon: Calendar,         label: 'Calendar'   },
-  { to: '/dashboard/templates', icon: LayoutTemplate,   label: 'Templates'  },
-  { to: '/dashboard/brand-kit', icon: Heart,            label: 'Brand Kit'  },
-  { to: '/dashboard/settings',  icon: Settings,         label: 'Settings'   },
-  { to: '/dashboard/billing',   icon: CreditCard,       label: 'Billing'    },
+  { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
+  { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
+  { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Templates'  },
+  { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand Kit'  },
+  { to: '/dashboard/directory',  icon: Images,           label: 'Directory'  },
+  { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'   },
+  { to: '/dashboard/billing',    icon: CreditCard,       label: 'Billing'    },
 ]
 
 const MOBILE_NAV = [
-  { to: '/dashboard',           icon: LayoutDashboard, label: 'Home'     },
-  { to: '/dashboard/calendar',  icon: Calendar,         label: 'Calendar' },
-  { to: '/dashboard/brand-kit', icon: Heart,            label: 'Brand'    },
-  { to: '/dashboard/settings',  icon: Settings,         label: 'Settings' },
+  { to: '/dashboard',            icon: LayoutDashboard, label: 'Home'      },
+  { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'  },
+  { to: '/dashboard/directory',  icon: Images,           label: 'Directory' },
+  { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand'     },
+  { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'  },
 ]
 
 export default function DashboardLayout() {
@@ -48,12 +50,9 @@ export default function DashboardLayout() {
     navigate('/')
   }
 
-  const trialDaysLeft = () => {
-    if (!activeWorkspace?.trial_ends_at || activeWorkspace.plan !== 'trial') return null
-    const diff = new Date(activeWorkspace.trial_ends_at) - new Date()
-    return Math.max(0, Math.ceil(diff / 86400000))
-  }
-  const days = trialDaysLeft()
+  const freeGenerationsUsed = useAppStore(s => s.subscription?.free_generations_used ?? null)
+  const isSubscribed = ['starter', 'smb', 'pro'].includes(activeWorkspace?.plan)
+  const freeRemaining = isSubscribed ? null : Math.max(0, 2 - (freeGenerationsUsed ?? 0))
 
   const initials = user?.full_name
     ? user.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -86,9 +85,15 @@ export default function DashboardLayout() {
         </div>
       )}
 
-      {days !== null && (
-        <div className="mx-3 mt-2 px-3 py-2 rounded-lg text-xs font-medium flex-shrink-0 bg-mist border border-fog text-ink/60">
-          {days === 0 ? 'Trial expired — upgrade to continue' : `${days} day${days !== 1 ? 's' : ''} left in trial`}
+      {freeRemaining !== null && (
+        <div className={`mx-3 mt-2 px-3 py-2 rounded-lg text-xs font-medium flex-shrink-0 border ${
+          freeRemaining === 0
+            ? 'bg-red-50 border-red-200 text-red-600'
+            : 'bg-amber-50 border-amber-200 text-amber-700'
+        }`}>
+          {freeRemaining === 0
+            ? 'Free generations used up — subscribe to continue'
+            : `${freeRemaining} free generation${freeRemaining !== 1 ? 's' : ''} remaining`}
         </div>
       )}
 

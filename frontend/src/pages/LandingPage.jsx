@@ -5,19 +5,19 @@ import { LogoFull } from '../components/ui/Logo'
 /* ─── Data ──────────────────────────────────────────────────────── */
 
 const LOGOS = [
-  { name: 'MTN',          style: { color: '#FFCC00', fontWeight: 900, letterSpacing: '-0.02em' } },
-  { name: 'Flutterwave',  style: { color: '#F5A623', fontWeight: 800 } },
-  { name: 'Interswitch',  style: { color: '#E63946', fontWeight: 800 } },
-  { name: 'Zenith Bank',  style: { color: '#6EC1E4', fontWeight: 800 } },
-  { name: 'UBA',          style: { color: '#E63946', fontWeight: 900, letterSpacing: '0.05em' } },
-  { name: 'Paystack',     style: { color: '#00C3F7', fontWeight: 800 } },
-  { name: 'Konga',        style: { color: '#FF6B35', fontWeight: 800 } },
+  { name: 'Stridepay',    style: { color: '#FFCC00', fontWeight: 900, letterSpacing: '-0.02em' } },
+  { name: 'Wavesend',     style: { color: '#F5A623', fontWeight: 800 } },
+  { name: 'Novabridg',    style: { color: '#E63946', fontWeight: 800 } },
+  { name: 'Axle Bank',    style: { color: '#6EC1E4', fontWeight: 800 } },
+  { name: 'OBA',          style: { color: '#E63946', fontWeight: 900, letterSpacing: '0.05em' } },
+  { name: 'Zenastack',    style: { color: '#00C3F7', fontWeight: 800 } },
+  { name: 'Shopriva',     style: { color: '#FF6B35', fontWeight: 800 } },
 ]
 
 const ROI_STATS = [
-  { stat: '3×',   label: 'engagement increase', company: 'Flutterwave Marketing', detail: 'after switching from manual content creation to ContentCard' },
-  { stat: '68%',  label: 'reduction in content costs', company: 'MTN Digital Team', detail: 'vs. previous agency and in-house hybrid model' },
-  { stat: '₦4.2M', label: 'in social-driven revenue', company: 'Konga', detail: 'generated in Q1 2025 directly attributed to daily posting' },
+  { stat: '3×',   label: 'engagement increase', company: 'Wavesend Marketing', detail: 'after switching from manual content creation to ContentCard' },
+  { stat: '68%',  label: 'reduction in content costs', company: 'Stridepay Digital Team', detail: 'vs. previous agency and in-house hybrid model' },
+  { stat: '₦4.2M', label: 'in social-driven revenue', company: 'Shopriva', detail: 'generated in Q1 2025 directly attributed to daily posting' },
 ]
 
 const FEATURES = [
@@ -57,7 +57,7 @@ const TESTIMONIALS = [
     quote: 'As a CMO, I care about pipeline. Our social channels went from vanity metrics to an actual revenue channel. ContentCard made it possible to post every single day without hiring more people.',
     name: 'Emeka Adeyemi',
     title: 'Chief Marketing Officer',
-    company: 'Zenith Bank Digital',
+    company: 'Axle Bank Digital',
     result: '3× social-driven leads',
     img: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=120&h=120&auto=format&fit=crop&q=80',
   },
@@ -65,7 +65,7 @@ const TESTIMONIALS = [
     quote: 'We replaced a $1,800/month agency retainer with ContentCard. The quality is better, we have more control, and our regional teams can all work from one place. It\'s a no-brainer.',
     name: 'Fatima Al-Hassan',
     title: 'VP, Brand & Communications',
-    company: 'Interswitch Group',
+    company: 'Novabridg Group',
     result: '$1,800/mo agency replaced',
     img: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=120&h=120&auto=format&fit=crop&q=80',
   },
@@ -93,7 +93,7 @@ function GenerateMockup() {
       </div>
       <div className="p-4 space-y-2">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-white/50 text-xs">Brand: <span className="text-white/80 font-semibold">Zenith Digital</span></span>
+          <span className="text-white/50 text-xs">Brand: <span className="text-white/80 font-semibold">Axle Digital</span></span>
           <div className="bg-brand-500 text-white text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 cursor-pointer">
             <Zap size={9} /> Generate month
           </div>
@@ -110,7 +110,7 @@ function GenerateMockup() {
         ))}
         <div className="mt-3 p-3 rounded-xl bg-brand-500/5 border border-brand-500/20">
           <div className="text-white/40 text-[10px] mb-1.5 font-mono">AI caption preview</div>
-          <p className="text-white/65 text-xs leading-relaxed">"The future of banking isn't just digital — it's personal. Here's how we're redefining what service means for 2026. 🚀 #FinanceForward #ZenithDigital"</p>
+          <p className="text-white/65 text-xs leading-relaxed">"The future of banking isn't just digital — it's personal. Here's how we're redefining what service means for 2026. 🚀 #FinanceForward #AxleDigital"</p>
         </div>
       </div>
     </div>
@@ -166,7 +166,7 @@ function TeamMockup() {
     <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
       <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
         {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Team Workspace — Interswitch</span>
+        <span className="text-white/20 text-xs ml-2 font-mono">Team Workspace — Novabridg</span>
       </div>
       <div className="p-4">
         <div className="grid grid-cols-3 gap-2 mb-4">

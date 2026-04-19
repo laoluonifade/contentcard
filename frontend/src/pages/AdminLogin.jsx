@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Shield, ArrowRight } from 'lucide-react'
 import { adminApi } from '../api'
 
-const ADMIN_EMAILS = ['laoluonifade@gmail.com', 'admin@contentcard.io']
+const ADMIN_EMAILS = ['laoluonifade@gmail.com', 'hellovoya@gmail.com']
 
 export default function AdminLogin() {
   const navigate = useNavigate()
@@ -54,7 +54,7 @@ export default function AdminLogin() {
           <div>
             <label className="block text-white/50 text-xs font-bold uppercase tracking-widest mb-2">Email</label>
             <input required type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-              placeholder="admin@contentcard.io"
+              placeholder="hellovoya@gmail.com"
               className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-white/20 focus:outline-none focus:border-brand-500/50 transition-colors" />
           </div>
           <div>

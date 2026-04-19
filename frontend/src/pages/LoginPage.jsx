@@ -78,7 +78,7 @@ export default function LoginPage() {
     }
   }
 
-  const fillDemo = () => setForm({ email: 'demo@contentcard.io', password: 'demo1234' })
+  const fillDemo = () => setForm({ email: 'hellovoya@gmail.com', password: 'demo1234' })
 
   return (
     <div className="min-h-screen flex">

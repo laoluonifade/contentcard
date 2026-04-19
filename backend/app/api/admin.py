@@ -20,7 +20,7 @@ COST_PER_POST_USD = (1200 * 0.80 / 1_000_000) + (400 * 4.0 / 1_000_000)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-ADMIN_EMAILS = {"laoluonifade@gmail.com", "admin@contentcard.io"}
+ADMIN_EMAILS = {"laoluonifade@gmail.com", "hellovoya@gmail.com"}
 
 
 def require_admin(current_user: User = Depends(get_current_user)):
@@ -419,9 +419,9 @@ async def sync_all_brand_assistants(
     return {"queued": len(brand_ids), "message": f"Queued assistant creation for {len(brand_ids)} brands"}
 
 
-PIGGYVEST_KIT = {
+NAIRAVAULT_KIT = {
     "mission_statement": "To make financial freedom accessible to every African by building the best savings and investment platform on the continent.",
-    "value_proposition": "PiggyVest helps young Nigerians save and invest money effortlessly — starting from as little as ₦100 — with zero hidden fees and guaranteed returns.",
+    "value_proposition": "NairaVault helps young Nigerians save and invest money effortlessly — starting from as little as ₦100 — with zero hidden fees.",
     "tagline": "Save. Invest. Grow.",
     "business_model": "b2c",
     "target_markets": ["Nigeria", "Africa", "Diaspora Markets"],
@@ -444,38 +444,38 @@ PIGGYVEST_KIT = {
     "imagery_style": "Real Photography",
     "lighting_style": "Natural",
     "brand_motifs": ["Coins", "Growth Arrows", "Shields", "People"],
-    "logo_description": "The PiggyVest logo features a green piggy bank icon with the brand name in bold modern sans-serif. Green (#00C896) is the dominant color, symbolising growth, money, and trust.",
+    "logo_description": "The NairaVault logo features a green vault icon with the brand name in bold modern sans-serif. Green (#00C896) is the dominant color, symbolising growth, money, and trust.",
     "key_messages": [
         "Your savings are working for you 24/7",
         "Start saving with as little as ₦100",
         "Zero hidden fees — ever",
-        "Trusted by over 5 million Nigerians",
+        "Trusted by thousands of Nigerians",
         "Lock money away, grow it faster",
     ],
     "value_pillars": ["Trust", "Accessibility", "Growth", "Simplicity", "Innovation"],
     "cta_style": "Direct Action",
     "brand_narratives": ["Financial Freedom", "African Excellence", "Community First", "Grassroots Growth"],
-    "forbidden_claims": "Never promise guaranteed investment returns beyond savings interest rates. Never use fear-based messaging around poverty.",
+    "forbidden_claims": "Never promise guaranteed investment returns. Never use fear-based messaging around poverty.",
     "content_types_supported": ["Educational Tips", "Testimonials", "Product Updates", "Memes / Humour", "Behind the Scenes"],
     "funnel_stages": ["Awareness", "Consideration", "Conversion", "Retention"],
     "content_goals": ["Education", "Conversion", "Community Building", "Brand Awareness"],
     "platform_styles": ["Instagram", "Twitter/X", "Facebook", "LinkedIn"],
-    "required_keywords": ["save", "invest", "PiggyVest", "financial freedom"],
+    "required_keywords": ["save", "invest", "NairaVault", "financial freedom"],
     "tone_restrictions": ["No Aggressive CTAs", "No Fear-Based Messaging"],
-    "regulatory_constraints": "Financial services — must not promise fixed investment returns above CBN-regulated rates. No guaranteed profit claims.",
+    "regulatory_constraints": "Financial services — must not promise fixed investment returns. No guaranteed profit claims.",
     "brand_safety_rules": "Always position money as empowering, never as a source of stress or shame. Stories should be aspirational.",
-    "good_examples": "\"Your future self will thank you. Start your PiggyVest Safelock today — from ₦1,000.\" — Clear, warm, action-oriented.",
+    "good_examples": "\"Your future self will thank you. Start your NairaVault Safelock today — from ₦1,000.\" — Clear, warm, action-oriented.",
     "bad_examples": "\"You're broke because you don't save\" — shame-based messaging. Never use this approach.",
 }
 
 
-@router.post("/seed-piggyvest/{email}", status_code=201)
-async def seed_piggyvest(
+@router.post("/seed-nairavault/{email}", status_code=201)
+async def seed_nairavault(
     email: str,
     _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Create (or update) a PiggyVest brand under the given user's first workspace."""
+    """Create (or update) a NairaVault brand under the given user's first workspace."""
     user_r = await db.execute(select(User).where(User.email == email))
     target = user_r.scalar_one_or_none()
     if not target:
@@ -489,16 +489,16 @@ async def seed_piggyvest(
         raise HTTPException(status_code=404, detail="No workspace found for this user")
     workspace_id = row[0]
 
-    # Check if PiggyVest brand already exists
+    # Check if NairaVault brand already exists
     existing_r = await db.execute(
-        select(Brand).where(Brand.workspace_id == workspace_id, Brand.name == "PiggyVest")
+        select(Brand).where(Brand.workspace_id == workspace_id, Brand.name == "NairaVault")
     )
     brand = existing_r.scalar_one_or_none()
 
     if brand:
         # Update existing
         brand.industry = "fintech"
-        brand.description = "PiggyVest is Nigeria's leading savings and investment platform, helping over 5 million users save, invest, and achieve financial freedom — starting from as little as ₦100."
+        brand.description = "NairaVault is Nigeria's leading savings and investment platform, helping over 5 million users save, invest, and achieve financial freedom — starting from as little as ₦100."
         brand.target_audience = "Young Nigerian professionals and students aged 18–35 who want to save smarter and invest for the first time."
         brand.audience_age_range = "18–35"
         brand.tone_tags = ["Bold", "Authentic", "Warm", "Inspirational", "Friendly", "Confident"]
@@ -509,25 +509,25 @@ async def seed_piggyvest(
         brand.brand_font = "Inter"
         brand.words_to_avoid = ["broke", "poor", "struggling", "can't afford", "loser"]
         brand.guidelines = "Always write in a warm, encouraging Nigerian voice. Make saving feel exciting, not restrictive."
-        brand.instagram_handle = "@piggyvest"
-        brand.twitter_handle = "@PiggyVest"
-        brand.facebook_handle = "PiggyVest"
-        brand.linkedin_handle = "piggyvest"
-        brand.website = "https://www.piggyvest.com"
+        brand.instagram_handle = "@nairavault"
+        brand.twitter_handle = "@NairaVault"
+        brand.facebook_handle = "NairaVault"
+        brand.linkedin_handle = "nairavault"
+        brand.website = "https://www.nairavault.com"
         brand.location = "Lagos, Nigeria"
-        brand.brand_kit = PIGGYVEST_KIT
+        brand.brand_kit = NAIRAVAULT_KIT
         await db.commit()
         await db.refresh(brand)
         await db.commit()
         await db.refresh(brand)
         asyncio.create_task(_bg_sync_assistant(brand.id))
-        return {"created": False, "brand_id": brand.id, "message": "PiggyVest brand updated"}
+        return {"created": False, "brand_id": brand.id, "message": "NairaVault brand updated"}
     else:
         brand = Brand(
             workspace_id=workspace_id,
-            name="PiggyVest",
+            name="NairaVault",
             industry="fintech",
-            description="PiggyVest is Nigeria's leading savings and investment platform, helping over 5 million users save, invest, and achieve financial freedom — starting from as little as ₦100.",
+            description="NairaVault is Nigeria's leading savings and investment platform, helping over 5 million users save, invest, and achieve financial freedom — starting from as little as ₦100.",
             target_audience="Young Nigerian professionals and students aged 18–35 who want to save smarter and invest for the first time.",
             audience_age_range="18–35",
             tone_tags=["Bold", "Authentic", "Warm", "Inspirational", "Friendly", "Confident"],
@@ -538,16 +538,16 @@ async def seed_piggyvest(
             brand_font="Inter",
             words_to_avoid=["broke", "poor", "struggling", "can't afford", "loser"],
             guidelines="Always write in a warm, encouraging Nigerian voice. Make saving feel exciting, not restrictive.",
-            instagram_handle="@piggyvest",
-            twitter_handle="@PiggyVest",
-            facebook_handle="PiggyVest",
-            linkedin_handle="piggyvest",
-            website="https://www.piggyvest.com",
+            instagram_handle="@nairavault",
+            twitter_handle="@NairaVault",
+            facebook_handle="NairaVault",
+            linkedin_handle="nairavault",
+            website="https://www.nairavault.com",
             location="Lagos, Nigeria",
-            brand_kit=PIGGYVEST_KIT,
+            brand_kit=NAIRAVAULT_KIT,
         )
         db.add(brand)
         await db.commit()
         await db.refresh(brand)
         asyncio.create_task(_bg_sync_assistant(brand.id))
-        return {"created": True, "brand_id": brand.id, "message": "PiggyVest brand created"}
+        return {"created": True, "brand_id": brand.id, "message": "NairaVault brand created"}
