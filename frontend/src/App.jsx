@@ -21,6 +21,7 @@ import ChangelogPage        from './pages/ChangelogPage'
 import RoadmapPage          from './pages/RoadmapPage'
 import LegalPage            from './pages/LegalPage'
 import PitchDeckPage        from './pages/PitchDeckPage'
+import ProductGuidePage     from './pages/ProductGuidePage'
 import DashboardLayout      from './components/layout/DashboardLayout'
 import DashboardPage        from './pages/DashboardPage'
 import CalendarPage         from './pages/CalendarPage'
@@ -81,6 +82,7 @@ export default function App() {
         <Route path="/security"              element={<LegalPage />} />
         <Route path="/support"               element={<LegalPage />} />
         <Route path="/pitch-deck"            element={<PitchDeckPage />} />
+        <Route path="/product-guide"         element={<ProductGuidePage />} />
 
         {/* Auth */}
         <Route path="/login"                 element={<GuestRoute><LoginPage /></GuestRoute>} />

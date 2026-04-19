@@ -562,7 +562,7 @@ export default function LandingPage() {
               <p className="text-white/30 text-sm mt-4 leading-relaxed">AI-powered social content for enterprise teams, agencies, and startups.</p>
             </div>
             {[
-              { heading: 'Product',   links: [['Features','/features'],['Pricing','/pricing'],['Changelog','/changelog'],['Roadmap','/roadmap']] },
+              { heading: 'Product',   links: [['Features','/features'],['Product guide','/product-guide'],['Pricing','/pricing'],['Changelog','/changelog'],['Roadmap','/roadmap']] },
               { heading: 'Solutions', links: [['Enterprise','/enterprise'],['Agencies','/solutions/agencies'],['Startups','/solutions/startups'],['Corporate','/solutions/corporate']] },
               { heading: 'Company',   links: [['About','/about'],['Blog','/blog'],['Careers','/careers'],['Contact','/contact'],['Pitch Deck','/pitch-deck']] },
             ].map(({ heading, links }) => (
