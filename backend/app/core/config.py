@@ -11,13 +11,9 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/contentcard"
 
-    ANTHROPIC_API_KEY: str = ""
-
-    STRIPE_SECRET_KEY: str = ""
-    STRIPE_WEBHOOK_SECRET: str = ""
-    STRIPE_PRICE_STARTER: str = ""
-    STRIPE_PRICE_SMB: str = ""
-    STRIPE_PRICE_PRO: str = ""
+    OPENAI_API_KEY: str = ""
+    IMAGE_MODEL: str = "gpt-image-1"
+    IMAGE_COUNT: int = 1  # images generated per post; increase for selection layer
 
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
@@ -25,11 +21,6 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
-
-    BANNERBEAR_API_KEY: str = ""
-    BANNERBEAR_TEMPLATE_COVER: str = ""
-    BANNERBEAR_TEMPLATE_CONTENT: str = ""
-    BANNERBEAR_TEMPLATE_QUOTE: str = ""
 
     FREE_TRIAL_DAYS: int = 14
     FRONTEND_URL: str = "http://localhost:5173"

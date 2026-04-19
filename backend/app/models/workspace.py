@@ -31,10 +31,19 @@ class Workspace(Base):
     # Billing
     plan: Mapped[str] = mapped_column(String(50), default="trial")  # trial | starter | smb | pro
     trial_ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # Stripe or Paystack
-    payment_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)  # stripe | paystack
+    subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True)   # Paystack subscription code
+    customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)        # Paystack customer code
+    payment_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    free_generations_used: Mapped[int] = mapped_column(default=0)
+    # Saved card details (from Paystack authorization)
+    paystack_authorization_code: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    card_last4: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    card_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    card_bank: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    card_exp_month: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    card_exp_year: Mapped[str | None] = mapped_column(String(5), nullable=True)
+    next_payment_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

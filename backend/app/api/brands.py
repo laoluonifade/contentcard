@@ -206,6 +206,97 @@ Return ONLY valid JSON. No markdown, no explanation."""
     return insights
 
 
+@router.post("/{brand_id}/resync-assistant", response_model=dict)
+async def resync_brand_assistant(
+    workspace_id: str, brand_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Force re-upload the brand kit to the OpenAI Vector Store.
+    Use this when content generation looks generic despite a filled brand kit —
+    it means the assistant's Vector Store has stale or empty brand data.
+    """
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Editor access required")
+
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    background_tasks.add_task(_sync_brand_assistant, brand.id)
+    return {"message": "Brand assistant resync started. Allow 30–60 seconds then regenerate content."}
+
+
+@router.post("/{brand_id}/photos", response_model=dict)
+async def upload_brand_photo(
+    workspace_id: str, brand_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload a brand photo to Cloudinary and add it to brand_photos list."""
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Editor access required")
+
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    contents = await file.read()
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large — max 10 MB")
+
+    try:
+        result = cloudinary.uploader.upload(
+            contents,
+            folder=f"contentcard/brand-photos/{brand_id}",
+            resource_type="image",
+            transformation=[{"quality": "auto", "fetch_format": "auto", "width": 2048, "crop": "limit"}],
+        )
+        photo_url = result["secure_url"]
+    except Exception as e:
+        logger.error(f"Brand photo upload failed: {e}")
+        raise HTTPException(status_code=502, detail="Image upload failed — please try again")
+
+    current_photos = list(brand.brand_photos or [])
+    current_photos.append(photo_url)
+    brand.brand_photos = current_photos
+    await db.commit()
+
+    return {"photo_url": photo_url, "brand_photos": current_photos}
+
+
+@router.delete("/{brand_id}/photos/{photo_index}", status_code=204)
+async def delete_brand_photo(
+    workspace_id: str, brand_id: str, photo_index: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove a brand photo by index."""
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Editor access required")
+
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    photos = list(brand.brand_photos or [])
+    if photo_index < 0 or photo_index >= len(photos):
+        raise HTTPException(status_code=404, detail="Photo not found")
+
+    photos.pop(photo_index)
+    brand.brand_photos = photos
+    await db.commit()
+
+
 @router.post("/{brand_id}/logo", response_model=dict)
 async def upload_logo(
     workspace_id: str, brand_id: str,

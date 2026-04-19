@@ -109,7 +109,7 @@ const useAppStore = create(
         }
         // Final attempt: fetch whatever's there, throw if still empty
         const items = await get().fetchMonthContent(month, year)
-        if (items.length === 0) throw new Error('Generation timed out — no posts were created. Check your OpenAI API key in Render and try again.')
+        if (items.length === 0) throw new Error('Generation timed out — no posts were created. Please try again in a moment.')
         return items.length
       },
 
@@ -181,6 +181,13 @@ const useAppStore = create(
         return trends
       },
 
+      refreshTrends: async () => {
+        await trendsApi.refresh()
+        const trends = await trendsApi.list()
+        set({ trends })
+        return trends
+      },
+
       // ── Billing ─────────────────────────────────────────────────
       fetchSubscription: async () => {
         const wsId = get().activeWorkspaceId
@@ -199,6 +206,20 @@ const useAppStore = create(
         const wsId = get().activeWorkspaceId
         if (!wsId) throw new Error('No active workspace')
         return billingApi.createCheckout({ plan, workspace_id: wsId })
+      },
+
+      cancelSubscription: async () => {
+        const wsId = get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        await billingApi.cancelSubscription(wsId)
+        await get().fetchSubscription()
+      },
+
+      removeCard: async () => {
+        const wsId = get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        await billingApi.removeCard(wsId)
+        await get().fetchSubscription()
       },
     }),
     {

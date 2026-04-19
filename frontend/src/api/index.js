@@ -71,6 +71,15 @@ export const brandApi = {
     }).then(r => r.data)
   },
   aiInsights: (wsId, brandId) => api.post(`/workspaces/${wsId}/brands/${brandId}/ai-insights`).then(r => r.data),
+  uploadPhoto: (wsId, brandId, file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post(`/workspaces/${wsId}/brands/${brandId}/photos`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  deletePhoto: (wsId, brandId, idx) =>
+    api.delete(`/workspaces/${wsId}/brands/${brandId}/photos/${idx}`).then(r => r.data),
 }
 
 // ─── Content ────────────────────────────────────────────────────
@@ -96,14 +105,17 @@ export const templateApi = {
 
 // ─── Billing ────────────────────────────────────────────────────
 export const billingApi = {
-  getSubscription: (wsId) => api.get(`/billing/${wsId}`).then(r => r.data),
-  createCheckout:  (data) => api.post('/billing/checkout', data).then(r => r.data),
-  cancel:          (wsId) => api.post(`/billing/cancel/${wsId}`, {}).then(r => r.data),
+  getSubscription:    (wsId) => api.get(`/billing/${wsId}`).then(r => r.data),
+  createCheckout:     (data) => api.post('/billing/checkout', data).then(r => r.data),
+  cancelSubscription: (wsId) => api.post(`/billing/cancel/${wsId}`).then(r => r.data),
+  removeCard:         (wsId) => api.delete(`/billing/card/${wsId}`).then(r => r.data),
 }
 
 // ─── Trends ─────────────────────────────────────────────────────
 export const trendsApi = {
-  list: (industry) => api.get('/trends', { params: industry ? { industry } : {} }).then(r => r.data),
+  list:         (industry) => api.get('/trends', { params: industry ? { industry } : {} }).then(r => r.data),
+  refresh:      (industry) => api.post('/trends/refresh', null, { params: industry ? { industry } : {} }).then(r => r.data),
+  generatePost: (data)     => api.post('/trends/generate-post', data).then(r => r.data),
 }
 
 // ─── Upload ─────────────────────────────────────────────────────

@@ -34,6 +34,7 @@ export default function SettingsPage() {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviteRole, setInviteRole] = useState('editor')
   const [inviting, setInviting] = useState(false)
+  const [lastInviteLink, setLastInviteLink] = useState(null)
 
   const nameParts = (user?.full_name || '').split(' ')
   const [profileForm, setProfileForm] = useState({
@@ -83,7 +84,10 @@ export default function SettingsPage() {
       const inv = await inviteApi.send(activeWorkspaceId, { email: inviteEmail, role: inviteRole })
       setInvites(iv => [inv, ...iv])
       setInviteEmail('')
-      toast(`Invite sent to ${inv.email}`)
+      const inviteLink = `${window.location.origin}/accept-invite?token=${inv.token}`
+      toast(`Invite link created — share it with ${inv.email}`)
+      // Also show the link in the UI
+      setLastInviteLink(inviteLink)
     } catch (err) { toast(err.message, 'error') }
     finally { setInviting(false) }
   }
@@ -217,6 +221,20 @@ export default function SettingsPage() {
                     {inviting ? '…' : 'Send invite'}
                   </button>
                 </div>
+                {lastInviteLink && (
+                  <div className="mt-3 p-3 bg-mist rounded-xl border border-fog">
+                    <p className="text-xs font-medium text-ink/60 mb-1.5">Share this invite link with your team member:</p>
+                    <div className="flex items-center gap-2">
+                      <code className="text-xs text-brand-600 flex-1 truncate">{lastInviteLink}</code>
+                      <button
+                        type="button"
+                        onClick={() => { navigator.clipboard.writeText(lastInviteLink); toast('Copied!') }}
+                        className="text-xs font-medium text-brand-500 hover:text-brand-600 px-2 py-1 border border-brand-200 rounded-lg flex-shrink-0">
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="bg-white border border-fog rounded-2xl p-6">

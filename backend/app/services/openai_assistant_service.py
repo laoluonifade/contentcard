@@ -71,7 +71,6 @@ def _build_brand_kit_document(brand) -> str:
 - **Description**: {_fmt(brand.description)}
 - **Website**: {_fmt(brand.website)}
 - **Location**: {_fmt(brand.location)}
-- **Logo URL**: {_fmt(brand.logo_url)}
 - **Mission Statement**: {_fmt(kit.get('mission_statement'))}
 - **Value Proposition**: {_fmt(kit.get('value_proposition'))}
 - **Tagline**: {_fmt(kit.get('tagline'))}
@@ -258,6 +257,8 @@ async def generate_with_assistant(assistant_id: str, creative_brief: str) -> str
         thread_id=thread.id,
         assistant_id=assistant_id,
         max_completion_tokens=12000,
+        temperature=0.4,
+        response_format={"type": "json_object"},
     )
 
     # Poll with asyncio.sleep so the event loop stays free for other requests

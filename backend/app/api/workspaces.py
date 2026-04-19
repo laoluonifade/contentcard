@@ -52,7 +52,7 @@ async def create_workspace(
         owner_id=current_user.id,
         plan="trial",
         trial_ends_at=datetime.now(timezone.utc) + timedelta(days=settings.FREE_TRIAL_DAYS),
-        payment_provider=current_user.country_code and ("paystack" if current_user.country_code == "NG" else "stripe"),
+        payment_provider="paystack",
     )
     db.add(ws)
     await db.flush()

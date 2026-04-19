@@ -1,8 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles } from 'lucide-react'
+import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
+import { trendsApi } from '../api'
+import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
+
+const PLATFORMS = ['instagram', 'twitter', 'linkedin', 'facebook']
+
 
 function parseLocalDate(str) {
   if (!str) return null
@@ -27,13 +32,22 @@ function StatCard({ icon: Icon, val, lbl, loading }) {
 export default function DashboardPage() {
   const navigate  = useNavigate()
   const { user }  = useAuthStore()
-  const { activeBrandId, brands, trends, fetchTrends, fetchMonthContent } = useAppStore()
+  const { activeBrandId, brands, trends, fetchTrends, fetchMonthContent, refreshTrends } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
   const [stats, setStats]       = useState({ total: 0, ready: 0, drafts: 0, ig: 0, fb: 0, tw: 0 })
   const [upcoming, setUpcoming] = useState([])
   const [loading, setLoading]   = useState(true)
+
+  // Trends refresh
+  const [refreshing, setRefreshing] = useState(false)
+
+  // Generate-post modal
+  const [genModal, setGenModal]   = useState(null)   // { topic, platform }
+  const [genResult, setGenResult] = useState(null)   // { caption, hashtags }
+  const [genLoading, setGenLoading] = useState(false)
+  const [copied, setCopied]       = useState(false)
 
   useEffect(() => {
     if (!activeBrandId) { setLoading(false); return }
@@ -69,6 +83,65 @@ export default function DashboardPage() {
   const firstName = user?.full_name?.split(' ')[0] || 'there'
   const monthLabel = now.toLocaleString('default', { month: 'long', year: 'numeric' })
 
+  async function handleRefreshTrends() {
+    setRefreshing(true)
+    try {
+      await refreshTrends()
+    } catch (e) {
+      console.error('Trend refresh failed:', e)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
+  function openGenModal(trend) {
+    if (!activeBrandId) return
+    setGenResult(null)
+    setCopied(false)
+    const modal = { topic: trend.topic, platform: 'instagram' }
+    setGenModal(modal)
+    doGenerate(modal)
+  }
+
+  function closeGenModal() {
+    setGenModal(null)
+    setGenResult(null)
+    setCopied(false)
+  }
+
+  async function doGenerate(modal) {
+    setGenLoading(true)
+    setGenResult(null)
+    try {
+      const result = await trendsApi.generatePost({
+        brand_id: activeBrandId,
+        trend_topic: modal.topic,
+        platform: modal.platform,
+      })
+      setGenResult(result)
+    } catch (e) {
+      console.error('Generate from trend failed:', e)
+      setGenResult({ error: 'Generation failed — please try again.' })
+    } finally {
+      setGenLoading(false)
+    }
+  }
+
+  function changePlatform(platform) {
+    const updated = { ...genModal, platform }
+    setGenModal(updated)
+    doGenerate(updated)
+  }
+
+  function handleCopy() {
+    if (!genResult?.caption) return
+    const text = genResult.caption + (genResult.hashtags?.length ? '\n\n' + genResult.hashtags.map(h => `#${h}`).join(' ') : '')
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto">
 
@@ -85,11 +158,71 @@ export default function DashboardPage() {
              `No content yet for ${now.toLocaleString('default', { month: 'long' })} — generate your first month.`}
           </p>
         </div>
-        <button onClick={() => navigate('/dashboard/generate')}
+        <button onClick={() => navigate('/dashboard/calendar')}
           className="btn-primary text-sm px-4 py-2.5 flex-shrink-0">
           <Layers size={15} /> Generate content
         </button>
       </div>
+
+      {/* ── Onboarding Tip banner ── */}
+      {activeBrand && !loading && (() => {
+        const missing = getMissingFields(activeBrand)
+        const brandReady = missing.length === 0
+        const hasContent = stats.total > 0
+
+        // Brand kit incomplete — show what to fill in
+        if (!brandReady) return (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center flex-shrink-0">
+                <AlertCircle size={15} className="text-amber-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-0.5">Onboarding Tip</p>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Complete your brand kit to unlock AI generation</h4>
+                <p className="text-ink/50 text-xs mb-3">
+                  Fill in {missing.length} required {missing.length === 1 ? 'field' : 'fields'} so ContentCard can create on-brand content for you:
+                </p>
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {missing.map(f => (
+                    <span key={f.label} className="text-[10px] font-semibold px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full">
+                      {f.label}
+                    </span>
+                  ))}
+                </div>
+                <button onClick={() => navigate('/dashboard/brand-kit')}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-800 hover:text-amber-900 transition-colors">
+                  Complete brand kit <ArrowRight size={12} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+
+        // Brand ready, no content yet — nudge to generate
+        if (brandReady && !hasContent) return (
+          <div className="bg-brand-500/8 border border-brand-400/30 rounded-2xl p-5 mb-6">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-brand-500/15 flex items-center justify-center flex-shrink-0">
+                <Sparkles size={15} className="text-brand-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600 mb-0.5">Onboarding Tip</p>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Your brand is ready — generate your first month of content</h4>
+                <p className="text-ink/50 text-xs mb-3">
+                  ContentCard knows your brand voice. Hit Generate to create a full month of posts in under a minute.
+                </p>
+                <button onClick={() => navigate('/dashboard/calendar')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-xs font-semibold transition-colors">
+                  <Zap size={12} /> Generate content
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+
+        return null
+      })()}
 
       {/* No brand CTA */}
       {!activeBrandId && !loading && (
@@ -205,35 +338,144 @@ export default function DashboardPage() {
 
       {/* Trending topics */}
       <div className="bg-white border border-fog rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-2">
             <TrendingUp size={15} className="text-ink/40" />
-            <h3 className="text-sm font-semibold text-ink">Trending topics</h3>
+            <h3 className="text-sm font-semibold text-ink">Trending in Nigeria</h3>
+            <span className="text-xs text-ink/30 hidden sm:inline">· Powered by AI</span>
           </div>
-          <p className="text-ink/30 text-xs">Click to generate with this topic</p>
+          <button
+            onClick={handleRefreshTrends}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-fog text-xs font-medium text-ink/50 hover:bg-mist hover:text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
+            <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
+            {refreshing ? 'Refreshing…' : 'Refresh trends'}
+          </button>
         </div>
+
         {trends.length === 0
-          ? <p className="text-ink/30 text-sm">Loading trends…</p>
+          ? (
+            <div className="text-center py-8">
+              <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
+              <p className="text-ink/30 text-sm mb-3">No trends loaded yet.</p>
+              <button onClick={handleRefreshTrends} disabled={refreshing}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
+                <Sparkles size={14} /> {refreshing ? 'Fetching trends…' : 'Fetch trending topics'}
+              </button>
+            </div>
+          )
           : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {trends.slice(0, 6).map((t, i) => (
-                <button key={t.id}
-                  onClick={() => navigate('/dashboard/generate', { state: { topic: t.topic } })}
-                  className="flex items-center gap-3 p-3 rounded-xl border border-fog hover:border-ink/20 hover:bg-mist text-left transition-all group">
-                  <span className="text-ink/20 text-xs font-medium w-5 flex-shrink-0 tabular-nums">{String(i + 1).padStart(2,'0')}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-ink/70 text-xs font-medium truncate group-hover:text-ink transition-colors">{t.topic}</p>
-                    <p className="text-ink/30 text-[10px] mt-0.5">{t.volume}</p>
+                <div key={t.id} className="flex flex-col gap-2 p-3 rounded-xl border border-fog hover:border-ink/20 hover:bg-mist transition-all group">
+                  <div className="flex items-start gap-3">
+                    <span className="text-ink/20 text-xs font-medium w-5 flex-shrink-0 tabular-nums mt-0.5">{String(i + 1).padStart(2,'0')}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-ink/70 text-xs font-medium leading-snug group-hover:text-ink transition-colors">{t.topic}</p>
+                      {t.description && (
+                        <p className="text-ink/30 text-[10px] mt-0.5 leading-snug line-clamp-2">{t.description}</p>
+                      )}
+                      <p className="text-ink/25 text-[10px] mt-1">{t.volume}</p>
+                    </div>
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-mist text-ink/40 flex-shrink-0 capitalize">
+                      {t.badge}
+                    </span>
                   </div>
-                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-mist text-ink/40 flex-shrink-0 capitalize">
-                    {t.badge}
-                  </span>
-                </button>
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => navigate('/dashboard/calendar', { state: { topic: t.topic } })}
+                      className="flex-1 py-1.5 text-[10px] font-medium text-ink/50 hover:text-ink border border-fog hover:border-ink/20 rounded-lg transition-colors flex items-center justify-center gap-1">
+                      <Layers size={10} /> Use topic
+                    </button>
+                    {activeBrandId && (
+                      <button
+                        onClick={() => openGenModal(t)}
+                        className="flex-1 py-1.5 text-[10px] font-medium text-white bg-brand-500 hover:bg-brand-600 rounded-lg transition-colors flex items-center justify-center gap-1">
+                        <Zap size={10} /> Quick post
+                      </button>
+                    )}
+                  </div>
+                </div>
               ))}
             </div>
           )
         }
       </div>
+
+      {/* Generate-post modal */}
+      {genModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={closeGenModal}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            {/* Modal header */}
+            <div className="flex items-start justify-between p-5 pb-0">
+              <div>
+                <p className="text-[10px] text-ink/35 font-bold uppercase tracking-widest mb-1">Quick post from trend</p>
+                <h3 className="text-ink font-bold text-base leading-snug">{genModal.topic}</h3>
+              </div>
+              <button onClick={closeGenModal} className="text-ink/30 hover:text-ink transition-colors ml-3 flex-shrink-0 mt-1">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Platform selector */}
+            <div className="flex gap-1.5 px-5 pt-4 pb-0 flex-wrap">
+              {PLATFORMS.map(p => (
+                <button key={p} onClick={() => !genLoading && changePlatform(p)}
+                  disabled={genLoading}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition-colors capitalize disabled:cursor-wait ${
+                    genModal.platform === p
+                      ? 'bg-brand-500 text-white'
+                      : 'bg-fog text-ink/50 hover:bg-brand-50 hover:text-brand-600'
+                  }`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+
+            {/* Content area */}
+            <div className="p-5">
+              {genLoading ? (
+                <div className="flex items-center justify-center py-10 gap-3">
+                  <div className="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-ink/40 text-sm">Writing your post…</span>
+                </div>
+              ) : genResult?.error ? (
+                <div className="bg-red-50 text-red-600 rounded-xl p-4 text-sm text-center">
+                  {genResult.error}
+                  <button onClick={() => doGenerate(genModal)} className="block mt-2 text-xs font-semibold text-red-500 hover:text-red-700 mx-auto">
+                    Try again
+                  </button>
+                </div>
+              ) : genResult ? (
+                <div>
+                  <div className="bg-mist rounded-xl p-4 mb-3">
+                    <p className="text-ink text-sm leading-relaxed">{genResult.caption}</p>
+                    {genResult.hashtags?.length > 0 && (
+                      <p className="text-brand-500 text-xs mt-2 font-medium">
+                        {genResult.hashtags.map(h => `#${h}`).join(' ')}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2 mb-2">
+                    <button onClick={handleCopy}
+                      className="flex-1 py-2 border border-fog rounded-xl text-xs font-semibold text-ink/60 hover:bg-mist transition-colors flex items-center justify-center gap-1.5">
+                      <Copy size={12} /> {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                    <button onClick={() => { closeGenModal(); navigate('/dashboard/calendar', { state: { topic: genModal.topic } }) }}
+                      className="flex-1 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-xs font-semibold transition-colors flex items-center justify-center gap-1.5">
+                      <Layers size={12} /> Full month
+                    </button>
+                  </div>
+                  <button onClick={() => doGenerate(genModal)}
+                    className="w-full py-1.5 text-[10px] text-ink/35 hover:text-ink/60 transition-colors">
+                    Regenerate
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

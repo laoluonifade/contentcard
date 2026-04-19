@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Check, Plus, X, ArrowRight, Sparkles, RefreshCw } from 'lucide-react'
+import { Check, Plus, X, ArrowRight, Sparkles, RefreshCw, AlertCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import { brandApi } from '../api'
+import { getMissingFields } from '../utils/brandReadiness'
 
 // ── Styling constants ─────────────────────────────────────────────────────────
 const inp  = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
@@ -525,7 +526,7 @@ export default function BrandKitPage() {
       setKit(k => ({ ...k, ai_meta: insights }))
       toast('AI insights generated!')
     } catch (err) {
-      toast('AI insights failed — check your OpenAI key', 'error')
+      toast('AI insights generation failed — please try again later', 'error')
     } finally { setAiLoading(false) }
   }
 
@@ -563,7 +564,7 @@ export default function BrandKitPage() {
       <StrengthBanner overall={overall} overallLevel={overallLevel} />
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
+      <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition-all flex-shrink-0 ${
@@ -573,6 +574,37 @@ export default function BrandKitPage() {
           </button>
         ))}
       </div>
+
+      {/* Brand readiness banner */}
+      {(() => {
+        const missing = getMissingFields({ ...form, brand_kit: kit })
+        if (missing.length === 0) return (
+          <div className="flex items-center gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-5">
+            <Check size={14} className="text-emerald-600 flex-shrink-0" />
+            <p className="text-emerald-700 text-xs font-semibold">Brand kit is complete — AI can generate on-brand content.</p>
+          </div>
+        )
+        return (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-amber-800 text-xs font-semibold mb-1.5">
+                  Complete {missing.length} required {missing.length === 1 ? 'field' : 'fields'} to unlock content generation
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {missing.map(f => (
+                    <button key={f.label} onClick={() => setTab(f.tab)}
+                      className="text-[10px] font-semibold px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-full transition-colors">
+                      {f.label} → {f.tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── IDENTITY ── */}
       {tab === 'Identity' && (
@@ -781,7 +813,7 @@ export default function BrandKitPage() {
                 </select>
               </div>
               <div>
-                <Label>Language / Dialect *</Label>
+                <Label required>Language / Dialect</Label>
                 <select value={form.language_style || 'english'} onChange={e => set('language_style', e.target.value)} className={sel}>
                   {langOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
@@ -891,6 +923,48 @@ export default function BrandKitPage() {
               <textarea value={kit.logo_description || ''} onChange={e => setK('logo_description', e.target.value)}
                 rows={2} placeholder="A minimalist piggy bank icon in green, with bold sans-serif wordmark. Clean and modern." className={ta}/>
             </div>
+          </Section>
+          <Section title="Brand Photos">
+            <p className="text-ink/40 text-xs mb-3">
+              Upload photos you own the rights to. These will be used as backgrounds in your content designs instead of AI-generated images.
+            </p>
+            <div className="flex flex-wrap gap-3 mb-4">
+              {(form.brand_photos || []).map((url, i) => (
+                <div key={i} className="relative group w-24 h-24 rounded-xl overflow-hidden border border-fog flex-shrink-0">
+                  <img src={url} alt={`Brand photo ${i+1}`} className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!confirm('Remove this photo?')) return
+                      const updated = (form.brand_photos || []).filter((_, j) => j !== i)
+                      set('brand_photos', updated)
+                      brandApi.deletePhoto(activeWorkspaceId, activeBrandId, i).catch(() => {})
+                    }}
+                    className="absolute top-1 right-1 w-5 h-5 bg-black/60 hover:bg-red-500 rounded-full text-white text-[10px] hidden group-hover:flex items-center justify-center transition-colors">
+                    ×
+                  </button>
+                </div>
+              ))}
+              {(form.brand_photos || []).length < 10 && (
+                <label className="w-24 h-24 rounded-xl border-2 border-dashed border-fog flex flex-col items-center justify-center cursor-pointer hover:border-brand-400 hover:bg-brand-500/5 transition-colors flex-shrink-0">
+                  <Plus size={18} className="text-ink/30 mb-1" />
+                  <span className="text-[10px] text-ink/30">Add photo</span>
+                  <input type="file" accept="image/*" className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file || !activeBrandId || !activeWorkspaceId) return
+                      try {
+                        const result = await brandApi.uploadPhoto(activeWorkspaceId, activeBrandId, file)
+                        set('brand_photos', result.brand_photos)
+                        toast('Photo added!')
+                      } catch {
+                        toast('Photo upload failed', 'error')
+                      }
+                    }}/>
+                </label>
+              )}
+            </div>
+            <p className="text-ink/30 text-[11px]">Max 10 photos · JPG, PNG, WebP · 10 MB each</p>
           </Section>
         </div>
       )}

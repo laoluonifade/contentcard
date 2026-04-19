@@ -60,6 +60,36 @@ async def _get_brand_and_check_access(
     return brand
 
 
+# ── Brand readiness check ───────────────────────────────────────────
+
+def _validate_brand_readiness(brand: Brand) -> list[str]:
+    """
+    Returns human-readable labels for required fields that are missing.
+    Empty list means the brand is ready to generate content.
+    """
+    kit = brand.brand_kit or {}
+    missing = []
+
+    if not (brand.target_audience or '').strip():
+        missing.append("Target audience (Audience tab)")
+
+    if not brand.tone_tags or len(brand.tone_tags) == 0:
+        missing.append("Tone tags (Voice tab)")
+
+    if not (brand.language_style or '').strip():
+        missing.append("Language style (Voice tab)")
+
+    ws = str(kit.get('writing_style') or '').strip()
+    if not ws:
+        missing.append("Writing style (Voice tab)")
+
+    km = kit.get('key_messages') or []
+    if not km or (isinstance(km, list) and len(km) == 0) or (isinstance(km, str) and not km.strip()):
+        missing.append("Key messages (Messaging tab)")
+
+    return missing
+
+
 # ── Literal routes FIRST — before any /{param} routes ─────────────
 
 @router.post("/generate-month", status_code=202)
@@ -77,6 +107,26 @@ async def generate_month(
         raise HTTPException(status_code=400, detail="Select at least one platform")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+
+    # Fetch workspace to check/update generation limit
+    ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
+    workspace = ws_r.scalar_one_or_none()
+    if workspace and workspace.plan not in ("starter", "smb", "pro"):
+        used = workspace.free_generations_used or 0
+        if used >= 2:
+            raise HTTPException(
+                status_code=402,
+                detail="You've used your 2 free content generations. Subscribe to continue.",
+            )
+        workspace.free_generations_used = used + 1
+        await db.commit()
+
+    missing = _validate_brand_readiness(brand)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Your brand kit is incomplete. Fill in these fields before generating: {', '.join(missing)}",
+        )
 
     template_topics = None
     if body.template_id:
@@ -317,6 +367,8 @@ async def _do_generate_month(
                     brand_id=brand_id,
                     template_id=template_id,
                     topic=str(post.get("topic", ""))[:500],
+                    content_type=str(post.get("content_type", ""))[:100] or None,
+                    description=post.get("description") or None,
                     platform=platform,
                     format=fmt,
                     status=ContentStatus.DRAFT,
@@ -331,40 +383,91 @@ async def _do_generate_month(
                 db.add(item)
                 saved_items.append((item, post))
 
+            # ── Commit 1: text content saved immediately ───────────────────────────
+            # Posts are visible to the frontend as soon as text is ready.
+            # Image and Bannerbear phases are independent — their failures cannot
+            # roll back text that has already been generated successfully.
             await db.commit()
-            logger.info(f"Generated {len(saved_items)} posts for brand {brand_id} {month}/{year}")
-
-            # Generate Bannerbear images (no-op if API key not configured)
-            for item, post_data in saved_items:
-                try:
-                    urls = await generate_post_images(post_data, brand_dict)
-                    if urls:
-                        item.image_url = urls[0]
-                        item.image_urls = urls
-                except Exception as e:
-                    logger.error(f"Bannerbear failed for post {item.id}: {e}")
-
-            if any(item.image_url for item, _ in saved_items):
-                await db.commit()
+            logger.info(f"Saved {len(saved_items)} posts (text) for brand {brand_id} {month}/{year}")
 
         except json.JSONDecodeError as e:
             logger.error(f"AI returned invalid JSON for brand {brand_id}: {e}")
             await db.rollback()
+            return
         except Exception as e:
-            logger.error(f"Generation error for brand {brand_id}: {e}")
+            logger.error(f"Text generation error for brand {brand_id}: {e}")
             await db.rollback()
+            return
+
+        # ── Phase 1: AI background generation ─────────────────────────────────────
+        # Runs outside the text transaction. Each image failure is isolated —
+        # one bad post doesn't affect the others.
+        for item, post_data in saved_items:
+            try:
+                bg_urls = await generate_post_image(post_data, brand_dict)
+                if bg_urls:
+                    item.image_url = bg_urls[0]   # primary background for Bannerbear
+                    await db.commit()
+            except Exception as e:
+                logger.error(f"Background image generation failed for post {item.id}: {e}")
+
+        # ── Phase 2: Bannerbear final render ───────────────────────────────────────
+        # Each Bannerbear call is isolated. Failure on one post doesn't affect others.
+        for item, post_data in saved_items:
+            try:
+                bb_urls = await generate_post_images(
+                    post_data, brand_dict,
+                    background_image_url=item.image_url or None,
+                )
+                if bb_urls:
+                    item.image_urls = bb_urls
+                    await db.commit()
+            except Exception as e:
+                logger.error(f"Bannerbear failed for post {item.id}: {e}")
 
 
 def _brand_to_dict(brand: Brand) -> dict:
-    return {
+    """
+    Serialise a Brand model into a flat dict for AI generation.
+
+    Individual columns are merged with the brand_kit JSON so every field the
+    AI prompt templates and image prompt builder reference is actually present.
+    Individual columns win over brand_kit values when both exist.
+    """
+    kit = brand.brand_kit or {}
+
+    base = {
+        # ── Core identity ──────────────────────────────────────────────
         "name": brand.name or "My Brand",
         "industry": brand.industry or "General",
         "description": brand.description or "",
+        "website": brand.website or "",
+        "location": brand.location or "",
+        "logo_url": brand.logo_url or None,
+
+        # ── Audience ───────────────────────────────────────────────────
         "target_audience": brand.target_audience or "",
+        "audience_age_range": brand.audience_age_range or "",
+        "audience_location": brand.audience_location or "",
+        "pain_point": brand.pain_point or "",
+
+        # ── Brand voice ────────────────────────────────────────────────
         "tone_tags": brand.tone_tags or [],
         "language_style": brand.language_style or "english",
         "personality_score": brand.personality_score or 50,
         "words_to_avoid": brand.words_to_avoid or [],
         "guidelines": brand.guidelines or "",
+        "competitors": brand.competitors or "",
+
+        # ── Visual identity ────────────────────────────────────────────
         "colors": brand.brand_colors or [],
+        "design_style": brand.design_style or "bold",
+        "brand_font": brand.brand_font or None,
     }
+
+    # Merge every key from brand_kit — these supply the extended fields that
+    # ai_service.py and image_service.py reference (imagery_style, lighting_style,
+    # brand_motifs, mission_statement, value_proposition, key_messages, etc.)
+    # Individual column values above take priority over kit values.
+    merged = {**kit, **base}
+    return merged
