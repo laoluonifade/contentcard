@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
 import { contentApi } from '../api'
 import PostCard, { renderSlideToCanvas } from '../components/ui/PostCard'
+import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const PLATFORMS = [
@@ -309,6 +310,25 @@ export default function CalendarPage() {
               <button onClick={()=>setShowGenPanel(false)} className="text-ink/30 hover:text-ink p-1.5 -mr-1 transition-colors"><X size={18}/></button>
             </div>
 
+            {/* Brand readiness check */}
+            {activeBrand && !isBrandReady(activeBrand) && (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-amber-800 text-xs font-semibold mb-1">Complete your brand kit first</p>
+                    <p className="text-amber-700 text-[11px] mb-2">
+                      Missing: {getMissingFields(activeBrand).map(f => f.label).join(', ')}
+                    </p>
+                    <button onClick={() => { setShowGenPanel(false); navigate('/dashboard/brand-kit') }}
+                      className="text-[11px] font-semibold text-amber-800 hover:text-amber-900 flex items-center gap-1 transition-colors">
+                      Go to Brand Kit <ArrowRight size={10} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <p className="label mb-2">Platform</p>
               <div className="grid grid-cols-4 gap-2">
@@ -351,8 +371,8 @@ export default function CalendarPage() {
                 className="input"/>
             </div>
 
-            <button onClick={handleGenerate} disabled={generatingMonth}
-              className="btn-primary w-full justify-center py-3">
+            <button onClick={handleGenerate} disabled={generatingMonth || (activeBrand && !isBrandReady(activeBrand))}
+              className="btn-primary w-full justify-center py-3 disabled:opacity-50 disabled:cursor-not-allowed">
               {generatingMonth
                 ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
                     {generationPollCount < 3 ? 'Writing captions…' : generationPollCount < 7 ? 'Crafting posts…' : 'Almost done…'}</>

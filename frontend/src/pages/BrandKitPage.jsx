@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
-import { Check, Plus, X, ArrowRight, Sparkles, RefreshCw, ChevronDown } from 'lucide-react'
+import { Check, Plus, X, ArrowRight, Sparkles, RefreshCw, ChevronDown, AlertCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import { brandApi } from '../api'
+import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 
 // ── Styling constants ─────────────────────────────────────────────────────────
 const inp  = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
@@ -59,10 +60,22 @@ const LANG_BY_COUNTRY = {
 }
 
 // ── Small helpers ─────────────────────────────────────────────────────────────
-function Label({ children, hint }) {
+function Label({ children, hint, required, optional }) {
   return (
     <div className="mb-1.5">
-      <label className="block text-[11px] font-bold uppercase tracking-widest text-ink/40">{children}</label>
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <label className="block text-[11px] font-bold uppercase tracking-widest text-ink/40">{children}</label>
+        {required && (
+          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-brand-500/15 text-brand-600 rounded-md">
+            Required
+          </span>
+        )}
+        {optional && (
+          <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 bg-fog text-ink/30 rounded-md">
+            Optional
+          </span>
+        )}
+      </div>
       {hint && <p className="text-ink/30 text-[11px] mt-0.5">{hint}</p>}
     </div>
   )
@@ -232,7 +245,7 @@ export default function BrandKitPage() {
       setKit(k => ({ ...k, ai_meta: insights }))
       toast('AI insights generated!')
     } catch (err) {
-      toast('AI insights failed — check your OpenAI key', 'error')
+      toast('AI insights generation failed — please try again later', 'error')
     } finally { setAiLoading(false) }
   }
 
@@ -267,7 +280,7 @@ export default function BrandKitPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
+      <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
         {TABS.map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap border transition-all flex-shrink-0 ${
@@ -277,6 +290,37 @@ export default function BrandKitPage() {
           </button>
         ))}
       </div>
+
+      {/* Brand readiness banner */}
+      {(() => {
+        const missing = getMissingFields({ ...form, brand_kit: kit })
+        if (missing.length === 0) return (
+          <div className="flex items-center gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 mb-5">
+            <Check size={14} className="text-emerald-600 flex-shrink-0" />
+            <p className="text-emerald-700 text-xs font-semibold">Brand kit is complete — AI can generate on-brand content.</p>
+          </div>
+        )
+        return (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-5">
+            <div className="flex items-start gap-2.5">
+              <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-amber-800 text-xs font-semibold mb-1.5">
+                  Complete {missing.length} required {missing.length === 1 ? 'field' : 'fields'} to unlock content generation
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {missing.map(f => (
+                    <button key={f.label} onClick={() => setTab(f.tab)}
+                      className="text-[10px] font-semibold px-2 py-0.5 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded-full transition-colors">
+                      {f.label} → {f.tab}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* ── IDENTITY ── */}
       {tab === 'Identity' && (
@@ -382,7 +426,7 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Primary Audience">
             <div>
-              <Label hint="Describe your ideal customer in 2-3 sentences.">Who are you speaking to? *</Label>
+              <Label hint="Describe your ideal customer in 2-3 sentences." required>Target Audience</Label>
               <textarea value={form.target_audience || ''} onChange={e => set('target_audience', e.target.value)}
                 rows={3} placeholder="Young Nigerian professionals aged 22–35 who earn a monthly salary but struggle to save consistently. They're tech-savvy, ambitious, and want to build wealth but feel overwhelmed by traditional finance." className={ta}/>
             </div>
@@ -445,7 +489,7 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Tone & Personality">
             <div>
-              <Label hint="Select all that describe how your brand speaks.">Tone Tags *</Label>
+              <Label hint="Select all that describe how your brand speaks." required>Tone Tags</Label>
               <MultiChip options={TONE_TAGS} selected={form.tone_tags || []} onChange={v => set('tone_tags', v)}/>
             </div>
             <div>
@@ -464,28 +508,28 @@ export default function BrandKitPage() {
           <Section title="Writing Style">
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <Label>Writing Style *</Label>
+                <Label required>Writing Style</Label>
                 <select value={kit.writing_style || ''} onChange={e => setK('writing_style', e.target.value)} className={sel}>
                   <option value="">Select</option>
                   {WRITING_STYLES.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
                 </select>
               </div>
               <div>
-                <Label>Communication Style *</Label>
+                <Label optional>Communication Style</Label>
                 <select value={kit.communication_style || ''} onChange={e => setK('communication_style', e.target.value)} className={sel}>
                   <option value="">Select</option>
                   {COMM_STYLES.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
                 </select>
               </div>
               <div>
-                <Label>Emotional Tone *</Label>
+                <Label optional>Emotional Tone</Label>
                 <select value={kit.emotional_tone || ''} onChange={e => setK('emotional_tone', e.target.value)} className={sel}>
                   <option value="">Select</option>
                   {EMOTIONAL_TONES.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
                 </select>
               </div>
               <div>
-                <Label>Language / Dialect *</Label>
+                <Label required>Language / Dialect</Label>
                 <select value={form.language_style || 'english'} onChange={e => set('language_style', e.target.value)} className={sel}>
                   {langOptions.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
@@ -604,7 +648,7 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Core Messages">
             <div>
-              <Label hint="What do you want people to remember after seeing your content?">Key Messages *</Label>
+              <Label hint="What do you want people to remember after seeing your content?" required>Key Messages</Label>
               <MultiChip options={KEY_MESSAGES} selected={kit.key_messages || []} onChange={v => setK('key_messages', v)}/>
               <div className="mt-2">
                 <TagInput tags={kit.key_messages || []} onChange={v => setK('key_messages', v)} placeholder="Add a custom key message…"/>

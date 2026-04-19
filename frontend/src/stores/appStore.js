@@ -109,7 +109,7 @@ const useAppStore = create(
         }
         // Final attempt: fetch whatever's there, throw if still empty
         const items = await get().fetchMonthContent(month, year)
-        if (items.length === 0) throw new Error('Generation timed out — no posts were created. Check your OpenAI API key in Render and try again.')
+        if (items.length === 0) throw new Error('Generation timed out — no posts were created. Please try again in a moment.')
         return items.length
       },
 
