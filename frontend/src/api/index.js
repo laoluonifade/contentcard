@@ -170,7 +170,7 @@ export const adminApi = {
   brands:             (params)  => adminAxios.get('/admin/brands', { params }).then(r => r.data),
   content:            (params)  => adminAxios.get('/admin/content', { params }).then(r => r.data),
   deleteContentByUser:(email)   => adminAxios.delete(`/admin/content/by-user/${encodeURIComponent(email)}`).then(r => r.data),
-  seedPiggyVest:      (email)   => adminAxios.post(`/admin/seed-piggyvest/${encodeURIComponent(email)}`).then(r => r.data),
+  seedNairaVault:     (email)   => adminAxios.post(`/admin/seed-nairavault/${encodeURIComponent(email)}`).then(r => r.data),
   syncAllAssistants:  ()        => adminAxios.post('/admin/sync-all-assistants').then(r => r.data),
   syncAssistant:      (brandId) => adminAxios.post(`/admin/sync-assistant/${brandId}`).then(r => r.data),
 }

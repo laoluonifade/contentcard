@@ -48,7 +48,7 @@ const SOLUTIONS = {
       { title: 'Reduce agency and design dependency', desc: 'Move faster and at lower cost by bringing content creation in-house — at enterprise quality.' },
     ],
     quote: 'ContentCard replaced a $1,800/month agency retainer. The quality is better, we have more control, and our regional teams can all work from one place.',
-    quoteName: 'Fatima Al-Hassan', quoteRole: 'VP Brand & Communications, Interswitch Group',
+    quoteName: 'Fatima Al-Hassan', quoteRole: 'VP Brand & Communications, Novabridg Group',
     quoteImg: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=80&h=80&auto=format&fit=crop&q=80',
   },
 }

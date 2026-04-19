@@ -10,22 +10,22 @@ const ENTERPRISE_FEATURES = [
 ]
 
 const LOGOS = [
-  { name: 'MTN',         style: { color: '#FFCC00', fontWeight: 900 } },
-  { name: 'Interswitch', style: { color: '#E63946', fontWeight: 800 } },
-  { name: 'Zenith Bank', style: { color: '#6EC1E4', fontWeight: 800 } },
-  { name: 'UBA',         style: { color: '#E63946', fontWeight: 900 } },
-  { name: 'Paystack',    style: { color: '#00C3F7', fontWeight: 800 } },
+  { name: 'Stridepay',    style: { color: '#FFCC00', fontWeight: 900 } },
+  { name: 'Novabridg',    style: { color: '#E63946', fontWeight: 800 } },
+  { name: 'Axle Bank',    style: { color: '#6EC1E4', fontWeight: 800 } },
+  { name: 'OBA',          style: { color: '#E63946', fontWeight: 900 } },
+  { name: 'Zenastack',    style: { color: '#00C3F7', fontWeight: 800 } },
 ]
 
 const TESTIMONIALS = [
   {
     quote: 'ContentCard replaced a $1,800/month agency retainer. The quality is better, we have more control, and our regional teams all work from one place.',
-    name: 'Fatima Al-Hassan', title: 'VP, Brand & Communications', company: 'Interswitch Group',
+    name: 'Fatima Al-Hassan', title: 'VP, Brand & Communications', company: 'Novabridg Group',
     img: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=80&h=80&auto=format&fit=crop&q=80',
   },
   {
     quote: 'As a CMO I care about pipeline. Our social channels went from vanity metrics to an actual revenue channel. ContentCard made daily posting possible without growing headcount.',
-    name: 'Emeka Adeyemi', title: 'Chief Marketing Officer', company: 'Zenith Bank Digital',
+    name: 'Emeka Adeyemi', title: 'Chief Marketing Officer', company: 'Axle Bank Digital',
     img: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=80&h=80&auto=format&fit=crop&q=80',
   },
 ]

@@ -6,7 +6,7 @@ export default function AdminSettingsPage() {
   const [saved, setSaved] = useState(false)
   const [settings, setSettings] = useState({
     siteName: 'ContentCard',
-    supportEmail: 'support@contentcard.io',
+    supportEmail: 'hellovoya@gmail.com',
     trialDays: '14',
     maxBrandsStarter: '1',
     maxBrandsBusiness: '5',

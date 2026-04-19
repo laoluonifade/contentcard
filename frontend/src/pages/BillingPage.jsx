@@ -220,8 +220,8 @@ export default function BillingPage() {
 
       <p className="text-center text-ink/30 text-xs">
         Payments processed securely by Paystack. Cancel anytime. Questions?{' '}
-        <a href="mailto:support@contentcard.io" className="text-brand-500 hover:text-brand-600 transition-colors">
-          support@contentcard.io
+        <a href="mailto:hellovoya@gmail.com" className="text-brand-500 hover:text-brand-600 transition-colors">
+          hellovoya@gmail.com
         </a>
       </p>
 

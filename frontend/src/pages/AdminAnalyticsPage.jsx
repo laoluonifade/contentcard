@@ -20,11 +20,11 @@ function BarChart({ data, color }) {
 }
 
 const TOP_BRANDS = [
-  { name: 'MTN Nigeria',    posts: 623, workspace: 'MTN Digital Hub' },
-  { name: 'Zenith Fintech', posts: 502, workspace: 'Zenith Marketing' },
-  { name: 'Zenith Bank',    posts: 389, workspace: 'Zenith Marketing' },
-  { name: 'Konga',          posts: 314, workspace: 'Konga Creative' },
-  { name: 'Bamboo Invest',  posts: 77,  workspace: 'Bamboo Content'  },
+  { name: 'Stridepay Nigeria',  posts: 623, workspace: 'Stridepay Digital Hub' },
+  { name: 'Axle Fintech',       posts: 502, workspace: 'Axle Marketing' },
+  { name: 'Axle Bank',          posts: 389, workspace: 'Axle Marketing' },
+  { name: 'Shopriva',           posts: 314, workspace: 'Shopriva Creative' },
+  { name: 'Verdant Invest',     posts: 77,  workspace: 'Verdant Content'  },
 ]
 
 export default function AdminAnalyticsPage() {
