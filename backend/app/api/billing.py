@@ -1,3 +1,4 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -11,9 +12,9 @@ from app.services.billing_service import (
     create_paystack_customer, create_paystack_subscription_link,
     verify_paystack_transaction, handle_stripe_webhook,
     cancel_stripe_subscription, cancel_paystack_subscription,
-    get_plan_limits, PLANS,
+    get_paystack_saved_card, extract_paystack_card, verify_paystack_webhook_signature, PLANS,
 )
-from app.schemas.billing import CheckoutRequest, CheckoutResponse, SubscriptionOut
+from app.schemas.billing import CheckoutRequest, CheckoutResponse, SubscriptionOut, SavedCardOut
 
 router = APIRouter(prefix="/billing", tags=["billing"])
 
@@ -41,12 +42,18 @@ async def get_subscription(
     db: AsyncSession = Depends(get_db),
 ):
     ws = await _get_workspace_as_owner(workspace_id, current_user.id, db)
+    saved_card = None
+    if ws.payment_provider == "paystack" and ws.customer_id:
+        card = await get_paystack_saved_card(ws.customer_id)
+        if card:
+            saved_card = SavedCardOut(**card)
     return SubscriptionOut(
         plan=ws.plan,
         provider=ws.payment_provider,
         trial_ends_at=ws.trial_ends_at,
         is_active=ws.is_active,
         subscription_id=ws.subscription_id,
+        saved_card=saved_card,
     )
 
 
@@ -80,6 +87,7 @@ async def create_checkout(
             email=current_user.email,
             plan=body.plan,
             callback_url=success_url,
+            workspace_id=ws.id,
         )
     else:
         if not ws.customer_id:
@@ -123,6 +131,38 @@ async def cancel_subscription(
 
 # ── Webhooks ──────────────────────────────────────────────────────
 
+async def _find_workspace_for_paystack_event(data: dict, db: AsyncSession) -> Workspace | None:
+    metadata = data.get("metadata", {}) or {}
+    workspace_id = metadata.get("workspace_id")
+    if workspace_id:
+        ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        ws = ws_r.scalar_one_or_none()
+        if ws:
+            return ws
+
+    customer = data.get("customer") or {}
+    customer_code = customer.get("customer_code")
+    if customer_code:
+        ws_r = await db.execute(select(Workspace).where(Workspace.customer_id == customer_code))
+        ws = ws_r.scalar_one_or_none()
+        if ws:
+            return ws
+
+    email = customer.get("email")
+    if not email:
+        return None
+    from app.models.user import User as UserModel
+    user_r = await db.execute(select(UserModel).where(UserModel.email == email))
+    user = user_r.scalar_one_or_none()
+    if not user:
+        return None
+    ws_r = await db.execute(
+        select(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(WorkspaceMember.user_id == user.id, WorkspaceMember.role == WorkspaceRole.OWNER)
+    )
+    return ws_r.scalar_one_or_none()
+
 @router.post("/webhook/stripe", include_in_schema=False)
 async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     payload = await request.body()
@@ -163,6 +203,48 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     return {"received": True}
 
 
+@router.post("/webhook/paystack", include_in_schema=False)
+async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    payload = await request.body()
+    signature = request.headers.get("x-paystack-signature")
+    if not verify_paystack_webhook_signature(payload, signature):
+        raise HTTPException(status_code=400, detail="Invalid Paystack signature")
+
+    try:
+        event = json.loads(payload.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload")
+
+    event_type = event.get("event")
+    data = event.get("data") or {}
+    ws = await _find_workspace_for_paystack_event(data, db)
+    if not ws:
+        return {"received": True}
+
+    metadata = data.get("metadata", {}) or {}
+    plan = metadata.get("plan", ws.plan if ws.plan != "trial" else "starter")
+
+    if event_type in ("charge.success", "subscription.create"):
+        ws.plan = plan
+        ws.subscription_id = (
+            data.get("subscription")
+            or data.get("subscription_code")
+            or data.get("reference")
+            or ws.subscription_id
+        )
+        customer = data.get("customer", {}) or {}
+        if customer.get("customer_code"):
+            ws.customer_id = customer["customer_code"]
+        await db.commit()
+
+    elif event_type in ("subscription.disable", "invoice.payment_failed", "charge.failed"):
+        ws.plan = "trial"
+        ws.subscription_id = None
+        await db.commit()
+
+    return {"received": True}
+
+
 @router.get("/webhook/paystack/verify")
 async def paystack_verify(reference: str, db: AsyncSession = Depends(get_db)):
     """Called when Paystack redirects back after payment."""
@@ -193,3 +275,50 @@ async def paystack_verify(reference: str, db: AsyncSession = Depends(get_db)):
             await db.commit()
 
     return {"status": "success", "plan": plan}
+
+
+@router.post("/paystack/verify-session")
+async def paystack_verify_session(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    reference = body.get("reference")
+    workspace_id = body.get("workspace_id")
+    if not reference or not workspace_id:
+        raise HTTPException(status_code=400, detail="reference and workspace_id are required")
+
+    ws = await _get_workspace_as_owner(workspace_id, current_user.id, db)
+    if ws.payment_provider != "paystack":
+        raise HTTPException(status_code=400, detail="Workspace does not use Paystack")
+
+    result = await verify_paystack_transaction(reference)
+    tx_data = result.get("data", {})
+    if tx_data.get("status") != "success":
+        raise HTTPException(status_code=402, detail="Payment not successful")
+
+    metadata = tx_data.get("metadata", {})
+    plan = metadata.get("plan", "starter")
+    ws.plan = plan
+
+    # For recurring plans, Paystack may return subscription fields depending on flow.
+    ws.subscription_id = (
+        tx_data.get("subscription")
+        or tx_data.get("subscription_code")
+        or tx_data.get("reference")
+    )
+
+    # Keep customer linkage in sync so card lookup works in billing view.
+    customer = tx_data.get("customer", {})
+    if customer.get("customer_code"):
+        ws.customer_id = customer.get("customer_code")
+
+    await db.commit()
+
+    card = extract_paystack_card(tx_data)
+    return {
+        "status": "success",
+        "plan": plan,
+        "subscription_id": ws.subscription_id,
+        "saved_card": card,
+    }

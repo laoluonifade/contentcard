@@ -37,16 +37,44 @@ const PLANS = [
 
 export default function BillingPage() {
   const [searchParams] = useSearchParams()
-  const { activeWorkspace, subscription, fetchSubscription, createCheckout } = useAppStore()
+  const {
+    activeWorkspace,
+    activeWorkspaceId,
+    subscription,
+    fetchSubscription,
+    createCheckout,
+    verifyPaystackSession,
+  } = useAppStore()
   const [loading, setLoading] = useState(null)
+  const [verifyingPayment, setVerifyingPayment] = useState(false)
 
   const isNigeria = activeWorkspace?.payment_provider === 'paystack'
 
   useEffect(() => {
+    if (!activeWorkspaceId) return
     fetchSubscription().catch(() => {})
-    if (searchParams.get('success')) toast('Subscription activated! Welcome to ContentCard.')
-    if (searchParams.get('cancelled')) toast('Checkout cancelled.', 'error')
-  }, [])
+  }, [activeWorkspaceId, fetchSubscription])
+
+  useEffect(() => {
+    const success = searchParams.get('success')
+    const cancelled = searchParams.get('cancelled')
+    const reference = searchParams.get('reference')
+
+    if (cancelled) toast('Checkout cancelled.', 'error')
+    if (!success) return
+
+    if (isNigeria && reference && activeWorkspaceId) {
+      setVerifyingPayment(true)
+      verifyPaystackSession(reference)
+        .then(() => toast('Subscription activated and card saved successfully.'))
+        .catch((err) => toast(err.message || 'Payment verification failed. Please refresh.', 'error'))
+        .finally(() => setVerifyingPayment(false))
+      return
+    }
+
+    toast('Subscription activated! Welcome to ContentCard.')
+    fetchSubscription().catch(() => {})
+  }, [searchParams, isNigeria, activeWorkspaceId, verifyPaystackSession, fetchSubscription])
 
   const handleSubscribe = async (planId) => {
     setLoading(planId)
@@ -95,6 +123,28 @@ export default function BillingPage() {
           <div>
             <span className={`inline-block px-3 py-1.5 rounded-full text-xs font-bold ${subscription.plan !== 'trial' ? 'bg-white/20 text-white' : days === 0 ? 'bg-red-500/20 text-red-400' : 'bg-amber-500/15 text-amber-400'}`}>
               {subscription.plan !== 'trial' ? 'Active' : days === 0 ? 'Expired' : 'Trial'}
+            </span>
+          </div>
+        </div>
+      )}
+
+      {verifyingPayment && (
+        <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 p-4 mb-6 text-sm text-violet-200">
+          Verifying your Paystack payment and syncing subscription...
+        </div>
+      )}
+
+      {subscription?.saved_card && (
+        <div className="rounded-2xl p-6 mb-8 border border-zinc-800 bg-zinc-900">
+          <p className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3">Saved payment card</p>
+          <div className="flex items-center gap-3 text-zinc-200">
+            <CreditCard size={16} className="text-zinc-400" />
+            <span className="text-sm">
+              {subscription.saved_card.card_type || 'Card'} ending in {subscription.saved_card.last4 || '****'}
+              {subscription.saved_card.exp_month && subscription.saved_card.exp_year
+                ? ` · exp ${subscription.saved_card.exp_month}/${subscription.saved_card.exp_year}`
+                : ''}
+              {subscription.saved_card.bank ? ` · ${subscription.saved_card.bank}` : ''}
             </span>
           </div>
         </div>

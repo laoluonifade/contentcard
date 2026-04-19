@@ -1,4 +1,6 @@
 import asyncio
+import hashlib
+import hmac
 import stripe
 import httpx
 from app.core.config import settings
@@ -12,7 +14,7 @@ PLANS = {
         "usd_price": 2500,          # $25.00 in cents
         "ngn_price": 2000000,       # ₦20,000 in kobo
         "stripe_price_id": settings.STRIPE_PRICE_STARTER,
-        "paystack_plan_code": "",   # set after creating plan in Paystack dashboard
+        "paystack_plan_code": settings.PAYSTACK_PLAN_STARTER,
         "max_brands": 1,
         "max_members": 1,
         "unlimited_posts": False,
@@ -23,7 +25,7 @@ PLANS = {
         "usd_price": 5000,          # $50.00
         "ngn_price": 5000000,       # ₦50,000
         "stripe_price_id": settings.STRIPE_PRICE_SMB,
-        "paystack_plan_code": "",
+        "paystack_plan_code": settings.PAYSTACK_PLAN_SMB,
         "max_brands": 3,
         "max_members": 5,
         "unlimited_posts": True,
@@ -34,7 +36,7 @@ PLANS = {
         "usd_price": 10000,         # $100.00
         "ngn_price": 20000000,      # ₦200,000
         "stripe_price_id": settings.STRIPE_PRICE_PRO,
-        "paystack_plan_code": "",
+        "paystack_plan_code": settings.PAYSTACK_PLAN_PRO,
         "max_brands": 10,
         "max_members": None,
         "unlimited_posts": True,
@@ -120,15 +122,20 @@ async def create_paystack_subscription_link(
     email: str,
     plan: str,
     callback_url: str,
+    workspace_id: str,
 ) -> str:
     plan_config = PLANS[plan]
+    paystack_plan_code = plan_config.get("paystack_plan_code")
+    if not paystack_plan_code:
+        raise ValueError("Paystack plan code is missing for selected plan")
+
     payload = {
         "email": email,
-        "amount": plan_config["ngn_price"],
-        "currency": "NGN",
+        "plan": paystack_plan_code,
         "callback_url": callback_url,
         "metadata": {
             "plan": plan,
+            "workspace_id": workspace_id,
             "cancel_action": callback_url,
         },
     }
@@ -153,6 +160,17 @@ async def verify_paystack_transaction(reference: str) -> dict:
         return resp.json()
 
 
+def verify_paystack_webhook_signature(payload: bytes, signature: str | None) -> bool:
+    if not signature:
+        return False
+    computed = hmac.new(
+        settings.PAYSTACK_SECRET_KEY.encode("utf-8"),
+        payload,
+        hashlib.sha512,
+    ).hexdigest()
+    return hmac.compare_digest(computed, signature)
+
+
 async def cancel_paystack_subscription(subscription_code: str) -> None:
     payload = {"code": subscription_code, "token": ""}
     async with httpx.AsyncClient(timeout=10.0) as client:
@@ -161,6 +179,44 @@ async def cancel_paystack_subscription(subscription_code: str) -> None:
             json=payload,
             headers=_paystack_headers(),
         )
+
+
+def extract_paystack_card(transaction_data: dict | None) -> dict | None:
+    if not transaction_data:
+        return None
+    auth = transaction_data.get("authorization") or {}
+    if not auth:
+        return None
+    return {
+        "card_type": auth.get("card_type"),
+        "last4": auth.get("last4"),
+        "exp_month": auth.get("exp_month"),
+        "exp_year": auth.get("exp_year"),
+        "bank": auth.get("bank"),
+    }
+
+
+async def get_paystack_saved_card(customer_code: str) -> dict | None:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            f"{PAYSTACK_BASE}/customer/{customer_code}",
+            headers=_paystack_headers(),
+        )
+        data = resp.json()
+    if not data.get("status"):
+        return None
+    authorizations = data.get("data", {}).get("authorizations") or []
+    if not authorizations:
+        return None
+    reusable_cards = [a for a in authorizations if a.get("reusable")]
+    selected = reusable_cards[0] if reusable_cards else authorizations[0]
+    return {
+        "card_type": selected.get("card_type"),
+        "last4": selected.get("last4"),
+        "exp_month": selected.get("exp_month"),
+        "exp_year": selected.get("exp_year"),
+        "bank": selected.get("bank"),
+    }
 
 
 def get_plan_limits(plan: str) -> dict:

@@ -197,6 +197,14 @@ const useAppStore = create(
         if (!wsId) throw new Error('No active workspace')
         return billingApi.createCheckout({ plan, workspace_id: wsId })
       },
+
+      verifyPaystackSession: async (reference) => {
+        const wsId = get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        const result = await billingApi.verifyPaystackSession({ reference, workspace_id: wsId })
+        await get().fetchSubscription()
+        return result
+      },
     }),
     {
       name: 'contentcard-app',

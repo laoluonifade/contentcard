@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/contentcard"
 
     ANTHROPIC_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
 
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
@@ -21,6 +22,9 @@ class Settings(BaseSettings):
 
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
+    PAYSTACK_PLAN_STARTER: str = ""
+    PAYSTACK_PLAN_SMB: str = ""
+    PAYSTACK_PLAN_PRO: str = ""
 
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
