@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react'
-import { Check, Plus, X, ArrowRight, Sparkles, RefreshCw, ChevronDown } from 'lucide-react'
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { Check, Plus, X, ArrowRight, Sparkles, RefreshCw } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
@@ -58,12 +58,277 @@ const LANG_BY_COUNTRY = {
   default: [['english','English'],['formal','Formal English'],['mix','Mix']],
 }
 
+// ── Scoring engine ─────────────────────────────────────────────────────────────
+const LEVELS = {
+  poor:      { label: 'Poor',          color: 'text-red-500',     bg: 'bg-red-500/10',      border: 'border-red-400/25',    dot: 'bg-red-500'      },
+  fair:      { label: 'Can Be Better', color: 'text-amber-500',   bg: 'bg-amber-500/10',    border: 'border-amber-400/25',  dot: 'bg-amber-500'    },
+  good:      { label: 'Good',          color: 'text-blue-500',    bg: 'bg-blue-500/10',     border: 'border-blue-400/25',   dot: 'bg-blue-500'     },
+  excellent: { label: 'Excellent',     color: 'text-emerald-500', bg: 'bg-emerald-500/10',  border: 'border-emerald-400/25',dot: 'bg-emerald-500'  },
+}
+
+const LEVEL_WEIGHTS = { poor: 0, fair: 33, good: 66, excellent: 100 }
+
+function wc(str) { return (str || '').trim().split(/\s+/).filter(Boolean).length }
+
+// Returns { level: 'poor'|'fair'|'good'|'excellent', tip: string }
+function computeScores(form, kit) {
+  const s = (level, tip) => ({ level, ...LEVELS[level], tip })
+  const arrLen = (v) => (Array.isArray(v) ? v.length : 0)
+
+  return {
+    // ── Identity ──
+    brand_name: () => {
+      const v = (form.name || '').trim()
+      if (!v) return s('poor', 'Add your brand name — it anchors every piece of content the AI generates.')
+      if (v.length < 2) return s('fair', 'Too short. Use your full brand name as it appears publicly.')
+      return s('excellent', 'Great. Your brand name is set.')
+    },
+    industry: () => {
+      if (!form.industry) return s('poor', 'Select your industry so AI understands your market context and uses the right language.')
+      return s('excellent', 'Industry set — AI will align language and references to your sector.')
+    },
+    description: () => {
+      const words = wc(form.description)
+      if (words === 0) return s('poor', 'This is the most important field. Describe what your company does, who it serves, and the problem it solves.')
+      if (words < 15) return s('fair', 'Too brief. Include: who your customers are, what you offer, and what makes you different from competitors.')
+      if (words < 40) return s('good', 'Solid! Strengthen it by adding a specific outcome (e.g. "helping X achieve Y in Z timeframe").')
+      return s('excellent', 'Excellent description. The AI has strong context to generate on-brand content every time.')
+    },
+    value_proposition: () => {
+      const words = wc(kit.value_proposition)
+      if (words === 0) return s('poor', 'Your value prop is critical AI context. Write: who you help + what problem you solve + how.')
+      if (words < 10) return s('fair', 'Too short. Include your target customer, the problem, your solution, and a tangible outcome.')
+      if (words < 25) return s('good', 'Good. Add a specific result or timeframe to make it excellent (e.g. "in under 5 minutes").')
+      return s('excellent', 'Strong value proposition — AI will use this to anchor every post to your core offering.')
+    },
+    mission_statement: () => {
+      const words = wc(kit.mission_statement)
+      if (words === 0) return s('fair', 'A mission statement helps AI infuse purpose-driven language into your content. Worth adding.')
+      if (words < 8) return s('fair', 'Expand it. A good mission statement explains why you exist, not just what you do.')
+      if (words < 20) return s('good', 'Good. Make it excellent by tying it to a bigger societal or human impact.')
+      return s('excellent', 'Mission statement gives AI strong purpose-driven context for your brand voice.')
+    },
+    tagline: () => {
+      const v = (kit.tagline || '').trim()
+      if (!v) return s('fair', 'A tagline is used in visual captions and sign-offs. Even one phrase helps (e.g. "Save. Invest. Grow.").')
+      if (v.length < 5) return s('fair', 'Make it a full phrase — at least 3 words that capture your brand in a memorable way.')
+      return s('excellent', 'Tagline set. AI will use it for CTAs and post sign-offs.')
+    },
+    business_model: () => {
+      if (!kit.business_model) return s('fair', 'Select your business model so AI understands your sales context and writes appropriate CTAs.')
+      return s('excellent', 'Business model helps AI write CTAs appropriate for your sales motion.')
+    },
+
+    // ── Audience ──
+    target_audience: () => {
+      const words = wc(form.target_audience)
+      if (words === 0) return s('poor', 'Define who you\'re speaking to — age, occupation, location, and what drives their behaviour.')
+      if (words < 15) return s('fair', 'Too vague. Add specific demographics: age range, what they do for work, where they live, and their mindset.')
+      if (words < 35) return s('good', 'Good detail. To make it excellent, add what motivates their decisions and what a day in their life looks like.')
+      return s('excellent', 'Rich audience profile. AI will produce highly targeted content for this persona.')
+    },
+    pain_point: () => {
+      const words = wc(form.pain_point)
+      if (words === 0) return s('poor', 'Pain points create emotional hooks. List at least 3 specific frustrations your customer faces.')
+      if (words < 10) return s('fair', 'Too brief. Describe the emotional weight of the problem — what keeps them up at night?')
+      if (words < 25) return s('good', 'Good. Add the downstream consequence of their pain (what it costs them if unsolved) for excellent.')
+      return s('excellent', 'Strong pain point context. AI will create empathy-driven content that resonates deeply.')
+    },
+    aspirations: () => {
+      const words = wc(kit.aspirations)
+      if (words === 0) return s('poor', 'Aspirations power inspirational content. What does your customer dream about achieving?')
+      if (words < 8) return s('fair', 'Go deeper. What specific life outcome does your customer want — financial, personal, or social?')
+      if (words < 20) return s('good', 'Good. Make it vivid — describe the transformation your product enables.')
+      return s('excellent', 'Aspirational context will help AI write motivational content that moves your audience.')
+    },
+    demographics_occupation: () => {
+      const n = arrLen(kit.demographics?.occupation)
+      if (n === 0) return s('poor', 'Select occupations so AI uses language and references your audience actually recognises.')
+      if (n <= 2) return s('fair', 'Add more occupation types. Your audience is likely a mix — select all that apply.')
+      if (n <= 4) return s('good', 'Good selection. The more specific, the better AI can tailor language and examples.')
+      return s('excellent', 'Comprehensive occupation profile — AI will use highly relevant cultural references.')
+    },
+    psychographics: () => {
+      const n = arrLen(kit.psychographics)
+      if (n === 0) return s('fair', 'Psychographics help AI write to your audience\'s mindset, not just their demographics. Select a few.')
+      if (n <= 2) return s('fair', 'Select 3–5 psychographic traits to give AI a richer psychological profile of your audience.')
+      if (n <= 4) return s('good', 'Good. Add one or two more if they apply — especially dominant mindsets like "risk averse" or "growth oriented".')
+      return s('excellent', 'Strong psychographic profile. AI will write with precision to your audience\'s deepest motivations.')
+    },
+    objections: () => {
+      const n = arrLen(kit.objections)
+      if (n === 0) return s('fair', 'Knowing objections helps AI write content that proactively handles doubt. Select the main ones.')
+      if (n <= 1) return s('fair', 'Add more objections — most audiences have multiple hesitations. Select all that apply.')
+      return s('good', 'Good. AI will write content that directly addresses these barriers to conversion.')
+    },
+
+    // ── Voice ──
+    tone_tags: () => {
+      const n = arrLen(form.tone_tags)
+      if (n === 0) return s('poor', 'Tone tags define your brand voice. Select at least 3–5 that describe how your brand speaks.')
+      if (n <= 2) return s('fair', 'Select at least 3 tone tags. The combination is what makes your voice distinctive.')
+      if (n <= 4) return s('good', 'Good voice definition. Adding one or two more tags sharpens the AI\'s tonal range.')
+      return s('excellent', 'Strong voice profile. AI will consistently hit this tone across every post.')
+    },
+    writing_style: () => {
+      if (!kit.writing_style) return s('poor', 'Select a writing style — it\'s the foundational instruction for how AI structures every caption.')
+      return s('excellent', 'Writing style set. AI will structure captions accordingly.')
+    },
+    communication_style: () => {
+      if (!kit.communication_style) return s('fair', 'Communication style tells AI how to open posts and approach the reader. Worth setting.')
+      return s('excellent', 'Communication style will shape how AI opens and frames every post.')
+    },
+    emotional_tone: () => {
+      if (!kit.emotional_tone) return s('fair', 'Emotional tone tells AI what feeling to evoke. Set it so your content hits the right register.')
+      return s('excellent', 'Emotional tone set — AI will evoke this feeling consistently.')
+    },
+
+    // ── Visual ──
+    brand_colors: () => {
+      const n = arrLen(form.brand_colors)
+      if (n === 0) return s('poor', 'Add your primary brand colours. They\'re used in generated visuals and slide backgrounds.')
+      if (n === 1) return s('fair', 'Add at least 2–3 colours — a primary and a supporting colour give AI a palette to work with.')
+      if (n === 2) return s('good', 'Good start. A third colour (accent or neutral) gives AI more visual flexibility.')
+      return s('excellent', 'Great colour palette. AI will use these consistently in all generated visuals.')
+    },
+    design_style: () => {
+      if (!form.design_style) return s('poor', 'Select a design style — it directly controls the look of every AI-generated visual.')
+      return s('excellent', 'Design style set. AI-generated visuals will follow this aesthetic direction.')
+    },
+    imagery_style: () => {
+      if (!kit.imagery_style) return s('fair', 'Imagery style tells AI whether to prompt for photos, illustrations, or 3D renders.')
+      return s('good', 'Imagery style set. AI will request images that match your visual language.')
+    },
+    logo_description: () => {
+      const words = wc(kit.logo_description)
+      if (words === 0) return s('fair', 'Describe your logo so AI can reference it in image prompts (e.g. "minimalist green piggy bank, sans-serif wordmark").')
+      if (words < 8) return s('fair', 'Add more detail — include the colours, style, and shape of your logo for better visual integration.')
+      return s('good', 'Good. AI will incorporate your logo description into visual direction prompts.')
+    },
+
+    // ── Messaging ──
+    key_messages: () => {
+      const n = arrLen(kit.key_messages)
+      if (n === 0) return s('poor', 'Key messages are the ideas you want every post to reinforce. Add at least 3–5 core messages.')
+      if (n <= 2) return s('fair', 'Add at least 3 messages. Think: what 5 things do you always want people to remember about you?')
+      if (n <= 4) return s('good', 'Good set of messages. More variety gives AI a richer library to draw from.')
+      return s('excellent', 'Strong message library. Every post will consistently reinforce these core ideas.')
+    },
+    value_pillars: () => {
+      const n = arrLen(kit.value_pillars)
+      if (n === 0) return s('poor', 'Value pillars are the themes your content always returns to. Select at least 3.')
+      if (n <= 2) return s('fair', 'Select at least 3 pillars — they form the backbone of your content strategy.')
+      if (n <= 4) return s('good', 'Good selection. These pillars will recur across all generated content themes.')
+      return s('excellent', 'Well-defined pillars. Content will consistently align with your brand\'s core values.')
+    },
+    forbidden_claims: () => {
+      const words = wc(kit.forbidden_claims)
+      if (words === 0) return s('fair', 'List claims AI must never make — especially important for regulated industries (finance, health, crypto).')
+      if (words < 10) return s('fair', 'Be more specific. List exact phrases or claim types AI must avoid.')
+      return s('good', 'Good guardrail. AI will avoid these claims in all generated captions.')
+    },
+    cta_style: () => {
+      if (!kit.cta_style) return s('fair', 'CTA style controls how posts end. Select one to keep your calls-to-action consistent.')
+      return s('excellent', 'CTA style set — every post will close with the right level of directness.')
+    },
+
+    // ── Strategy ──
+    content_types: () => {
+      const n = arrLen(kit.content_types_supported)
+      if (n === 0) return s('poor', 'Select the content types you publish. This shapes the variety and format of generated posts.')
+      if (n <= 2) return s('fair', 'Add more content types. A mix of educational, testimonials, and engagement content performs best.')
+      if (n <= 4) return s('good', 'Good variety. AI will rotate through these types across your monthly calendar.')
+      return s('excellent', 'Excellent content mix. AI will produce a diverse and engaging monthly calendar.')
+    },
+    funnel_stages: () => {
+      const n = arrLen(kit.funnel_stages)
+      if (n === 0) return s('poor', 'Select which funnel stages your content targets. This tells AI what goals each post should serve.')
+      if (n <= 1) return s('fair', 'Most brands need content across multiple stages. Add at least Awareness + Conversion.')
+      if (n <= 3) return s('good', 'Good. AI will balance posts across these stages in your calendar.')
+      return s('excellent', 'Full funnel coverage. AI will generate content for every stage of the customer journey.')
+    },
+    content_goals: () => {
+      const n = arrLen(kit.content_goals)
+      if (n === 0) return s('poor', 'Content goals tell AI what each post should achieve. Select at least 2–3.')
+      if (n <= 2) return s('fair', 'Add more goals. A healthy content strategy balances engagement, education, and conversion.')
+      return s('good', 'Good goal mix. AI will optimise posts to hit these objectives.')
+    },
+    platform_styles: () => {
+      const n = arrLen(kit.platform_styles)
+      if (n === 0) return s('poor', 'Select the platforms you publish on. AI adapts tone and format per platform.')
+      if (n <= 1) return s('fair', 'Add all the platforms you use. AI needs to know where each post will live.')
+      return s('good', 'Good. AI will tailor language and format for each selected platform.')
+    },
+
+    // ── Guardrails ──
+    words_to_avoid: () => {
+      const n = arrLen(form.words_to_avoid)
+      if (n === 0) return s('fair', 'Add words or phrases AI must never use — brand, legal, or tone-related terms.')
+      if (n <= 2) return s('fair', 'Add more. Think about competitor names, buzzwords, or overpromising language you want to ban.')
+      return s('good', 'Good guardrail list. AI will avoid all of these terms in generated content.')
+    },
+    required_keywords: () => {
+      const n = arrLen(kit.required_keywords)
+      if (n === 0) return s('fair', 'Add keywords that should appear in your content — product names, branded terms, or key phrases.')
+      return s('good', 'Keywords set. AI will incorporate these naturally into generated captions.')
+    },
+
+    // ── Examples ──
+    good_examples: () => {
+      const words = wc(kit.good_examples)
+      if (words === 0) return s('poor', 'This is your single most powerful training signal. Paste 3–5 real captions that perfectly represent your brand voice.')
+      if (words < 20) return s('fair', 'Too brief. Add complete captions, not just snippets — AI learns your rhythm, structure, and tone from full examples.')
+      if (words < 60) return s('good', 'Good. Add more examples (aim for 5+) to give AI a wider style reference to draw from.')
+      return s('excellent', 'Excellent example library. AI will closely mirror this voice and structure in every generated caption.')
+    },
+    bad_examples: () => {
+      const words = wc(kit.bad_examples)
+      if (words === 0) return s('fair', 'Negative examples are powerful — paste captions that are off-brand so AI knows what to avoid.')
+      if (words < 15) return s('fair', 'Add a few more. The more clearly you define what\'s wrong, the better AI avoids it.')
+      return s('good', 'Good. AI will use these as a negative reference to stay on-brand.')
+    },
+  }
+}
+
+// Compute all scores and an overall strength percentage
+function useBrandScores(form, kit) {
+  return useMemo(() => {
+    const scorers = computeScores(form, kit)
+    const results = {}
+    for (const [key, fn] of Object.entries(scorers)) {
+      results[key] = fn()
+    }
+    const values = Object.values(results).map(r => LEVEL_WEIGHTS[r.level])
+    const avg = values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0
+    const overallLevel = avg >= 85 ? 'excellent' : avg >= 55 ? 'good' : avg >= 25 ? 'fair' : 'poor'
+    return { scores: results, overall: avg, overallLevel }
+  }, [form, kit])
+}
+
+// ── Score Badge component ─────────────────────────────────────────────────────
+function ScoreBadge({ score }) {
+  if (!score) return null
+  const { label, color, bg, border, dot, tip } = score
+  return (
+    <div className="mt-1.5">
+      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-[10px] font-bold ${bg} ${border} ${color}`}>
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dot}`} />
+        {label}
+      </span>
+      {tip && (
+        <p className="text-ink/40 text-[11px] mt-1 leading-snug">{tip}</p>
+      )}
+    </div>
+  )
+}
+
 // ── Small helpers ─────────────────────────────────────────────────────────────
-function Label({ children, hint }) {
+function Label({ children, hint, score }) {
   return (
     <div className="mb-1.5">
       <label className="block text-[11px] font-bold uppercase tracking-widest text-ink/40">{children}</label>
       {hint && <p className="text-ink/30 text-[11px] mt-0.5">{hint}</p>}
+      {score && <ScoreBadge score={score} />}
     </div>
   )
 }
@@ -160,6 +425,37 @@ function ScoreBar({ label, score }) {
   )
 }
 
+// ── Overall strength banner ───────────────────────────────────────────────────
+function StrengthBanner({ overall, overallLevel }) {
+  const { label, color, bg, border, dot } = LEVELS[overallLevel]
+  const barColor = overallLevel === 'excellent' ? 'bg-emerald-500' : overallLevel === 'good' ? 'bg-blue-500' : overallLevel === 'fair' ? 'bg-amber-500' : 'bg-red-500'
+  return (
+    <div className={`rounded-2xl p-4 border ${bg} ${border} mb-6`}>
+      <div className="flex items-center justify-between gap-4 mb-2">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-ink/40 mb-0.5">Brand Kit Strength</p>
+          <div className="flex items-center gap-2">
+            <span className={`w-2 h-2 rounded-full ${dot}`} />
+            <span className={`text-sm font-bold ${color}`}>{label}</span>
+            <span className="text-ink/30 text-xs">— {overall}% complete</span>
+          </div>
+        </div>
+        <span className={`text-2xl font-bold tabular-nums ${color}`}>{overall}<span className="text-sm font-normal text-ink/30">/100</span></span>
+      </div>
+      <div className="h-1.5 bg-black/5 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${overall}%` }} />
+      </div>
+      {overallLevel !== 'excellent' && (
+        <p className="text-ink/40 text-[11px] mt-2 leading-snug">
+          {overallLevel === 'poor' && 'Fill in the key fields (description, audience, tone) to unlock better AI output.'}
+          {overallLevel === 'fair' && 'You\'re making progress. Focus on the fields showing Poor or Can Be Better scores.'}
+          {overallLevel === 'good' && 'Almost there! Address remaining fields to reach Excellent and maximise AI quality.'}
+        </p>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function BrandKitPage() {
   const navigate = useNavigate()
@@ -174,7 +470,7 @@ export default function BrandKitPage() {
   const [newColorHex, setNewColorHex] = useState('#6C63FF')
   const [newColorHex2, setNewColorHex2] = useState('#FFFFFF')
   const [form, setForm] = useState({})
-  const [kit, setKit] = useState({})   // brand_kit (extended fields)
+  const [kit, setKit] = useState({})
   const [aiInsights, setAiInsights] = useState(null)
   const logoInputRef = useRef()
 
@@ -192,10 +488,8 @@ export default function BrandKitPage() {
   const setK = (k, v) => setKit(f => ({ ...f, [k]: v }))
   const setKObj = (section, k, v) => setKit(f => ({ ...f, [section]: { ...(f[section] || {}), [k]: v } }))
 
-  const toggleTone = (t) => {
-    const tags = form.tone_tags || []
-    set('tone_tags', tags.includes(t) ? tags.filter(x => x !== t) : [...tags, t])
-  }
+  // Live scoring from all current field values
+  const { scores: S, overall, overallLevel } = useBrandScores(form, kit)
 
   const save = async () => {
     if (!activeBrandId || !activeWorkspaceId) return
@@ -225,7 +519,6 @@ export default function BrandKitPage() {
     if (!activeBrandId || !activeWorkspaceId) return
     setAiLoading(true)
     try {
-      // Save first so AI has latest data
       await updateBrand(activeBrandId, { ...form, brand_kit: kit })
       const insights = await brandApi.aiInsights(activeWorkspaceId, activeBrandId)
       setAiInsights(insights)
@@ -266,6 +559,9 @@ export default function BrandKitPage() {
         </button>
       </div>
 
+      {/* Brand Strength Banner */}
+      <StrengthBanner overall={overall} overallLevel={overallLevel} />
+
       {/* Tabs */}
       <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
         {TABS.map(t => (
@@ -305,11 +601,11 @@ export default function BrandKitPage() {
           <Section title="Brand Basics">
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <Label>Brand Name *</Label>
+                <Label score={S.brand_name}>Brand Name *</Label>
                 <input value={form.name || ''} onChange={e => set('name', e.target.value)} placeholder="PiggyVest" className={inp}/>
               </div>
               <div>
-                <Label>Industry *</Label>
+                <Label score={S.industry}>Industry *</Label>
                 <select value={form.industry || ''} onChange={e => set('industry', e.target.value)} className={sel}>
                   <option value="">Select industry</option>
                   {INDUSTRIES.map(i => <option key={i} value={i.toLowerCase()}>{i}</option>)}
@@ -317,7 +613,7 @@ export default function BrandKitPage() {
               </div>
             </div>
             <div>
-              <Label>Company Description *</Label>
+              <Label score={S.description}>Company Description *</Label>
               <textarea value={form.description || ''} onChange={e => set('description', e.target.value)}
                 rows={3} placeholder="What does your company do? Be specific — this powers every AI prompt." className={ta}/>
             </div>
@@ -335,22 +631,22 @@ export default function BrandKitPage() {
 
           <Section title="Brand Positioning">
             <div>
-              <Label hint="The core problem you solve and for whom.">Value Proposition *</Label>
+              <Label score={S.value_proposition} hint="The core problem you solve and for whom.">Value Proposition *</Label>
               <textarea value={kit.value_proposition || ''} onChange={e => setK('value_proposition', e.target.value)}
                 rows={2} placeholder="We help young Nigerians save and invest money effortlessly, starting from as little as ₦100." className={ta}/>
             </div>
             <div>
-              <Label hint="Why you exist beyond making money.">Mission Statement</Label>
+              <Label score={S.mission_statement} hint="Why you exist beyond making money.">Mission Statement</Label>
               <textarea value={kit.mission_statement || ''} onChange={e => setK('mission_statement', e.target.value)}
                 rows={2} placeholder="To make financial freedom accessible to every African." className={ta}/>
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <Label>Tagline</Label>
+                <Label score={S.tagline}>Tagline</Label>
                 <input value={kit.tagline || ''} onChange={e => setK('tagline', e.target.value)} placeholder="Save. Invest. Grow." className={inp}/>
               </div>
               <div>
-                <Label>Business Model</Label>
+                <Label score={S.business_model}>Business Model</Label>
                 <select value={kit.business_model || ''} onChange={e => setK('business_model', e.target.value)} className={sel}>
                   <option value="">Select model</option>
                   {BUSINESS_MODELS.map(m => <option key={m} value={m}>{m.toUpperCase()}</option>)}
@@ -382,7 +678,7 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Primary Audience">
             <div>
-              <Label hint="Describe your ideal customer in 2-3 sentences.">Who are you speaking to? *</Label>
+              <Label score={S.target_audience} hint="Describe your ideal customer in 2-3 sentences.">Who are you speaking to? *</Label>
               <textarea value={form.target_audience || ''} onChange={e => set('target_audience', e.target.value)}
                 rows={3} placeholder="Young Nigerian professionals aged 22–35 who earn a monthly salary but struggle to save consistently. They're tech-savvy, ambitious, and want to build wealth but feel overwhelmed by traditional finance." className={ta}/>
             </div>
@@ -409,7 +705,7 @@ export default function BrandKitPage() {
               </div>
             </div>
             <div>
-              <Label>Occupation</Label>
+              <Label score={S.demographics_occupation}>Occupation</Label>
               <MultiChip options={OCCUPATIONS} selected={kit.demographics?.occupation || []}
                 onChange={v => setKObj('demographics', 'occupation', v)}/>
             </div>
@@ -417,22 +713,22 @@ export default function BrandKitPage() {
 
           <Section title="Psychology">
             <div>
-              <Label>Psychographics</Label>
+              <Label score={S.psychographics}>Psychographics</Label>
               <MultiChip options={PSYCHOGRAPHICS} selected={kit.psychographics || []}
                 onChange={v => setK('psychographics', v)} color="amber"/>
             </div>
             <div>
-              <Label hint="What frustrates them? What problem are they trying to solve?">Pain Points *</Label>
+              <Label score={S.pain_point} hint="What frustrates them? What problem are they trying to solve?">Pain Points *</Label>
               <textarea value={form.pain_point || ''} onChange={e => set('pain_point', e.target.value)}
                 rows={2} placeholder="They struggle to save consistently, don't know where to invest, and fear losing money." className={ta}/>
             </div>
             <div>
-              <Label hint="Why might they hesitate to use your product?">Objections to Overcome</Label>
+              <Label score={S.objections} hint="Why might they hesitate to use your product?">Objections to Overcome</Label>
               <MultiChip options={OBJECTIONS} selected={kit.objections || []}
                 onChange={v => setK('objections', v)} color="amber"/>
             </div>
             <div>
-              <Label hint="What does your audience dream about?">Aspirations *</Label>
+              <Label score={S.aspirations} hint="What does your audience dream about?">Aspirations *</Label>
               <textarea value={kit.aspirations || ''} onChange={e => setK('aspirations', e.target.value)}
                 rows={2} placeholder="Financial freedom, owning a home, starting a business, retiring early and comfortably." className={ta}/>
             </div>
@@ -445,7 +741,7 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Tone & Personality">
             <div>
-              <Label hint="Select all that describe how your brand speaks.">Tone Tags *</Label>
+              <Label score={S.tone_tags} hint="Select all that describe how your brand speaks.">Tone Tags *</Label>
               <MultiChip options={TONE_TAGS} selected={form.tone_tags || []} onChange={v => set('tone_tags', v)}/>
             </div>
             <div>
@@ -464,21 +760,21 @@ export default function BrandKitPage() {
           <Section title="Writing Style">
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <Label>Writing Style *</Label>
+                <Label score={S.writing_style}>Writing Style *</Label>
                 <select value={kit.writing_style || ''} onChange={e => setK('writing_style', e.target.value)} className={sel}>
                   <option value="">Select</option>
                   {WRITING_STYLES.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
                 </select>
               </div>
               <div>
-                <Label>Communication Style *</Label>
+                <Label score={S.communication_style}>Communication Style *</Label>
                 <select value={kit.communication_style || ''} onChange={e => setK('communication_style', e.target.value)} className={sel}>
                   <option value="">Select</option>
                   {COMM_STYLES.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
                 </select>
               </div>
               <div>
-                <Label>Emotional Tone *</Label>
+                <Label score={S.emotional_tone}>Emotional Tone *</Label>
                 <select value={kit.emotional_tone || ''} onChange={e => setK('emotional_tone', e.target.value)} className={sel}>
                   <option value="">Select</option>
                   {EMOTIONAL_TONES.map(s => <option key={s} value={s.toLowerCase()}>{s}</option>)}
@@ -514,7 +810,7 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Brand Colors">
             <div>
-              <Label>Primary Colors *</Label>
+              <Label score={S.brand_colors}>Primary Colors *</Label>
               <div className="flex flex-wrap gap-3 mb-3">
                 {(form.brand_colors || []).map((c, i) => (
                   <ColorSwatch key={i} color={c}
@@ -558,7 +854,7 @@ export default function BrandKitPage() {
           <Section title="Design Language">
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <Label>Design Style *</Label>
+                <Label score={S.design_style}>Design Style *</Label>
                 <select value={form.design_style || ''} onChange={e => set('design_style', e.target.value)} className={sel}>
                   <option value="">Select</option>
                   {DESIGN_STYLES.map(s => <option key={s} value={s.toLowerCase().replace(' ', '_')}>{s}</option>)}
@@ -572,7 +868,7 @@ export default function BrandKitPage() {
                 </select>
               </div>
               <div>
-                <Label>Imagery Style *</Label>
+                <Label score={S.imagery_style}>Imagery Style *</Label>
                 <select value={kit.imagery_style || ''} onChange={e => setK('imagery_style', e.target.value)} className={sel}>
                   <option value="">Select</option>
                   {IMAGERY_STYLES.map(s => <option key={s} value={s.toLowerCase().replace(' ', '_')}>{s}</option>)}
@@ -591,7 +887,7 @@ export default function BrandKitPage() {
               <MultiChip options={BRAND_MOTIFS} selected={kit.brand_motifs || []} onChange={v => setK('brand_motifs', v)}/>
             </div>
             <div>
-              <Label hint="Describe your logo — helps AI incorporate it into visual direction.">Logo Description</Label>
+              <Label score={S.logo_description} hint="Describe your logo — helps AI incorporate it into visual direction.">Logo Description</Label>
               <textarea value={kit.logo_description || ''} onChange={e => setK('logo_description', e.target.value)}
                 rows={2} placeholder="A minimalist piggy bank icon in green, with bold sans-serif wordmark. Clean and modern." className={ta}/>
             </div>
@@ -604,14 +900,14 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Core Messages">
             <div>
-              <Label hint="What do you want people to remember after seeing your content?">Key Messages *</Label>
+              <Label score={S.key_messages} hint="What do you want people to remember after seeing your content?">Key Messages *</Label>
               <MultiChip options={KEY_MESSAGES} selected={kit.key_messages || []} onChange={v => setK('key_messages', v)}/>
               <div className="mt-2">
                 <TagInput tags={kit.key_messages || []} onChange={v => setK('key_messages', v)} placeholder="Add a custom key message…"/>
               </div>
             </div>
             <div>
-              <Label hint="The themes your brand always comes back to.">Value Pillars *</Label>
+              <Label score={S.value_pillars} hint="The themes your brand always comes back to.">Value Pillars *</Label>
               <MultiChip options={VALUE_PILLARS} selected={kit.value_pillars || []} onChange={v => setK('value_pillars', v)} color="emerald"/>
             </div>
             <div>
@@ -623,7 +919,7 @@ export default function BrandKitPage() {
           <Section title="CTA & Claims">
             <div className="grid sm:grid-cols-2 gap-4">
               <div>
-                <Label>CTA Style *</Label>
+                <Label score={S.cta_style}>CTA Style *</Label>
                 <select value={kit.cta_style || ''} onChange={e => setK('cta_style', e.target.value)} className={sel}>
                   <option value="">Select</option>
                   {CTA_STYLES.map(s => <option key={s} value={s.toLowerCase().replace(' ', '_')}>{s}</option>)}
@@ -631,7 +927,7 @@ export default function BrandKitPage() {
               </div>
             </div>
             <div>
-              <Label hint="Claims you must never make — legal, regulatory, or brand policy.">Forbidden Claims *</Label>
+              <Label score={S.forbidden_claims} hint="Claims you must never make — legal, regulatory, or brand policy.">Forbidden Claims *</Label>
               <textarea value={kit.forbidden_claims || ''} onChange={e => setK('forbidden_claims', e.target.value)}
                 rows={2} placeholder="Never promise guaranteed returns. Never claim to be the cheapest. Never use 'risk-free'." className={ta}/>
             </div>
@@ -644,22 +940,22 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Content Strategy">
             <div>
-              <Label>Content Types You Publish *</Label>
+              <Label score={S.content_types}>Content Types You Publish *</Label>
               <MultiChip options={CONTENT_TYPES} selected={kit.content_types_supported || []}
                 onChange={v => setK('content_types_supported', v)}/>
             </div>
             <div>
-              <Label hint="Which stage of the customer journey does most of your content target?">Funnel Stages *</Label>
+              <Label score={S.funnel_stages} hint="Which stage of the customer journey does most of your content target?">Funnel Stages *</Label>
               <MultiChip options={FUNNEL_STAGES} selected={kit.funnel_stages || []}
                 onChange={v => setK('funnel_stages', v)} color="amber"/>
             </div>
             <div>
-              <Label>Content Goals *</Label>
+              <Label score={S.content_goals}>Content Goals *</Label>
               <MultiChip options={CONTENT_GOALS} selected={kit.content_goals || []}
                 onChange={v => setK('content_goals', v)} color="emerald"/>
             </div>
             <div>
-              <Label>Active Platforms *</Label>
+              <Label score={S.platform_styles}>Active Platforms *</Label>
               <MultiChip options={PLATFORM_STYLES} selected={kit.platform_styles || []}
                 onChange={v => setK('platform_styles', v)}/>
             </div>
@@ -700,11 +996,11 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Language Rules">
             <div>
-              <Label hint="Words, phrases, or terms AI must never use.">Words to Avoid *</Label>
+              <Label score={S.words_to_avoid} hint="Words, phrases, or terms AI must never use.">Words to Avoid *</Label>
               <TagInput tags={form.words_to_avoid || []} onChange={v => set('words_to_avoid', v)} placeholder="e.g. guaranteed, risk-free, best…"/>
             </div>
             <div>
-              <Label hint="Keywords that must appear in your content.">Required Keywords</Label>
+              <Label score={S.required_keywords} hint="Keywords that must appear in your content.">Required Keywords</Label>
               <TagInput tags={kit.required_keywords || []} onChange={v => setK('required_keywords', v)} placeholder="e.g. save, invest, growth…"/>
             </div>
             <div>
@@ -751,12 +1047,12 @@ export default function BrandKitPage() {
         <div className="space-y-4">
           <Section title="Content Examples">
             <div>
-              <Label hint="Paste real examples of content that represents your brand perfectly. AI learns from these.">Good Examples *</Label>
+              <Label score={S.good_examples} hint="Paste real examples of content that represents your brand perfectly. AI learns from these.">Good Examples *</Label>
               <textarea value={kit.good_examples || ''} onChange={e => setK('good_examples', e.target.value)}
                 rows={5} placeholder={'Example 1:\n"Your future self is watching. Start your savings target today. 💰"\n\nExample 2:\n"Salary just dropped? Set aside 20% before you even blink. Here\'s how →"'} className={ta}/>
             </div>
             <div>
-              <Label hint="Content that doesn't represent your brand — AI uses this to avoid these patterns.">Bad Examples</Label>
+              <Label score={S.bad_examples} hint="Content that doesn't represent your brand — AI uses this to avoid these patterns.">Bad Examples</Label>
               <textarea value={kit.bad_examples || ''} onChange={e => setK('bad_examples', e.target.value)}
                 rows={3} placeholder={'❌ "Invest now and get guaranteed 40% returns!"\n❌ "Our product is the best and cheapest in Nigeria"'} className={ta}/>
             </div>
@@ -805,7 +1101,6 @@ export default function BrandKitPage() {
 
           {aiInsights && (
             <div className="space-y-4">
-              {/* Overall score */}
               {aiInsights.overall_score !== undefined && (
                 <div className="bg-white border border-fog rounded-2xl p-5">
                   <div className="flex items-center justify-between mb-4">
@@ -822,7 +1117,6 @@ export default function BrandKitPage() {
                 </div>
               )}
 
-              {/* Brand personality */}
               {aiInsights.brand_personality_summary && (
                 <div className="bg-brand-500/8 border border-brand-400/20 rounded-2xl p-5">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-500/70 mb-2">Brand Personality</p>
@@ -830,7 +1124,6 @@ export default function BrandKitPage() {
                 </div>
               )}
 
-              {/* Tone variants */}
               {aiInsights.tone_variants?.length > 0 && (
                 <div className="bg-white border border-fog rounded-2xl p-5">
                   <h3 className="text-ink font-bold text-sm mb-3">Tone Variants</h3>
@@ -845,7 +1138,6 @@ export default function BrandKitPage() {
                 </div>
               )}
 
-              {/* Audience segments */}
               {aiInsights.audience_segments?.length > 0 && (
                 <div className="bg-white border border-fog rounded-2xl p-5">
                   <h3 className="text-ink font-bold text-sm mb-3">Audience Segments</h3>
@@ -860,7 +1152,6 @@ export default function BrandKitPage() {
                 </div>
               )}
 
-              {/* Improvements */}
               {aiInsights.recommended_improvements?.length > 0 && (
                 <div className="bg-white border border-fog rounded-2xl p-5">
                   <h3 className="text-ink font-bold text-sm mb-3">Recommended Improvements</h3>
@@ -875,7 +1166,6 @@ export default function BrandKitPage() {
                 </div>
               )}
 
-              {/* Missing fields */}
               {aiInsights.missing_fields?.length > 0 && (
                 <div className="bg-mist border border-fog rounded-2xl p-4">
                   <p className="label mb-2">Incomplete fields</p>
