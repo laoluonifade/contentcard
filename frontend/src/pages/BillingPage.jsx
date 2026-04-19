@@ -353,7 +353,7 @@ export default function BillingPage() {
       {/* Trust footer */}
       <div className="flex items-center justify-center gap-2 mt-6 text-ink/30 text-xs">
         <Shield size={13} />
-        <span>Payments processed securely by Paystack · Cancel anytime · Questions? <a href="mailto:support@contentcard.io" className="text-brand-500 hover:text-brand-600 transition-colors">support@contentcard.io</a></span>
+        <span>Payments processed securely by Paystack · Cancel anytime · Questions? <a href="mailto:hellovoya@gmail.com" className="text-brand-500 hover:text-brand-600 transition-colors">hellovoya@gmail.com</a></span>
       </div>
 
       {/* ── Cancel modal ── */}
