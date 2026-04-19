@@ -205,6 +205,21 @@ const useAppStore = create(
         await get().fetchSubscription()
         return result
       },
+
+      verifyPaystackSessionWithPlan: async (reference, plan) => {
+        const wsId = get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        const result = await billingApi.verifyPaystackSession({ reference, workspace_id: wsId, plan })
+        await get().fetchSubscription()
+        return result
+      },
+
+      removeSavedCard: async () => {
+        const wsId = get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        await billingApi.removeCard(wsId)
+        await get().fetchSubscription()
+      },
     }),
     {
       name: 'contentcard-app',

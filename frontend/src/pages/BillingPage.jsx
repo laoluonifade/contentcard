@@ -43,10 +43,12 @@ export default function BillingPage() {
     subscription,
     fetchSubscription,
     createCheckout,
-    verifyPaystackSession,
+    verifyPaystackSessionWithPlan,
+    removeSavedCard,
   } = useAppStore()
   const [loading, setLoading] = useState(null)
   const [verifyingPayment, setVerifyingPayment] = useState(false)
+  const [removingCard, setRemovingCard] = useState(false)
 
   const isNigeria = activeWorkspace?.payment_provider === 'paystack'
 
@@ -58,14 +60,15 @@ export default function BillingPage() {
   useEffect(() => {
     const success = searchParams.get('success')
     const cancelled = searchParams.get('cancelled')
-    const reference = searchParams.get('reference')
+    const reference = searchParams.get('reference') || searchParams.get('trxref')
+    const planFromReturn = searchParams.get('plan')
 
     if (cancelled) toast('Checkout cancelled.', 'error')
     if (!success) return
 
     if (isNigeria && reference && activeWorkspaceId) {
       setVerifyingPayment(true)
-      verifyPaystackSession(reference)
+      verifyPaystackSessionWithPlan(reference, planFromReturn)
         .then(() => toast('Subscription activated and card saved successfully.'))
         .catch((err) => toast(err.message || 'Payment verification failed. Please refresh.', 'error'))
         .finally(() => setVerifyingPayment(false))
@@ -74,7 +77,19 @@ export default function BillingPage() {
 
     toast('Subscription activated! Welcome to ContentCard.')
     fetchSubscription().catch(() => {})
-  }, [searchParams, isNigeria, activeWorkspaceId, verifyPaystackSession, fetchSubscription])
+  }, [searchParams, isNigeria, activeWorkspaceId, verifyPaystackSessionWithPlan, fetchSubscription])
+
+  const handleRemoveCard = async () => {
+    setRemovingCard(true)
+    try {
+      await removeSavedCard()
+      toast('Saved card removed.')
+    } catch (err) {
+      toast(err.message || 'Failed to remove saved card', 'error')
+    } finally {
+      setRemovingCard(false)
+    }
+  }
 
   const handleSubscribe = async (planId) => {
     setLoading(planId)
@@ -136,7 +151,17 @@ export default function BillingPage() {
 
       {subscription?.saved_card && (
         <div className="rounded-2xl p-6 mb-8 border border-zinc-800 bg-zinc-900">
-          <p className="text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3">Saved payment card</p>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-bold uppercase tracking-widest text-zinc-500">Saved payment card</p>
+            <button
+              type="button"
+              disabled={removingCard}
+              onClick={handleRemoveCard}
+              className="text-xs text-red-400 hover:text-red-300 disabled:opacity-60"
+            >
+              {removingCard ? 'Removing...' : 'Remove card'}
+            </button>
+          </div>
           <div className="flex items-center gap-3 text-zinc-200">
             <CreditCard size={16} className="text-zinc-400" />
             <span className="text-sm">

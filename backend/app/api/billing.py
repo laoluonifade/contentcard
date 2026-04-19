@@ -70,7 +70,7 @@ async def create_checkout(
     ws = await _get_workspace_as_owner(body.workspace_id, current_user.id, db)
     provider = ws.payment_provider or "stripe"
 
-    success_url = f"{settings.FRONTEND_URL}/dashboard/billing?success=1&workspace={ws.id}"
+    success_url = f"{settings.FRONTEND_URL}/dashboard/billing?success=1&workspace={ws.id}&plan={body.plan}"
     cancel_url = f"{settings.FRONTEND_URL}/dashboard/billing?cancelled=1"
 
     if provider == "paystack":
@@ -126,6 +126,28 @@ async def cancel_subscription(
 
     ws.plan = "trial"
     ws.subscription_id = None
+    await db.commit()
+
+
+@router.delete("/card/{workspace_id}", status_code=204)
+async def remove_saved_card(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Remove stored billing card/customer linkage for Paystack workspaces.
+    This also cancels any active subscription and returns workspace to trial.
+    """
+    ws = await _get_workspace_as_owner(workspace_id, current_user.id, db)
+    if ws.subscription_id:
+        if ws.payment_provider == "paystack":
+            await cancel_paystack_subscription(ws.subscription_id)
+        elif ws.payment_provider == "stripe":
+            await cancel_stripe_subscription(ws.subscription_id)
+    ws.plan = "trial"
+    ws.subscription_id = None
+    ws.customer_id = None
     await db.commit()
 
 
@@ -289,16 +311,14 @@ async def paystack_verify_session(
         raise HTTPException(status_code=400, detail="reference and workspace_id are required")
 
     ws = await _get_workspace_as_owner(workspace_id, current_user.id, db)
-    if ws.payment_provider != "paystack":
-        raise HTTPException(status_code=400, detail="Workspace does not use Paystack")
-
     result = await verify_paystack_transaction(reference)
     tx_data = result.get("data", {})
     if tx_data.get("status") != "success":
         raise HTTPException(status_code=402, detail="Payment not successful")
 
-    metadata = tx_data.get("metadata", {})
-    plan = metadata.get("plan", "starter")
+    metadata = tx_data.get("metadata", {}) or {}
+    plan = metadata.get("plan") or body.get("plan") or "starter"
+    ws.payment_provider = "paystack"
     ws.plan = plan
 
     # For recurring plans, Paystack may return subscription fields depending on flow.

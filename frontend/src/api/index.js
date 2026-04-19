@@ -98,6 +98,7 @@ export const billingApi = {
   getSubscription: (wsId) => api.get(`/billing/${wsId}`).then(r => r.data),
   createCheckout:  (data) => api.post('/billing/checkout', data).then(r => r.data),
   cancel:          (wsId) => api.post(`/billing/cancel/${wsId}`, {}).then(r => r.data),
+  removeCard:      (wsId) => api.delete(`/billing/card/${wsId}`).then(r => r.data),
   verifyPaystackSession: (data) => api.post('/billing/paystack/verify-session', data).then(r => r.data),
 }
 
