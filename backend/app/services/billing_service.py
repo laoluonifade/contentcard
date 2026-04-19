@@ -1,95 +1,34 @@
-import asyncio
-import stripe
 import httpx
 from app.core.config import settings
 
-stripe.api_key = settings.STRIPE_SECRET_KEY
-
-# Plan config — prices in cents (Stripe) and kobo (Paystack)
+# Plan config — prices in kobo (Paystack NGN)
 PLANS = {
     "starter": {
         "name": "Starter",
-        "usd_price": 2500,          # $25.00 in cents
-        "ngn_price": 2000000,       # ₦20,000 in kobo
-        "stripe_price_id": settings.STRIPE_PRICE_STARTER,
-        "paystack_plan_code": "",   # set after creating plan in Paystack dashboard
+        "ngn_price": 2000000,   # ₦20,000
         "max_brands": 1,
         "max_members": 1,
-        "unlimited_posts": False,
-        "max_posts_per_month": 50,
+        "unlimited_posts": True,
+        "max_posts_per_month": None,
     },
     "smb": {
-        "name": "SMB",
-        "usd_price": 5000,          # $50.00
-        "ngn_price": 5000000,       # ₦50,000
-        "stripe_price_id": settings.STRIPE_PRICE_SMB,
-        "paystack_plan_code": "",
+        "name": "Growth",
+        "ngn_price": 5000000,   # ₦50,000
         "max_brands": 3,
         "max_members": 5,
         "unlimited_posts": True,
         "max_posts_per_month": None,
+        "featured": True,
     },
     "pro": {
         "name": "Pro",
-        "usd_price": 10000,         # $100.00
-        "ngn_price": 20000000,      # ₦200,000
-        "stripe_price_id": settings.STRIPE_PRICE_PRO,
-        "paystack_plan_code": "",
+        "ngn_price": 20000000,  # ₦200,000
         "max_brands": 10,
         "max_members": None,
         "unlimited_posts": True,
         "max_posts_per_month": None,
     },
 }
-
-
-# ── STRIPE (wrapped in asyncio.to_thread to avoid blocking the event loop) ───
-
-async def create_stripe_customer(email: str, name: str) -> str:
-    customer = await asyncio.to_thread(
-        stripe.Customer.create, email=email, name=name
-    )
-    return customer.id
-
-
-async def create_stripe_checkout_session(
-    customer_id: str,
-    plan: str,
-    success_url: str,
-    cancel_url: str,
-) -> str:
-    price_id = PLANS[plan]["stripe_price_id"]
-    session = await asyncio.to_thread(
-        stripe.checkout.Session.create,
-        customer=customer_id,
-        payment_method_types=["card"],
-        line_items=[{"price": price_id, "quantity": 1}],
-        mode="subscription",
-        success_url=success_url,
-        cancel_url=cancel_url,
-        # CRITICAL: pass plan in metadata so webhook knows what was purchased
-        metadata={"plan": plan},
-        subscription_data={"metadata": {"plan": plan}},
-    )
-    return session.url
-
-
-async def cancel_stripe_subscription(subscription_id: str) -> None:
-    await asyncio.to_thread(stripe.Subscription.cancel, subscription_id)
-
-
-async def handle_stripe_webhook(payload: bytes, sig_header: str) -> dict | None:
-    try:
-        event = await asyncio.to_thread(
-            stripe.Webhook.construct_event,
-            payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
-        )
-        return event
-    except Exception:
-        return None
-
-
-# ── PAYSTACK ─────────────────────────────────────────────────────────────────
 
 PAYSTACK_BASE = "https://api.paystack.co"
 
@@ -102,7 +41,7 @@ def _paystack_headers() -> dict:
 
 
 async def create_paystack_customer(email: str, name: str, phone: str | None = None) -> str:
-    parts = name.split(" ", 1)
+    parts = (name or "").split(" ", 1)
     payload: dict = {
         "email": email,
         "first_name": parts[0],
@@ -110,15 +49,18 @@ async def create_paystack_customer(email: str, name: str, phone: str | None = No
     }
     if phone:
         payload["phone"] = phone
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(f"{PAYSTACK_BASE}/customer", json=payload, headers=_paystack_headers())
         data = resp.json()
+        if not data.get("status"):
+            raise ValueError(f"Paystack customer error: {data.get('message', 'Unknown')}")
         return data["data"]["customer_code"]
 
 
-async def create_paystack_subscription_link(
+async def create_paystack_checkout(
     email: str,
     plan: str,
+    workspace_id: str,
     callback_url: str,
 ) -> str:
     plan_config = PLANS[plan]
@@ -129,10 +71,10 @@ async def create_paystack_subscription_link(
         "callback_url": callback_url,
         "metadata": {
             "plan": plan,
-            "cancel_action": callback_url,
+            "workspace_id": workspace_id,
         },
     }
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             f"{PAYSTACK_BASE}/transaction/initialize",
             json=payload,
@@ -145,7 +87,7 @@ async def create_paystack_subscription_link(
 
 
 async def verify_paystack_transaction(reference: str) -> dict:
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
             f"{PAYSTACK_BASE}/transaction/verify/{reference}",
             headers=_paystack_headers(),
@@ -154,8 +96,11 @@ async def verify_paystack_transaction(reference: str) -> dict:
 
 
 async def cancel_paystack_subscription(subscription_code: str) -> None:
+    """Disable a Paystack subscription. Gracefully handles missing codes."""
+    if not subscription_code:
+        return
     payload = {"code": subscription_code, "token": ""}
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         await client.post(
             f"{PAYSTACK_BASE}/subscription/disable",
             json=payload,

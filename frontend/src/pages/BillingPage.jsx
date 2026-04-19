@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { CreditCard, Check, AlertCircle, ExternalLink } from 'lucide-react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Check, AlertCircle, ExternalLink, Zap, X, ArrowRight } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
 
@@ -8,44 +8,93 @@ const PLANS = [
   {
     id: 'starter',
     name: 'Starter',
-    usd: '$25',
-    ngn: '₦20,000',
+    price: '₦20,000',
     desc: 'For solo creators getting started.',
-    features: ['50 posts/month','All 3 platforms','Basic brand kit','1 brand'],
-    dim: ['AI trending topics','Team members'],
+    features: [
+      'Unlimited content generation',
+      'Instagram, Facebook, Twitter/X, LinkedIn',
+      'Full brand kit',
+      'AI-generated images',
+      '1 brand',
+    ],
   },
   {
     id: 'smb',
-    name: 'SMB',
-    usd: '$50',
-    ngn: '₦50,000',
+    name: 'Growth',
+    price: '₦50,000',
     desc: 'For growing businesses needing more.',
-    features: ['Unlimited posts','All 3 platforms','Full brand kit','AI trending topics','3 brands','5 team members'],
-    dim: [],
+    features: [
+      'Everything in Starter',
+      'AI trending topics',
+      '3 brands',
+      '5 team members',
+    ],
     featured: true,
   },
   {
     id: 'pro',
     name: 'Pro',
-    usd: '$100',
-    ngn: '₦200,000',
+    price: '₦200,000',
     desc: 'For agencies managing multiple brands.',
-    features: ['Unlimited posts','All 3 platforms','Full brand kit','AI trending topics','10 brands','Unlimited team members'],
-    dim: [],
+    features: [
+      'Everything in Growth',
+      '10 brands',
+      'Unlimited team members',
+      'Priority support',
+    ],
   },
 ]
 
-export default function BillingPage() {
-  const [searchParams] = useSearchParams()
-  const { activeWorkspace, subscription, fetchSubscription, createCheckout } = useAppStore()
-  const [loading, setLoading] = useState(null)
+function GenerationMeter({ used, isSubscribed }) {
+  if (isSubscribed) return null
+  const pct = Math.min(100, (used / 2) * 100)
+  const remaining = Math.max(0, 2 - used)
+  return (
+    <div className={`rounded-2xl p-5 mb-6 border ${used >= 2 ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+      <div className="flex items-start gap-3">
+        <AlertCircle size={18} className={used >= 2 ? 'text-red-500 flex-shrink-0 mt-0.5' : 'text-amber-600 flex-shrink-0 mt-0.5'} />
+        <div className="flex-1">
+          <p className={`text-sm font-semibold mb-1 ${used >= 2 ? 'text-red-800' : 'text-amber-800'}`}>
+            {used >= 2 ? 'Free generations used up' : `${remaining} free generation${remaining !== 1 ? 's' : ''} remaining`}
+          </p>
+          <p className={`text-xs mb-3 ${used >= 2 ? 'text-red-700' : 'text-amber-700'}`}>
+            {used >= 2
+              ? 'Subscribe to unlock unlimited content generation.'
+              : `You've used ${used} of 2 free generations. Subscribe for unlimited access.`}
+          </p>
+          <div className="h-2 bg-white/70 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${used >= 2 ? 'bg-red-500' : 'bg-amber-500'}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+          <div className="flex justify-between mt-1">
+            <span className="text-[10px] text-amber-600/70">{used} used</span>
+            <span className="text-[10px] text-amber-600/70">2 free</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-  const isNigeria = activeWorkspace?.payment_provider === 'paystack'
+export default function BillingPage() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const { activeWorkspace, subscription, fetchSubscription, createCheckout, cancelSubscription } = useAppStore()
+  const [loading, setLoading] = useState(null)
+  const [cancelling, setCancelling] = useState(false)
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false)
+
+  const isSubscribed = ['starter', 'smb', 'pro'].includes(subscription?.plan)
+  const freeUsed = subscription?.free_generations_used || 0
 
   useEffect(() => {
     fetchSubscription().catch(() => {})
-    if (searchParams.get('success')) toast('Subscription activated! Welcome to ContentCard.')
-    if (searchParams.get('cancelled')) toast('Checkout cancelled.', 'error')
+    if (searchParams.get('success')) {
+      toast('Payment confirmed! Your plan is now active.')
+      fetchSubscription().catch(() => {})
+    }
   }, [])
 
   const handleSubscribe = async (planId) => {
@@ -54,59 +103,64 @@ export default function BillingPage() {
       const { checkout_url } = await createCheckout(planId)
       window.location.href = checkout_url
     } catch (err) {
-      toast(err.message || 'Failed to start checkout', 'error')
+      toast(err.response?.data?.detail || err.message || 'Checkout failed — please try again', 'error')
     } finally {
       setLoading(null)
     }
   }
 
-  const trialDays = () => {
-    if (!subscription?.trial_ends_at) return null
-    const diff = new Date(subscription.trial_ends_at) - new Date()
-    return Math.max(0, Math.ceil(diff / 86400000))
+  const handleCancel = async () => {
+    setCancelling(true)
+    try {
+      await cancelSubscription()
+      setShowCancelConfirm(false)
+      toast('Subscription cancelled. You can re-subscribe anytime.')
+    } catch (err) {
+      toast(err.response?.data?.detail || 'Cancellation failed — please contact support', 'error')
+    } finally {
+      setCancelling(false)
+    }
   }
 
-  const days = trialDays()
-
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+    <div className="p-6 lg:p-8 max-w-4xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Billing</h1>
-        <p className="text-ink/40 text-sm">Manage your subscription and plan.</p>
+        <p className="text-ink/40 text-sm">Manage your subscription. Pay securely with Paystack.</p>
       </div>
 
-      {/* Current plan */}
+      {/* Current plan bar */}
       {subscription && (
-        <div className="rounded-2xl p-6 mb-8 flex items-center justify-between bg-white border border-fog">
+        <div className="rounded-2xl p-5 mb-6 flex items-center justify-between bg-white border border-fog">
           <div>
             <p className="text-xs font-medium uppercase tracking-widest mb-1 text-ink/40">Current plan</p>
-            <p className="text-2xl font-semibold capitalize text-ink" style={{ letterSpacing: '-0.02em' }}>
-              {subscription.plan === 'trial' ? 'Free trial' : subscription.plan}
+            <p className="text-xl font-semibold capitalize text-ink" style={{ letterSpacing: '-0.01em' }}>
+              {isSubscribed ? (PLANS.find(p => p.id === subscription.plan)?.name || subscription.plan) : 'Free'}
             </p>
-            {days !== null && subscription.plan === 'trial' && (
-              <p className="text-sm mt-1 text-ink/40">
-                {days === 0 ? 'Trial expired — subscribe to continue' : `${days} day${days !== 1 ? 's' : ''} remaining`}
-              </p>
-            )}
-            {subscription.plan !== 'trial' && (
-              <p className="text-ink/40 text-sm mt-1">
-                {isNigeria ? 'Paystack · auto-renews monthly' : 'Stripe · auto-renews monthly'}
-              </p>
+            {isSubscribed && (
+              <p className="text-ink/40 text-xs mt-0.5">Billed monthly via Paystack</p>
             )}
           </div>
-          <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium border ${
-            subscription.plan !== 'trial' ? 'bg-brand-50 text-brand-600 border-brand-100' : 'bg-mist text-ink/40 border-fog'
-          }`}>
-            {subscription.plan !== 'trial' ? 'Active' : days === 0 ? 'Expired' : 'Trial'}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium border ${
+              isSubscribed ? 'bg-brand-50 text-brand-600 border-brand-100' : 'bg-mist text-ink/40 border-fog'
+            }`}>
+              {isSubscribed ? 'Active' : 'Free'}
+            </span>
+            {isSubscribed && (
+              <button
+                onClick={() => setShowCancelConfirm(true)}
+                className="text-xs text-ink/40 hover:text-red-500 font-medium transition-colors"
+              >
+                Cancel plan
+              </button>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Currency note */}
-      <div className="flex items-center gap-2 mb-6 text-sm text-ink/40">
-        <AlertCircle size={14} />
-        <span>Prices shown in {isNigeria ? '₦ Naira (Paystack)' : '$ USD (Stripe)'} based on your location.</span>
-      </div>
+      {/* Generation meter */}
+      <GenerationMeter used={freeUsed} isSubscribed={isSubscribed} />
 
       {/* Plan cards */}
       <div className="grid md:grid-cols-3 gap-4 mb-8">
@@ -115,14 +169,18 @@ export default function BillingPage() {
           return (
             <div key={plan.id} className={`rounded-2xl p-6 flex flex-col relative ${plan.featured ? 'border-2 border-brand-400 bg-brand-500/5' : 'border border-fog bg-white'}`}>
               {plan.featured && (
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-500 text-white text-xs font-medium px-3 py-1 rounded-full">Most popular</div>
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-500 text-white text-xs font-medium px-3 py-1 rounded-full">
+                  Most popular
+                </div>
               )}
               {isCurrent && (
-                <div className="absolute -top-3 right-4 bg-ink text-white text-xs font-medium px-3 py-1 rounded-full">Current plan</div>
+                <div className="absolute -top-3 right-4 bg-ink text-white text-xs font-medium px-3 py-1 rounded-full">
+                  Current
+                </div>
               )}
               <div className="mb-5">
                 <div className="text-ink/50 text-xs font-bold uppercase tracking-widest mb-2">{plan.name}</div>
-                <div className="text-3xl font-bold text-ink mb-1">{isNigeria ? plan.ngn : plan.usd}</div>
+                <div className="text-3xl font-bold text-ink mb-0.5">{plan.price}</div>
                 <div className="text-ink/40 text-xs">/month</div>
                 <div className="text-ink/40 text-xs mt-2 leading-relaxed">{plan.desc}</div>
               </div>
@@ -135,24 +193,24 @@ export default function BillingPage() {
                     {f}
                   </div>
                 ))}
-                {plan.dim.map(f => (
-                  <div key={f} className="flex items-center gap-2 text-xs text-ink/30">
-                    <div className="w-4 h-4 bg-fog border border-fog rounded flex-shrink-0" />
-                    {f}
-                  </div>
-                ))}
               </div>
               <button
                 onClick={() => !isCurrent && handleSubscribe(plan.id)}
                 disabled={isCurrent || loading === plan.id}
-                className={`w-full py-3 rounded-xl text-sm font-medium transition-all ${isCurrent ? 'bg-mist text-ink/40 border border-fog cursor-default' : plan.featured ? 'bg-brand-500 hover:bg-brand-600 text-white' : 'bg-white hover:bg-mist text-ink border border-fog'}`}
+                className={`w-full py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                  isCurrent
+                    ? 'bg-mist text-ink/40 border border-fog cursor-default'
+                    : plan.featured
+                      ? 'bg-brand-500 hover:bg-brand-600 text-white'
+                      : 'bg-white hover:bg-mist text-ink border border-fog'
+                }`}
               >
                 {loading === plan.id ? (
-                  <div className="flex items-center justify-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Redirecting…</div>
+                  <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Redirecting…</>
                 ) : isCurrent ? (
-                  <span className="flex items-center justify-center gap-1.5"><Check size={14} />Current plan</span>
+                  <><Check size={14} />Current plan</>
                 ) : (
-                  <span className="flex items-center justify-center gap-1.5">Subscribe<ExternalLink size={13} /></span>
+                  <><Zap size={13} />Subscribe — {plan.price}/mo</>
                 )}
               </button>
             </div>
@@ -160,10 +218,44 @@ export default function BillingPage() {
         })}
       </div>
 
-      <div className="text-center text-ink/30 text-xs">
-        All plans auto-renew monthly. Cancel anytime. Questions?{' '}
-        <a href="mailto:support@contentcard.io" className="text-brand-500 hover:text-brand-600 transition-colors">support@contentcard.io</a>
-      </div>
+      <p className="text-center text-ink/30 text-xs">
+        Payments processed securely by Paystack. Cancel anytime. Questions?{' '}
+        <a href="mailto:support@contentcard.io" className="text-brand-500 hover:text-brand-600 transition-colors">
+          support@contentcard.io
+        </a>
+      </p>
+
+      {/* Cancel confirmation modal */}
+      {showCancelConfirm && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-ink font-semibold">Cancel subscription?</h3>
+              <button onClick={() => setShowCancelConfirm(false)} className="text-ink/30 hover:text-ink">
+                <X size={18} />
+              </button>
+            </div>
+            <p className="text-ink/60 text-sm mb-5">
+              You'll lose access to unlimited generation. You can re-subscribe anytime.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCancelConfirm(false)}
+                className="flex-1 py-2.5 rounded-xl border border-fog text-ink/60 text-sm font-medium hover:bg-mist transition-colors"
+              >
+                Keep subscription
+              </button>
+              <button
+                onClick={handleCancel}
+                disabled={cancelling}
+                className="flex-1 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white text-sm font-medium transition-colors disabled:opacity-60"
+              >
+                {cancelling ? 'Cancelling…' : 'Yes, cancel'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

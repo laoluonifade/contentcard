@@ -640,6 +640,48 @@ export default function BrandKitPage() {
                 rows={2} placeholder="A minimalist piggy bank icon in green, with bold sans-serif wordmark. Clean and modern." className={ta}/>
             </div>
           </Section>
+          <Section title="Brand Photos">
+            <p className="text-ink/40 text-xs mb-3">
+              Upload photos you own the rights to. These will be used as backgrounds in your content designs instead of AI-generated images.
+            </p>
+            <div className="flex flex-wrap gap-3 mb-4">
+              {(form.brand_photos || []).map((url, i) => (
+                <div key={i} className="relative group w-24 h-24 rounded-xl overflow-hidden border border-fog flex-shrink-0">
+                  <img src={url} alt={`Brand photo ${i+1}`} className="w-full h-full object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!confirm('Remove this photo?')) return
+                      const updated = (form.brand_photos || []).filter((_, j) => j !== i)
+                      set('brand_photos', updated)
+                      brandApi.deletePhoto(activeWorkspaceId, activeBrandId, i).catch(() => {})
+                    }}
+                    className="absolute top-1 right-1 w-5 h-5 bg-black/60 hover:bg-red-500 rounded-full text-white text-[10px] hidden group-hover:flex items-center justify-center transition-colors">
+                    ×
+                  </button>
+                </div>
+              ))}
+              {(form.brand_photos || []).length < 10 && (
+                <label className="w-24 h-24 rounded-xl border-2 border-dashed border-fog flex flex-col items-center justify-center cursor-pointer hover:border-brand-400 hover:bg-brand-500/5 transition-colors flex-shrink-0">
+                  <Plus size={18} className="text-ink/30 mb-1" />
+                  <span className="text-[10px] text-ink/30">Add photo</span>
+                  <input type="file" accept="image/*" className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file || !activeBrandId || !activeWorkspaceId) return
+                      try {
+                        const result = await brandApi.uploadPhoto(activeWorkspaceId, activeBrandId, file)
+                        set('brand_photos', result.brand_photos)
+                        toast('Photo added!')
+                      } catch {
+                        toast('Photo upload failed', 'error')
+                      }
+                    }}/>
+                </label>
+              )}
+            </div>
+            <p className="text-ink/30 text-[11px]">Max 10 photos · JPG, PNG, WebP · 10 MB each</p>
+          </Section>
         </div>
       )}
 

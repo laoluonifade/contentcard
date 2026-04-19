@@ -9,7 +9,7 @@ class CheckoutRequest(BaseModel):
 
 class CheckoutResponse(BaseModel):
     checkout_url: str
-    provider: str  # stripe | paystack
+    provider: str  # paystack
 
 
 class SubscriptionOut(BaseModel):
@@ -18,3 +18,4 @@ class SubscriptionOut(BaseModel):
     trial_ends_at: datetime | None
     is_active: bool
     subscription_id: str | None
+    free_generations_used: int = 0

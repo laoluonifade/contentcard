@@ -71,6 +71,15 @@ export const brandApi = {
     }).then(r => r.data)
   },
   aiInsights: (wsId, brandId) => api.post(`/workspaces/${wsId}/brands/${brandId}/ai-insights`).then(r => r.data),
+  uploadPhoto: (wsId, brandId, file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post(`/workspaces/${wsId}/brands/${brandId}/photos`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  deletePhoto: (wsId, brandId, idx) =>
+    api.delete(`/workspaces/${wsId}/brands/${brandId}/photos/${idx}`).then(r => r.data),
 }
 
 // ─── Content ────────────────────────────────────────────────────
@@ -99,6 +108,7 @@ export const billingApi = {
   getSubscription: (wsId) => api.get(`/billing/${wsId}`).then(r => r.data),
   createCheckout:  (data) => api.post('/billing/checkout', data).then(r => r.data),
   cancel:          (wsId) => api.post(`/billing/cancel/${wsId}`, {}).then(r => r.data),
+  cancelSubscription: (wsId) => api.post(`/billing/cancel/${wsId}`).then(r => r.data),
 }
 
 // ─── Trends ─────────────────────────────────────────────────────
