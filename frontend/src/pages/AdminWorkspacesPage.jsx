@@ -13,7 +13,11 @@ const PLAN_STYLE = {
 }
 
 function formatApiError(err) {
+  const status = err.response?.status
   const d = err.response?.data?.detail
+  if (status === 404 && (d === 'Not Found' || !d)) {
+    return 'API route not found (404). Redeploy backend with admin billing routes, or set VITE_API_URL to include /api/v1, e.g. https://your-backend.onrender.com/api/v1'
+  }
   if (!d) return err.message || 'Request failed'
   if (typeof d === 'string') return d
   if (Array.isArray(d)) return d.map((x) => x.msg || JSON.stringify(x)).join('; ')

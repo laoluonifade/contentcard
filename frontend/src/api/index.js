@@ -1,7 +1,22 @@
 import axios from 'axios'
 
+/**
+ * FastAPI mounts all routes under /api/v1. If VITE_API_URL is a bare host
+ * (e.g. https://app.onrender.com), requests would hit /admin/... at the root
+ * and return 404 — append /api/v1 automatically in that case.
+ */
+export function normalizeViteApiBaseUrl(v) {
+  const s = (v || '').trim().replace(/\/+$/, '')
+  if (!s) return '/api/v1'
+  if (s.endsWith('/api/v1')) return s
+  if (/^https?:\/\/[^/]+$/i.test(s)) return `${s}/api/v1`
+  return s
+}
+
+const API_BASE = normalizeViteApiBaseUrl(import.meta.env.VITE_API_URL)
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -139,7 +154,7 @@ export const holidaysApi = {
 
 // ─── Admin (separate axios instance — never touches contentcard-auth) ──
 const adminAxios = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api/v1',
+  baseURL: API_BASE,
   headers: { 'Content-Type': 'application/json' },
 })
 
@@ -164,7 +179,7 @@ adminAxios.interceptors.response.use(
 )
 
 export const adminApi = {
-  login:              (data)    => axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api/v1' }).post('/auth/login', data).then(r => r.data),
+  login:              (data)    => axios.create({ baseURL: API_BASE }).post('/auth/login', data).then(r => r.data),
   stats:              ()        => adminAxios.get('/admin/stats').then(r => r.data),
   users:              (params)  => adminAxios.get('/admin/users', { params }).then(r => r.data),
   workspaces:         (params)  => adminAxios.get('/admin/workspaces', { params }).then(r => r.data),
