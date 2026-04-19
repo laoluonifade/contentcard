@@ -130,9 +130,17 @@ export const billingApi = {
 
 // ─── Trends ─────────────────────────────────────────────────────
 export const trendsApi = {
-  list:         (industry) => api.get('/trends', { params: industry ? { industry } : {} }).then(r => r.data),
-  refresh:      (industry) => api.post('/trends/refresh', null, { params: industry ? { industry } : {} }).then(r => r.data),
-  generatePost: (data)     => api.post('/trends/generate-post', data).then(r => r.data),
+  list: (workspaceId, industry) => {
+    const params = { workspace_id: workspaceId }
+    if (industry) params.industry = industry
+    return api.get('/trends', { params }).then((r) => r.data)
+  },
+  refresh: (workspaceId, industry) => {
+    const params = { workspace_id: workspaceId }
+    if (industry) params.industry = industry
+    return api.post('/trends/refresh', null, { params }).then((r) => r.data)
+  },
+  generatePost: (data) => api.post('/trends/generate-post', data).then((r) => r.data),
 }
 
 // ─── Upload ─────────────────────────────────────────────────────

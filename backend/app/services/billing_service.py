@@ -203,3 +203,9 @@ async def get_subscription_next_payment(subscription_code: str) -> str | None:
 
 def get_plan_limits(plan: str) -> dict:
     return PLANS.get(plan, PLANS["starter"])
+
+
+def plan_includes_trending_topics(plan: str | None) -> bool:
+    """Matches BillingPage: Starter omits 'AI trending topics'; Growth (smb) and Pro include it."""
+    p = (plan or "").strip().lower()
+    return p in ("smb", "pro")

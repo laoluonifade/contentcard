@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { workspaceApi, brandApi, contentApi, templateApi, trendsApi, billingApi } from '../api'
+import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
 const useAppStore = create(
   persist(
@@ -26,14 +27,26 @@ const useAppStore = create(
         set({ workspaces, activeWorkspaceId: active?.id || null, activeWorkspace: active })
         if (active?.id) {
           await get().fetchBrands(active.id)
+          await get().fetchTrends().catch(() => {})
+        } else {
+          set({ trends: [] })
         }
         return workspaces
       },
 
       setActiveWorkspace: async (id) => {
         const ws = get().workspaces.find(w => w.id === id) || null
-        set({ activeWorkspaceId: id, activeWorkspace: ws, brands: [], activeBrandId: null })
-        if (id) await get().fetchBrands(id)
+        set({
+          activeWorkspaceId: id,
+          activeWorkspace: ws,
+          brands: [],
+          activeBrandId: null,
+          trends: planIncludesTrendingTopics(ws?.plan) ? get().trends : [],
+        })
+        if (id) {
+          await get().fetchBrands(id)
+          await get().fetchTrends().catch(() => {})
+        }
       },
 
       // ── Brands ──────────────────────────────────────────────────
@@ -176,16 +189,44 @@ const useAppStore = create(
 
       // ── Trends ──────────────────────────────────────────────────
       fetchTrends: async () => {
-        const trends = await trendsApi.list()
-        set({ trends })
-        return trends
+        const wsId = get().activeWorkspaceId
+        const ws = get().activeWorkspace
+        if (!wsId || !planIncludesTrendingTopics(ws?.plan)) {
+          set({ trends: [] })
+          return []
+        }
+        try {
+          const trends = await trendsApi.list(wsId)
+          set({ trends })
+          return trends
+        } catch (e) {
+          if (e.response?.status === 403) {
+            set({ trends: [] })
+            return []
+          }
+          throw e
+        }
       },
 
       refreshTrends: async () => {
-        await trendsApi.refresh()
-        const trends = await trendsApi.list()
-        set({ trends })
-        return trends
+        const wsId = get().activeWorkspaceId
+        const ws = get().activeWorkspace
+        if (!wsId || !planIncludesTrendingTopics(ws?.plan)) {
+          set({ trends: [] })
+          return []
+        }
+        try {
+          await trendsApi.refresh(wsId)
+          const trends = await trendsApi.list(wsId)
+          set({ trends })
+          return trends
+        } catch (e) {
+          if (e.response?.status === 403) {
+            set({ trends: [] })
+            return []
+          }
+          throw e
+        }
       },
 
       // ── Billing ─────────────────────────────────────────────────
