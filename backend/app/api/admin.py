@@ -6,6 +6,7 @@ from sqlalchemy import select, func, desc, delete
 from sqlalchemy.orm import aliased
 from pydantic import BaseModel, Field
 from app.services.billing_service import verify_paystack_transaction, PLANS
+from app.core.config import settings
 from app.db.database import get_db, AsyncSessionLocal
 from app.core.dependencies import get_current_user
 from app.models.user import User
@@ -67,7 +68,16 @@ async def _reconcile_paystack_transaction_for_workspace(
     reference: str,
     plan_override: str | None,
 ) -> dict:
+    if not settings.PAYSTACK_SECRET_KEY:
+        raise HTTPException(status_code=503, detail="Paystack is not configured on this server (missing PAYSTACK_SECRET_KEY)")
+
     result = await verify_paystack_transaction(reference.strip())
+    if result.get("status") is False:
+        raise HTTPException(
+            status_code=402,
+            detail=result.get("message") or "Paystack could not verify this reference",
+        )
+
     data = result.get("data") or {}
     if data.get("status") != "success":
         raise HTTPException(
