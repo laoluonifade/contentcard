@@ -123,7 +123,7 @@ export default function GeneratePage() {
   }
 
   const progressLabel = () => {
-    if (generationPollCount === 0) return 'Generating your content…'
+    if (generationPollCount === 0) return 'Starting generation…'
     if (generationPollCount < 3)  return 'Writing captions…'
     if (generationPollCount < 7)  return 'Crafting posts…'
     return 'Almost done…'

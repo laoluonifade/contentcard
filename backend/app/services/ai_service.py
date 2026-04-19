@@ -33,21 +33,61 @@ VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
 VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
 
 
+def _image_prompt_ending_for_style(ips: str) -> str:
+    if ips == "real_people":
+        return (
+            'Must end with: "No text, no logos, no watermarks, no typography, no UI elements, no illustration, '
+            'photorealistic photograph of real humans and real environments only."'
+        )
+    if ips == "illustration":
+        return (
+            'Must end with: "No text, no logos, no watermarks, no typography, no UI elements, '
+            'premium brand illustration or modern flat graphic only — no photorealistic humans."'
+        )
+    return (
+        "End by forbidding logos and readable text in-image; describe EITHER photorealistic humans OR "
+        "tasteful brand illustration consistent with visual_type for that post."
+    )
+
+
+def _visual_type_rule_for_style(ips: str) -> str:
+    if ips == "real_people":
+        return 'always the string "real_people"'
+    if ips == "illustration":
+        return 'always the string "illustration"'
+    return 'per post either "real_people" OR "illustration" — intentionally vary across the month'
+
+
+def _hard_visual_type_rule(ips: str) -> str:
+    if ips == "real_people":
+        return '- visual_type must be exactly "real_people" for every post'
+    if ips == "illustration":
+        return '- visual_type must be exactly "illustration" for every post'
+    return '- visual_type must be either "real_people" or "illustration" per post (vary intentionally)'
+
+
 def _visual_system_prompt_block(brand: dict) -> str:
-    vs = brand.get("visual_system") or {}
+    _raw = brand.get("visual_system")
+    vs = _raw if isinstance(_raw, dict) else {}
     if not vs:
         return "Visual tokens: derive from brand colours; vary visual_archetype across the month."
     arch = vs.get("allowed_archetypes") or []
     motifs = vs.get("never_show_motifs") or []
+    ips = str(vs.get("image_people_style") or "real_people").lower()
+    if ips not in ("real_people", "illustration", "mixed"):
+        ips = "real_people"
     return (
         f"Allowed visual_archetype values: {', '.join(str(a) for a in arch)}. "
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
-        f"Logo placement on generated raster: {vs.get('logo_placement', 'bottom_right')}. "
+        f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; mixed = vary by post). "
+        f"The brand logo is composited automatically after image generation — do NOT instruct the image model to draw, render, or place a logo. "
         f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else '—'}."
     )
 
 
-def _validate_posts(posts: list, words_to_avoid: list[str] | None = None) -> list[dict]:
+def _validate_posts(
+    posts: list, words_to_avoid: list[str] | None = None, brand: dict | None = None
+) -> list[dict]:
     """
     Validate and coerce post list. Logs issues, drops structurally invalid posts,
     but is lenient on optional fields to avoid losing content unnecessarily.
@@ -82,16 +122,25 @@ def _validate_posts(posts: list, words_to_avoid: list[str] | None = None) -> lis
             post["hashtags"] = []
         post["hashtags"] = [str(h).lstrip("#") for h in post["hashtags"]][:2]
 
-        # Coerce visual_type
-        vt = str(post.get("visual_type", "real_people")).lower()
-        if vt not in VALID_VISUAL_TYPES:
-            vt = "real_people"
-        post["visual_type"] = vt
+        _br_vs = (brand or {}).get("visual_system")
+        vs = _br_vs if isinstance(_br_vs, dict) else {}
+        ips = str(vs.get("image_people_style") or "real_people").lower()
+        if ips not in ("real_people", "illustration", "mixed"):
+            ips = "real_people"
+        vt_ai = str(post.get("visual_type", "real_people")).lower()
+        if vt_ai not in VALID_VISUAL_TYPES:
+            vt_ai = "real_people"
+        if ips == "real_people":
+            post["visual_type"] = "real_people"
+        elif ips == "illustration":
+            post["visual_type"] = "illustration"
+        else:
+            post["visual_type"] = vt_ai if vt_ai in ("real_people", "illustration") else "real_people"
 
         # visual_archetype — layout family for VBS / art brief (PRD)
         va = str(post.get("visual_archetype", "")).strip().lower()
         if not va or va not in VALID_VISUAL_ARCHETYPES:
-            post["visual_archetype"] = infer_default_archetype(vt)
+            post["visual_archetype"] = infer_default_archetype(post["visual_type"])
         else:
             post["visual_archetype"] = va
 
@@ -216,6 +265,8 @@ async def _generate_for_platform(
     posting_dates: list[str],
     words_to_avoid: list[str],
     assistant_id: str | None = None,
+    brand_dict: dict | None = None,
+    planner_addon: str = "",
 ) -> list[dict]:
     import datetime
     today = datetime.date.today()
@@ -241,6 +292,34 @@ async def _generate_for_platform(
     }
     platform_format = platform_notes.get(platform.lower(), "social media post 1:1")
 
+    _vs_raw = (brand_dict or {}).get("visual_system")
+    _vs_dict = _vs_raw if isinstance(_vs_raw, dict) else {}
+    ips = str(_vs_dict.get("image_people_style") or "real_people")
+    ips = ips.lower() if ips in ("real_people", "illustration", "mixed") else "real_people"
+    if ips == "real_people":
+        img_style_rules = (
+            "- ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
+            "- NEVER mention logos, wordmarks, or typography in image_prompt — raster is logo-free and text-free; logo is added in post-production\n"
+            "- ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
+            "- People must be photorealistic real humans matching target_audience demographics — never cartoon, 3D, or toy-like characters\n"
+            "- NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", or \"modern design\""
+        ).format(bn=brand_name)
+    elif ips == "illustration":
+        img_style_rules = (
+            f"- ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
+            "- image_prompt may use premium 2D illustration, flat brand graphics, or tasteful vector-adjacent art — on-brand, not childish\n"
+            "- NEVER mention logos or typography in-image — logo is added in post-production\n"
+            "- People may be illustrated (stylised but professional), not photoreal stock\n"
+            "- NEVER use generic AI-art clichés"
+        )
+    else:
+        img_style_rules = (
+            f"- ALWAYS name the brand ({brand_name}) and honour VISUAL IDENTITY colours and motifs\n"
+            "- Vary the month: some posts photorealistic humans, others premium illustrated or flat brand graphics — pick the stronger fit per post\n"
+            "- NEVER logos or readable text inside the image; logo is added in post-production\n"
+            "- NEVER generic stock or clichéd \"AI slop\""
+        )
+
     brand_system = f"""You are a world-class social media strategist and creative director working exclusively for {brand_name}. Today is {today.isoformat()}.
 
 === BRAND CONTEXT (memorise this — every post must reflect it) ===
@@ -250,11 +329,7 @@ async def _generate_for_platform(
 Generate complete, structured social media posts that are deeply on-brand. Every caption, CTA, image prompt, and visual direction must reflect the brand's identity, voice, audience psychology, and visual guidelines above.
 
 When writing image_prompt fields:
-- ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colors from VISUAL IDENTITY
-- ALWAYS describe the logo's visual appearance using logo_description from VISUAL IDENTITY (never skip this)
-- ALWAYS use imagery_style, lighting_style, design_style, typography, and brand_motifs verbatim from VISUAL IDENTITY
-- ALWAYS describe subjects using the target_audience demographics — NOT generic stock people
-- NEVER use generic phrases like "vibrant colors", "dramatic lighting", or "modern design"
+{img_style_rules}
 
 When writing captions:
 - Match the language style and tone tags exactly
@@ -281,11 +356,12 @@ For EACH post return ALL these fields:
 4. caption — full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
 5. cta — standalone call to action, max 12 words
 6. hashtags — array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction — 3-4 sentences for a designer: scene, composition, lighting, people/product, mood, typography placement. Must be consistent with the brand's visual identity.
-8. image_prompt — photorealistic background image prompt for gpt-image-1. Must reference: brand name ({brand_name}), exact brand colors, imagery_style, lighting_style, brand_motifs, and audience demographics. Ends with: "No text, no logos, no watermarks, no typography, no UI elements, no illustration, photorealistic photograph only."
+7. visual_direction — 3-4 sentences for a designer: scene, composition, lighting, subjects, mood. Do NOT describe text overlaid on the image — copy lives only in the caption field.
+8. image_prompt — background-only prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience. Must NOT mention logos or readable text in-image.
+{_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation — 2 sentences: why this visual was chosen
-10. visual_type — one of: "real_people", "illustration", "abstract", "product" — choose based on the brand's imagery_style and content type
-11. visual_archetype — one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story" — must align with content_type and visual_type (e.g. Hot Take → pattern_headline or photo_hero; testimonial → portrait_story)
+10. visual_type — {_visual_type_rule_for_style(ips)}
+11. visual_archetype — one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story" — must align with content_type and visual_type
 12. format — "single", "carousel", or "quote"
 13. slide_count — 1 for single/quote, 2-5 for carousel
 14. date — posting date in YYYY-MM-DD format exactly as listed above
@@ -295,9 +371,14 @@ HARD RULES:
 - NEVER use words from the words_to_avoid list
 - NEVER produce generic AI-sounding captions
 - topic must equal content_idea exactly
+{_hard_visual_type_rule(ips)}
+- image_prompt and visual_direction must never ask for text, titles, captions, or logos drawn into the image
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""
+
+    if planner_addon.strip():
+        creative_brief += f"\n\n=== USER / STRATEGIST ADD-ONS ===\n{planner_addon.strip()}\n"
 
     last_error = None
     for attempt in range(3):
@@ -347,7 +428,7 @@ Return a JSON object with a single key "posts" containing the array:
             if not isinstance(posts, list) or len(posts) == 0:
                 raise ValueError("posts array is empty or not a list")
 
-            validated = _validate_posts(posts, words_to_avoid)
+            validated = _validate_posts(posts, words_to_avoid, brand_dict)
             if len(validated) == 0:
                 raise ValueError("All posts failed validation")
 
@@ -374,6 +455,8 @@ async def generate_monthly_plan(
     posts_per_week: int = 3,
     topic_override: str | None = None,
     template_topics: list[str] | None = None,
+    holiday_context: str | None = None,
+    generation_brief: str | None = None,
 ) -> list[dict]:
     import calendar
     month_name = calendar.month_name[month]
@@ -472,6 +555,9 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
 
     assistant_id = brand.get("openai_assistant_id")
 
+    addon_parts = [x.strip() for x in (holiday_context, generation_brief) if x and str(x).strip()]
+    planner_addon = "\n\n".join(addon_parts)
+
     all_posts = []
     for platform in platforms:
         try:
@@ -481,6 +567,8 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
                 format_mix, topics_hint, posting_dates,
                 words_to_avoid=words_to_avoid,
                 assistant_id=assistant_id,
+                brand_dict=brand,
+                planner_addon=planner_addon,
             )
             all_posts.extend(posts)
         except Exception as e:
@@ -554,6 +642,34 @@ Rules: max 100 words, platform-native, strong hook on first line, no generic phr
     result["hashtags"] = [str(h).lstrip("#") for h in result["hashtags"]][:2]
 
     return result
+
+
+_PREP_CHAT_SYSTEM = """You are a friendly strategist helping prepare one calendar month of social posts.
+Ask one or two short, concrete questions at a time (product updates, launches, promos, screenshots, events, partnerships, seasonal angles).
+When you have enough to brief a copywriter, reply with 3–6 bullet lines summarising what to emphasise, then say the user can open Generate when ready.
+Stay under the brand's industry; never invent product facts."""
+
+
+async def run_generation_prep_chat(brand: dict, month: int, year: int, messages: list[dict]) -> str:
+    import calendar
+
+    mn = calendar.month_name[month]
+    bn = brand.get("name", "the brand")
+    intro = (
+        f"{_PREP_CHAT_SYSTEM}\n\n"
+        f"Calendar month: {mn} {year}.\n"
+        f"Brand: {bn} — industry: {brand.get('industry', 'General')}."
+    )
+    msgs: list[dict] = [
+        {"role": "system", "content": intro},
+        {"role": "system", "content": _visual_system_prompt_block(brand)},
+    ]
+    for m in messages[-16:]:
+        r = (m.get("role") or "user").lower()
+        if r not in ("user", "assistant"):
+            r = "user"
+        msgs.append({"role": r, "content": str(m.get("content", ""))[:8000]})
+    return await _openai_chat(msgs, max_tokens=900, temperature=0.55, json_mode=False)
 
 
 # ── Trends ─────────────────────────────────────────────────────────────────────

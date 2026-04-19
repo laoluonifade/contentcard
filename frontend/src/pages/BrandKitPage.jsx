@@ -59,8 +59,20 @@ function mergeVisualSystem(kit, brandColors, brandFont) {
     reference_urls: Array.isArray(cur.reference_urls) ? cur.reference_urls : [],
     reference_rights_attested: !!cur.reference_rights_attested,
     forbidden_hexes: Array.isArray(cur.forbidden_hexes) ? cur.forbidden_hexes : [],
+    image_people_style: ['real_people', 'illustration', 'mixed'].includes(
+      String(cur.image_people_style || 'real_people').toLowerCase()
+    )
+      ? String(cur.image_people_style || 'real_people').toLowerCase()
+      : 'real_people',
   }
-  return { ...def, ...cur, allowed_archetypes: cur.allowed_archetypes?.length ? cur.allowed_archetypes : def.allowed_archetypes }
+  const merged = {
+    ...def,
+    ...cur,
+    allowed_archetypes: cur.allowed_archetypes?.length ? cur.allowed_archetypes : def.allowed_archetypes,
+  }
+  const ips = String(merged.image_people_style || 'real_people').toLowerCase()
+  merged.image_people_style = ['real_people', 'illustration', 'mixed'].includes(ips) ? ips : 'real_people'
+  return merged
 }
 
 const LANGUAGE_OPTIONS_BY_COUNTRY = {
@@ -610,6 +622,21 @@ export default function BrandKitPage() {
                 />
               </label>
               <div className="grid sm:grid-cols-2 gap-4">
+                <label className="space-y-1 sm:col-span-2">
+                  <span className={labelCls}>People in generated images</span>
+                  <select
+                    className={inpCls}
+                    value={vs().image_people_style || 'real_people'}
+                    onChange={(e) => setVs({ image_people_style: e.target.value })}
+                  >
+                    <option value="real_people">Real people (photography)</option>
+                    <option value="illustration">Illustration / cartoon-style art</option>
+                    <option value="mixed">Mix (vary by post)</option>
+                  </select>
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Controls how month generation and image prompts treat humans — photoreal, illustrated, or both across the month.
+                  </p>
+                </label>
                 <label className="space-y-1">
                   <span className={labelCls}>Logo placement (raster)</span>
                   <select

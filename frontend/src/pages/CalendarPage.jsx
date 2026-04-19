@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send } from 'lucide-react'
 import useAppStore from '../stores/appStore'
+import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
-import { contentApi } from '../api'
+import { contentApi, holidaysApi } from '../api'
 import PostCard, { renderSlideToCanvas } from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
@@ -56,27 +57,37 @@ function formatArchetypeLabel(id) {
   return String(id).replace(/_/g, ' ')
 }
 
-function PostThumb({ post, brand, onClick }) {
+function PostThumb({ post, brand, onClick, selectMode, selected }) {
   const canvasRef = useRef(null)
   const isCarousel = (post?.slide_count||1) > 1
   const imageUrl = post?.image_url || (post?.image_urls?.[0])
   const arch = post?.visual_archetype
+  const isSel = !!selected
 
   useEffect(() => {
     if (imageUrl) return
     if (canvasRef.current && post) drawThumb(canvasRef.current, post, brand)
   }, [post, brand, imageUrl])
 
-  return (
-    <button onClick={onClick}
-      className="group relative bg-white border border-fog rounded-xl overflow-hidden hover:border-ink/20 transition-colors text-left w-full">
+  const cls = "group relative bg-white border border-fog rounded-xl overflow-hidden hover:border-ink/20 transition-colors text-left w-full"
+  const body = (
+    <>
+      {selectMode && (
+        <div
+          className={`absolute top-2 left-2 z-10 w-5 h-5 rounded-md border-2 flex items-center justify-center pointer-events-none ${
+            isSel ? 'bg-ink border-ink' : 'bg-white/90 border-ink/25'
+          }`}
+        >
+          {isSel && <Check size={12} className="text-white" strokeWidth={3} />}
+        </div>
+      )}
       <div className="relative" style={{ aspectRatio:'1' }}>
         {imageUrl
           ? <img src={imageUrl} alt={post.topic} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
           : <canvas ref={canvasRef} style={{ width:'100%', height:'100%', display:'block' }} />
         }
         {isCarousel && (
-          <div className="absolute top-2 left-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded">
+          <div className={`absolute top-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded ${selectMode ? 'right-2' : 'left-2'}`}>
             <Layers size={9} className="text-white" />
             <span className="text-white text-[9px] font-semibold">{post.slide_count}</span>
           </div>
@@ -94,12 +105,19 @@ function PostThumb({ post, brand, onClick }) {
         <p className="text-ink text-xs font-medium truncate">{post.content_idea || post.topic}</p>
         <p className="text-ink/35 text-[10px] mt-0.5">{fmtDate(post.scheduled_date)}</p>
       </div>
+    </>
+  )
+
+  return (
+    <button type="button" onClick={onClick} className={`${cls} ${selectMode && isSel ? 'ring-2 ring-ink/30' : ''}`}>
+      {body}
     </button>
   )
 }
 
 export default function CalendarPage() {
   const navigate = useNavigate()
+  const { user } = useAuthStore()
   const { activeBrandId, brands, fetchMonthContent, generateMonth, generatingMonth, generationPollCount } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
@@ -114,7 +132,15 @@ export default function CalendarPage() {
     return y >= 2024 && y <= 2035 ? y : now.getFullYear()
   })
   const [posts, setPosts]   = useState([])
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [prepMessages, setPrepMessages] = useState([])
+  const [prepInput, setPrepInput] = useState('')
+  const [prepSending, setPrepSending] = useState(false)
+  const [includeHolidays, setIncludeHolidays] = useState(true)
+  const [monthHolidays, setMonthHolidays] = useState([])
+  const prepScrollRef = useRef(null)
   const [modal, setModal]   = useState(null)
   const [slideIdx, setSlideIdx] = useState(0)
   const [editCaption, setEditCaption]   = useState('')
@@ -130,12 +156,53 @@ export default function CalendarPage() {
   const cardRef = useRef(null)
 
   useEffect(() => {
-    if (!activeBrandId) return
+    if (!activeBrandId) {
+      setPosts([])
+      setLoading(false)
+      return
+    }
+    let cancelled = false
     setLoading(true)
     fetchMonthContent(month, year)
-      .then(items => { setPosts(items); setLoading(false) })
-      .catch(() => setLoading(false))
+      .then((items) => {
+        if (!cancelled) {
+          setPosts(items)
+          setLoading(false)
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [activeBrandId, month, year])
+
+  useEffect(() => {
+    setPrepMessages([])
+    setSelectedIds(new Set())
+    setSelectMode(false)
+  }, [month, year, activeBrandId])
+
+  useEffect(() => {
+    if (!showGenPanel || !activeBrandId) return
+    holidaysApi
+      .list(year)
+      .then((list) => {
+        const mh = (list || []).filter((h) => {
+          const m = parseInt(String(h.date).slice(5, 7), 10)
+          return m === month && !h.dismissed
+        })
+        setMonthHolidays(mh)
+      })
+      .catch(() => setMonthHolidays([]))
+  }, [showGenPanel, year, month, activeBrandId])
+
+  useEffect(() => {
+    const el = prepScrollRef.current
+    if (!el) return
+    el.scrollTop = el.scrollHeight
+  }, [prepMessages])
 
   useEffect(() => {
     if (modal) { setEditCaption(modal.caption||''); setEditHashtags(modal.hashtags||[]); setSlideIdx(0) }
@@ -217,12 +284,69 @@ export default function CalendarPage() {
   }
 
   const deletePost = async () => {
-    if (!confirm('Delete this post?')) return
+    if (!confirm('Remove this post from the calendar? Images stay in Directory.')) return
     try {
-      await contentApi.delete(modal.id)
-      setPosts(ps=>ps.filter(p=>p.id!==modal.id))
-      setModal(null); toast('Post deleted')
-    } catch { toast('Delete failed','error') }
+      await contentApi.bulkRemoveFromCalendar({ content_ids: [modal.id] })
+      setModal(null)
+      const items = await fetchMonthContent(month, year)
+      setPosts(items)
+      toast('Removed from calendar')
+    } catch {
+      toast('Remove failed', 'error')
+    }
+  }
+
+  const togglePostSelect = (id) => {
+    setSelectedIds((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+
+  const bulkRemoveSelected = async () => {
+    const ids = [...selectedIds]
+    if (!ids.length) return
+    if (
+      !confirm(
+        `Remove ${ids.length} post(s) from this month on the calendar? Nothing is deleted from Directory.`
+      )
+    )
+      return
+    try {
+      await contentApi.bulkRemoveFromCalendar({ content_ids: ids })
+      setSelectedIds(new Set())
+      setSelectMode(false)
+      const items = await fetchMonthContent(month, year)
+      setPosts(items)
+      toast('Removed from calendar')
+    } catch {
+      toast('Remove failed', 'error')
+    }
+  }
+
+  const sendPrep = async () => {
+    const txt = prepInput.trim()
+    if (!txt || !activeBrandId || prepSending) return
+    const next = [...prepMessages, { role: 'user', content: txt }]
+    setPrepMessages(next)
+    setPrepInput('')
+    setPrepSending(true)
+    try {
+      const { message } = await contentApi.generationPrepChat({
+        brand_id: activeBrandId,
+        month,
+        year,
+        messages: next,
+      })
+      setPrepMessages([...next, { role: 'assistant', content: message }])
+    } catch (e) {
+      setPrepMessages((pm) => pm.slice(0, -1))
+      toast(e.response?.data?.detail || 'Prep chat failed', 'error')
+    } finally {
+      setPrepSending(false)
+    }
   }
 
   const handleGenerate = async () => {
@@ -239,8 +363,21 @@ export default function CalendarPage() {
         if (!ok) return
       }
     } catch {}
+    const generation_brief =
+      prepMessages.length > 0
+        ? prepMessages.map((m) => `${m.role}: ${m.content}`).join('\n').slice(0, 12000)
+        : null
     try {
-      await generateMonth({ month, year, platforms: [genPlatform], format_mix: 'mixed', posts_per_week: genPPW, topic_override: genTopic.trim() || null })
+      await generateMonth({
+        month,
+        year,
+        platforms: [genPlatform],
+        format_mix: 'mixed',
+        posts_per_week: genPPW,
+        topic_override: genTopic.trim() || null,
+        include_holidays_in_content: includeHolidays,
+        generation_brief,
+      })
       toast(`${MONTHS[month-1]} ${year} — content ready`)
       setShowGenPanel(false)
       setLoading(true)
@@ -256,26 +393,68 @@ export default function CalendarPage() {
   Object.values(byPlatform).forEach(arr=>arr.sort((a,b)=>(a.scheduled_date||'').localeCompare(b.scheduled_date||'')))
   const platformsWithPosts = PLATFORMS.filter(pl=>byPlatform[pl.id]?.length>0)
 
+  const postCountLabel = loading ? 'Loading…' : `${posts.length} post${posts.length === 1 ? '' : 's'}`
+
   return (
-    <div className="p-4 lg:p-8 max-w-6xl mx-auto pb-24 lg:pb-8">
+    <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
 
       {/* Header */}
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-ink mb-0.5" style={{letterSpacing:'-0.02em'}}>Content Calendar</h1>
-          <p className="text-ink/40 text-sm">{activeBrand?.name||'No brand selected'} · {posts.length} posts in {MONTHS[month-1]} {year}</p>
+          <p className="text-ink/40 text-sm">
+            {activeBrand?.name || 'No brand selected'} · {postCountLabel} in {MONTHS[month - 1]} {year}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <div className="flex items-center gap-0.5 bg-white border border-fog rounded-xl p-1">
             <button onClick={()=>shiftMonth(-1)} className="p-2 hover:bg-mist rounded-lg text-ink/40 transition-colors"><ChevronLeft size={15}/></button>
             <span className="text-ink text-sm font-medium px-2 whitespace-nowrap">{MONTHS[month-1].slice(0,3)} {year}</span>
             <button onClick={()=>shiftMonth(1)}  className="p-2 hover:bg-mist rounded-lg text-ink/40 transition-colors"><ChevronRight size={15}/></button>
           </div>
-          <button onClick={()=>setShowGenPanel(true)} className="btn-primary text-sm px-4 py-2">
+          {activeBrandId && posts.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                setSelectMode((s) => !s)
+                setSelectedIds(new Set())
+              }}
+              className={`text-sm px-3 py-2 rounded-xl border transition-colors ${
+                selectMode ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/50 hover:border-ink/20'
+              }`}
+            >
+              Select
+            </button>
+          )}
+          <button onClick={() => setShowGenPanel(true)} className="btn-primary text-sm px-4 py-2">
             <Plus size={14}/><span className="hidden sm:inline">Generate</span>
           </button>
         </div>
       </div>
+
+      <p className="lg:hidden text-[11px] text-ink/35 mb-3 -mt-2 px-0.5">
+        On a wider screen, the Prep assistant appears beside the calendar for Q&A before you generate.
+      </p>
+
+      {selectMode && selectedIds.size > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-fog bg-mist px-4 py-3">
+          <span className="text-ink text-sm font-medium">{selectedIds.size} selected</span>
+          <button type="button" onClick={bulkRemoveSelected} className="btn-danger text-xs px-3 py-2">
+            <Trash2 size={12} className="inline mr-1" />
+            Remove from calendar
+          </button>
+          <button
+            type="button"
+            onClick={() => { setSelectedIds(new Set()); setSelectMode(false) }}
+            className="text-xs text-ink/40 hover:text-ink ml-auto"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_300px] lg:gap-6 lg:items-start">
+      <div className="min-w-0">
 
       {/* Platform filter */}
       {posts.length > 0 && (
@@ -329,12 +508,87 @@ export default function CalendarPage() {
             <div className="flex-1 h-px bg-fog"/>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {byPlatform[pl.id].map(post=>(
-              <PostThumb key={post.id} post={post} brand={activeBrand} onClick={()=>setModal(post)}/>
+            {byPlatform[pl.id].map((post) => (
+              <PostThumb
+                key={post.id}
+                post={post}
+                brand={activeBrand}
+                selectMode={selectMode}
+                selected={selectedIds.has(post.id)}
+                onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
+              />
             ))}
           </div>
         </div>
       ))}
+
+      </div>
+
+      <aside className="hidden lg:flex flex-col border border-fog rounded-2xl bg-white overflow-hidden mt-6 lg:mt-0 sticky top-6 max-h-[calc(100vh-5rem)]">
+        <div className="px-4 py-3 border-b border-fog flex items-center gap-2">
+          <MessageSquare size={16} className="text-ink/40" />
+          <div>
+            <p className="text-ink text-sm font-semibold">Prep assistant</p>
+            <p className="text-ink/35 text-[10px] leading-snug">
+              Ask questions or share updates before you generate {MONTHS[month - 1]}.
+            </p>
+          </div>
+        </div>
+        <div ref={prepScrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-[200px] max-h-[42vh]">
+          {!prepMessages.length && (
+            <p className="text-ink/30 text-xs leading-relaxed">
+              Example: “We’re launching X on the 12th” or “Use the new dashboard screenshot tone.” The assistant will
+              reply with follow-ups; everything here is sent with Generate as context.
+            </p>
+          )}
+          {prepMessages.map((m, i) => (
+            <div
+              key={i}
+              className={`text-xs rounded-xl px-3 py-2 leading-relaxed ${
+                m.role === 'assistant' ? 'bg-mist text-ink/80' : 'bg-brand-500/10 text-ink border border-brand-500/15'
+              }`}
+            >
+              <span className="font-semibold text-[10px] uppercase tracking-wide text-ink/35 block mb-0.5">
+                {m.role === 'assistant' ? 'Assistant' : 'You'}
+              </span>
+              {m.content}
+            </div>
+          ))}
+          {prepSending && (
+            <div className="text-ink/30 text-xs flex items-center gap-2 px-1">
+              <div className="w-3.5 h-3.5 border border-fog border-t-ink/30 rounded-full animate-spin" />
+              Thinking…
+            </div>
+          )}
+        </div>
+        <div className="p-3 border-t border-fog bg-mist/50">
+          <textarea
+            value={prepInput}
+            onChange={(e) => setPrepInput(e.target.value)}
+            rows={2}
+            placeholder="Product updates, promos, tone…"
+            className="input text-xs resize-none mb-2"
+            disabled={!activeBrandId || prepSending}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                sendPrep()
+              }
+            }}
+          />
+          <button
+            type="button"
+            onClick={sendPrep}
+            disabled={!activeBrandId || prepSending || !prepInput.trim()}
+            className="btn-primary w-full text-xs py-2 justify-center gap-1.5 disabled:opacity-40"
+          >
+            <Send size={12} />
+            Send
+          </button>
+        </div>
+      </aside>
+
+      </div>
 
       {/* ── Generate panel ── */}
       {showGenPanel && (
@@ -410,11 +664,41 @@ export default function CalendarPage() {
                 className="input"/>
             </div>
 
+            <div className="rounded-xl border border-fog bg-mist/50 p-3 space-y-2">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeHolidays}
+                  onChange={(e) => setIncludeHolidays(e.target.checked)}
+                  className="mt-1"
+                />
+                <span className="text-xs text-ink/70 leading-relaxed">
+                  <span className="font-semibold text-ink">Include public holidays in this month</span>
+                  {user?.country_code
+                    ? ` (using your profile country ${String(user.country_code).toUpperCase()}). `
+                    : ' (add your country in Account settings for local holidays). '}
+                  The planner weaves relevant dates into posts unless you uncheck this.
+                </span>
+              </label>
+              {monthHolidays.length > 0 && (
+                <ul className="text-[11px] text-ink/50 list-disc pl-4 space-y-0.5 max-h-28 overflow-y-auto">
+                  {monthHolidays.slice(0, 16).map((h) => (
+                    <li key={`${h.date}-${h.name}`}>
+                      {h.date} — {h.name}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {includeHolidays && monthHolidays.length === 0 && (
+                <p className="text-[11px] text-ink/35">No listed holidays fall in this month for your region.</p>
+              )}
+            </div>
+
             <button onClick={handleGenerate} disabled={generatingMonth || (activeBrand && !isBrandReady(activeBrand))}
               className="btn-primary w-full justify-center py-3 disabled:opacity-50 disabled:cursor-not-allowed">
               {generatingMonth
                 ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
-                    {generationPollCount < 3 ? 'Writing captions…' : generationPollCount < 7 ? 'Crafting posts…' : 'Almost done…'}</>
+                    {generationPollCount < 1 ? 'Starting…' : generationPollCount < 3 ? 'Writing captions…' : generationPollCount < 7 ? 'Crafting posts…' : 'Almost done…'}</>
                 : <><Zap size={15}/>Generate {MONTHS[month-1]} {year}</>}
             </button>
           </div>
@@ -615,7 +899,7 @@ export default function CalendarPage() {
                     </select>
                     <button onClick={deletePost}
                       className="btn-danger text-xs px-3 py-2 ml-auto">
-                      <Trash2 size={12}/> Delete
+                      <Trash2 size={12}/> Remove from calendar
                     </button>
                   </div>
                 </div>
