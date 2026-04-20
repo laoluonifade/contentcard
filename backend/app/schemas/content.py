@@ -113,6 +113,20 @@ class RegenerateVisualRequest(BaseModel):
     new_archetype: str | None = None  # one of art_brief_service.ARCHETYPE_IDS when mode=new_archetype
 
 
+class RegenerateMonthVisualsRequest(BaseModel):
+    brand_id: str
+    month: int
+    year: int
+    platform: ContentPlatform | None = None
+    mode: str = "same_archetype"  # same_archetype | new_archetype
+    new_archetype: str | None = None
+    limit: int = 60
+
+
+class RegenerateMonthVisualsResponse(BaseModel):
+    queued: int
+
+
 class CaptionUpdateRequest(BaseModel):
     caption: str
     hashtags: list[str] | None = None
@@ -189,6 +203,16 @@ class ContentOut(BaseModel):
             if isinstance(cm, dict):
                 v = cm.get("template_family")
                 return str(v) if v is not None else None
+        return None
+
+    @computed_field
+    def quality_gate(self) -> dict | None:
+        t = self.theme
+        if isinstance(t, dict):
+            cm = t.get("cc_meta")
+            if isinstance(cm, dict):
+                q = cm.get("quality_gate")
+                return q if isinstance(q, dict) else None
         return None
 
 

@@ -38,31 +38,15 @@ def _route_template_family(post_data: dict, body_index: int = 0) -> str:
     Route body slides to a template family using content_type/topic hints.
     Falls back to hook template for the first body slide, then generic content.
     """
-    ctype = _clean_inline(post_data.get("content_type"), 80).lower()
-    topic = _clean_inline(post_data.get("topic"), 120).lower()
-    bag = f"{ctype} {topic}"
-
-    candidates = [
-        (
-            ("promo", "offer", "sale", "discount", "deal", "launch", "announcement"),
-            getattr(settings, "BANNERBEAR_TEMPLATE_PROMO", "") or "",
-        ),
-        (
-            ("education", "tip", "how to", "guide", "explainer", "myth", "mistake"),
-            getattr(settings, "BANNERBEAR_TEMPLATE_EDU", "") or "",
-        ),
-        (
-            ("testimonial", "customer", "review", "proof", "case study", "success story"),
-            getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", "") or "",
-        ),
-        (
-            ("hiring", "job", "career", "vacancy", "role", "join our team"),
-            getattr(settings, "BANNERBEAR_TEMPLATE_HIRING", "") or "",
-        ),
-    ]
-    for keys, uid in candidates:
-        if uid and any(k in bag for k in keys):
-            return uid
+    fam = detect_template_family(post_data)
+    if fam == "promo" and getattr(settings, "BANNERBEAR_TEMPLATE_PROMO", ""):
+        return settings.BANNERBEAR_TEMPLATE_PROMO
+    if fam == "edu" and getattr(settings, "BANNERBEAR_TEMPLATE_EDU", ""):
+        return settings.BANNERBEAR_TEMPLATE_EDU
+    if fam == "testimonial" and getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", ""):
+        return settings.BANNERBEAR_TEMPLATE_TESTIMONIAL
+    if fam == "hiring" and getattr(settings, "BANNERBEAR_TEMPLATE_HIRING", ""):
+        return settings.BANNERBEAR_TEMPLATE_HIRING
 
     hook_uid = getattr(settings, "BANNERBEAR_TEMPLATE_HOOK", "") or ""
     if body_index == 0 and hook_uid:
@@ -74,6 +58,9 @@ def detect_template_family(post_data: dict) -> str:
     """
     Debug-friendly family key for admin inspection.
     """
+    forced = _clean_inline(post_data.get("force_template_family"), 40).lower()
+    if forced in ("promo", "edu", "testimonial", "hiring", "default"):
+        return forced
     ctype = _clean_inline(post_data.get("content_type"), 80).lower()
     topic = _clean_inline(post_data.get("topic"), 120).lower()
     bag = f"{ctype} {topic}"
@@ -88,14 +75,31 @@ def detect_template_family(post_data: dict) -> str:
     return "default"
 
 
-def _carousel_copy_plan(topic: str, caption: str, slide_count: int) -> list[dict]:
+def _family_tokens(post_data: dict) -> dict:
+    fam = detect_template_family(post_data)
+    if fam == "promo":
+        return {"badge": "LIMITED OFFER", "cta": "Claim offer now", "chip": "Deal"}
+    if fam == "edu":
+        return {"badge": "PRO TIP", "cta": "Save this post", "chip": "Learn"}
+    if fam == "testimonial":
+        return {"badge": "SOCIAL PROOF", "cta": "See results", "chip": "Proof"}
+    if fam == "hiring":
+        return {"badge": "WE ARE HIRING", "cta": "Apply today", "chip": "Careers"}
+    return {"badge": "CONTENTCARD", "cta": "Follow for more", "chip": "Update"}
+
+
+def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
     """
     Build per-slide copy plan: cover + body slides + CTA.
     The copy is concise so templates remain readable on mobile feeds.
     """
+    topic = post_data.get("topic") or ""
+    caption = post_data.get("caption") or ""
+    tokens = _family_tokens(post_data)
     cover_headline = _clean_inline(topic, 68)
     sents = _split_caption_sentences(caption)
-    subtitle = _clean_inline(sents[0] if sents else "Swipe for practical takeaways.", 96)
+    subtitle_core = _clean_inline(sents[0] if sents else "Swipe for practical takeaways.", 96)
+    subtitle = _clean_inline(f"{tokens['badge']} · {subtitle_core}", 96)
     if slide_count <= 1:
         return [{"headline": cover_headline, "subtitle": subtitle}]
 
@@ -110,13 +114,13 @@ def _carousel_copy_plan(topic: str, caption: str, slide_count: int) -> list[dict
             body_text = "Practical action point for this step."
         bodies.append(
             {
-                "headline": _clean_inline(f"Point {i + 1}", 40),
+                "headline": _clean_inline(f"{tokens['chip']} {i + 1}", 40),
                 "body": body_text,
             }
         )
 
-    cta = _clean_inline(" ".join(sents[-1:]) if sents else "Follow for more updates.", 120)
-    return [{"headline": cover_headline, "subtitle": subtitle}, *bodies, {"headline": "Take action today", "body": cta}]
+    cta = _clean_inline(" ".join(sents[-1:]) if sents else tokens["cta"], 120)
+    return [{"headline": cover_headline, "subtitle": subtitle}, *bodies, {"headline": tokens["cta"], "body": cta}]
 
 
 async def _create_image(template_uid: str, modifications: list[dict]) -> str | None:
@@ -291,7 +295,7 @@ async def generate_post_images(
 
     # ── Carousel — cover + body slides + CTA with explicit copy hierarchy
     urls = [cover_url]
-    copy_plan = _carousel_copy_plan(topic, caption, slide_count)
+    copy_plan = _carousel_copy_plan(post_data, slide_count)
 
     if settings.BANNERBEAR_TEMPLATE_CONTENT and slide_count > 2:
         body_slides = slide_count - 2

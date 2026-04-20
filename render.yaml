@@ -58,6 +58,12 @@ services:
         sync: false
       - key: BANNERBEAR_TEMPLATE_HIRING
         sync: false
+      - key: QUALITY_GATE_ENABLED
+        value: "true"
+      - key: QUALITY_GATE_MIN_SCORE
+        value: "0.66"
+      - key: QUALITY_GATE_MAX_RETRIES
+        value: "2"
       - key: FREE_TRIAL_DAYS
         value: "14"
 

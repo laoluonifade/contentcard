@@ -16,6 +16,21 @@ PLATFORM_FORMAT = {
 }
 
 
+def _resolve_logo_url(brand: dict) -> str:
+    vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
+    logo_url = (
+        brand.get("logo_url")
+        or brand.get("brand_logo_url")
+        or vs.get("logo_url")
+        or ""
+    )
+    return str(logo_url).strip()
+
+
+def has_brand_logo(brand: dict) -> bool:
+    return bool(_resolve_logo_url(brand))
+
+
 def _build_image_prompt(post: dict, brand: dict) -> str:
     """
     Build a photorealistic background-only prompt for DALL-E 3.
@@ -50,6 +65,8 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     visual_direction = post.get("visual_direction", "")
     ai_image_prompt = post.get("image_prompt", "")
     fmt = post.get("format", "single")
+    qg_notes = str(post.get("quality_gate_notes") or "").strip()
+    qg_retry = int(post.get("quality_gate_retry") or 0) if str(post.get("quality_gate_retry") or "").isdigit() else 0
 
     platform_note = PLATFORM_FORMAT.get(platform, "social media post 1:1")
 
@@ -254,6 +271,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{style_close} "
             f"{negative}"
         )
+        if qg_notes:
+            prompt += f"\nQuality gate correction: {qg_notes}"
+        if qg_retry > 0:
+            prompt += " Retry mode: cleaner composition, fewer objects, stronger focal hierarchy, campaign-grade realism."
     else:
         if vt == "abstract":
             opener = f"Premium abstract visual for {brand_name}, a {industry} brand."
@@ -293,6 +314,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"Platform: {platform_note}. "
             f"{negative}"
         )
+        if qg_notes:
+            prompt += f" Quality gate correction: {qg_notes}"
+        if qg_retry > 0:
+            prompt += " Retry mode: cleaner composition, fewer objects, stronger focal hierarchy, campaign-grade realism."
 
     return prompt.strip()
 
@@ -301,7 +326,24 @@ async def _fetch_logo_bytes(logo_url: str, client: httpx.AsyncClient) -> bytes |
     try:
         resp = await client.get(logo_url, timeout=15, follow_redirects=True)
         if resp.status_code == 200:
-            return resp.content
+            data = resp.content
+            ctype = (resp.headers.get("content-type") or "").lower()
+            is_svg = (
+                "image/svg+xml" in ctype
+                or logo_url.lower().split("?")[0].endswith(".svg")
+                or data.lstrip().startswith(b"<svg")
+            )
+            if is_svg:
+                try:
+                    import cairosvg  # type: ignore
+
+                    png_bytes = cairosvg.svg2png(bytestring=data)
+                    if png_bytes:
+                        return png_bytes
+                except Exception as e:
+                    logger.warning(f"Could not rasterize SVG logo from {logo_url}: {e}")
+                    return None
+            return data
     except Exception as e:
         logger.warning(f"Could not fetch logo from {logo_url}: {e}")
     return None
@@ -399,17 +441,12 @@ async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | Non
     brand['logo_url'], re-upload to Cloudinary. Logo is never left to the image model.
     """
     vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
-    logo_url = (
-        brand.get("logo_url")
-        or brand.get("brand_logo_url")
-        or vs.get("logo_url")
-        or ""
-    )
-    logo_url = str(logo_url).strip()
+    logo_url = _resolve_logo_url(brand)
     if not image_url or not logo_url:
         return None
     ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
-    placement = str(ab.get("logo_placement") or vs.get("logo_placement") or "bottom_right")
+    # Lockup consistency: prefer brand-level visual_system placement over per-post variation.
+    placement = str(vs.get("logo_placement") or ab.get("logo_placement") or "bottom_right")
     try:
         min_w = int(ab.get("logo_min_width_px") or vs.get("logo_min_width_px") or 80)
     except (TypeError, ValueError):
@@ -433,15 +470,22 @@ async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | Non
         return None
 
 
-async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: dict | None) -> list[str]:
+async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: dict | None) -> tuple[list[str], bool]:
     """Apply burn-in logo to every rendered slide URL when possible."""
     if not urls:
-        return []
+        return [], True
+    if not has_brand_logo(brand):
+        return urls, True
     out: list[str] = []
+    all_applied = True
     for u in urls:
         burned = await burn_logo_into_image_url(u, brand, post)
-        out.append(burned or u)
-    return out
+        if burned:
+            out.append(burned)
+        else:
+            all_applied = False
+            out.append(u)
+    return out, all_applied
 
 
 async def generate_post_image(post: dict, brand: dict) -> list[str]:
