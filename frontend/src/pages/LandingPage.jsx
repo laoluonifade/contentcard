@@ -225,7 +225,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-3">
             <button onClick={() => navigate('/login')} className="text-white/80 hover:text-white text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
             <button onClick={() => navigate('/demo')} className="text-sm font-bold px-4 py-2 rounded-xl border border-white/20 text-white/85 hover:text-white hover:bg-white/5 transition-all hidden sm:block">Get a demo</button>
-            <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free trial <ArrowRight size={13} /></button>
+            <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Get started <ArrowRight size={13} /></button>
           </div>
         </div>
       </nav>
@@ -252,7 +252,7 @@ export default function LandingPage() {
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <button onClick={() => navigate('/signup')} className="btn-primary px-7 py-3.5 text-base">
-                Start your free trial <ArrowRight size={16} />
+                Get started <ArrowRight size={16} />
               </button>
               <button onClick={() => navigate('/demo')} className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-white/20 text-white/90 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
                 <Play size={13} className="fill-white/60" /> See how it works
@@ -520,12 +520,12 @@ export default function LandingPage() {
                 </div>
                 <button onClick={() => navigate('/signup')}
                   className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${p.featured ? 'bg-brand-500 hover:bg-brand-600 text-white' : 'bg-white/5 hover:bg-white/10 text-white border border-white/10'}`}>
-                  Start free trial
+                  Get started
                 </button>
               </div>
             ))}
           </div>
-          <p className="text-center text-white/65 text-xs mt-8">14-day free trial on all plans · No credit card required · Cancel anytime</p>
+          <p className="text-center text-white/65 text-xs mt-8">No credit card required · Cancel anytime</p>
         </div>
       </section>
 
@@ -547,13 +547,13 @@ export default function LandingPage() {
                 <p className="text-white/80 text-lg mb-8">Join 500+ marketing teams using ContentCard to publish consistently, strengthen brand equity, and deliver measurable results from social.</p>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button onClick={() => navigate('/signup')} className="btn-primary px-8 py-4 text-base">
-                    Start your free trial <ArrowRight size={17} />
+                    Get started <ArrowRight size={17} />
                   </button>
                   <button onClick={() => navigate('/demo')} className="px-8 py-4 rounded-xl border border-white/30 text-white/90 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
                     Request a demo
                   </button>
                 </div>
-                <p className="text-white/70 text-sm mt-5">14-day free trial · No credit card required · Cancel anytime</p>
+                <p className="text-white/70 text-sm mt-5">No credit card required · Cancel anytime</p>
               </div>
             </div>
           </div>

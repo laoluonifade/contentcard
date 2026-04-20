@@ -96,6 +96,11 @@ def _image_prompt_ending_for_style(ips: str) -> str:
             'Must end with: "No text, no logos, no watermarks, no typography, no UI elements, '
             'premium brand illustration or modern flat graphic only; no photorealistic humans."'
         )
+    if ips == "cartoon":
+        return (
+            'Must end with: "No text, no logos, no watermarks, no typography, no UI elements, '
+            'cartoon/comic illustration style only; bold linework and expressive shapes; no photorealistic humans."'
+        )
     return (
         "End by forbidding logos and readable text in-image. "
         "visual_type per post must be one of real_people, illustration, abstract, or product — pick the best fit; "
@@ -108,6 +113,8 @@ def _visual_type_rule_for_style(ips: str) -> str:
         return 'always the string "real_people"'
     if ips == "illustration":
         return 'always the string "illustration"'
+    if ips == "cartoon":
+        return 'always the string "illustration" (with cartoon/comic treatment)'
     return (
         'per post one of: "real_people", "illustration", "abstract", "product" — vary across the month; '
         'use "abstract" or "product" whenever the content idea does not require people'
@@ -119,6 +126,8 @@ def _hard_visual_type_rule(ips: str) -> str:
         return '• visual_type must be exactly "real_people" for every post'
     if ips == "illustration":
         return '• visual_type must be exactly "illustration" for every post'
+    if ips == "cartoon":
+        return '• visual_type must be exactly "illustration" for every post (cartoon/comic rendering)'
     return (
         '• visual_type must be one of real_people, illustration, abstract, or product per post (vary intentionally)\n'
         '• Across the full batch: at least 35% of posts combined must use abstract or product (not people-led), '
@@ -205,6 +214,94 @@ def _apply_style_mix_targets(valid: list[dict], brand: dict | None) -> list[dict
     return valid
 
 
+def _design_mode_for_post(post: dict) -> str:
+    vt = str(post.get("visual_type") or "").lower()
+    arch = str(post.get("visual_archetype") or "").lower()
+    ctype = str(post.get("content_type") or "").lower()
+    topic = str(post.get("topic") or post.get("content_idea") or "").lower()
+    bag = f"{ctype} {topic}"
+    if vt == "real_people":
+        return "lifestyle"
+    if vt == "product":
+        return "product_hero"
+    if vt == "abstract" or arch == "pattern_headline":
+        return "abstract"
+    if any(k in bag for k in ("feature", "dashboard", "workflow", "integration", "release", "update", "saas", "ui")):
+        return "ui_saas"
+    if arch in ("flat_edu", "pov_comic") or vt == "illustration":
+        return "editorial"
+    return "editorial"
+
+
+def _enforce_design_mode_rotation(valid: list[dict], brand: dict | None) -> list[dict]:
+    if not valid:
+        return valid
+    vs = ((brand or {}).get("visual_system") or {}) if isinstance((brand or {}).get("visual_system"), dict) else {}
+    ips = str(vs.get("image_people_style") or "mixed").lower()
+    if ips not in ("real_people", "illustration", "cartoon", "mixed"):
+        ips = "mixed"
+
+    # Do not repeat same design mode consecutively in mixed mode.
+    if ips == "mixed":
+        prev_mode = None
+        for p in valid:
+            mode = _design_mode_for_post(p)
+            if prev_mode and mode == prev_mode:
+                fam = _detect_template_family_for_mix(p)
+                if fam in ("product_hero", "promo", "announcement"):
+                    p["visual_type"] = "product"
+                    p["visual_archetype"] = "photo_hero"
+                elif fam in ("data_card", "text_poster", "edu"):
+                    p["visual_type"] = "abstract"
+                    p["visual_archetype"] = "pattern_headline"
+                elif fam in ("testimonial", "story_carousel"):
+                    p["visual_type"] = "real_people"
+                    p["visual_archetype"] = "portrait_story"
+                else:
+                    p["visual_type"] = "illustration"
+                    p["visual_archetype"] = "flat_edu"
+                _enforce_designer_visual_direction(p)
+                mode = _design_mode_for_post(p)
+            prev_mode = mode
+
+    # Human element floor for mixed mode: ensure at least one real-people post on larger batches.
+    if ips == "mixed" and len(valid) >= 4:
+        human_idxs = [i for i, p in enumerate(valid) if str(p.get("visual_type") or "").lower() == "real_people"]
+        if len(human_idxs) == 0:
+            for p in valid:
+                fam = _detect_template_family_for_mix(p)
+                if fam in ("testimonial", "story_carousel", "announcement", "product_hero"):
+                    p["visual_type"] = "real_people"
+                    p["visual_archetype"] = "photo_hero"
+                    _enforce_designer_visual_direction(p)
+                    break
+
+    # Cap long runs of identical archetypes.
+    run_arch = None
+    run_len = 0
+    for p in valid:
+        arch = str(p.get("visual_archetype") or "").lower()
+        if arch == run_arch:
+            run_len += 1
+            if run_len >= 3:
+                vt = str(p.get("visual_type") or "").lower()
+                if vt == "real_people":
+                    p["visual_archetype"] = "portrait_story" if arch != "portrait_story" else "pov_comic"
+                elif vt == "illustration":
+                    p["visual_archetype"] = "pov_comic" if arch != "pov_comic" else "flat_edu"
+                elif vt == "abstract":
+                    p["visual_archetype"] = "flat_edu"
+                elif vt == "product":
+                    p["visual_archetype"] = "flat_edu" if arch == "photo_hero" else "photo_hero"
+                _enforce_designer_visual_direction(p)
+                run_arch = str(p.get("visual_archetype") or "").lower()
+                run_len = 1
+        else:
+            run_arch = arch
+            run_len = 1
+    return valid
+
+
 def _enforce_designer_visual_direction(post: dict) -> None:
     """
     Ensure visual_direction reads like a real design brief, not a vague scene note.
@@ -246,6 +343,7 @@ def _enforce_designer_visual_direction(post: dict) -> None:
         "build layered foreground, midground, and background depth, and include contextual props or product cues that prove the message. "
         f"{style_line} "
         "Use controlled lighting, real material texture, and clean colour hierarchy so it feels art-directed, not a random lifestyle snapshot. "
+        "Vary typography structure from previous posts by changing alignment, scale contrast, and block arrangement; avoid recurring centered lockups. "
         f"Lock the uploaded brand logo into the {zone} zone with deliberate breathing room, visual balance, and clear contrast so the final mark looks intentionally designed, not pasted. "
         "Avoid generic portrait-only composition."
     )
@@ -259,12 +357,12 @@ def _visual_system_prompt_block(brand: dict) -> str:
     arch = vs.get("allowed_archetypes") or []
     motifs = vs.get("never_show_motifs") or []
     ips = str(vs.get("image_people_style") or "mixed").lower()
-    if ips not in ("real_people", "illustration", "mixed"):
+    if ips not in ("real_people", "illustration", "cartoon", "mixed"):
         ips = "mixed"
     return (
         f"Allowed visual_archetype values: {', '.join(str(a) for a in arch)}. "
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
-        f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; mixed = vary by post). "
+        f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; cartoon = comic illustration; mixed = vary by post). "
         f"Design visual_direction around the uploaded brand logo lockup and choose logo_safe_zone where the final mark should sit. "
         f"Do NOT ask the image model to rasterize text or logo artwork; instead, preserve a clean lockup zone and describe how composition balances around that zone. "
         f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
@@ -311,14 +409,14 @@ def _validate_posts(
         _br_vs = (brand or {}).get("visual_system")
         vs = _br_vs if isinstance(_br_vs, dict) else {}
         ips = str(vs.get("image_people_style") or "mixed").lower()
-        if ips not in ("real_people", "illustration", "mixed"):
+        if ips not in ("real_people", "illustration", "cartoon", "mixed"):
             ips = "mixed"
         vt_ai = str(post.get("visual_type", "real_people")).lower()
         if vt_ai not in VALID_VISUAL_TYPES:
             vt_ai = "real_people"
         if ips == "real_people":
             post["visual_type"] = "real_people"
-        elif ips == "illustration":
+        elif ips in ("illustration", "cartoon"):
             post["visual_type"] = "illustration"
         else:
             post["visual_type"] = vt_ai
@@ -375,7 +473,9 @@ def _validate_posts(
 
         valid.append(_sanitize_post_copy_fields(post))
 
-    return _apply_style_mix_targets(valid, brand)
+    valid = _apply_style_mix_targets(valid, brand)
+    valid = _enforce_design_mode_rotation(valid, brand)
+    return valid
 
 
 # ── Core OpenAI chat wrapper ───────────────────────────────────────────────────
@@ -504,7 +604,7 @@ async def _generate_for_platform(
     _vs_raw = (brand_dict or {}).get("visual_system")
     _vs_dict = _vs_raw if isinstance(_vs_raw, dict) else {}
     ips = str(_vs_dict.get("image_people_style") or "mixed")
-    ips = ips.lower() if ips in ("real_people", "illustration", "mixed") else "mixed"
+    ips = ips.lower() if ips in ("real_people", "illustration", "cartoon", "mixed") else "mixed"
     if ips == "real_people":
         img_style_rules = (
             "• ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
@@ -522,6 +622,14 @@ async def _generate_for_platform(
             "• NEVER mention logos or typography in-image. Logo is added in post-production\n"
             "• People may be illustrated (stylised but professional), not photoreal stock\n"
             "• NEVER use generic AI-art clichés"
+        )
+    elif ips == "cartoon":
+        img_style_rules = (
+            f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
+            "• image_prompt should use premium cartoon/comic illustration: strong shape language, clean linework, modern editorial composition\n"
+            "• NEVER mention logos or typography in-image. Logo is added in post-production\n"
+            "• Characters, if used, should be stylised and expressive, but not childish clip-art\n"
+            "• NEVER use generic low-quality sticker-pack aesthetics"
         )
     else:
         img_style_rules = (
@@ -581,6 +689,11 @@ For EACH post return ALL these fields:
 
 HARD RULES:
 • Each post must feel distinctly different; vary tone, angle, format, and style
+• Fix prior system weaknesses: avoid repeating the same centered-text layout, avoid repeating gradient-heavy backgrounds, avoid overusing flat illustration style, and avoid template-looking sameness
+• Rotate design mode across posts and do not repeat consecutively: editorial, product hero, lifestyle, abstract, ui_saas
+• Include human/lifestyle context in some posts (especially mixed mode), not only abstract or illustration outputs
+• Vary typography behavior between posts: change alignment, scale contrast, and structure (stacked, split, overlay)
+• If a draft visual direction resembles a previous pattern in this batch, rewrite it to be clearly different before returning
 • NEVER use words from the words_to_avoid list
 • NEVER produce generic AI-sounding captions
 • If format is "single" or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next"

@@ -64,7 +64,7 @@ def apply_visual_system_defaults(brand: dict[str, Any]) -> dict[str, Any]:
         },
     }
     _ips = str(vs.get("image_people_style") or "mixed").lower()
-    if _ips not in ("real_people", "illustration", "mixed"):
+    if _ips not in ("real_people", "illustration", "cartoon", "mixed"):
         _ips = "mixed"
     defaults["image_people_style"] = _ips
     merged_vs = defaults.copy()
@@ -78,6 +78,6 @@ def apply_visual_system_defaults(brand: dict[str, Any]) -> dict[str, Any]:
     merged_vs["secondary_hex"] = _norm_hex(str(merged_vs.get("secondary_hex"))) or sec
     merged_vs["accent_hex"] = _norm_hex(str(merged_vs.get("accent_hex"))) or accent
     ips = str(merged_vs.get("image_people_style") or "mixed").lower()
-    merged_vs["image_people_style"] = ips if ips in ("real_people", "illustration", "mixed") else "mixed"
+    merged_vs["image_people_style"] = ips if ips in ("real_people", "illustration", "cartoon", "mixed") else "mixed"
     brand["visual_system"] = merged_vs
     return brand

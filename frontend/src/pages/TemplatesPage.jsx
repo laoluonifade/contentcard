@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Plus, Play, Pause, Trash2, Layers, Sparkles, Wand2 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
@@ -11,6 +12,18 @@ const CAT_LABELS = {
   event: 'Events',
   service: 'Weekly Services',
   seasonal: 'Seasonal',
+}
+
+const DESIGN_TYPE_LABELS = {
+  all: 'All designs',
+  feature_ui_spotlight: 'Feature UI Spotlight',
+  promo_cta_banner: 'Promo + CTA Banner',
+  testimonial_proof_card: 'Testimonial Proof Card',
+  product_showcase_grid: 'Product Showcase Grid',
+  educational_explainer: 'Educational Explainer',
+  editorial_story: 'Editorial Story',
+  culture_campaign: 'Culture Campaign',
+  general_social: 'General Social',
 }
 
 const INITIAL_FORM = () => ({
@@ -28,8 +41,10 @@ const INITIAL_FORM = () => ({
 })
 
 export default function TemplatesPage() {
+  const navigate = useNavigate()
   const {
     activeBrandId,
+    brands,
     templates,
     fetchTemplates,
     createTemplate,
@@ -39,6 +54,7 @@ export default function TemplatesPage() {
     generateTemplateDesign,
   } = useAppStore()
   const [filter, setFilter] = useState('all')
+  const [designFilter, setDesignFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(INITIAL_FORM)
@@ -46,13 +62,31 @@ export default function TemplatesPage() {
   const [customDatesText, setCustomDatesText] = useState('')
   const [bootstrapping, setBootstrapping] = useState(false)
   const [designingId, setDesigningId] = useState(null)
+  const [viewingTemplate, setViewingTemplate] = useState(null)
   const readyCount = (templates || []).filter((t) => t.is_active && t.is_design_ready).length
+  const activeBrand = useMemo(() => brands.find((b) => b.id === activeBrandId) || null, [brands, activeBrandId])
 
   useEffect(() => {
     if (activeBrandId) fetchTemplates().catch(() => {})
   }, [activeBrandId])
 
-  const filtered = filter === 'all' ? templates : templates.filter((t) => t.category === filter)
+  useEffect(() => {
+    if (!viewingTemplate?.id) return
+    const latest = (templates || []).find((t) => t.id === viewingTemplate.id)
+    if (latest) setViewingTemplate(latest)
+  }, [templates, viewingTemplate?.id])
+
+  const inferDesignType = (t) =>
+    t?.design_spec?.design_template_type || 'general_social'
+  const filtered = (templates || []).filter((t) => {
+    const categoryMatch = filter === 'all' ? true : t.category === filter
+    const designMatch = designFilter === 'all' ? true : inferDesignType(t) === designFilter
+    return categoryMatch && designMatch
+  })
+  const designTypeOptions = useMemo(() => {
+    const fromTemplates = Array.from(new Set((templates || []).map((t) => inferDesignType(t))))
+    return ['all', ...fromTemplates.filter(Boolean)]
+  }, [templates])
 
   const save = async () => {
     if (!form.name.trim()) {
@@ -144,6 +178,27 @@ export default function TemplatesPage() {
     }
   }
 
+  const openTemplate = (template) => setViewingTemplate(template)
+  const closeTemplate = () => setViewingTemplate(null)
+  const useTemplateForMonth = (templateId) => {
+    navigate('/dashboard/generate', { state: { templateId } })
+  }
+
+  const previewTitle = (t) => (t.topics && t.topics.length ? t.topics[0] : t.name)
+  const previewSubtitle = (t) =>
+    t.category === 'product'
+      ? 'Limited offer this week only'
+      : t.category === 'event'
+        ? 'Save your spot and join us'
+        : t.category === 'seasonal'
+          ? 'Fresh monthly campaign direction'
+          : 'Designed for consistent weekly posting'
+  const prettyDesignType = (t) => {
+    const key = inferDesignType(t)
+    return DESIGN_TYPE_LABELS[key] || key.replace(/_/g, ' ')
+  }
+  const contentTemplateType = (t) => t?.design_spec?.content_template_type || t.category
+
   if (!activeBrandId) {
     return (
       <div className="p-6 lg:p-8 max-w-5xl mx-auto">
@@ -165,7 +220,7 @@ export default function TemplatesPage() {
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
             Templates
           </h1>
-          <p className="text-ink/40 text-sm">Recurring content patterns and generated design templates used for generation.</p>
+          <p className="text-ink/40 text-sm">Content type templates + design type templates used for generation previews and monthly output.</p>
           <p className="text-ink/30 text-xs mt-1">{readyCount} design-ready template{readyCount === 1 ? '' : 's'} available</p>
         </div>
         <div className="flex gap-2">
@@ -203,6 +258,21 @@ export default function TemplatesPage() {
               </button>
             ))}
           </div>
+          <div className="flex gap-2 flex-wrap">
+            {designTypeOptions.map((k) => (
+              <button
+                key={k}
+                onClick={() => setDesignFilter(k)}
+                className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold border transition-all ${
+                  designFilter === k
+                    ? 'border-ink bg-mist text-ink'
+                    : 'border-fog text-ink/40 hover:border-zinc-600 hover:text-ink/70'
+                }`}
+              >
+                {DESIGN_TYPE_LABELS[k] || k.replace(/_/g, ' ')}
+              </button>
+            ))}
+          </div>
 
           {filtered.length === 0 ? (
             <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
@@ -220,7 +290,19 @@ export default function TemplatesPage() {
           ) : (
             <div className="grid md:grid-cols-2 gap-4">
               {filtered.map((t) => (
-                <div key={t.id} className="bg-white border border-fog hover:border-fog rounded-2xl p-5 transition-colors">
+                <div
+                  key={t.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openTemplate(t)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      openTemplate(t)
+                    }
+                  }}
+                  className="text-left bg-white border border-fog hover:border-ink/20 rounded-2xl p-5 transition-colors"
+                >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
                       <div
@@ -240,14 +322,22 @@ export default function TemplatesPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => toggleActive(t)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          toggleActive(t)
+                        }}
                         title={t.is_active ? 'Pause' : 'Activate'}
                         className="w-8 h-8 rounded-lg bg-fog hover:bg-mist flex items-center justify-center text-ink/50 hover:text-ink transition-all"
                       >
                         {t.is_active ? <Pause size={13} /> : <Play size={13} />}
                       </button>
                       <button
-                        onClick={() => del(t.id)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          del(t.id)
+                        }}
                         className="w-8 h-8 rounded-lg bg-fog hover:bg-mist flex items-center justify-center text-ink/50 hover:text-red-400 transition-all"
                       >
                         <Trash2 size={13} />
@@ -255,6 +345,14 @@ export default function TemplatesPage() {
                     </div>
                   </div>
                   <p className="text-ink/40 text-xs mb-3 leading-relaxed">{t.description || 'No description'}</p>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    <span className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-fog bg-mist text-ink/60">
+                      Content: {String(contentTemplateType(t)).replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-fog bg-mist text-ink/60">
+                      Design: {prettyDesignType(t)}
+                    </span>
+                  </div>
                   <div className="flex flex-wrap gap-1.5 mb-4">
                     {(t.topics || []).slice(0, 4).map((tp) => (
                       <span
@@ -266,9 +364,28 @@ export default function TemplatesPage() {
                       </span>
                     ))}
                   </div>
-                  {t.preview_image_url && (
-                    <img src={t.preview_image_url} alt="" className="w-full h-36 object-cover rounded-xl border border-fog mb-3" />
-                  )}
+                  <div className="relative w-full h-40 rounded-xl border border-fog overflow-hidden mb-3 bg-mist">
+                    {t.preview_image_url && (
+                      <img src={t.preview_image_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
+                    <div className="absolute left-3 right-3 bottom-3 text-white">
+                      <p className="text-[11px] uppercase tracking-wide text-white/70 font-semibold">{t.category}</p>
+                      <p className="text-sm font-bold leading-tight">{previewTitle(t)}</p>
+                      <p className="text-[11px] text-white/90 mt-0.5">{previewSubtitle(t)}</p>
+                    </div>
+                    {activeBrand?.logo_url ? (
+                      <img
+                        src={activeBrand.logo_url}
+                        alt=""
+                        className="absolute right-3 top-3 h-8 w-auto max-w-[96px] object-contain bg-white/90 rounded-md px-1.5 py-1"
+                      />
+                    ) : (
+                      <div className="absolute right-3 top-3 text-[10px] font-semibold bg-white/90 text-ink px-2 py-1 rounded-md">
+                        {(activeBrand?.name || 'Brand').slice(0, 14)}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center justify-between">
                     <span
                       className={`text-xs font-bold px-2 py-1 rounded-full ${
@@ -279,13 +396,24 @@ export default function TemplatesPage() {
                     </span>
                     <div className="flex items-center gap-2">
                       <button
-                        onClick={() => runGenerateDesign(t.id)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          runGenerateDesign(t.id)
+                        }}
                         disabled={designingId === t.id}
-                        className="text-xs text-ink/70 hover:text-ink font-semibold flex items-center gap-1 transition-colors"
+                        className="h-8 px-2.5 rounded-lg border border-fog text-xs text-ink/70 hover:text-ink font-semibold flex items-center gap-1 transition-colors"
                       >
                         <Wand2 size={11} /> {designingId === t.id ? 'Designing…' : (t.is_design_ready ? 'Regenerate design' : 'Generate design')}
                       </button>
-                      <button className="text-xs text-brand-500 hover:text-brand-600 font-semibold flex items-center gap-1 transition-colors">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          useTemplateForMonth(t.id)
+                        }}
+                        className="h-8 px-2.5 rounded-lg bg-brand-500/10 text-xs text-brand-600 hover:bg-brand-500/20 font-semibold flex items-center gap-1 transition-colors"
+                      >
                         <Layers size={11} /> Use this month
                       </button>
                     </div>
@@ -311,6 +439,84 @@ export default function TemplatesPage() {
       </div>
 
       {/* New template modal */}
+      {viewingTemplate && (
+        <div
+          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
+          onClick={(e) => e.target === e.currentTarget && closeTemplate()}
+        >
+          <div className="bg-white border border-fog rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-fog sticky top-0 bg-white">
+              <div>
+                <h2 className="text-ink font-bold">{viewingTemplate.name}</h2>
+                <p className="text-xs text-ink/40 capitalize">
+                  {viewingTemplate.category} · {viewingTemplate.recurrence} · {(viewingTemplate.source || 'manual').replace('_', ' ')}
+                </p>
+                <p className="text-[11px] text-ink/45 mt-1">
+                  Content template: {String(contentTemplateType(viewingTemplate)).replace(/_/g, ' ')} · Design template: {prettyDesignType(viewingTemplate)}
+                </p>
+              </div>
+              <button onClick={closeTemplate} className="text-ink/40 hover:text-ink/70 text-xl">
+                ×
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="relative w-full aspect-square max-h-[420px] rounded-2xl border border-fog overflow-hidden bg-mist">
+                {viewingTemplate.preview_image_url && (
+                  <img src={viewingTemplate.preview_image_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
+                <div className="absolute left-5 right-5 bottom-5 text-white">
+                  <p className="text-xs uppercase tracking-wide text-white/70 font-semibold">{viewingTemplate.category}</p>
+                  <p className="text-2xl font-bold leading-tight">{previewTitle(viewingTemplate)}</p>
+                  <p className="text-sm text-white/90 mt-1">{previewSubtitle(viewingTemplate)}</p>
+                  <button className="mt-4 h-9 px-4 rounded-lg bg-white/90 text-ink text-sm font-semibold">
+                    Learn more
+                  </button>
+                </div>
+                {activeBrand?.logo_url ? (
+                  <img
+                    src={activeBrand.logo_url}
+                    alt=""
+                    className="absolute right-5 top-5 h-12 w-auto max-w-[160px] object-contain bg-white/95 rounded-lg px-2 py-1.5"
+                  />
+                ) : (
+                  <div className="absolute right-5 top-5 text-xs font-semibold bg-white/95 text-ink px-3 py-1.5 rounded-lg">
+                    {(activeBrand?.name || 'Brand').slice(0, 20)}
+                  </div>
+                )}
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3 text-xs">
+                <div className="rounded-xl border border-fog bg-mist/50 px-3 py-2 text-ink/70">
+                  <span className="font-semibold text-ink">Status:</span>{' '}
+                  {viewingTemplate.is_design_ready ? 'Design ready' : 'No design yet'}
+                </div>
+                <div className="rounded-xl border border-fog bg-mist/50 px-3 py-2 text-ink/70">
+                  <span className="font-semibold text-ink">Style:</span>{' '}
+                  {(activeBrand?.brand_kit?.visual_system?.image_people_style || 'mixed').replace('_', ' ')}
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 px-5 py-4 border-t border-fog">
+              <button
+                type="button"
+                onClick={() => runGenerateDesign(viewingTemplate.id)}
+                disabled={designingId === viewingTemplate.id}
+                className="h-10 px-4 rounded-xl border border-fog text-sm font-semibold text-ink/80 hover:border-ink/20 disabled:opacity-60"
+              >
+                {designingId === viewingTemplate.id ? 'Designing…' : (viewingTemplate.is_design_ready ? 'Regenerate design' : 'Generate design')}
+              </button>
+              <button
+                type="button"
+                onClick={() => useTemplateForMonth(viewingTemplate.id)}
+                className="h-10 px-4 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold"
+              >
+                Use this month
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showModal && (
         <div
           className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
