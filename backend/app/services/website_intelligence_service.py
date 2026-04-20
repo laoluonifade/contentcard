@@ -1,6 +1,8 @@
 import hashlib
+import asyncio
 import json
 import re
+import time
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
 
@@ -70,6 +72,18 @@ async def _fetch_text(url: str) -> str:
         return res.text
 
 
+async def _fetch_text_with_retry(url: str, max_attempts: int = 3) -> tuple[str, int]:
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await _fetch_text(url), attempt
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                await asyncio.sleep(0.35 * attempt)
+    raise last_exc if last_exc else RuntimeError("fetch failed")
+
+
 async def _fetch_shopify_products(base_url: str) -> list[dict]:
     endpoint = urljoin(f"{base_url}/", "products.json?limit=50")
     timeout = httpx.Timeout(12.0, connect=8.0)
@@ -82,6 +96,18 @@ async def _fetch_shopify_products(base_url: str) -> list[dict]:
     if not isinstance(products, list):
         return []
     return products
+
+
+async def _fetch_shopify_products_with_retry(base_url: str, max_attempts: int = 3) -> tuple[list[dict], int]:
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await _fetch_shopify_products(base_url), attempt
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                await asyncio.sleep(0.35 * attempt)
+    raise last_exc if last_exc else RuntimeError("fetch failed")
 
 
 def _extract_products_from_shopify_payload(base_url: str, products: list[dict]) -> list[dict]:
@@ -143,6 +169,15 @@ def _extract_generic_entities_from_html(base_url: str, html: str) -> list[dict]:
             }
         )
     return entities
+
+
+def _sync_health_from_snapshots(latest: WebsiteSnapshot | None, recent: list[WebsiteSnapshot]) -> tuple[str | None, int]:
+    if not latest:
+        return None, 0
+    errors = sum(1 for s in recent if str(s.crawl_status or "") == "error")
+    if str(latest.crawl_status or "") == "error":
+        return ("degraded" if errors < 3 else "failing"), errors
+    return ("healthy" if errors == 0 else "recovering"), errors
 
 
 async def _upsert_entity(
@@ -293,16 +328,20 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
     raw_payload: dict = {"source_url": source_url}
     now = _utcnow()
 
+    shopify_attempts = 0
+    page_attempts = 0
+    started_at = time.perf_counter()
     try:
-        shopify_products = await _fetch_shopify_products(source_url)
+        shopify_products, shopify_attempts = await _fetch_shopify_products_with_retry(source_url, max_attempts=3)
         if shopify_products:
             entities.extend(_extract_products_from_shopify_payload(source_url, shopify_products))
             raw_payload["shopify_products_count"] = len(shopify_products)
-        html = await _fetch_text(source_url)
+        html, page_attempts = await _fetch_text_with_retry(source_url, max_attempts=3)
         entities.extend(_extract_generic_entities_from_html(source_url, html))
     except Exception as exc:
         crawl_status = "error"
         error_message = str(exc)[:500]
+    latency_ms = int((time.perf_counter() - started_at) * 1000)
 
     snapshot = WebsiteSnapshot(
         brand_id=brand.id,
@@ -313,6 +352,9 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
             "entity_count": len(entities),
             "force": force,
             "timestamp": now.isoformat(),
+            "latency_ms": latency_ms,
+            "shopify_attempts": int(shopify_attempts),
+            "page_attempts": int(page_attempts),
         },
         raw_payload=raw_payload,
         error_message=error_message,
@@ -364,6 +406,8 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
         "created_count": created_count,
         "updated_count": updated_count,
         "opportunity_count": opportunity_count,
+        "latency_ms": latency_ms,
+        "attempts": max(shopify_attempts, page_attempts),
     }
 
 
@@ -376,6 +420,14 @@ async def website_status(db: AsyncSession, brand: Brand) -> dict:
             select(WebsiteSnapshot).where(WebsiteSnapshot.brand_id == brand.id).order_by(WebsiteSnapshot.created_at.desc()).limit(1)
         )
     ).scalar_one_or_none()
+    recent = (
+        await db.execute(
+            select(WebsiteSnapshot)
+            .where(WebsiteSnapshot.brand_id == brand.id)
+            .order_by(WebsiteSnapshot.created_at.desc())
+            .limit(5)
+        )
+    ).scalars().all()
     total_entities = (
         await db.execute(select(func.count()).select_from(WebsiteEntity).where(WebsiteEntity.brand_id == brand.id))
     ).scalar_one()
@@ -394,6 +446,8 @@ async def website_status(db: AsyncSession, brand: Brand) -> dict:
             )
         )
     ).scalar_one()
+    sync_health, error_count = _sync_health_from_snapshots(latest, list(recent))
+    summary = latest.summary if latest and isinstance(latest.summary, dict) else {}
     return {
         "enabled": bool(cfg.get("enabled", True)),
         "default_sync_cadence": str(cfg.get("default_sync_cadence", "weekly")),
@@ -403,4 +457,8 @@ async def website_status(db: AsyncSession, brand: Brand) -> dict:
         "total_entities": int(total_entities or 0),
         "active_entities": int(active_entities or 0),
         "pending_approval_count": int(pending or 0),
+        "sync_health": sync_health,
+        "recent_error_count": int(error_count),
+        "last_sync_attempts": int(summary.get("shopify_attempts") or summary.get("page_attempts") or 0),
+        "last_sync_latency_ms": int(summary.get("latency_ms") or 0),
     }

@@ -53,6 +53,7 @@ from app.services.bannerbear_service import generate_post_images, detect_templat
 from app.services.billing_entitlements import effective_plan_for_owner, total_free_generations_used_by_owner
 from datetime import date
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -160,8 +161,11 @@ async def _get_website_grounding_inputs(
         )
     ).scalars().all()
     approved_payload: list[dict] = []
+    entity_ids: list[str] = []
     for row in approved_rows:
         payload = row.payload if isinstance(row.payload, dict) else {}
+        if payload.get("entity_id"):
+            entity_ids.append(str(payload.get("entity_id")))
         approved_payload.append(
             {
                 "id": row.id,
@@ -169,8 +173,21 @@ async def _get_website_grounding_inputs(
                 "title": row.title,
                 "entity_title": payload.get("entity_title"),
                 "source_url": payload.get("source_url"),
+                "entity_id": payload.get("entity_id"),
             }
         )
+    entity_map = {}
+    if entity_ids:
+        rows = (
+            await db.execute(
+                select(WebsiteEntity).where(WebsiteEntity.brand_id == brand_id, WebsiteEntity.id.in_(entity_ids))
+            )
+        ).scalars().all()
+        entity_map = {str(r.id): r for r in rows}
+    for op in approved_payload:
+        ent = entity_map.get(str(op.get("entity_id") or ""))
+        op["freshness_score"] = float(ent.freshness_score or 0.0) if ent else 0.5
+        op["attributes"] = ent.attributes if ent and isinstance(ent.attributes, dict) else {}
 
     entities_rows = (
         await db.execute(
@@ -192,6 +209,53 @@ async def _get_website_grounding_inputs(
     if not approved_payload and not entities_payload:
         return None, []
     return _website_grounding_text(approved_payload, entities_payload, only_new_changes), approved_payload
+
+
+def _post_has_hard_claim(post: dict) -> bool:
+    text = " ".join(
+        [
+            str(post.get("topic") or ""),
+            str(post.get("caption") or ""),
+            str(post.get("description") or ""),
+            str(post.get("cta") or ""),
+        ]
+    ).lower()
+    return bool(re.search(r"(\$\s?\d+|₦\s?\d+|%\b|discount|sale|limited offer|price)", text))
+
+
+def _website_grounding_gate(
+    matched_op: dict | None,
+    post: dict,
+    only_new_website_changes: bool,
+    approved_map_count: int,
+) -> dict:
+    if only_new_website_changes and approved_map_count > 0 and not matched_op:
+        return {
+            "status": "fail",
+            "source_relevance_score": 0.2,
+            "freshness_score": 0.0,
+            "claim_safety_score": 0.3,
+            "reason": "post not mapped to approved website change",
+        }
+    freshness = float((matched_op or {}).get("freshness_score") or 0.7)
+    hard_claim = _post_has_hard_claim(post)
+    claim_safety = 0.95
+    reason = "grounding accepted"
+    if hard_claim and freshness < 0.45:
+        claim_safety = 0.3
+        reason = "hard claim detected against stale source"
+    elif hard_claim and freshness < 0.65:
+        claim_safety = 0.55
+        reason = "hard claim with aging source"
+    source_relevance = 0.9 if matched_op else 0.7
+    status = "fail" if claim_safety < 0.5 else "pass"
+    return {
+        "status": status,
+        "source_relevance_score": source_relevance,
+        "freshness_score": freshness,
+        "claim_safety_score": claim_safety,
+        "reason": reason,
+    }
 
 
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
@@ -1194,23 +1258,12 @@ async def _do_generate_month(
                     "visual_type": post.get("visual_type"),
                     "template_family": detect_template_family(post),
                     "website_grounding": matched_op if isinstance(matched_op, dict) else None,
-                    "website_grounding_gate": {
-                        "status": (
-                            "fail"
-                            if (only_new_website_changes and len(approved_map) > 0 and not matched_op)
-                            else "pass"
-                        ),
-                        "source_relevance_score": (
-                            0.9
-                            if matched_op
-                            else (0.35 if (only_new_website_changes and len(approved_map) > 0) else 0.7)
-                        ),
-                        "reason": (
-                            "post not mapped to approved website change"
-                            if (only_new_website_changes and len(approved_map) > 0 and not matched_op)
-                            else "grounding accepted"
-                        ),
-                    },
+                    "website_grounding_gate": _website_grounding_gate(
+                        matched_op if isinstance(matched_op, dict) else None,
+                        post,
+                        only_new_website_changes,
+                        len(approved_map),
+                    ),
                 }
                 item.theme = th
                 logger.info(

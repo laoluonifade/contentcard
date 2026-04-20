@@ -333,7 +333,10 @@ export default function BrandKitPage() {
   const [form, setForm]     = useState({})
   const [websiteStatus, setWebsiteStatus] = useState(null)
   const [websiteOps, setWebsiteOps] = useState([])
+  const [screenshotStatus, setScreenshotStatus] = useState(null)
   const [websiteSyncing, setWebsiteSyncing] = useState(false)
+  const [authCaptureSaving, setAuthCaptureSaving] = useState(false)
+  const [authCaptureRunning, setAuthCaptureRunning] = useState(false)
   const [websiteLoading, setWebsiteLoading] = useState(false)
   const logoFileRef = useRef(null)
 
@@ -346,6 +349,17 @@ export default function BrandKitPage() {
       default_sync_cadence: 'weekly',
       ...(kit.website_intelligence || {}),
     }
+    kit.website_intelligence.auth_capture = {
+      enabled: false,
+      tier: 'enterprise',
+      test_user_email: '',
+      allowed_domains: [],
+      allowed_routes: [],
+      capture_schedule: 'manual',
+      session_ttl_minutes: 30,
+      pii_block_mode: 'strict',
+      ...(kit.website_intelligence.auth_capture || {}),
+    }
     setForm({ ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} })
   }, [brand?.id])
 
@@ -355,17 +369,20 @@ export default function BrandKitPage() {
     const loadWebsiteIntel = async () => {
       setWebsiteLoading(true)
       try {
-        const [status, opportunities] = await Promise.all([
+        const [status, opportunities, screenshots] = await Promise.all([
           brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
           brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
+          brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId),
         ])
         if (cancelled) return
         setWebsiteStatus(status)
         setWebsiteOps(opportunities || [])
+        setScreenshotStatus(screenshots || null)
       } catch {
         if (!cancelled) {
           setWebsiteStatus(null)
           setWebsiteOps([])
+          setScreenshotStatus(null)
         }
       } finally {
         if (!cancelled) setWebsiteLoading(false)
@@ -454,6 +471,10 @@ export default function BrandKitPage() {
       ])
       setWebsiteStatus(status)
       setWebsiteOps(opportunities || [])
+      try {
+        const screenshots = await brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId)
+        setScreenshotStatus(screenshots || null)
+      } catch {}
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Website sync failed', 'error')
     } finally {
@@ -468,6 +489,66 @@ export default function BrandKitPage() {
       setWebsiteOps((prev) => prev.map((op) => (op.id === id ? { ...op, status } : op)))
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to update opportunity', 'error')
+    }
+  }
+
+  const authCaptureCfg = form.brand_kit?.website_intelligence?.auth_capture || {}
+  const setAuthCaptureCfg = (patch) => {
+    const kit = { ...(form.brand_kit || {}) }
+    const wi = {
+      enabled: true,
+      default_sync_cadence: 'weekly',
+      ...(kit.website_intelligence || {}),
+    }
+    wi.auth_capture = {
+      enabled: false,
+      tier: 'enterprise',
+      test_user_email: '',
+      allowed_domains: [],
+      allowed_routes: [],
+      capture_schedule: 'manual',
+      session_ttl_minutes: 30,
+      pii_block_mode: 'strict',
+      ...(wi.auth_capture || {}),
+      ...patch,
+    }
+    kit.website_intelligence = wi
+    setForm((f) => ({ ...f, brand_kit: kit }))
+  }
+
+  const saveAuthCaptureConfig = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setAuthCaptureSaving(true)
+    try {
+      const payload = {
+        enabled: !!authCaptureCfg.enabled,
+        tier: authCaptureCfg.tier || 'enterprise',
+        test_user_email: authCaptureCfg.test_user_email || null,
+        allowed_domains: Array.isArray(authCaptureCfg.allowed_domains) ? authCaptureCfg.allowed_domains : [],
+        allowed_routes: Array.isArray(authCaptureCfg.allowed_routes) ? authCaptureCfg.allowed_routes : [],
+        capture_schedule: authCaptureCfg.capture_schedule || 'manual',
+        session_ttl_minutes: Number(authCaptureCfg.session_ttl_minutes || 30),
+        pii_block_mode: authCaptureCfg.pii_block_mode || 'strict',
+      }
+      await brandApi.configureAuthCapture(activeWorkspaceId, activeBrandId, payload)
+      toast('Auth capture governance saved')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to save auth capture config', 'error')
+    } finally {
+      setAuthCaptureSaving(false)
+    }
+  }
+
+  const runAuthCaptureNow = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setAuthCaptureRunning(true)
+    try {
+      await brandApi.runAuthCapture(activeWorkspaceId, activeBrandId, { reason: 'manual QA capture' })
+      toast('Auth capture run queued')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to queue auth capture', 'error')
+    } finally {
+      setAuthCaptureRunning(false)
     }
   }
 
@@ -687,6 +768,28 @@ export default function BrandKitPage() {
                     Last crawl: <span className="font-semibold text-ink">{websiteStatus?.last_crawled_at ? new Date(websiteStatus.last_crawled_at).toLocaleString() : '—'}</span>
                   </div>
                 </div>
+                <div className="grid sm:grid-cols-3 gap-3 text-xs">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    Sync health: <span className="font-semibold text-ink">{websiteStatus?.sync_health || 'unknown'}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    Last latency: <span className="font-semibold text-ink">{websiteStatus?.last_sync_latency_ms ?? 0}ms</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    Recent errors: <span className="font-semibold text-ink">{websiteStatus?.recent_error_count ?? 0}</span>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3 text-xs">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    Verified UI assets: <span className="font-semibold text-ink">{screenshotStatus?.verified_ui_asset_count ?? 0}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    Public UI assets: <span className="font-semibold text-ink">{screenshotStatus?.public_ui_asset_count ?? 0}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    Synthetic fallback: <span className="font-semibold text-ink">{screenshotStatus?.synthetic_ui_visual_count ?? 0}</span>
+                  </div>
+                </div>
                 <div>
                   <p className="text-[11px] font-semibold text-ink/55 mb-2">Pending opportunities</p>
                   <div className="space-y-2 max-h-60 overflow-auto pr-1">
@@ -717,6 +820,53 @@ export default function BrandKitPage() {
                           </div>
                         </div>
                       ))}
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-fog space-y-3">
+                  <div>
+                    <p className="text-[11px] font-semibold text-ink/55 mb-1">Auth capture governance (opt-in)</p>
+                    <p className="text-[11px] text-ink/40">For login-gated SaaS screenshots. Use read-only test users and strict allowlists.</p>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <label className="space-y-1">
+                      <span className={labelCls}>Enabled</span>
+                      <select className={inpCls} value={authCaptureCfg.enabled ? 'yes' : 'no'} onChange={(e) => setAuthCaptureCfg({ enabled: e.target.value === 'yes' })}>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className={labelCls}>Tier</span>
+                      <select className={inpCls} value={authCaptureCfg.tier || 'enterprise'} onChange={(e) => setAuthCaptureCfg({ tier: e.target.value })}>
+                        <option value="enterprise">enterprise</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <label className="space-y-1">
+                      <span className={labelCls}>Test user email</span>
+                      <input className={inpCls} value={authCaptureCfg.test_user_email || ''} onChange={(e) => setAuthCaptureCfg({ test_user_email: e.target.value })} placeholder="qa-readonly@yourdomain.com" />
+                    </label>
+                    <label className="space-y-1">
+                      <span className={labelCls}>Session TTL (minutes)</span>
+                      <input className={inpCls} type="number" min={5} max={180} value={authCaptureCfg.session_ttl_minutes || 30} onChange={(e) => setAuthCaptureCfg({ session_ttl_minutes: e.target.value })} />
+                    </label>
+                  </div>
+                  <label className="space-y-1 block">
+                    <span className={labelCls}>Allowed domains (one per line)</span>
+                    <textarea className={taCls} rows={2} value={(authCaptureCfg.allowed_domains || []).join('\n')} onChange={(e) => setAuthCaptureCfg({ allowed_domains: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) })} />
+                  </label>
+                  <label className="space-y-1 block">
+                    <span className={labelCls}>Allowed routes (one per line)</span>
+                    <textarea className={taCls} rows={2} value={(authCaptureCfg.allowed_routes || []).join('\n')} onChange={(e) => setAuthCaptureCfg({ allowed_routes: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) })} />
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={saveAuthCaptureConfig} disabled={authCaptureSaving} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold disabled:opacity-60">
+                      {authCaptureSaving ? 'Saving…' : 'Save auth capture config'}
+                    </button>
+                    <button type="button" onClick={runAuthCaptureNow} disabled={authCaptureRunning} className="px-3 py-2 rounded-lg border border-fog bg-white text-xs font-semibold text-ink/80 disabled:opacity-60">
+                      {authCaptureRunning ? 'Queueing…' : 'Run auth capture now'}
+                    </button>
                   </div>
                 </div>
               </div>

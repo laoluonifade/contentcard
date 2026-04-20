@@ -107,6 +107,12 @@ export const brandApi = {
     api.get(`/workspaces/${wsId}/brands/${brandId}/website/opportunities`, { params }).then(r => r.data),
   updateWebsiteOpportunity: (wsId, brandId, opportunityId, status) =>
     api.patch(`/workspaces/${wsId}/brands/${brandId}/website/opportunities/${opportunityId}`, { status }).then(r => r.data),
+  configureAuthCapture: (wsId, brandId, data) =>
+    api.post(`/workspaces/${wsId}/brands/${brandId}/auth-capture/config`, data).then(r => r.data),
+  runAuthCapture: (wsId, brandId, data = {}) =>
+    api.post(`/workspaces/${wsId}/brands/${brandId}/auth-capture/run`, data).then(r => r.data),
+  screenshotAssetStatus: (wsId, brandId) =>
+    api.get(`/workspaces/${wsId}/brands/${brandId}/assets/screenshots/status`).then(r => r.data),
 }
 
 // ─── Content ────────────────────────────────────────────────────

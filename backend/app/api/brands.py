@@ -10,9 +10,12 @@ from app.models.user import User
 from app.core.dependencies import get_current_user
 from app.schemas.brand import BrandCreate, BrandUpdate, BrandOut
 from app.schemas.website_intelligence import (
+    WebsiteAuthCaptureConfigRequest,
+    WebsiteAuthCaptureRunRequest,
     WebsiteChangeEventOut,
     WebsiteEntityOut,
     WebsiteOpportunityOut,
+    WebsiteScreenshotStatusOut,
     WebsiteOpportunityUpdateRequest,
     WebsiteStatusOut,
     WebsiteSyncRequest,
@@ -510,3 +513,110 @@ async def update_brand_website_opportunity(
     await db.commit()
     await db.refresh(opp)
     return WebsiteOpportunityOut.model_validate(opp)
+
+
+@router.post("/{brand_id}/auth-capture/config", response_model=dict)
+async def configure_brand_auth_capture(
+    workspace_id: str,
+    brand_id: str,
+    body: WebsiteAuthCaptureConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    ensure_website_intelligence_defaults(brand)
+    kit = dict(brand.brand_kit or {})
+    cfg = dict(kit.get("website_intelligence") or {})
+    cfg["auth_capture"] = {
+        "enabled": bool(body.enabled),
+        "tier": str(body.tier or "enterprise"),
+        "test_user_email": body.test_user_email,
+        "allowed_domains": [str(x).strip() for x in (body.allowed_domains or []) if str(x).strip()],
+        "allowed_routes": [str(x).strip() for x in (body.allowed_routes or []) if str(x).strip()],
+        "capture_schedule": str(body.capture_schedule or "manual"),
+        "session_ttl_minutes": max(5, min(int(body.session_ttl_minutes or 30), 180)),
+        "pii_block_mode": str(body.pii_block_mode or "strict"),
+        "updated_by": current_user.id,
+    }
+    kit["website_intelligence"] = cfg
+    brand.brand_kit = kit
+    await db.commit()
+    return {"ok": True, "auth_capture": cfg["auth_capture"]}
+
+
+@router.post("/{brand_id}/auth-capture/run", response_model=dict)
+async def run_brand_auth_capture(
+    workspace_id: str,
+    brand_id: str,
+    body: WebsiteAuthCaptureRunRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    ensure_website_intelligence_defaults(brand)
+    cfg = dict((brand.brand_kit or {}).get("website_intelligence") or {})
+    ac = dict(cfg.get("auth_capture") or {})
+    if not ac.get("enabled"):
+        raise HTTPException(status_code=400, detail="Auth capture is not enabled for this brand")
+    if not ac.get("test_user_email"):
+        raise HTTPException(status_code=400, detail="Configure test_user_email before running auth capture")
+    if not ac.get("allowed_domains"):
+        raise HTTPException(status_code=400, detail="Configure allowed_domains before running auth capture")
+    return {
+        "ok": True,
+        "status": "queued",
+        "reason": body.reason or "manual trigger",
+        "safety": {
+            "allowed_domains": ac.get("allowed_domains") or [],
+            "allowed_routes": ac.get("allowed_routes") or [],
+            "pii_block_mode": ac.get("pii_block_mode") or "strict",
+            "session_ttl_minutes": ac.get("session_ttl_minutes") or 30,
+            "test_user_email": ac.get("test_user_email"),
+        },
+    }
+
+
+@router.get("/{brand_id}/assets/screenshots/status", response_model=WebsiteScreenshotStatusOut)
+async def brand_screenshot_asset_status(
+    workspace_id: str,
+    brand_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_member(workspace_id, current_user.id, db)
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    verified = len(list(brand.brand_photos or []))
+    entities = (
+        await db.execute(
+            select(WebsiteEntity).where(WebsiteEntity.brand_id == brand.id, WebsiteEntity.is_active.is_(True)).limit(200)
+        )
+    ).scalars().all()
+    public_count = 0
+    for ent in entities:
+        attrs = ent.attributes if isinstance(ent.attributes, dict) else {}
+        images = attrs.get("images")
+        if isinstance(images, list) and images:
+            public_count += 1
+    synthetic = 0 if (verified + public_count) > 0 else 1
+    return WebsiteScreenshotStatusOut(
+        verified_ui_asset_count=verified,
+        public_ui_asset_count=public_count,
+        synthetic_ui_visual_count=synthetic,
+        has_verified_assets=verified > 0,
+    )

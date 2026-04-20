@@ -699,6 +699,19 @@ async def admin_website_intelligence_report(
             )
         )
     ).scalar() or 0
+    grounded_posts = (
+        await db.execute(select(ContentItem).where(ContentItem.created_at >= since))
+    ).scalars().all()
+    grounding_gate_failures = 0
+    stale_claim_failures = 0
+    for item in grounded_posts:
+        theme = item.theme if isinstance(item.theme, dict) else {}
+        cm = theme.get("cc_meta") if isinstance(theme.get("cc_meta"), dict) else {}
+        wg = cm.get("website_grounding_gate") if isinstance(cm.get("website_grounding_gate"), dict) else {}
+        if str(wg.get("status") or "") == "fail":
+            grounding_gate_failures += 1
+            if "stale" in str(wg.get("reason") or "").lower():
+                stale_claim_failures += 1
 
     latest_sync_rows = (
         await db.execute(
@@ -723,6 +736,8 @@ async def admin_website_intelligence_report(
             "opportunities": int(opportunities_total),
             "opportunities_pending_approval": int(opportunities_pending),
             "opportunities_approved": int(opportunities_approved),
+            "grounding_gate_failures": int(grounding_gate_failures),
+            "stale_claim_failures": int(stale_claim_failures),
         },
         "recent_brand_syncs": [
             {"brand_id": bid, "last_synced_at": ts.isoformat() if ts else None}
