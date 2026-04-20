@@ -114,7 +114,7 @@ export default function OnboardingPage() {
                     }`}>
                       {done ? <Check size={13} /> : n}
                     </div>
-                    <span className={`text-xs font-semibold whitespace-nowrap ${active ? 'text-ink' : 'text-ink/30'}`}>{s.label}</span>
+                    <span className={`text-xs font-semibold whitespace-nowrap ${active ? 'text-ink' : 'text-ink/55'}`}>{s.label}</span>
                     {i < STEPS.length - 1 && <div className={`flex-1 h-px mx-2 transition-all ${step > n ? 'bg-brand-300' : 'bg-fog'}`} />}
                   </div>
                 </div>
@@ -147,7 +147,7 @@ export default function OnboardingPage() {
                         className={`px-3 py-2.5 rounded-xl text-xs font-semibold text-left border transition-all ${
                           form.industry === ind
                             ? 'border-brand-400 bg-brand-50 text-brand-700'
-                            : 'border-fog text-ink/50 hover:border-brand-200 hover:text-ink/70'
+                            : 'border-slate-300 text-ink/75 hover:border-brand-300 hover:text-ink'
                         }`}>
                         {ind}
                       </button>
@@ -205,7 +205,7 @@ export default function OnboardingPage() {
                       return (
                         <button key={t} type="button" onClick={() => toggleTone(t)}
                           className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
-                            on ? 'bg-brand-500 border-brand-500 text-white' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink/70'
+                            on ? 'bg-brand-500 border-brand-500 text-white' : 'border-slate-300 text-ink/75 hover:border-brand-300 hover:text-ink'
                           }`}>
                           {t}
                         </button>
@@ -240,7 +240,7 @@ export default function OnboardingPage() {
                         className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${
                           form.language_style === val
                             ? 'border-brand-400 bg-brand-50 text-brand-700'
-                            : 'border-fog text-ink/50 hover:border-brand-200'
+                            : 'border-slate-300 text-ink/75 hover:border-brand-300 hover:text-ink'
                         }`}>
                         {label}
                       </button>
