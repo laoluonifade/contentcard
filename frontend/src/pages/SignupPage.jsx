@@ -104,6 +104,13 @@ export default function SignupPage() {
   const { signup, isLoading } = useAuthStore()
   const { fetchWorkspaces } = useAppStore()
   const navigate = useNavigate()
+  const authLightThemeVars = {
+    '--cc-ink-rgb': '15 23 42',
+    '--cc-fog-rgb': '229 231 235',
+    '--cc-mist-rgb': '247 247 248',
+    '--cc-surface-rgb': '255 255 255',
+    '--cc-page-rgb': '255 255 255',
+  }
 
   const selectedCountry = COUNTRIES_LIST.find(c => c.code === form.country_code)
 
@@ -154,7 +161,7 @@ export default function SignupPage() {
   const strength = pwStrength()
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex" style={authLightThemeVars}>
       {/* Left: form */}
       <div className="flex-1 lg:max-w-lg bg-mist flex flex-col justify-center px-8 py-12 lg:px-16 overflow-y-auto">
         <div className="mb-8">
