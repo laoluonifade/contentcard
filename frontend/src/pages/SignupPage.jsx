@@ -258,8 +258,8 @@ export default function SignupPage() {
         {step === 2 && (
           <>
             <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Almost there</h1>
-            <p className="text-ink/50 mb-6 text-sm">Review your details, then create your account.</p>
-            <div className="bg-white border border-fog rounded-2xl p-5 mb-6 space-y-3">
+            <p className="text-ink/60 mb-6 text-sm">Review your details, then create your account.</p>
+            <div className="bg-surface border border-fog rounded-2xl p-5 mb-6 space-y-3">
               {[
                 { label: 'Name',    val: `${form.first_name} ${form.last_name}` },
                 { label: 'Email',   val: form.email },
@@ -267,7 +267,7 @@ export default function SignupPage() {
                 { label: 'Phone',   val: form.phone ? `${selectedCountry?.dial || ''} ${form.phone}`.trim() : 'Not provided' },
               ].map(({ label, val }) => (
                 <div key={label} className="flex items-center justify-between">
-                  <span className="text-ink/40 text-sm">{label}</span>
+                  <span className="text-ink/55 text-sm">{label}</span>
                   <span className="text-ink text-sm font-semibold">{val}</span>
                 </div>
               ))}
@@ -281,13 +281,13 @@ export default function SignupPage() {
               </button>
             </form>
             <button type="button" onClick={() => setStep(1)}
-              className="w-full mt-3 text-ink/40 hover:text-ink text-sm transition-colors">
+              className="w-full mt-3 text-ink/55 hover:text-ink text-sm transition-colors">
               ← Edit details
             </button>
           </>
         )}
 
-        <p className="text-center text-ink/40 text-sm mt-6">
+        <p className="text-center text-ink/55 text-sm mt-6">
           Already have an account?{' '}
           <Link to="/login" className="text-brand-500 hover:text-brand-600 font-semibold transition-colors">Sign in</Link>
         </p>
