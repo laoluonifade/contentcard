@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Play, Pause, Trash2, Layers, Sparkles, Wand2 } from 'lucide-react'
+import { Plus, Play, Pause, Trash2, Layers, Sparkles } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
 import BrandFormCoachPanel, { mergeTemplateFormPatch } from '../components/brand/BrandFormCoachPanel'
@@ -51,7 +51,6 @@ export default function TemplatesPage() {
     updateTemplate,
     deleteTemplate,
     bootstrapDefaultTemplates,
-    generateTemplateDesign,
   } = useAppStore()
   const [filter, setFilter] = useState('all')
   const [designFilter, setDesignFilter] = useState('all')
@@ -61,9 +60,8 @@ export default function TemplatesPage() {
   const [topicInput, setTopicInput] = useState('')
   const [customDatesText, setCustomDatesText] = useState('')
   const [bootstrapping, setBootstrapping] = useState(false)
-  const [designingId, setDesigningId] = useState(null)
   const [viewingTemplate, setViewingTemplate] = useState(null)
-  const readyCount = (templates || []).filter((t) => t.is_active && t.is_design_ready).length
+  const activeCount = (templates || []).filter((t) => t.is_active).length
   const activeBrand = useMemo(() => brands.find((b) => b.id === activeBrandId) || null, [brands, activeBrandId])
 
   useEffect(() => {
@@ -157,24 +155,12 @@ export default function TemplatesPage() {
     if (!activeBrandId) return
     setBootstrapping(true)
     try {
-      await bootstrapDefaultTemplates({ force, generate_designs: true })
+      await bootstrapDefaultTemplates({ force, generate_designs: false })
       toast(force ? 'Default templates regenerated' : 'Default templates created')
     } catch (err) {
       toast(err.message || 'Failed to generate default templates', 'error')
     } finally {
       setBootstrapping(false)
-    }
-  }
-
-  const runGenerateDesign = async (templateId) => {
-    setDesigningId(templateId)
-    try {
-      await generateTemplateDesign(templateId, {})
-      toast('Template design generated')
-    } catch (err) {
-      toast(err.message || 'Failed to generate template design', 'error')
-    } finally {
-      setDesigningId(null)
     }
   }
 
@@ -220,8 +206,8 @@ export default function TemplatesPage() {
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
             Templates
           </h1>
-          <p className="text-ink/40 text-sm">Content type templates + design type templates used for generation previews and monthly output.</p>
-          <p className="text-ink/30 text-xs mt-1">{readyCount} design-ready template{readyCount === 1 ? '' : 's'} available</p>
+          <p className="text-ink/40 text-sm">Editable content templates generated from your industry design playbook.</p>
+          <p className="text-ink/30 text-xs mt-1">{activeCount} active template{activeCount === 1 ? '' : 's'} available</p>
         </div>
         <div className="flex gap-2">
           <button
@@ -229,7 +215,7 @@ export default function TemplatesPage() {
             disabled={bootstrapping}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-ink hover:bg-ink/90 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
           >
-            <Sparkles size={15} /> {bootstrapping ? 'Generating…' : 'Generate defaults'}
+            <Sparkles size={15} /> {bootstrapping ? 'Generating…' : 'Generate industry defaults'}
           </button>
           <button
             onClick={openNewTemplate}
@@ -365,9 +351,6 @@ export default function TemplatesPage() {
                     ))}
                   </div>
                   <div className="relative w-full h-40 rounded-xl border border-fog overflow-hidden mb-3 bg-mist">
-                    {t.preview_image_url && (
-                      <img src={t.preview_image_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
                     <div className="absolute left-3 right-3 bottom-3 text-white">
                       <p className="text-[11px] uppercase tracking-wide text-white/70 font-semibold">{t.category}</p>
@@ -387,25 +370,10 @@ export default function TemplatesPage() {
                     )}
                   </div>
                   <div className="flex items-center justify-between">
-                    <span
-                      className={`text-xs font-bold px-2 py-1 rounded-full ${
-                        t.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-fog text-ink/40'
-                      }`}
-                    >
-                      {t.is_active ? (t.is_design_ready ? 'Active · Design ready' : 'Active · No design yet') : 'Paused'}
+                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-fog text-ink/40'}`}>
+                      {t.is_active ? 'Active' : 'Paused'}
                     </span>
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          runGenerateDesign(t.id)
-                        }}
-                        disabled={designingId === t.id}
-                        className="h-8 px-2.5 rounded-lg border border-fog text-xs text-ink/70 hover:text-ink font-semibold flex items-center gap-1 transition-colors"
-                      >
-                        <Wand2 size={11} /> {designingId === t.id ? 'Designing…' : (t.is_design_ready ? 'Regenerate design' : 'Generate design')}
-                      </button>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -461,9 +429,6 @@ export default function TemplatesPage() {
             </div>
             <div className="p-5 space-y-4">
               <div className="relative w-full aspect-square max-h-[420px] rounded-2xl border border-fog overflow-hidden bg-mist">
-                {viewingTemplate.preview_image_url && (
-                  <img src={viewingTemplate.preview_image_url} alt="" className="absolute inset-0 w-full h-full object-cover" />
-                )}
                 <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
                 <div className="absolute left-5 right-5 bottom-5 text-white">
                   <p className="text-xs uppercase tracking-wide text-white/70 font-semibold">{viewingTemplate.category}</p>
@@ -488,7 +453,7 @@ export default function TemplatesPage() {
               <div className="grid sm:grid-cols-2 gap-3 text-xs">
                 <div className="rounded-xl border border-fog bg-mist/50 px-3 py-2 text-ink/70">
                   <span className="font-semibold text-ink">Status:</span>{' '}
-                  {viewingTemplate.is_design_ready ? 'Design ready' : 'No design yet'}
+                  {viewingTemplate.is_active ? 'Active' : 'Paused'}
                 </div>
                 <div className="rounded-xl border border-fog bg-mist/50 px-3 py-2 text-ink/70">
                   <span className="font-semibold text-ink">Style:</span>{' '}
@@ -497,14 +462,6 @@ export default function TemplatesPage() {
               </div>
             </div>
             <div className="flex justify-end gap-3 px-5 py-4 border-t border-fog">
-              <button
-                type="button"
-                onClick={() => runGenerateDesign(viewingTemplate.id)}
-                disabled={designingId === viewingTemplate.id}
-                className="h-10 px-4 rounded-xl border border-fog text-sm font-semibold text-ink/80 hover:border-ink/20 disabled:opacity-60"
-              >
-                {designingId === viewingTemplate.id ? 'Designing…' : (viewingTemplate.is_design_ready ? 'Regenerate design' : 'Generate design')}
-              </button>
               <button
                 type="button"
                 onClick={() => useTemplateForMonth(viewingTemplate.id)}

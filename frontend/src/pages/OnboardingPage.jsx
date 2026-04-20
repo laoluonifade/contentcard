@@ -67,8 +67,8 @@ export default function OnboardingPage() {
         tone_tags: form.tone_tags.map(t => t.toLowerCase()),
       })
       setTemplateSetupRunning(true)
-      await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: true })
-      toast('Brand profile created. Your industry templates are being prepared automatically.')
+      await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false })
+      toast('Brand profile created. Your industry templates are ready.')
       navigate('/dashboard/generate')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Something went wrong. Please try again.', 'error')

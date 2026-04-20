@@ -65,7 +65,7 @@ class TemplateOut(BaseModel):
 class TemplateBootstrapRequest(BaseModel):
     brand_id: str
     force: bool = False
-    generate_designs: bool = True
+    generate_designs: bool = False
 
 
 class TemplateDesignGenerateRequest(BaseModel):

@@ -341,6 +341,12 @@ def _enforce_designer_visual_direction(post: dict) -> None:
         style_line = (
             "Use campaign-grade composition with strong subject hierarchy and context props, not a generic portrait."
         )
+    carousel_graphic_rule = ""
+    if str(post.get("format") or "").lower() == "carousel":
+        carousel_graphic_rule = (
+            " For carousel execution, every slide must include at least one designed visual element, such as illustration motif, "
+            "iconic graphic shape system, product cut-in, or textured scene component, so it never looks like plain text on flat background."
+        )
     post["visual_direction"] = (
         f"Design this like a premium social ad for {topic}: define one clear focal subject tied to the idea, "
         "build layered foreground, midground, and background depth, and include contextual props or product cues that prove the message. "
@@ -349,7 +355,33 @@ def _enforce_designer_visual_direction(post: dict) -> None:
         "Vary typography structure from previous posts by changing alignment, scale contrast, and block arrangement; avoid recurring centered lockups. "
         f"Lock the uploaded brand logo into the {zone} zone with deliberate breathing room, visual balance, and clear contrast so the final mark looks intentionally designed, not pasted. "
         "Avoid generic portrait-only composition."
+        f"{carousel_graphic_rule}"
     )
+
+
+def _enforce_carousel_visual_richness(post: dict) -> None:
+    """
+    Prevent plain text-heavy carousel compositions by forcing richer visual systems.
+    """
+    if str(post.get("format") or "").lower() != "carousel":
+        return
+    caption = str(post.get("caption") or "")
+    desc = str(post.get("description") or "")
+    idea = str(post.get("content_idea") or post.get("topic") or "")
+    copy_len = len(caption) + len(desc) + len(idea)
+    ctype = str(post.get("content_type") or "").lower()
+    text_heavy = copy_len >= 210 or any(k in ctype for k in ("tip", "guide", "how", "education", "breakdown", "story"))
+    if not text_heavy:
+        return
+    vt = str(post.get("visual_type") or "").lower()
+    if vt == "real_people":
+        post["visual_type"] = "illustration"
+        post["visual_archetype"] = "flat_edu"
+    elif vt == "abstract":
+        post["visual_archetype"] = "pattern_headline"
+    elif vt == "product":
+        post["visual_archetype"] = "photo_hero"
+    _enforce_designer_visual_direction(post)
 
 
 def _visual_system_prompt_block(brand: dict) -> str:
@@ -471,6 +503,7 @@ def _validate_posts(
             post["logo_safe_zone"] = zone
 
         _enforce_designer_visual_direction(post)
+        _enforce_carousel_visual_richness(post)
 
         # Backfill topic from content_idea
         if not post.get("topic"):

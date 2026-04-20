@@ -131,7 +131,12 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             "for silhouette, materials, and merchandising composition."
         )
         product_grounding_bits.append(
-            "Only depict products present in these references. Do not invent unrelated SKUs, shapes, or categories."
+            "You may recreate a sharper, premium campaign version of these exact products, "
+            "but preserve core identity cues from the references: silhouette, materials, signature color blocking, "
+            "and recognizable product family characteristics."
+        )
+        product_grounding_bits.append(
+            "Do not invent unrelated products, categories, or SKU families outside these references."
         )
     product_grounding_note = " ".join(product_grounding_bits)
     website_source_url = str(
@@ -203,6 +208,14 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         arch_note = (arch_notes_illus if vt == "illustration" else arch_notes_photo).get(arch, "")
 
     # Format note — composition guidance only, no typography or layout direction
+    text_density_hint = len(str(post.get("caption") or "")) + len(str(description or "")) + len(str(content_idea or ""))
+    carousel_richness_note = ""
+    if fmt == "carousel" and text_density_hint >= 160:
+        carousel_richness_note = (
+            "Carousel richness rule: because this is a text-heavy carousel, the visual must include strong supporting art direction, "
+            "such as illustrated motifs, graphic shape systems, product cut-ins, or textured contextual props, so it never feels like plain text on a flat background."
+        )
+
     if vt == "abstract":
         if fmt == "carousel":
             format_note = "Strong first-frame abstract hero; full-bleed colour and texture; no typography in the frame."
@@ -312,7 +325,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"Brand context: {brand_name} ({industry}). "
             f"Color palette: {color_str}. Tone: {tone_str}. "
             f"{audience_note} {cultural_note} {motif_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} {logo_note}\n"
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {logo_note} {carousel_richness_note}\n"
             f"{cam_line} "
             f"{lighting}. {format_note} "
             f"{style_close} "
@@ -354,7 +367,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
             f"{audience_note} {cultural_note} {motif_note} {imagery_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} {logo_note} "
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {logo_note} {carousel_richness_note} "
             f"{f'Strategy context: {strategy_note} ' if strategy_note else ''}"
             f"{cam_block} "
             f"{lighting}. {format_note} "
