@@ -24,8 +24,16 @@ const guideP = 'text-[15px] leading-[1.7] text-[#37352F]/85 mb-4'
 const guideUl = 'list-disc pl-5 text-[15px] leading-[1.65] text-[#37352F]/85 mb-4 space-y-1.5'
 
 function DocShell({ children }) {
+  const marketingLightThemeVars = {
+    '--cc-ink-rgb': '15 23 42',
+    '--cc-fog-rgb': '229 231 235',
+    '--cc-mist-rgb': '247 247 248',
+    '--cc-surface-rgb': '255 255 255',
+    '--cc-page-rgb': '255 255 255',
+  }
+
   return (
-    <div className="min-h-screen bg-[#FBFBFA] text-[#37352F]">
+    <div className="min-h-screen bg-[#FBFBFA] text-[#37352F]" style={marketingLightThemeVars}>
       <header className="sticky top-0 z-30 border-b border-black/[0.06] bg-[#FBFBFA]/90 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
