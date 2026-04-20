@@ -74,6 +74,8 @@ export default function GeneratePage() {
   const [selTrend, setSelTrend]         = useState(null)
   const [useWebsiteIntelligence, setUseWebsiteIntelligence] = useState(true)
   const [onlyNewWebsiteChanges, setOnlyNewWebsiteChanges] = useState(false)
+  const [useReferenceResearch, setUseReferenceResearch] = useState(true)
+  const [variantCount, setVariantCount] = useState(2)
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
 
   useEffect(() => {
@@ -116,6 +118,8 @@ export default function GeneratePage() {
       topic_override: topic.trim() || null,
       use_website_intelligence: useWebsiteIntelligence,
       only_new_changes: onlyNewWebsiteChanges,
+      use_reference_research: useReferenceResearch,
+      variant_count: variantCount,
       confirm_duplicate: confirmDuplicate,
     })
   }
@@ -279,6 +283,27 @@ export default function GeneratePage() {
                   className="mt-0.5"
                 />
                 Prioritize newly detected website changes only.
+              </label>
+              <label className="flex items-start gap-2 text-xs text-ink/70">
+                <input
+                  type="checkbox"
+                  checked={useReferenceResearch}
+                  onChange={(e) => setUseReferenceResearch(e.target.checked)}
+                  className="mt-0.5"
+                />
+                Use internet reference research + style fingerprint for designer-grade direction.
+              </label>
+              <label className="flex items-center gap-2 text-xs text-ink/70">
+                Variant count:
+                <select
+                  className="border border-fog rounded px-2 py-1 bg-white text-xs"
+                  value={variantCount}
+                  onChange={(e) => setVariantCount(Number(e.target.value))}
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                </select>
               </label>
             </div>
           </div>

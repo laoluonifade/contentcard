@@ -113,11 +113,18 @@ export const brandApi = {
     api.post(`/workspaces/${wsId}/brands/${brandId}/auth-capture/run`, data).then(r => r.data),
   screenshotAssetStatus: (wsId, brandId) =>
     api.get(`/workspaces/${wsId}/brands/${brandId}/assets/screenshots/status`).then(r => r.data),
+  syncReferences: (wsId, brandId, data = {}) =>
+    api.post(`/workspaces/${wsId}/brands/${brandId}/references/sync`, data).then(r => r.data),
+  referenceStatus: (wsId, brandId) =>
+    api.get(`/workspaces/${wsId}/brands/${brandId}/references/status`).then(r => r.data),
+  styleFingerprint: (wsId, brandId) =>
+    api.get(`/workspaces/${wsId}/brands/${brandId}/style-fingerprint`).then(r => r.data),
 }
 
 // ─── Content ────────────────────────────────────────────────────
 export const contentApi = {
   generateMonth:       (data)          => api.post('/content/generate-month', data).then(r => r.data),
+  generateMonthV2:     (data)          => api.post('/content/generate-month-v2', data).then(r => r.data),
   generationPrepChat:  (data)          => api.post('/content/generation-prep-chat', data).then(r => r.data),
   prepExecuteVisual:     (data)          => api.post('/content/prep-execute-visual', data).then(r => r.data),
   brandFormCoach:      (data)          => api.post('/content/brand-form-coach', data).then(r => r.data),
@@ -225,6 +232,7 @@ export const adminApi = {
   seedNairaVault:     (email)   => adminAxios.post(`/admin/seed-nairavault/${encodeURIComponent(email)}`).then(r => r.data),
   syncAllAssistants:  ()        => adminAxios.post('/admin/sync-all-assistants').then(r => r.data),
   syncAssistant:      (brandId) => adminAxios.post(`/admin/sync-assistant/${brandId}`).then(r => r.data),
+  creativeQualityV2:  (params)  => adminAxios.get('/admin/creative-quality-report-v2', { params }).then(r => r.data),
 }
 
 export default api

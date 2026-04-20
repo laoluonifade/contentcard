@@ -14,6 +14,7 @@ from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.models.brand import Brand
 from app.models.content import ContentItem
 from app.models.website_intelligence import WebsiteEntity, WebsiteSnapshot, WebsiteChangeEvent, WebsiteOpportunity
+from app.models.creative_engine import CampaignPlan, RenderVariant, StyleFingerprint
 from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
@@ -743,6 +744,41 @@ async def admin_website_intelligence_report(
             {"brand_id": bid, "last_synced_at": ts.isoformat() if ts else None}
             for bid, ts in latest_sync_rows
         ],
+    }
+
+
+@router.get("/creative-quality-report-v2")
+async def admin_creative_quality_report_v2(
+    days: int = 30,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    window_days = max(1, min(days, 180))
+    since = datetime.now(timezone.utc) - timedelta(days=window_days)
+    fps = (
+        await db.execute(
+            select(StyleFingerprint).where(StyleFingerprint.updated_at >= since)
+        )
+    ).scalars().all()
+    plans = (
+        await db.execute(
+            select(CampaignPlan).where(CampaignPlan.created_at >= since)
+        )
+    ).scalars().all()
+    variants = (
+        await db.execute(
+            select(RenderVariant).where(RenderVariant.created_at >= since)
+        )
+    ).scalars().all()
+    avg_variant_score = 0.0
+    if variants:
+        avg_variant_score = sum(float(v.score or 0.0) for v in variants) / max(1, len(variants))
+    return {
+        "days": window_days,
+        "style_fingerprint_count": len(fps),
+        "campaign_plan_count": len(plans),
+        "render_variant_count": len(variants),
+        "avg_variant_score": round(avg_variant_score, 3),
     }
     template_missing = [k for k, v in required_templates.items() if not str(v or "").strip()]
     style_mix = vs.get("style_mix_targets") if isinstance(vs.get("style_mix_targets"), dict) else {}

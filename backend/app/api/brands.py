@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -21,12 +22,20 @@ from app.schemas.website_intelligence import (
     WebsiteSyncRequest,
     WebsiteSyncResponse,
 )
+from app.schemas.creative_engine import (
+    ReferenceSyncRequest,
+    ReferenceSyncResponse,
+    ReferenceStatusOut,
+    StyleFingerprintOut,
+)
 from app.models.website_intelligence import WebsiteChangeEvent, WebsiteEntity, WebsiteOpportunity
+from app.models.creative_engine import StyleFingerprint
 from app.services.website_intelligence_service import (
     ensure_website_intelligence_defaults,
     sync_brand_website_intelligence,
     website_status,
 )
+from app.services.reference_research_service import sync_brand_reference_research
 import cloudinary
 import cloudinary.uploader
 from app.core.config import settings
@@ -620,3 +629,72 @@ async def brand_screenshot_asset_status(
         synthetic_ui_visual_count=synthetic,
         has_verified_assets=verified > 0,
     )
+
+
+@router.post("/{brand_id}/references/sync", response_model=ReferenceSyncResponse)
+async def sync_brand_references(
+    workspace_id: str,
+    brand_id: str,
+    body: ReferenceSyncRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Editor access required")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    res = await sync_brand_reference_research(db, brand, force=body.force)
+    await db.commit()
+    return ReferenceSyncResponse(**res)
+
+
+@router.get("/{brand_id}/references/status", response_model=ReferenceStatusOut)
+async def get_brand_reference_status(
+    workspace_id: str,
+    brand_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_member(workspace_id, current_user.id, db)
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    profile = dict((brand.brand_kit or {}).get("creative_profile") or {})
+    fp = (
+        await db.execute(
+            select(StyleFingerprint).where(StyleFingerprint.brand_id == brand.id).order_by(StyleFingerprint.updated_at.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    last_synced = profile.get("last_reference_sync_at")
+    return ReferenceStatusOut(
+        last_synced_at=datetime.fromisoformat(last_synced) if last_synced else None,
+        source_count=int(profile.get("reference_source_count") or 0),
+        style_confidence=float(profile.get("style_confidence") or (fp.confidence_score if fp else 0.0)),
+        has_fingerprint=fp is not None,
+    )
+
+
+@router.get("/{brand_id}/style-fingerprint", response_model=StyleFingerprintOut)
+async def get_brand_style_fingerprint(
+    workspace_id: str,
+    brand_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_member(workspace_id, current_user.id, db)
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    fp = (
+        await db.execute(
+            select(StyleFingerprint).where(StyleFingerprint.brand_id == brand.id).order_by(StyleFingerprint.updated_at.desc()).limit(1)
+        )
+    ).scalar_one_or_none()
+    if not fp:
+        raise HTTPException(status_code=404, detail="Style fingerprint not found. Run references sync first.")
+    return StyleFingerprintOut.model_validate(fp)

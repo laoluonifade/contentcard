@@ -334,7 +334,9 @@ export default function BrandKitPage() {
   const [websiteStatus, setWebsiteStatus] = useState(null)
   const [websiteOps, setWebsiteOps] = useState([])
   const [screenshotStatus, setScreenshotStatus] = useState(null)
+  const [referenceStatus, setReferenceStatus] = useState(null)
   const [websiteSyncing, setWebsiteSyncing] = useState(false)
+  const [referenceSyncing, setReferenceSyncing] = useState(false)
   const [authCaptureSaving, setAuthCaptureSaving] = useState(false)
   const [authCaptureRunning, setAuthCaptureRunning] = useState(false)
   const [websiteLoading, setWebsiteLoading] = useState(false)
@@ -369,20 +371,23 @@ export default function BrandKitPage() {
     const loadWebsiteIntel = async () => {
       setWebsiteLoading(true)
       try {
-        const [status, opportunities, screenshots] = await Promise.all([
+        const [status, opportunities, screenshots, refStatus] = await Promise.all([
           brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
           brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
           brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId),
+          brandApi.referenceStatus(activeWorkspaceId, activeBrandId).catch(() => null),
         ])
         if (cancelled) return
         setWebsiteStatus(status)
         setWebsiteOps(opportunities || [])
         setScreenshotStatus(screenshots || null)
+        setReferenceStatus(refStatus || null)
       } catch {
         if (!cancelled) {
           setWebsiteStatus(null)
           setWebsiteOps([])
           setScreenshotStatus(null)
+          setReferenceStatus(null)
         }
       } finally {
         if (!cancelled) setWebsiteLoading(false)
@@ -489,6 +494,21 @@ export default function BrandKitPage() {
       setWebsiteOps((prev) => prev.map((op) => (op.id === id ? { ...op, status } : op)))
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to update opportunity', 'error')
+    }
+  }
+
+  const runReferenceSync = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setReferenceSyncing(true)
+    try {
+      const res = await brandApi.syncReferences(activeWorkspaceId, activeBrandId, { force: true })
+      toast(`Reference sync: ${res.fetched_count || 0} sources, confidence ${Math.round((res.style_confidence || 0) * 100)}%`)
+      const st = await brandApi.referenceStatus(activeWorkspaceId, activeBrandId).catch(() => null)
+      setReferenceStatus(st || null)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Reference sync failed', 'error')
+    } finally {
+      setReferenceSyncing(false)
     }
   }
 
@@ -788,6 +808,30 @@ export default function BrandKitPage() {
                   </div>
                   <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
                     Synthetic fallback: <span className="font-semibold text-ink">{screenshotStatus?.synthetic_ui_visual_count ?? 0}</span>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-fog space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-semibold text-ink/55">Reference research + style fingerprint</p>
+                    <button
+                      type="button"
+                      onClick={runReferenceSync}
+                      disabled={referenceSyncing || !form.website}
+                      className="px-3 py-1.5 rounded-lg border border-fog bg-white text-[11px] font-semibold text-ink/75 disabled:opacity-50"
+                    >
+                      {referenceSyncing ? 'Syncing…' : 'Sync references'}
+                    </button>
+                  </div>
+                  <div className="grid sm:grid-cols-3 gap-3 text-xs">
+                    <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                      Last ref sync: <span className="font-semibold text-ink">{referenceStatus?.last_synced_at ? new Date(referenceStatus.last_synced_at).toLocaleString() : '—'}</span>
+                    </div>
+                    <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                      Ref sources: <span className="font-semibold text-ink">{referenceStatus?.source_count ?? 0}</span>
+                    </div>
+                    <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                      Style confidence: <span className="font-semibold text-ink">{Math.round((referenceStatus?.style_confidence || 0) * 100)}%</span>
+                    </div>
                   </div>
                 </div>
                 <div>
