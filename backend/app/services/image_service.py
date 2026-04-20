@@ -378,13 +378,25 @@ def _composite_logo(
             cleaned.append((r, g, b, a))
     logo.putdata(cleaned)
 
-    # Resize: at least min_width_px and ~18–22% of frame width (readability on mobile)
-    logo_max_w = max(min_width_px, int(w * 0.2))
+    # Resize with strict caps so marks stay present but never dominate the creative.
+    # Keep width roughly in the 9-14% band and cap by height as well.
+    logo_target_w = max(56, int(w * 0.11))
+    logo_max_w = max(72, int(w * 0.14))
+    logo_max_h = max(72, int(h * 0.14))
+    # Treat configured minimum as a soft floor, but never exceed sensible frame share.
+    logo_min_w = max(56, min(int(min_width_px or 80), int(w * 0.1)))
     lw, lh = logo.size
-    scale = logo_max_w / lw
+    desired_w = max(logo_min_w, min(logo_target_w, logo_max_w))
+    scale = desired_w / max(1, lw)
     logo = logo.resize((int(lw * scale), int(lh * scale)), Image.LANCZOS)
+    if logo.height > logo_max_h:
+        shrink = logo_max_h / max(1, logo.height)
+        logo = logo.resize(
+            (max(1, int(logo.width * shrink)), max(1, int(logo.height * shrink))),
+            Image.LANCZOS,
+        )
 
-    pad = max(16, int(w * 0.03))
+    pad = max(16, int(min(w, h) * 0.035))
     pl = (placement or "bottom_right").lower().replace("-", "_")
     if pl in ("top_left", "upper_left"):
         x, y = pad, pad
@@ -394,6 +406,8 @@ def _composite_logo(
         x, y = pad, h - logo.height - pad
     else:
         x, y = w - logo.width - pad, h - logo.height - pad
+    x = max(0, min(x, w - logo.width))
+    y = max(0, min(y, h - logo.height))
 
     base.paste(logo, (x, y), logo)
 

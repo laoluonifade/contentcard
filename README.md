@@ -86,9 +86,16 @@ Open: http://localhost:5173
 | `BANNERBEAR_TEMPLATE_EDU` | Optional educational/explainer template UID |
 | `BANNERBEAR_TEMPLATE_TESTIMONIAL` | Optional testimonial/social-proof template UID |
 | `BANNERBEAR_TEMPLATE_HIRING` | Optional hiring/recruitment template UID |
+| `BANNERBEAR_TEMPLATE_TEXT_POSTER` | Optional text-poster template UID (headline-led) |
+| `BANNERBEAR_TEMPLATE_PRODUCT_HERO` | Optional product-hero template UID (device/screenshot-led) |
+| `BANNERBEAR_TEMPLATE_DATA_CARD` | Optional data-card template UID (insight/chart/card layouts) |
+| `BANNERBEAR_TEMPLATE_ANNOUNCEMENT` | Optional announcement/event template UID |
+| `BANNERBEAR_TEMPLATE_STORY_CAROUSEL` | Optional story/testimonial carousel template UID |
+| `BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL` | Optional illustration/editorial template UID |
 | `QUALITY_GATE_ENABLED` | `true`/`false` creative QA gate before marking visuals ready |
 | `QUALITY_GATE_MIN_SCORE` | Minimum gate score (e.g. `0.66`) |
 | `QUALITY_GATE_MAX_RETRIES` | Auto-retry attempts after first failed render (e.g. `2`) |
+| `MAX_REAL_PEOPLE_SHARE` | Cap people-photo share in monthly plan (default `0.35`) |
 | `FRONTEND_URL` | `http://localhost:5173` (dev) or your prod URL |
 | `FREE_TRIAL_DAYS` | `14` |
 
@@ -124,7 +131,7 @@ Open: http://localhost:5173
 4. Set the `sync: false` env vars manually in Render dashboard after first deploy:
    - All `*_KEY`, `*_SECRET` values
    - `STRIPE_PRICE_*` IDs
-   - `BANNERBEAR_TEMPLATE_*` IDs (at minimum: cover/content/quote; optional family templates for promo/edu/testimonial/hiring)
+   - `BANNERBEAR_TEMPLATE_*` IDs (at minimum: cover/content/quote; optional family templates for promo/edu/testimonial/hiring/text-poster/product-hero/data-card/announcement/story/illustration-editorial)
    - `FRONTEND_URL` = your Render frontend URL (e.g. `https://contentcard-web.onrender.com`)
    - `VITE_API_URL` = your backend URL + `/api/v1`
 
@@ -149,6 +156,10 @@ Full Swagger docs at `http://localhost:8000/docs`
 ## Design System Docs
 
 - Bannerbear production template contract: `docs/BANNERBEAR_TEMPLATE_SPEC.md`
+- Brand-level style profile can be set in `brand_kit.visual_system.style_mix_targets`, for example:
+  - `text_poster`, `product_hero`, `illustration`, `people_photo` (values as 0.0–1.0 share targets)
+- Admin design audit endpoint:
+  - `GET /admin/design-readiness/{brand_id}` returns a readiness score and missing setup items (templates, visual tokens, style mix, brand core fields) before regeneration.
 
 ```
 POST   /api/v1/auth/signup                     Create account + workspace + start trial

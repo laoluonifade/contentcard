@@ -58,12 +58,26 @@ services:
         sync: false
       - key: BANNERBEAR_TEMPLATE_HIRING
         sync: false
+      - key: BANNERBEAR_TEMPLATE_TEXT_POSTER
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_PRODUCT_HERO
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_DATA_CARD
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_ANNOUNCEMENT
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_STORY_CAROUSEL
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL
+        sync: false
       - key: QUALITY_GATE_ENABLED
         value: "true"
       - key: QUALITY_GATE_MIN_SCORE
         value: "0.66"
       - key: QUALITY_GATE_MAX_RETRIES
         value: "2"
+      - key: MAX_REAL_PEOPLE_SHARE
+        value: "0.35"
       - key: FREE_TRIAL_DAYS
         value: "14"
 

@@ -538,6 +538,7 @@ async def admin_content_visual_debug(
         "visual_archetype": cc_meta.get("visual_archetype"),
         "visual_lint": cc_meta.get("visual_lint"),
         "quality_gate": cc_meta.get("quality_gate"),
+        "quality_failure_tags": cc_meta.get("quality_failure_tags"),
         "logo_required": cc_meta.get("logo_required"),
         "logo_applied": cc_meta.get("logo_applied"),
         "art_brief": cc_meta.get("art_brief"),
@@ -551,7 +552,149 @@ async def admin_content_visual_debug(
             "edu": bool(getattr(settings, "BANNERBEAR_TEMPLATE_EDU", "")),
             "testimonial": bool(getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", "")),
             "hiring": bool(getattr(settings, "BANNERBEAR_TEMPLATE_HIRING", "")),
+            "text_poster": bool(getattr(settings, "BANNERBEAR_TEMPLATE_TEXT_POSTER", "")),
+            "product_hero": bool(getattr(settings, "BANNERBEAR_TEMPLATE_PRODUCT_HERO", "")),
+            "data_card": bool(getattr(settings, "BANNERBEAR_TEMPLATE_DATA_CARD", "")),
+            "announcement": bool(getattr(settings, "BANNERBEAR_TEMPLATE_ANNOUNCEMENT", "")),
+            "story_carousel": bool(getattr(settings, "BANNERBEAR_TEMPLATE_STORY_CAROUSEL", "")),
+            "illustration_editorial": bool(getattr(settings, "BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL", "")),
         },
+    }
+
+
+@router.get("/visual-quality-report")
+async def admin_visual_quality_report(
+    days: int = 14,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Aggregate design-quality failures by template family for tuning loops.
+    """
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=max(1, min(days, 90)))
+    r = await db.execute(
+        select(ContentItem).where(ContentItem.created_at >= since).order_by(desc(ContentItem.created_at))
+    )
+    items = r.scalars().all()
+    by_family: dict[str, dict] = {}
+    for item in items:
+        theme = item.theme if isinstance(item.theme, dict) else {}
+        cm = theme.get("cc_meta") if isinstance(theme.get("cc_meta"), dict) else {}
+        qg = cm.get("quality_gate") if isinstance(cm.get("quality_gate"), dict) else {}
+        fam = str(cm.get("template_family") or "default")
+        rec = by_family.setdefault(
+            fam,
+            {"total": 0, "failed": 0, "pass_fallback": 0, "avg_score": 0.0, "failure_tags": {}},
+        )
+        rec["total"] += 1
+        score = float(qg.get("overall_score") or 0.0)
+        rec["avg_score"] += score
+        status = str(qg.get("status") or "")
+        if status == "fail":
+            rec["failed"] += 1
+        if status == "pass_fallback":
+            rec["pass_fallback"] += 1
+        for tag in (cm.get("quality_failure_tags") or []):
+            t = str(tag).strip().lower()
+            if not t:
+                continue
+            rec["failure_tags"][t] = int(rec["failure_tags"].get(t, 0)) + 1
+
+    rows = []
+    for fam, rec in by_family.items():
+        total = max(1, int(rec["total"]))
+        rows.append(
+            {
+                "template_family": fam,
+                "total": int(rec["total"]),
+                "failed": int(rec["failed"]),
+                "pass_fallback": int(rec["pass_fallback"]),
+                "failure_rate": round(float(rec["failed"]) / total, 3),
+                "avg_score": round(float(rec["avg_score"]) / total, 3),
+                "failure_tags": rec["failure_tags"],
+            }
+        )
+    rows.sort(key=lambda x: (x["failure_rate"], -x["total"]), reverse=True)
+    return {"days": int(max(1, min(days, 90))), "families": rows}
+
+
+@router.get("/design-readiness/{brand_id}")
+async def admin_design_readiness(
+    brand_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """
+    Brand + template readiness audit for designer-grade output quality.
+    """
+    r = await db.execute(select(Brand).where(Brand.id == brand_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    kit = brand.brand_kit if isinstance(brand.brand_kit, dict) else {}
+    vs = kit.get("visual_system") if isinstance(kit.get("visual_system"), dict) else {}
+    required_templates = {
+        "cover": getattr(settings, "BANNERBEAR_TEMPLATE_COVER", ""),
+        "content": getattr(settings, "BANNERBEAR_TEMPLATE_CONTENT", ""),
+        "quote": getattr(settings, "BANNERBEAR_TEMPLATE_QUOTE", ""),
+        "text_poster": getattr(settings, "BANNERBEAR_TEMPLATE_TEXT_POSTER", ""),
+        "product_hero": getattr(settings, "BANNERBEAR_TEMPLATE_PRODUCT_HERO", ""),
+        "data_card": getattr(settings, "BANNERBEAR_TEMPLATE_DATA_CARD", ""),
+        "announcement": getattr(settings, "BANNERBEAR_TEMPLATE_ANNOUNCEMENT", ""),
+        "story_carousel": getattr(settings, "BANNERBEAR_TEMPLATE_STORY_CAROUSEL", ""),
+        "illustration_editorial": getattr(settings, "BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL", ""),
+    }
+    template_missing = [k for k, v in required_templates.items() if not str(v or "").strip()]
+    style_mix = vs.get("style_mix_targets") if isinstance(vs.get("style_mix_targets"), dict) else {}
+    style_mix_missing = [k for k in ("text_poster", "product_hero", "illustration", "people_photo") if k not in style_mix]
+    visual_tokens_missing = []
+    for k in ("primary_hex", "secondary_hex", "accent_hex", "allowed_archetypes", "logo_placement", "logo_min_width_px"):
+        val = vs.get(k)
+        if val is None or val == "" or (k == "allowed_archetypes" and not isinstance(val, list)):
+            visual_tokens_missing.append(k)
+    brand_fields_missing = []
+    if not brand.logo_url:
+        brand_fields_missing.append("logo_url")
+    if not (brand.brand_colors or []):
+        brand_fields_missing.append("brand_colors")
+    if not (brand.tone_tags or []):
+        brand_fields_missing.append("tone_tags")
+    if not brand.description:
+        brand_fields_missing.append("description")
+    if not brand.target_audience:
+        brand_fields_missing.append("target_audience")
+
+    checks = {
+        "templates_configured": len(template_missing) == 0,
+        "visual_tokens_complete": len(visual_tokens_missing) == 0,
+        "style_mix_configured": len(style_mix_missing) == 0,
+        "brand_core_complete": len(brand_fields_missing) == 0,
+    }
+    score = (
+        (1 if checks["templates_configured"] else 0)
+        + (1 if checks["visual_tokens_complete"] else 0)
+        + (1 if checks["style_mix_configured"] else 0)
+        + (1 if checks["brand_core_complete"] else 0)
+    )
+    readiness_pct = int(round((score / 4) * 100))
+    return {
+        "brand_id": brand.id,
+        "brand_name": brand.name,
+        "readiness_pct": readiness_pct,
+        "checks": checks,
+        "missing": {
+            "templates": template_missing,
+            "visual_tokens": visual_tokens_missing,
+            "style_mix_targets": style_mix_missing,
+            "brand_fields": brand_fields_missing,
+        },
+        "next_actions": [
+            "Configure all family template UIDs (text_poster, product_hero, data_card, announcement, story_carousel, illustration_editorial).",
+            "Set visual_system tokens and style_mix_targets per brand.",
+            "Regenerate month visuals after readiness reaches 100%.",
+        ],
     }
 
 

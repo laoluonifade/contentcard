@@ -55,6 +55,7 @@ export default function GeneratePage() {
     activeWorkspace,
     generateMonth,
     generatingMonth,
+    generationStartedAt,
     generationPollCount,
     generationProgress,
     trends,
@@ -71,6 +72,7 @@ export default function GeneratePage() {
   const [postsPerWeek, setPostsPerWeek] = useState(3)
   const [topic, setTopic]               = useState('')
   const [selTrend, setSelTrend]         = useState(null)
+  const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
 
   useEffect(() => {
     if (location.state?.topic) { setTopic(location.state.topic); setSelTrend(null) }
@@ -81,6 +83,19 @@ export default function GeneratePage() {
     if (trends.length) return
     fetchTrends().catch(() => {})
   }, [showTrends, activeWorkspace?.id])
+
+  useEffect(() => {
+    if (!generatingMonth || !generationStartedAt) {
+      setGenerationElapsedSec(0)
+      return
+    }
+    const tick = () => {
+      setGenerationElapsedSec(Math.max(0, Math.floor((Date.now() - generationStartedAt) / 1000)))
+    }
+    tick()
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [generatingMonth, generationStartedAt])
 
   const monthOptions = Array.from({ length: 8 }, (_, i) => {
     const mi = (now.getMonth() + i) % 12 + 1
@@ -129,6 +144,11 @@ export default function GeneratePage() {
     } catch (err) {
       const d = err.response?.data?.detail
       const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
+      if (msg.toLowerCase().includes('taking longer than expected')) {
+        toast(msg)
+        navigate('/dashboard/calendar')
+        return
+      }
       toast(msg, 'error')
     }
   }
@@ -144,6 +164,7 @@ export default function GeneratePage() {
   }
 
   const progressPct = () => Math.min(95, Math.round((generationPollCount / 10) * 100))
+  const showSlowGenerationHint = generatingMonth && generationElapsedSec >= 45
 
   return (
     <div className="p-6 lg:p-8 max-w-5xl mx-auto">
@@ -266,6 +287,20 @@ export default function GeneratePage() {
               <p className="text-center text-ink/30 text-xs">
                 Captions and images can take a few minutes. We will send you to the calendar when every post has finished visuals — no manual refresh needed.
               </p>
+              {showSlowGenerationHint && (
+                <div className="rounded-xl border border-fog bg-mist px-3 py-2 text-center">
+                  <p className="text-xs text-ink/60">
+                    Image rendering is taking longer than usual. Check the calendar in about a minute; finished posts will keep appearing automatically.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => navigate('/dashboard/calendar')}
+                    className="mt-2 text-xs font-semibold text-brand-600 hover:text-brand-700"
+                  >
+                    Go to calendar now
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

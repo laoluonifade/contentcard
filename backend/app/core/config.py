@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     BANNERBEAR_TEMPLATE_EDU: str = ""
     BANNERBEAR_TEMPLATE_TESTIMONIAL: str = ""
     BANNERBEAR_TEMPLATE_HIRING: str = ""
+    BANNERBEAR_TEMPLATE_TEXT_POSTER: str = ""
+    BANNERBEAR_TEMPLATE_PRODUCT_HERO: str = ""
+    BANNERBEAR_TEMPLATE_DATA_CARD: str = ""
+    BANNERBEAR_TEMPLATE_ANNOUNCEMENT: str = ""
+    BANNERBEAR_TEMPLATE_STORY_CAROUSEL: str = ""
+    BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL: str = ""
 
     FREE_TRIAL_DAYS: int = 14
     FRONTEND_URL: str = "http://localhost:5173"
@@ -39,6 +45,7 @@ class Settings(BaseSettings):
     QUALITY_GATE_ENABLED: bool = True
     QUALITY_GATE_MIN_SCORE: float = 0.66
     QUALITY_GATE_MAX_RETRIES: int = 2
+    MAX_REAL_PEOPLE_SHARE: float = 0.35
 
     class Config:
         env_file = ".env"

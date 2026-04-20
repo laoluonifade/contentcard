@@ -83,6 +83,24 @@ def _item_ready_for_user(item: ContentItem) -> bool:
     return True
 
 
+def _quality_failure_tags(quality_gate: dict | None) -> list[str]:
+    if not isinstance(quality_gate, dict):
+        return []
+    reasons = [str(r).lower() for r in (quality_gate.get("reasons") or [])]
+    tags: list[str] = []
+    if any("single subject" in r or "photo-like" in r for r in reasons):
+        tags.append("too photo-like")
+    if any("hierarchy" in r or "readability" in r or "cta" in r for r in reasons):
+        tags.append("text weak")
+    if any("template" in r or "structure" in r for r in reasons):
+        tags.append("no structure")
+    if any("clutter" in r or "spacing" in r for r in reasons):
+        tags.append("crowded")
+    if not tags and reasons:
+        tags.append("other")
+    return tags[:4]
+
+
 async def _counts_by_platform_month(
     brand_id: str, month: int, year: int, db: AsyncSession
 ) -> dict[str, int]:
@@ -146,6 +164,7 @@ async def _render_with_quality_gate(
     for attempt in range(max_attempts):
         render_post = dict(post_data)
         render_post["quality_gate_retry"] = attempt
+        render_post["template_family"] = detect_template_family(render_post)
         if attempt > 0:
             # Stricter fallback guidance for retries.
             render_post["quality_gate_notes"] = (
@@ -190,6 +209,7 @@ async def _render_with_quality_gate(
     fallback_post = dict(post_data)
     fallback_post["quality_gate_fallback"] = True
     fallback_post["force_template_family"] = "default"
+    fallback_post["template_family"] = detect_template_family(fallback_post)
     fallback_post["quality_gate_notes"] = (
         "Fallback mode: clean layout, strong hierarchy, low clutter, ad-style readability."
     )
@@ -898,6 +918,7 @@ async def _regenerate_visual_core(
         "template_family": detect_template_family(post),
         "logo_required": has_brand_logo(brand_dict),
         "logo_applied": logo_ok,
+        "quality_failure_tags": _quality_failure_tags(quality_gate),
     }
     item.theme = th
     await db.commit()
@@ -1088,6 +1109,7 @@ async def _do_generate_month(
                 cm["quality_gate"] = quality_gate
                 cm["logo_required"] = has_brand_logo(brand_dict)
                 cm["logo_applied"] = logo_ok
+                cm["quality_failure_tags"] = _quality_failure_tags(quality_gate)
                 th["cc_meta"] = cm
                 item.theme = th
                 await db.commit()
