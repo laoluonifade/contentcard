@@ -331,14 +331,51 @@ export default function BrandKitPage() {
   const [newWord, setNewWord]     = useState('')
   const [newColorHex, setNewColorHex] = useState('#6C63FF')
   const [form, setForm]     = useState({})
+  const [websiteStatus, setWebsiteStatus] = useState(null)
+  const [websiteOps, setWebsiteOps] = useState([])
+  const [websiteSyncing, setWebsiteSyncing] = useState(false)
+  const [websiteLoading, setWebsiteLoading] = useState(false)
   const logoFileRef = useRef(null)
 
   useEffect(() => {
     if (!brand) return
     const kit = { ...(brand.brand_kit || {}) }
     kit.visual_system = mergeVisualSystem(kit, brand.brand_colors || [], brand.brand_font)
+    kit.website_intelligence = {
+      enabled: true,
+      default_sync_cadence: 'weekly',
+      ...(kit.website_intelligence || {}),
+    }
     setForm({ ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} })
   }, [brand?.id])
+
+  useEffect(() => {
+    if (!activeBrandId || !activeWorkspaceId) return
+    let cancelled = false
+    const loadWebsiteIntel = async () => {
+      setWebsiteLoading(true)
+      try {
+        const [status, opportunities] = await Promise.all([
+          brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
+          brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
+        ])
+        if (cancelled) return
+        setWebsiteStatus(status)
+        setWebsiteOps(opportunities || [])
+      } catch {
+        if (!cancelled) {
+          setWebsiteStatus(null)
+          setWebsiteOps([])
+        }
+      } finally {
+        if (!cancelled) setWebsiteLoading(false)
+      }
+    }
+    loadWebsiteIntel()
+    return () => {
+      cancelled = true
+    }
+  }, [activeBrandId, activeWorkspaceId])
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
@@ -392,6 +429,46 @@ export default function BrandKitPage() {
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to save', 'error')
     } finally { setSaving(false) }
+  }
+
+  const setWebsiteCfg = (patch) => {
+    const kit = { ...(form.brand_kit || {}) }
+    kit.website_intelligence = {
+      enabled: true,
+      default_sync_cadence: 'weekly',
+      ...(kit.website_intelligence || {}),
+      ...patch,
+    }
+    setForm((f) => ({ ...f, brand_kit: kit }))
+  }
+
+  const runWebsiteSync = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setWebsiteSyncing(true)
+    try {
+      const res = await brandApi.syncWebsite(activeWorkspaceId, activeBrandId, { force: true })
+      toast(`Website sync complete: ${res.entity_count || 0} entities, ${res.opportunity_count || 0} opportunities`)
+      const [status, opportunities] = await Promise.all([
+        brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
+        brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
+      ])
+      setWebsiteStatus(status)
+      setWebsiteOps(opportunities || [])
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Website sync failed', 'error')
+    } finally {
+      setWebsiteSyncing(false)
+    }
+  }
+
+  const updateOpportunityStatus = async (id, status) => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    try {
+      await brandApi.updateWebsiteOpportunity(activeWorkspaceId, activeBrandId, id, status)
+      setWebsiteOps((prev) => prev.map((op) => (op.id === id ? { ...op, status } : op)))
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to update opportunity', 'error')
+    }
   }
 
   const addWord = () => {
@@ -552,6 +629,96 @@ export default function BrandKitPage() {
                     <input value={form[k] || ''} onChange={e => set(k, e.target.value)} placeholder="@handle" className={inpCls} />
                   </div>
                 ))}
+              </div>
+              <div className="mt-6 rounded-xl border border-fog bg-mist/40 p-4 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink/45">Website intelligence</p>
+                    <p className="text-xs text-ink/45 mt-1">
+                      Sync your website and queue new product opportunities for approval before generation.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={runWebsiteSync}
+                    disabled={websiteSyncing || websiteLoading || !form.website}
+                    className="px-3 py-2 rounded-lg border border-fog bg-white text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                  >
+                    {websiteSyncing ? 'Syncing…' : 'Sync now'}
+                  </button>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <label className="space-y-1">
+                    <span className={labelCls}>Enabled</span>
+                    <select
+                      className={inpCls}
+                      value={(form.brand_kit?.website_intelligence?.enabled ?? true) ? 'yes' : 'no'}
+                      onChange={(e) => setWebsiteCfg({ enabled: e.target.value === 'yes' })}
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className={labelCls}>Default sync cadence</span>
+                    <select
+                      className={inpCls}
+                      value={form.brand_kit?.website_intelligence?.default_sync_cadence || 'weekly'}
+                      onChange={(e) => setWebsiteCfg({ default_sync_cadence: e.target.value })}
+                    >
+                      <option value="weekly">Weekly</option>
+                    </select>
+                  </label>
+                  <div className="space-y-1">
+                    <span className={labelCls}>Status</span>
+                    <div className="h-[46px] px-3 rounded-xl border border-fog bg-white text-xs flex items-center text-ink/70">
+                      {websiteStatus?.last_status || (websiteLoading ? 'Loading…' : 'Not synced')}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3 text-xs">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    Entities: <span className="font-semibold text-ink">{websiteStatus?.active_entities ?? 0}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    Pending approval: <span className="font-semibold text-ink">{websiteStatus?.pending_approval_count ?? 0}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    Last crawl: <span className="font-semibold text-ink">{websiteStatus?.last_crawled_at ? new Date(websiteStatus.last_crawled_at).toLocaleString() : '—'}</span>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold text-ink/55 mb-2">Pending opportunities</p>
+                  <div className="space-y-2 max-h-60 overflow-auto pr-1">
+                    {websiteOps.filter((op) => op.status === 'pending_approval').length === 0 && (
+                      <p className="text-xs text-ink/40">No pending opportunities. Run sync after updating your website/products.</p>
+                    )}
+                    {websiteOps
+                      .filter((op) => op.status === 'pending_approval')
+                      .map((op) => (
+                        <div key={op.id} className="rounded-lg border border-fog bg-white p-3">
+                          <p className="text-xs font-semibold text-ink">{op.title}</p>
+                          <p className="text-[11px] text-ink/45 mt-1">{op.trigger_type}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => updateOpportunityStatus(op.id, 'approved')}
+                              className="px-2.5 py-1 rounded-md bg-brand-500 text-white text-[11px] font-semibold"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateOpportunityStatus(op.id, 'dismissed')}
+                              className="px-2.5 py-1 rounded-md border border-fog text-[11px] font-semibold text-ink/70"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
               </div>
             </div>
           )}

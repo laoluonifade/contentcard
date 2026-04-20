@@ -16,6 +16,10 @@ class GenerateMonthRequest(BaseModel):
     include_holidays_in_content: bool = True
     # Optional notes from the calendar prep chat (product updates, screenshots described, etc.)
     generation_brief: str | None = None
+    # Use website intelligence entities and approved opportunities while planning posts.
+    use_website_intelligence: bool = True
+    # When true, prioritise only newly-detected website changes for this generation.
+    only_new_changes: bool = False
     # Set true after the UI confirms generating again for a month that already has posts.
     confirm_duplicate: bool = False
 

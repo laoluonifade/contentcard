@@ -13,6 +13,7 @@ from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.models.brand import Brand
 from app.models.content import ContentItem
+from app.models.website_intelligence import WebsiteEntity, WebsiteSnapshot, WebsiteChangeEvent, WebsiteOpportunity
 from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
@@ -645,6 +646,88 @@ async def admin_design_readiness(
         "announcement": getattr(settings, "BANNERBEAR_TEMPLATE_ANNOUNCEMENT", ""),
         "story_carousel": getattr(settings, "BANNERBEAR_TEMPLATE_STORY_CAROUSEL", ""),
         "illustration_editorial": getattr(settings, "BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL", ""),
+    }
+
+
+@router.get("/website-intelligence-report")
+async def admin_website_intelligence_report(
+    days: int = 30,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    window_days = max(1, min(days, 180))
+    since = datetime.now(timezone.utc) - timedelta(days=window_days)
+
+    total_brands = (await db.execute(select(func.count()).select_from(Brand))).scalar() or 0
+    synced_brands = (
+        await db.execute(
+            select(func.count(func.distinct(WebsiteSnapshot.brand_id)))
+            .select_from(WebsiteSnapshot)
+            .where(WebsiteSnapshot.created_at >= since)
+        )
+    ).scalar() or 0
+    entities_total = (
+        await db.execute(select(func.count()).select_from(WebsiteEntity).where(WebsiteEntity.last_seen_at >= since))
+    ).scalar() or 0
+    product_entities = (
+        await db.execute(
+            select(func.count()).select_from(WebsiteEntity).where(
+                WebsiteEntity.last_seen_at >= since,
+                WebsiteEntity.entity_type == "product",
+            )
+        )
+    ).scalar() or 0
+    change_events = (
+        await db.execute(select(func.count()).select_from(WebsiteChangeEvent).where(WebsiteChangeEvent.created_at >= since))
+    ).scalar() or 0
+    opportunities_total = (
+        await db.execute(select(func.count()).select_from(WebsiteOpportunity).where(WebsiteOpportunity.created_at >= since))
+    ).scalar() or 0
+    opportunities_pending = (
+        await db.execute(
+            select(func.count()).select_from(WebsiteOpportunity).where(
+                WebsiteOpportunity.created_at >= since,
+                WebsiteOpportunity.status == "pending_approval",
+            )
+        )
+    ).scalar() or 0
+    opportunities_approved = (
+        await db.execute(
+            select(func.count()).select_from(WebsiteOpportunity).where(
+                WebsiteOpportunity.created_at >= since,
+                WebsiteOpportunity.status == "approved",
+            )
+        )
+    ).scalar() or 0
+
+    latest_sync_rows = (
+        await db.execute(
+            select(
+                WebsiteSnapshot.brand_id,
+                func.max(WebsiteSnapshot.created_at).label("last_synced_at"),
+            )
+            .group_by(WebsiteSnapshot.brand_id)
+            .order_by(desc("last_synced_at"))
+            .limit(25)
+        )
+    ).all()
+
+    return {
+        "days": window_days,
+        "totals": {
+            "brands": int(total_brands),
+            "brands_synced_in_window": int(synced_brands),
+            "entities": int(entities_total),
+            "product_entities": int(product_entities),
+            "change_events": int(change_events),
+            "opportunities": int(opportunities_total),
+            "opportunities_pending_approval": int(opportunities_pending),
+            "opportunities_approved": int(opportunities_approved),
+        },
+        "recent_brand_syncs": [
+            {"brand_id": bid, "last_synced_at": ts.isoformat() if ts else None}
+            for bid, ts in latest_sync_rows
+        ],
     }
     template_missing = [k for k, v in required_templates.items() if not str(v or "").strip()]
     style_mix = vs.get("style_mix_targets") if isinstance(vs.get("style_mix_targets"), dict) else {}

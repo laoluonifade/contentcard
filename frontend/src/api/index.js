@@ -95,6 +95,18 @@ export const brandApi = {
   },
   deletePhoto: (wsId, brandId, idx) =>
     api.delete(`/workspaces/${wsId}/brands/${brandId}/photos/${idx}`).then(r => r.data),
+  syncWebsite: (wsId, brandId, data = {}) =>
+    api.post(`/workspaces/${wsId}/brands/${brandId}/website/sync`, data).then(r => r.data),
+  websiteStatus: (wsId, brandId) =>
+    api.get(`/workspaces/${wsId}/brands/${brandId}/website/status`).then(r => r.data),
+  websiteEntities: (wsId, brandId, params = {}) =>
+    api.get(`/workspaces/${wsId}/brands/${brandId}/website/entities`, { params }).then(r => r.data),
+  websiteChanges: (wsId, brandId, params = {}) =>
+    api.get(`/workspaces/${wsId}/brands/${brandId}/website/changes`, { params }).then(r => r.data),
+  websiteOpportunities: (wsId, brandId, params = {}) =>
+    api.get(`/workspaces/${wsId}/brands/${brandId}/website/opportunities`, { params }).then(r => r.data),
+  updateWebsiteOpportunity: (wsId, brandId, opportunityId, status) =>
+    api.patch(`/workspaces/${wsId}/brands/${brandId}/website/opportunities/${opportunityId}`, { status }).then(r => r.data),
 }
 
 // ─── Content ────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ from app.models.content import ContentItem, ContentStatus, ContentPlatform, Cont
 from app.models.workspace import WorkspaceMember, WorkspaceRole, Workspace
 from app.models.template import ContentTemplate
 from app.models.user import User
+from app.models.website_intelligence import WebsiteEntity, WebsiteOpportunity
 from app.core.dependencies import get_current_user
 from app.schemas.content import (
     GenerateMonthRequest,
@@ -78,6 +79,9 @@ def _item_ready_for_user(item: ContentItem) -> bool:
     qg = cm.get("quality_gate") if isinstance(cm.get("quality_gate"), dict) else {}
     if qg and str(qg.get("status") or "") == "fail":
         return False
+    wg = cm.get("website_grounding_gate") if isinstance(cm.get("website_grounding_gate"), dict) else {}
+    if wg and str(wg.get("status") or "") == "fail":
+        return False
     if cm.get("logo_required") and not cm.get("logo_applied"):
         return False
     return True
@@ -114,6 +118,80 @@ async def _counts_by_platform_month(
         .group_by(ContentItem.platform)
     )
     return {row[0].value: int(row[1] or 0) for row in r.all()}
+
+
+def _website_grounding_text(approved_opportunities: list[dict], entities: list[dict], only_new_changes: bool) -> str:
+    lines: list[str] = []
+    lines.append("=== WEBSITE INTELLIGENCE GROUNDING ===")
+    if approved_opportunities:
+        lines.append("Approved opportunities (user-reviewed, prioritize these):")
+        for idx, op in enumerate(approved_opportunities[:12], start=1):
+            lines.append(
+                f"{idx}. [{op.get('trigger_type')}] {op.get('title')} | "
+                f"entity={op.get('entity_title') or 'N/A'} | url={op.get('source_url') or 'N/A'}"
+            )
+    if entities:
+        lines.append("Recent active entities from website:")
+        for idx, ent in enumerate(entities[:20], start=1):
+            lines.append(
+                f"{idx}. [{ent.get('entity_type')}] {ent.get('title')} | "
+                f"url={ent.get('source_url') or 'N/A'}"
+            )
+    lines.append("Use grounded facts only. Avoid unverifiable claims. Keep copy campaign-quality.")
+    if only_new_changes:
+        lines.append("Prioritize new/recent changes and launch-style updates.")
+    return "\n".join(lines)
+
+
+async def _get_website_grounding_inputs(
+    db: AsyncSession,
+    brand_id: str,
+    only_new_changes: bool,
+) -> tuple[str | None, list[dict]]:
+    approved_rows = (
+        await db.execute(
+            select(WebsiteOpportunity)
+            .where(
+                WebsiteOpportunity.brand_id == brand_id,
+                WebsiteOpportunity.status == "approved",
+            )
+            .order_by(WebsiteOpportunity.created_at.desc())
+            .limit(12)
+        )
+    ).scalars().all()
+    approved_payload: list[dict] = []
+    for row in approved_rows:
+        payload = row.payload if isinstance(row.payload, dict) else {}
+        approved_payload.append(
+            {
+                "id": row.id,
+                "trigger_type": row.trigger_type,
+                "title": row.title,
+                "entity_title": payload.get("entity_title"),
+                "source_url": payload.get("source_url"),
+            }
+        )
+
+    entities_rows = (
+        await db.execute(
+            select(WebsiteEntity)
+            .where(WebsiteEntity.brand_id == brand_id, WebsiteEntity.is_active.is_(True))
+            .order_by(WebsiteEntity.last_seen_at.desc())
+            .limit(24 if only_new_changes else 20)
+        )
+    ).scalars().all()
+    entities_payload = [
+        {
+            "id": row.id,
+            "entity_type": row.entity_type,
+            "title": row.title,
+            "source_url": row.source_url,
+        }
+        for row in entities_rows
+    ]
+    if not approved_payload and not entities_payload:
+        return None, []
+    return _website_grounding_text(approved_payload, entities_payload, only_new_changes), approved_payload
 
 
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
@@ -373,6 +451,12 @@ async def generate_month(
             template_topics = tmpl.topics
 
     existing_snapshot = dict(existing_counts)
+    website_grounding_text = None
+    approved_website_opportunities: list[dict] = []
+    if body.use_website_intelligence:
+        website_grounding_text, approved_website_opportunities = await _get_website_grounding_inputs(
+            db, brand.id, body.only_new_changes
+        )
 
     background_tasks.add_task(
         _do_generate_month,
@@ -390,6 +474,9 @@ async def generate_month(
         country_code=current_user.country_code,
         include_holidays_in_content=body.include_holidays_in_content,
         generation_brief=body.generation_brief,
+        website_grounding_text=website_grounding_text,
+        approved_website_opportunities=approved_website_opportunities,
+        only_new_website_changes=body.only_new_changes,
         existing_counts=existing_snapshot,
     )
     return {"message": "Generation started", "month": body.month, "year": body.year}
@@ -976,6 +1063,9 @@ async def _do_generate_month(
     country_code: str | None,
     include_holidays_in_content: bool,
     generation_brief: str | None,
+    website_grounding_text: str | None = None,
+    approved_website_opportunities: list[dict] | None = None,
+    only_new_website_changes: bool = False,
     existing_counts: dict[str, int] | None = None,
 ):
     from app.db.database import AsyncSessionLocal
@@ -989,13 +1079,20 @@ async def _do_generate_month(
                 month,
                 include_holidays=include_holidays_in_content,
             )
+            brief_parts: list[str] = []
+            if generation_brief and generation_brief.strip():
+                brief_parts.append(generation_brief.strip())
+            if website_grounding_text and website_grounding_text.strip():
+                brief_parts.append(website_grounding_text.strip())
+            combined_generation_brief = "\n\n".join(brief_parts) if brief_parts else None
+
             posts = await generate_monthly_plan(
                 brand=brand_dict, month=month, year=year,
                 platforms=platforms, format_mix=format_mix,
                 posts_per_week=posts_per_week,
                 topic_override=topic_override, template_topics=template_topics,
                 holiday_context=holiday_context or None,
-                generation_brief=generation_brief,
+                generation_brief=combined_generation_brief,
             )
             ec = existing_counts or {}
             slots = {p: max(0, MAX_POSTS_PER_PLATFORM_PER_MONTH - int(ec.get(p, 0))) for p in platforms}
@@ -1067,18 +1164,53 @@ async def _do_generate_month(
             logger.info(f"Saved {len(saved_items)} posts (text) for brand {brand_id} {month}/{year}")
 
             # ── Art brief + cc_meta on theme (PRD) ─────────────────────────────────
+            approved_map = {}
+            for op in (approved_website_opportunities or []):
+                if isinstance(op, dict):
+                    key = str(op.get("entity_title") or "").strip().lower()
+                    if key:
+                        approved_map[key] = op
+            used_approved_ids: set[str] = set()
+
             for i in range(len(saved_items)):
                 item, post = saved_items[i]
                 sab = build_art_brief(post, brand_dict)
                 enriched = {**post, "art_brief": sab}
                 saved_items[i] = (item, enriched)
                 th = dict(item.theme) if isinstance(item.theme, dict) else dict(random.choice(THEMES))
+                topic_l = str(post.get("topic") or "").strip().lower()
+                matched_op = approved_map.get(topic_l)
+                if not matched_op and topic_l:
+                    for k, op in approved_map.items():
+                        if k in topic_l or topic_l in k:
+                            matched_op = op
+                            break
+                if matched_op and matched_op.get("id"):
+                    used_approved_ids.add(str(matched_op.get("id")))
                 th["cc_meta"] = {
                     "visual_archetype": sab["archetype_id"],
                     "art_brief": sab,
                     "visual_lint": None,
                     "visual_type": post.get("visual_type"),
                     "template_family": detect_template_family(post),
+                    "website_grounding": matched_op if isinstance(matched_op, dict) else None,
+                    "website_grounding_gate": {
+                        "status": (
+                            "fail"
+                            if (only_new_website_changes and len(approved_map) > 0 and not matched_op)
+                            else "pass"
+                        ),
+                        "source_relevance_score": (
+                            0.9
+                            if matched_op
+                            else (0.35 if (only_new_website_changes and len(approved_map) > 0) else 0.7)
+                        ),
+                        "reason": (
+                            "post not mapped to approved website change"
+                            if (only_new_website_changes and len(approved_map) > 0 and not matched_op)
+                            else "grounding accepted"
+                        ),
+                    },
                 }
                 item.theme = th
                 logger.info(
@@ -1088,6 +1220,13 @@ async def _do_generate_month(
                     sab.get("dominant_colors_from_tokens"),
                 )
             await db.commit()
+            if used_approved_ids:
+                await db.execute(
+                    WebsiteOpportunity.__table__.update()
+                    .where(WebsiteOpportunity.id.in_(list(used_approved_ids)))
+                    .values(status="dismissed")
+                )
+                await db.commit()
 
         except json.JSONDecodeError as e:
             logger.error(f"AI returned invalid JSON for brand {brand_id}: {e}")

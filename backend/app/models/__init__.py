@@ -5,6 +5,13 @@ from app.models.content import ContentItem, ContentStatus, ContentPlatform, Cont
 from app.models.template import ContentTemplate, TemplateCategory, TemplateRecurrence
 from app.models.trend import TrendingTopic
 from app.models.holiday import UserDismissedHoliday
+from app.models.website_intelligence import (
+    WebsiteSnapshot,
+    WebsiteEntity,
+    WebsiteChangeEvent,
+    WebsiteOpportunity,
+    WebsiteOpportunityStatus,
+)
 
 __all__ = [
     "User",
@@ -14,4 +21,5 @@ __all__ = [
     "ContentTemplate", "TemplateCategory", "TemplateRecurrence",
     "TrendingTopic",
     "UserDismissedHoliday",
+    "WebsiteSnapshot", "WebsiteEntity", "WebsiteChangeEvent", "WebsiteOpportunity", "WebsiteOpportunityStatus",
 ]

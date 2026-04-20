@@ -9,6 +9,21 @@ from app.models.workspace import WorkspaceMember, WorkspaceRole
 from app.models.user import User
 from app.core.dependencies import get_current_user
 from app.schemas.brand import BrandCreate, BrandUpdate, BrandOut
+from app.schemas.website_intelligence import (
+    WebsiteChangeEventOut,
+    WebsiteEntityOut,
+    WebsiteOpportunityOut,
+    WebsiteOpportunityUpdateRequest,
+    WebsiteStatusOut,
+    WebsiteSyncRequest,
+    WebsiteSyncResponse,
+)
+from app.models.website_intelligence import WebsiteChangeEvent, WebsiteEntity, WebsiteOpportunity
+from app.services.website_intelligence_service import (
+    ensure_website_intelligence_defaults,
+    sync_brand_website_intelligence,
+    website_status,
+)
 import cloudinary
 import cloudinary.uploader
 from app.core.config import settings
@@ -336,3 +351,162 @@ async def upload_logo(
     brand.logo_url = result["secure_url"]
     await db.commit()
     return {"logo_url": brand.logo_url}
+
+
+@router.post("/{brand_id}/website/sync", response_model=WebsiteSyncResponse)
+async def sync_brand_website(
+    workspace_id: str,
+    brand_id: str,
+    body: WebsiteSyncRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Editor access required")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    try:
+        result = await sync_brand_website_intelligence(db, brand, force=body.force)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return WebsiteSyncResponse(**result)
+
+
+@router.get("/{brand_id}/website/status", response_model=WebsiteStatusOut)
+async def get_brand_website_status(
+    workspace_id: str,
+    brand_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_member(workspace_id, current_user.id, db)
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    ensure_website_intelligence_defaults(brand)
+    return WebsiteStatusOut(**(await website_status(db, brand)))
+
+
+@router.get("/{brand_id}/website/entities", response_model=list[WebsiteEntityOut])
+async def list_brand_website_entities(
+    workspace_id: str,
+    brand_id: str,
+    entity_type: str | None = None,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_member(workspace_id, current_user.id, db)
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    q = select(WebsiteEntity).where(WebsiteEntity.brand_id == brand.id).order_by(WebsiteEntity.last_seen_at.desc()).limit(limit)
+    if entity_type:
+        q = q.where(WebsiteEntity.entity_type == entity_type)
+    rows = (await db.execute(q)).scalars().all()
+    return [WebsiteEntityOut.model_validate(row) for row in rows]
+
+
+@router.get("/{brand_id}/website/changes", response_model=list[WebsiteChangeEventOut])
+async def list_brand_website_changes(
+    workspace_id: str,
+    brand_id: str,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_member(workspace_id, current_user.id, db)
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    rows = (
+        await db.execute(
+            select(WebsiteChangeEvent)
+            .where(WebsiteChangeEvent.brand_id == brand.id)
+            .order_by(WebsiteChangeEvent.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [WebsiteChangeEventOut.model_validate(row) for row in rows]
+
+
+@router.get("/{brand_id}/website/opportunities", response_model=list[WebsiteOpportunityOut])
+async def list_brand_website_opportunities(
+    workspace_id: str,
+    brand_id: str,
+    limit: int = 100,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_member(workspace_id, current_user.id, db)
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    rows = (
+        await db.execute(
+            select(WebsiteOpportunity)
+            .where(WebsiteOpportunity.brand_id == brand.id)
+            .order_by(WebsiteOpportunity.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [WebsiteOpportunityOut.model_validate(row) for row in rows]
+
+
+@router.patch("/{brand_id}/website/opportunities/{opportunity_id}", response_model=WebsiteOpportunityOut)
+async def update_brand_website_opportunity(
+    workspace_id: str,
+    brand_id: str,
+    opportunity_id: str,
+    body: WebsiteOpportunityUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Editor access required")
+    if body.status not in ("pending_approval", "approved", "dismissed"):
+        raise HTTPException(status_code=400, detail="status must be pending_approval, approved, or dismissed")
+
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    op_r = await db.execute(
+        select(WebsiteOpportunity).where(
+            WebsiteOpportunity.id == opportunity_id,
+            WebsiteOpportunity.brand_id == brand.id,
+        )
+    )
+    opp = op_r.scalar_one_or_none()
+    if not opp:
+        raise HTTPException(status_code=404, detail="Opportunity not found")
+
+    opp.status = body.status
+    if opp.change_event_id and body.status in ("approved", "dismissed"):
+        ce_r = await db.execute(
+            select(WebsiteChangeEvent).where(
+                WebsiteChangeEvent.id == opp.change_event_id,
+                WebsiteChangeEvent.brand_id == brand.id,
+            )
+        )
+        ce = ce_r.scalar_one_or_none()
+        if ce:
+            ce.is_handled = True
+    await db.commit()
+    await db.refresh(opp)
+    return WebsiteOpportunityOut.model_validate(opp)
