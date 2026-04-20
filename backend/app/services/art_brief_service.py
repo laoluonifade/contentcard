@@ -99,14 +99,15 @@ def _coerce_archetype(post: dict[str, Any], allowed: list[str]) -> str:
 
 def build_art_brief(post: dict[str, Any], brand: dict[str, Any]) -> dict[str, Any]:
     vs = brand.get("visual_system") or {}
+    palette = brand.get("brand_colors") or brand.get("colors") or []
     allowed = vs.get("allowed_archetypes") or list(ARCHETYPE_IDS)
     if not isinstance(allowed, list) or not allowed:
         allowed = list(ARCHETYPE_IDS)
 
     arch = _coerce_archetype(post, allowed)
-    primary = vs.get("primary_hex") or "#6366f1"
-    secondary = vs.get("secondary_hex") or primary
-    accent = vs.get("accent_hex") or secondary
+    primary = (palette[0] if len(palette) > 0 else None) or vs.get("primary_hex") or "#6366f1"
+    secondary = (palette[1] if len(palette) > 1 else None) or vs.get("secondary_hex") or primary
+    accent = (palette[2] if len(palette) > 2 else None) or vs.get("accent_hex") or secondary
 
     photo = arch in ("photo_hero", "portrait_story")
     pattern_intensity = {"pattern_headline": 0.85, "pov_comic": 0.5, "flat_edu": 0.3}.get(arch, 0.15)

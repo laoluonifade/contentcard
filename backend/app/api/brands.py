@@ -15,6 +15,7 @@ from app.schemas.website_intelligence import (
     WebsiteAuthCaptureRunRequest,
     WebsiteChangeEventOut,
     WebsiteEntityOut,
+    WebsiteProductOut,
     WebsiteOpportunityOut,
     WebsiteScreenshotStatusOut,
     WebsiteOpportunityUpdateRequest,
@@ -424,6 +425,107 @@ async def list_brand_website_entities(
         q = q.where(WebsiteEntity.entity_type == entity_type)
     rows = (await db.execute(q)).scalars().all()
     return [WebsiteEntityOut.model_validate(row) for row in rows]
+
+
+@router.get("/{brand_id}/website/products", response_model=list[WebsiteProductOut])
+async def list_brand_website_products(
+    workspace_id: str,
+    brand_id: str,
+    limit: int = 100,
+    state: str = "all",  # all | new | updated | unchanged
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _check_member(workspace_id, current_user.id, db)
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
+    if state not in ("all", "new", "updated", "unchanged"):
+        raise HTTPException(status_code=400, detail="state must be all, new, updated, or unchanged")
+
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    entities = (
+        await db.execute(
+            select(WebsiteEntity)
+            .where(
+                WebsiteEntity.brand_id == brand.id,
+                WebsiteEntity.entity_type == "product",
+                WebsiteEntity.is_active.is_(True),
+            )
+            .order_by(WebsiteEntity.last_seen_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    if not entities:
+        return []
+
+    entity_ids = [e.id for e in entities]
+    change_rows = (
+        await db.execute(
+            select(WebsiteChangeEvent)
+            .where(
+                WebsiteChangeEvent.brand_id == brand.id,
+                WebsiteChangeEvent.entity_id.in_(entity_ids),
+            )
+            .order_by(WebsiteChangeEvent.created_at.desc())
+        )
+    ).scalars().all()
+    latest_change_by_entity: dict[str, WebsiteChangeEvent] = {}
+    for row in change_rows:
+        if row.entity_id and row.entity_id not in latest_change_by_entity:
+            latest_change_by_entity[row.entity_id] = row
+
+    out: list[WebsiteProductOut] = []
+    for row in entities:
+        attrs = row.attributes if isinstance(row.attributes, dict) else {}
+        images = attrs.get("images") if isinstance(attrs.get("images"), list) else []
+        first_img = next((str(x).strip() for x in images if str(x or "").strip()), None)
+
+        tags_raw = attrs.get("tags")
+        if isinstance(tags_raw, str):
+            tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+        elif isinstance(tags_raw, list):
+            tags = [str(t).strip() for t in tags_raw if str(t).strip()]
+        else:
+            tags = []
+
+        change = latest_change_by_entity.get(row.id)
+        change_type = str(change.change_type or "").lower() if change else ""
+        if change_type == "created":
+            sync_state = "new"
+        elif change_type == "updated":
+            sync_state = "updated"
+        else:
+            sync_state = "unchanged"
+
+        if state != "all" and sync_state != state:
+            continue
+
+        out.append(
+            WebsiteProductOut(
+                id=row.id,
+                title=row.title,
+                summary=row.summary,
+                source_url=row.source_url,
+                image_url=first_img,
+                price=str(attrs.get("price") or "") or None,
+                compare_at_price=str(attrs.get("compare_at_price") or "") or None,
+                currency=str(attrs.get("currency") or "") or None,
+                availability=str(attrs.get("availability") or attrs.get("status") or "") or None,
+                product_type=str(attrs.get("product_type") or "") or None,
+                vendor=str(attrs.get("vendor") or "") or None,
+                tags=tags[:12],
+                sync_state=sync_state,
+                last_change_type=change_type or None,
+                last_change_at=change.created_at if change else None,
+                first_seen_at=row.first_seen_at,
+                last_seen_at=row.last_seen_at,
+            )
+        )
+    return out
 
 
 @router.get("/{brand_id}/website/changes", response_model=list[WebsiteChangeEventOut])

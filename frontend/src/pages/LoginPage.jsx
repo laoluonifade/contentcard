@@ -12,9 +12,7 @@ function AppPreview() {
       <div className="flex h-72">
         {/* Sidebar */}
         <div className="w-14 bg-white/5 border-r border-white/10 flex flex-col items-center py-3 gap-3">
-          <div className="w-7 h-7 rounded-lg bg-[#10A37F] flex items-center justify-center mb-1">
-            <span className="text-white font-bold text-xs">C</span>
-          </div>
+          <LogoMark size={28} className="mb-1" />
           {[BarChart2, Zap, Calendar, Layers].map((Icon, i) => (
             <div key={i} className={`w-8 h-8 rounded-lg flex items-center justify-center ${i === 1 ? 'bg-[#10A37F]/20' : ''}`}>
               <Icon size={14} className={i === 1 ? 'text-[#10A37F]' : 'text-white/30'} />

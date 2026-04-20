@@ -49,6 +49,26 @@ class WebsiteEntityOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class WebsiteProductOut(BaseModel):
+    id: str
+    title: str
+    summary: str | None
+    source_url: str | None
+    image_url: str | None = None
+    price: str | None = None
+    compare_at_price: str | None = None
+    currency: str | None = None
+    availability: str | None = None
+    product_type: str | None = None
+    vendor: str | None = None
+    tags: list[str] = []
+    sync_state: str = "unchanged"  # new | updated | unchanged
+    last_change_type: str | None = None
+    last_change_at: datetime | None = None
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
 class WebsiteChangeEventOut(BaseModel):
     id: str
     entity_id: str | None
