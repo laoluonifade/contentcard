@@ -356,7 +356,7 @@ def _composite_logo(
     placement: str = "bottom_right",
     min_width_px: int = 80,
 ) -> bytes:
-    from PIL import Image
+    from PIL import Image, ImageStat
     import io
 
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
@@ -379,10 +379,10 @@ def _composite_logo(
     logo.putdata(cleaned)
 
     # Resize with strict caps so marks stay present but never dominate the creative.
-    # Keep width roughly in the 9-14% band and cap by height as well.
-    logo_target_w = max(56, int(w * 0.11))
-    logo_max_w = max(72, int(w * 0.14))
-    logo_max_h = max(72, int(h * 0.14))
+    # Keep width roughly in the 8-12% band and cap by height as well.
+    logo_target_w = max(56, int(w * 0.095))
+    logo_max_w = max(72, int(w * 0.12))
+    logo_max_h = max(72, int(h * 0.12))
     # Treat configured minimum as a soft floor, but never exceed sensible frame share.
     logo_min_w = max(56, min(int(min_width_px or 80), int(w * 0.1)))
     lw, lh = logo.size
@@ -396,16 +396,44 @@ def _composite_logo(
             Image.LANCZOS,
         )
 
-    pad = max(16, int(min(w, h) * 0.035))
-    pl = (placement or "bottom_right").lower().replace("-", "_")
-    if pl in ("top_left", "upper_left"):
-        x, y = pad, pad
-    elif pl in ("top_right", "upper_right"):
-        x, y = w - logo.width - pad, pad
-    elif pl in ("bottom_left", "lower_left"):
-        x, y = pad, h - logo.height - pad
-    else:
-        x, y = w - logo.width - pad, h - logo.height - pad
+    pad = max(16, int(min(w, h) * 0.04))
+
+    corners = {
+        "upper_left": (pad, pad),
+        "upper_right": (w - logo.width - pad, pad),
+        "lower_left": (pad, h - logo.height - pad),
+        "lower_right": (w - logo.width - pad, h - logo.height - pad),
+    }
+
+    def _norm_zone(zone: str) -> str:
+        z = str(zone or "lower_right").lower().replace("-", "_")
+        if z == "top_left":
+            return "upper_left"
+        if z == "top_right":
+            return "upper_right"
+        if z == "bottom_left":
+            return "lower_left"
+        if z == "bottom_right":
+            return "lower_right"
+        return z if z in corners else "lower_right"
+
+    def _corner_busyness(zone: str) -> float:
+        x0, y0 = corners[zone]
+        x1 = max(x0 + 1, min(w, x0 + logo.width + int(pad * 0.6)))
+        y1 = max(y0 + 1, min(h, y0 + logo.height + int(pad * 0.6)))
+        crop = base.crop((x0, y0, x1, y1)).convert("L")
+        stat = ImageStat.Stat(crop)
+        # stddev approximates texture/clutter; lower is calmer.
+        return float(stat.stddev[0] if stat.stddev else 999.0)
+
+    requested = _norm_zone(placement)
+    requested_score = _corner_busyness(requested)
+    best_zone = min(corners.keys(), key=_corner_busyness)
+    best_score = _corner_busyness(best_zone)
+
+    # Respect requested zone unless it's materially busier than a better corner.
+    final_zone = best_zone if (requested_score - best_score) > 6.0 else requested
+    x, y = corners[final_zone]
     x = max(0, min(x, w - logo.width))
     y = max(0, min(y, h - logo.height))
 
