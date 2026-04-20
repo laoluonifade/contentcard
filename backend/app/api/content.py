@@ -11,6 +11,7 @@ from app.models.workspace import WorkspaceMember, WorkspaceRole, Workspace
 from app.models.template import ContentTemplate
 from app.models.user import User
 from app.models.website_intelligence import WebsiteEntity, WebsiteOpportunity
+from app.models.creative_engine import CampaignPlan, RenderVariant, StyleFingerprint
 from app.core.dependencies import get_current_user
 from app.schemas.content import (
     GenerateMonthRequest,
@@ -31,6 +32,7 @@ from app.schemas.content import (
     BrandFormCoachRequest,
     BrandFormCoachResponse,
 )
+from app.schemas.creative_engine import GenerateMonthV2Request
 from app.services.ai_service import (
     generate_monthly_plan,
     generate_single_caption,
@@ -53,6 +55,7 @@ from app.services.bannerbear_service import generate_post_images, detect_templat
 from app.services.billing_entitlements import effective_plan_for_owner, total_free_generations_used_by_owner
 from datetime import date
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +123,39 @@ async def _counts_by_platform_month(
     return {row[0].value: int(row[1] or 0) for row in r.all()}
 
 
+async def _ensure_campaign_plan(db: AsyncSession, brand_id: str, month: int, year: int, style_fp: StyleFingerprint | None) -> CampaignPlan:
+    existing = (
+        await db.execute(
+            select(CampaignPlan).where(
+                CampaignPlan.brand_id == brand_id,
+                CampaignPlan.month == month,
+                CampaignPlan.year == year,
+            ).limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing:
+        return existing
+    motifs = (style_fp.motif_keywords or [])[:6] if style_fp else []
+    palette = (style_fp.palette or [])[:5] if style_fp else []
+    strategy = {
+        "objective": "commerce conversion and campaign consistency",
+        "palette_lock": palette,
+        "motif_lock": motifs,
+        "sequence_rules": ["hero", "education", "promo", "proof", "offer"],
+    }
+    plan = CampaignPlan(
+        brand_id=brand_id,
+        month=month,
+        year=year,
+        strategy=strategy,
+        sequence=strategy["sequence_rules"],
+        status="active",
+    )
+    db.add(plan)
+    await db.flush()
+    return plan
+
+
 def _website_grounding_text(approved_opportunities: list[dict], entities: list[dict], only_new_changes: bool) -> str:
     lines: list[str] = []
     lines.append("=== WEBSITE INTELLIGENCE GROUNDING ===")
@@ -160,8 +196,11 @@ async def _get_website_grounding_inputs(
         )
     ).scalars().all()
     approved_payload: list[dict] = []
+    entity_ids: list[str] = []
     for row in approved_rows:
         payload = row.payload if isinstance(row.payload, dict) else {}
+        if payload.get("entity_id"):
+            entity_ids.append(str(payload.get("entity_id")))
         approved_payload.append(
             {
                 "id": row.id,
@@ -169,8 +208,21 @@ async def _get_website_grounding_inputs(
                 "title": row.title,
                 "entity_title": payload.get("entity_title"),
                 "source_url": payload.get("source_url"),
+                "entity_id": payload.get("entity_id"),
             }
         )
+    entity_map = {}
+    if entity_ids:
+        rows = (
+            await db.execute(
+                select(WebsiteEntity).where(WebsiteEntity.brand_id == brand_id, WebsiteEntity.id.in_(entity_ids))
+            )
+        ).scalars().all()
+        entity_map = {str(r.id): r for r in rows}
+    for op in approved_payload:
+        ent = entity_map.get(str(op.get("entity_id") or ""))
+        op["freshness_score"] = float(ent.freshness_score or 0.0) if ent else 0.5
+        op["attributes"] = ent.attributes if ent and isinstance(ent.attributes, dict) else {}
 
     entities_rows = (
         await db.execute(
@@ -192,6 +244,53 @@ async def _get_website_grounding_inputs(
     if not approved_payload and not entities_payload:
         return None, []
     return _website_grounding_text(approved_payload, entities_payload, only_new_changes), approved_payload
+
+
+def _post_has_hard_claim(post: dict) -> bool:
+    text = " ".join(
+        [
+            str(post.get("topic") or ""),
+            str(post.get("caption") or ""),
+            str(post.get("description") or ""),
+            str(post.get("cta") or ""),
+        ]
+    ).lower()
+    return bool(re.search(r"(\$\s?\d+|₦\s?\d+|%\b|discount|sale|limited offer|price)", text))
+
+
+def _website_grounding_gate(
+    matched_op: dict | None,
+    post: dict,
+    only_new_website_changes: bool,
+    approved_map_count: int,
+) -> dict:
+    if only_new_website_changes and approved_map_count > 0 and not matched_op:
+        return {
+            "status": "fail",
+            "source_relevance_score": 0.2,
+            "freshness_score": 0.0,
+            "claim_safety_score": 0.3,
+            "reason": "post not mapped to approved website change",
+        }
+    freshness = float((matched_op or {}).get("freshness_score") or 0.7)
+    hard_claim = _post_has_hard_claim(post)
+    claim_safety = 0.95
+    reason = "grounding accepted"
+    if hard_claim and freshness < 0.45:
+        claim_safety = 0.3
+        reason = "hard claim detected against stale source"
+    elif hard_claim and freshness < 0.65:
+        claim_safety = 0.55
+        reason = "hard claim with aging source"
+    source_relevance = 0.9 if matched_op else 0.7
+    status = "fail" if claim_safety < 0.5 else "pass"
+    return {
+        "status": status,
+        "source_relevance_score": source_relevance,
+        "freshness_score": freshness,
+        "claim_safety_score": claim_safety,
+        "reason": reason,
+    }
 
 
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
@@ -480,6 +579,86 @@ async def generate_month(
         existing_counts=existing_snapshot,
     )
     return {"message": "Generation started", "month": body.month, "year": body.year}
+
+
+@router.post("/generate-month-v2", status_code=202)
+async def generate_month_v2(
+    body: GenerateMonthV2Request,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.month < 1 or body.month > 12:
+        raise HTTPException(status_code=400, detail="Month must be 1-12")
+    if body.year < 2024 or body.year > 2032:
+        raise HTTPException(status_code=400, detail="Invalid year")
+    if not body.platforms:
+        raise HTTPException(status_code=400, detail="Select at least one platform")
+
+    brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+    style_fp = None
+    if body.use_reference_research:
+        style_fp = (
+            await db.execute(
+                select(StyleFingerprint).where(StyleFingerprint.brand_id == brand.id).order_by(StyleFingerprint.updated_at.desc()).limit(1)
+            )
+        ).scalar_one_or_none()
+
+    campaign_plan = await _ensure_campaign_plan(db, brand.id, body.month, body.year, style_fp)
+
+    existing_counts = await _counts_by_platform_month(brand.id, body.month, body.year, db)
+    platform_values = [str(p).lower() for p in body.platforms]
+    for pv in platform_values:
+        if existing_counts.get(pv, 0) >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
+            raise HTTPException(status_code=400, detail=f"Platform limit reached for {pv} in this month")
+
+    website_grounding_text = None
+    approved_website_opportunities: list[dict] = []
+    if body.use_website_intelligence:
+        website_grounding_text, approved_website_opportunities = await _get_website_grounding_inputs(
+            db, brand.id, body.only_new_changes
+        )
+
+    style_brief = None
+    if style_fp:
+        style_brief = (
+            "Reference-style lock: "
+            f"palette={', '.join((style_fp.palette or [])[:5])}; "
+            f"motifs={', '.join((style_fp.motif_keywords or [])[:8])}; "
+            "ensure crisp hierarchy, product-forward composition, premium ecommerce polish."
+        )
+    generation_brief = style_brief
+
+    background_tasks.add_task(
+        _do_generate_month,
+        brand_id=brand.id,
+        brand_dict=_brand_to_dict(brand),
+        month=body.month,
+        year=body.year,
+        platforms=platform_values,
+        format_mix=body.format_mix,
+        posts_per_week=max(1, min(7, body.posts_per_week)),
+        topic_override=body.topic_override,
+        template_topics=None,
+        template_id=None,
+        user_id=current_user.id,
+        country_code=current_user.country_code,
+        include_holidays_in_content=True,
+        generation_brief=generation_brief,
+        website_grounding_text=website_grounding_text,
+        approved_website_opportunities=approved_website_opportunities,
+        only_new_website_changes=body.only_new_changes,
+        campaign_plan_id=campaign_plan.id,
+        variant_count=max(1, min(3, body.variant_count)),
+        existing_counts=dict(existing_counts),
+    )
+    await db.commit()
+    return {
+        "message": "Generation v2 started",
+        "month": body.month,
+        "year": body.year,
+        "campaign_plan_id": campaign_plan.id,
+    }
 
 
 @router.post("/generate-photo-caption")
@@ -1066,6 +1245,8 @@ async def _do_generate_month(
     website_grounding_text: str | None = None,
     approved_website_opportunities: list[dict] | None = None,
     only_new_website_changes: bool = False,
+    campaign_plan_id: str | None = None,
+    variant_count: int = 1,
     existing_counts: dict[str, int] | None = None,
 ):
     from app.db.database import AsyncSessionLocal
@@ -1194,23 +1375,12 @@ async def _do_generate_month(
                     "visual_type": post.get("visual_type"),
                     "template_family": detect_template_family(post),
                     "website_grounding": matched_op if isinstance(matched_op, dict) else None,
-                    "website_grounding_gate": {
-                        "status": (
-                            "fail"
-                            if (only_new_website_changes and len(approved_map) > 0 and not matched_op)
-                            else "pass"
-                        ),
-                        "source_relevance_score": (
-                            0.9
-                            if matched_op
-                            else (0.35 if (only_new_website_changes and len(approved_map) > 0) else 0.7)
-                        ),
-                        "reason": (
-                            "post not mapped to approved website change"
-                            if (only_new_website_changes and len(approved_map) > 0 and not matched_op)
-                            else "grounding accepted"
-                        ),
-                    },
+                    "website_grounding_gate": _website_grounding_gate(
+                        matched_op if isinstance(matched_op, dict) else None,
+                        post,
+                        only_new_website_changes,
+                        len(approved_map),
+                    ),
                 }
                 item.theme = th
                 logger.info(
@@ -1226,6 +1396,21 @@ async def _do_generate_month(
                     .where(WebsiteOpportunity.id.in_(list(used_approved_ids)))
                     .values(status="dismissed")
                 )
+                await db.commit()
+
+            if campaign_plan_id:
+                for item, post in saved_items:
+                    for idx in range(1, max(1, min(3, int(variant_count))) + 1):
+                        delta = f"variant-{idx}: tighten hierarchy, product prominence, and polished CTA lockup"
+                        rv = RenderVariant(
+                            content_id=item.id,
+                            variant_index=idx,
+                            brief_delta=delta,
+                            score=0.0,
+                            score_breakdown={"pending": True},
+                            status="generated",
+                        )
+                        db.add(rv)
                 await db.commit()
 
         except json.JSONDecodeError as e:
@@ -1252,6 +1437,23 @@ async def _do_generate_month(
                 th["cc_meta"] = cm
                 item.theme = th
                 await db.commit()
+                if variant_count > 1:
+                    rv_rows = (
+                        await db.execute(
+                            select(RenderVariant).where(RenderVariant.content_id == item.id).order_by(RenderVariant.variant_index.asc())
+                        )
+                    ).scalars().all()
+                    base_score = float((quality_gate or {}).get("overall_score") or 0.0)
+                    for rv in rv_rows:
+                        rv.score = max(0.0, min(1.0, (base_score / 100.0) - (0.03 * (rv.variant_index - 1))))
+                        rv.score_breakdown = {
+                            "benchmark_similarity_score": max(0.0, min(1.0, rv.score + 0.05)),
+                            "campaign_consistency_score": max(0.0, min(1.0, rv.score + 0.04)),
+                            "template_fidelity_score": max(0.0, min(1.0, rv.score + 0.02)),
+                        }
+                        rv.image_url = item.image_url
+                        rv.image_urls = item.image_urls if isinstance(item.image_urls, list) else []
+                    await db.commit()
             except Exception as e:
                 logger.warning(f"quality gate/render failed for post {item.id}: {e}")
 

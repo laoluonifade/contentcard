@@ -26,6 +26,10 @@ class WebsiteStatusOut(BaseModel):
     total_entities: int
     active_entities: int
     pending_approval_count: int
+    sync_health: str | None = None
+    recent_error_count: int = 0
+    last_sync_attempts: int = 0
+    last_sync_latency_ms: int = 0
 
 
 class WebsiteEntityOut(BaseModel):
@@ -73,3 +77,25 @@ class WebsiteOpportunityOut(BaseModel):
 
 class WebsiteOpportunityUpdateRequest(BaseModel):
     status: str  # pending_approval | approved | dismissed
+
+
+class WebsiteAuthCaptureConfigRequest(BaseModel):
+    enabled: bool = False
+    tier: str = "enterprise"
+    test_user_email: str | None = None
+    allowed_domains: list[str] = []
+    allowed_routes: list[str] = []
+    capture_schedule: str = "manual"
+    session_ttl_minutes: int = 30
+    pii_block_mode: str = "strict"
+
+
+class WebsiteAuthCaptureRunRequest(BaseModel):
+    reason: str | None = None
+
+
+class WebsiteScreenshotStatusOut(BaseModel):
+    verified_ui_asset_count: int = 0
+    public_ui_asset_count: int = 0
+    synthetic_ui_visual_count: int = 0
+    has_verified_assets: bool = False

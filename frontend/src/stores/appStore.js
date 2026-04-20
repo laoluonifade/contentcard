@@ -105,6 +105,8 @@ const useAppStore = create(
         generation_brief,
         use_website_intelligence,
         only_new_changes,
+        use_reference_research,
+        variant_count,
         confirm_duplicate,
       }) => {
         const brandId = get().activeBrandId
@@ -116,11 +118,13 @@ const useAppStore = create(
           generationProgress: null,
         })
         try {
-          await contentApi.generateMonth({
+          await contentApi.generateMonthV2({
             brand_id: brandId, month, year, platforms, format_mix,
             posts_per_week: posts_per_week || 3,
             topic_override: topic_override || null, template_id: template_id || null,
             include_holidays_in_content: include_holidays_in_content !== false,
+            use_reference_research: use_reference_research !== false,
+            variant_count: Number(variant_count || 2),
             generation_brief: generation_brief || null,
             use_website_intelligence: use_website_intelligence !== false,
             only_new_changes: !!only_new_changes,

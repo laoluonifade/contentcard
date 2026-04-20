@@ -75,3 +75,9 @@ class Brand(Base):
     website_opportunities: Mapped[list["WebsiteOpportunity"]] = relationship(
         "WebsiteOpportunity", back_populates="brand", cascade="all, delete-orphan"
     )
+    style_fingerprints: Mapped[list["StyleFingerprint"]] = relationship(
+        "StyleFingerprint", back_populates="brand", cascade="all, delete-orphan"
+    )
+    campaign_plans: Mapped[list["CampaignPlan"]] = relationship(
+        "CampaignPlan", back_populates="brand", cascade="all, delete-orphan"
+    )

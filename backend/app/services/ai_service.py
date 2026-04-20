@@ -236,7 +236,8 @@ def _enforce_designer_visual_direction(post: dict) -> None:
         "build layered foreground, midground, and background depth, and include contextual props or product cues that prove the message. "
         f"{style_line} "
         "Use controlled lighting, real material texture, and clean colour hierarchy so it feels art-directed, not a random lifestyle snapshot. "
-        f"Keep deliberate negative space in the {zone} area for post-production brand lockup, and avoid generic portrait-only composition."
+        f"Lock the uploaded brand logo into the {zone} zone with deliberate breathing room, visual balance, and clear contrast so the final mark looks intentionally designed, not pasted. "
+        "Avoid generic portrait-only composition."
     )
 
 
@@ -254,8 +255,8 @@ def _visual_system_prompt_block(brand: dict) -> str:
         f"Allowed visual_archetype values: {', '.join(str(a) for a in arch)}. "
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
         f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; mixed = vary by post). "
-        f"The brand logo is composited automatically after image generation. Do NOT instruct the image model to draw, render, or place a logo. "
-        f"For each post, choose logo_safe_zone so the scene keeps one calmer quadrant for that later mark. "
+        f"Design visual_direction around the uploaded brand logo lockup and choose logo_safe_zone where the final mark should sit. "
+        f"Do NOT ask the image model to rasterize text or logo artwork; instead, preserve a clean lockup zone and describe how composition balances around that zone. "
         f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
     )
 
@@ -557,7 +558,7 @@ For EACH post return ALL these fields:
 4. caption: full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
 5. cta: standalone call to action, max 12 words
 6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) planned negative space quadrant for brand lockup. Do NOT describe text overlaid on the image. Copy lives only in the caption field.
+7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) planned logo lockup behavior in one quadrant using the uploaded brand logo and clear breathing room. Do NOT describe caption text overlaid on the image. Copy lives only in the caption field.
 8. image_prompt: background-only prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience. Must NOT mention logos or readable text in-image.
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
@@ -566,7 +567,7 @@ For EACH post return ALL these fields:
 12. format: "single", "carousel", or "quote"
 13. slide_count: 1 for single/quote, 2-5 for carousel
 14. date: posting date in YYYY-MM-DD format exactly as listed above
-15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose the quadrant where the composed scene will have the calmest, least-detailed negative space for a brand mark added later in software. Base this only on how you describe the shot in visual_direction and image_prompt — do not mention a logo or watermark in the image.
+15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
 
 HARD RULES:
 • Each post must feel distinctly different; vary tone, angle, format, and style
@@ -576,7 +577,8 @@ HARD RULES:
 • Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely
 • topic must equal content_idea exactly
 {_hard_visual_type_rule(ips)}
-• image_prompt and visual_direction must never ask for text, titles, captions, or logos drawn into the image
+• image_prompt must never ask for text, titles, captions, or logos drawn into the image
+• visual_direction should explicitly design around final logo lockup placement, spacing, and balance
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
 
 Return a JSON object with a single key "posts" containing the array:
