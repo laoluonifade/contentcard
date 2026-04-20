@@ -124,7 +124,7 @@ export default function TemplatesPage() {
     setBootstrapping(true)
     try {
       await bootstrapDefaultTemplates({ force, generate_designs: true })
-      toast(force ? 'Default AI templates regenerated' : 'Default AI templates created')
+      toast(force ? 'Default templates regenerated' : 'Default templates created')
     } catch (err) {
       toast(err.message || 'Failed to generate default templates', 'error')
     } finally {
@@ -165,7 +165,7 @@ export default function TemplatesPage() {
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
             Templates
           </h1>
-          <p className="text-ink/40 text-sm">Recurring content patterns and AI-generated design templates used for generation.</p>
+          <p className="text-ink/40 text-sm">Recurring content patterns and generated design templates used for generation.</p>
           <p className="text-ink/30 text-xs mt-1">{readyCount} design-ready template{readyCount === 1 ? '' : 's'} available</p>
         </div>
         <div className="flex gap-2">

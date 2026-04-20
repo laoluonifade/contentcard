@@ -137,72 +137,72 @@ function computeScores(form) {
   return {
     name: () => {
       const v = (form.name || '').trim()
-      if (!v) return s('poor', 'Add your brand name: it anchors every AI-generated post and visual.')
+      if (!v) return s('poor', 'Add your brand name: it anchors every generated post and visual.')
       return s('excellent', 'Brand name set.')
     },
     industry: () => {
-      if (!form.industry) return s('poor', 'Select your industry so AI uses the right market language and references.')
-      return s('excellent', 'Industry set: AI will align language and examples to your sector.')
+      if (!form.industry) return s('poor', 'Select your industry so content uses the right market language and references.')
+      return s('excellent', 'Industry set: content will align language and examples to your sector.')
     },
     description: () => {
       const words = wc(form.description)
       if (words === 0) return s('poor', 'Most important field. Describe what your company does, who you serve, and the problem you solve.')
       if (words < 15)  return s('fair', 'Too brief. Add who your customers are, what you offer, and what makes you different.')
       if (words < 40)  return s('good', 'Solid. Strengthen it by adding a specific outcome: e.g. "helping X achieve Y in Z timeframe".')
-      return s('excellent', 'Strong description. AI has rich context to generate on-brand content every time.')
+      return s('excellent', 'Strong description. You now have rich context to generate on-brand content every time.')
     },
     target_audience: () => {
       const words = wc(form.target_audience)
       if (words === 0) return s('poor', 'Define who you\'re speaking to: age, occupation, location, and what drives their behaviour.')
       if (words < 12)  return s('fair', 'Too vague. Add age range, occupation, location, and their mindset.')
       if (words < 30)  return s('good', 'Good detail. Add what motivates their decisions to reach Excellent.')
-      return s('excellent', 'Rich audience profile. AI will produce highly targeted content for this persona.')
+      return s('excellent', 'Rich audience profile. Content will be highly targeted for this persona.')
     },
     pain_point: () => {
       const words = wc(form.pain_point)
       if (words === 0) return s('poor', 'Pain points create emotional hooks. Describe at least 2 to 3 specific frustrations your customer faces.')
       if (words < 8)   return s('fair', 'Expand it. Describe the emotional weight of the problem: what keeps them up at night?')
       if (words < 20)  return s('good', 'Good. Add the downstream consequence of unresolved pain for an Excellent score.')
-      return s('excellent', 'Strong pain point context. AI will write empathy-driven content that resonates.')
+      return s('excellent', 'Strong pain point context. Content will stay empathy-driven and resonant.')
     },
     brand_colors: () => {
       const n = arrLen(form.brand_colors)
       if (n === 0) return s('poor', 'Add your primary brand colours: used in generated visuals and slide backgrounds.')
-      if (n === 1) return s('fair', 'Add at least 2 to 3 colours. A primary + accent gives AI a proper palette.')
+      if (n === 1) return s('fair', 'Add at least 2 to 3 colours. A primary + accent gives a proper palette.')
       if (n === 2) return s('good', 'Good. A third colour (accent or neutral) gives more visual flexibility.')
-      return s('excellent', 'Great colour palette. AI will use these consistently in all generated visuals.')
+      return s('excellent', 'Great colour palette. These will stay consistent across generated visuals.')
     },
     brand_font: () => {
-      if (!form.brand_font) return s('fair', 'Choose a brand font so AI can reference your typographic style in visual direction.')
-      return s('good', 'Font set. AI will incorporate this into visual style descriptions.')
+      if (!form.brand_font) return s('fair', 'Choose a brand font so visual direction can reference your typographic style.')
+      return s('good', 'Font set. This will be incorporated into visual style descriptions.')
     },
     design_style: () => {
-      if (!form.design_style) return s('poor', 'Select a design style: it directly controls the visual feel of every AI-generated image.')
-      return s('excellent', 'Design style set. AI-generated visuals will follow this aesthetic.')
+      if (!form.design_style) return s('poor', 'Select a design style: it directly controls the visual feel of every generated image.')
+      return s('excellent', 'Design style set. Generated visuals will follow this aesthetic.')
     },
     tone_tags: () => {
       const n = arrLen(form.tone_tags)
       if (n === 0) return s('poor', 'Tone tags define your brand voice. Select at least 3 to 4 that describe how your brand speaks.')
       if (n <= 2)  return s('fair', 'Select at least 3 tone tags. The combination is what makes your voice distinctive.')
-      if (n <= 4)  return s('good', 'Good voice definition. Adding 1 to 2 more tags sharpens the AI\'s tonal range.')
-      return s('excellent', 'Strong voice profile. AI will consistently hit this tone across every post.')
+      if (n <= 4)  return s('good', 'Good voice definition. Adding 1 to 2 more tags sharpens tonal range.')
+      return s('excellent', 'Strong voice profile. This tone will stay consistent across every post.')
     },
     language_style: () => {
-      if (!form.language_style) return s('fair', 'Set a language style so AI writes in the dialect your audience actually speaks.')
-      return s('excellent', 'Language style set. AI will match your audience\'s dialect and register.')
+      if (!form.language_style) return s('fair', 'Set a language style so copy matches the dialect your audience actually speaks.')
+      return s('excellent', 'Language style set. Copy will match your audience\'s dialect and register.')
     },
     words_to_avoid: () => {
       const n = arrLen(form.words_to_avoid)
-      if (n === 0) return s('fair', 'Add words AI must never use: brand terms, competitor names, or overpromising language.')
+      if (n === 0) return s('fair', 'Add words content must never use: brand terms, competitor names, or overpromising language.')
       if (n <= 2)  return s('fair', 'Add a few more. Think about buzzwords, competitor names, or phrases that feel off-brand.')
-      return s('good', 'Good guardrail list. AI will avoid all these terms in generated captions.')
+      return s('good', 'Good guardrail list. These terms will be avoided in generated captions.')
     },
     guidelines: () => {
       const words = wc(form.guidelines)
       if (words === 0) return s('fair', 'Add brand guidelines: e.g. "always end with a CTA", "use active voice", "never mention competitors".')
-      if (words < 10)  return s('fair', 'Add more rules. The more specific, the better AI follows your brand\'s editorial standards.')
+      if (words < 10)  return s('fair', 'Add more rules. The more specific, the better your brand editorial standards are followed.')
       if (words < 25)  return s('good', 'Good rules. List any remaining edge cases or formatting preferences for Excellent.')
-      return s('excellent', 'Comprehensive guidelines. AI will apply these editorial standards to every post.')
+      return s('excellent', 'Comprehensive guidelines. These editorial standards will apply to every post.')
     },
     visual_system: () => {
       const vs = (form.brand_kit || {}).visual_system || {}
@@ -283,7 +283,7 @@ function StrengthBanner({ overall, overallLevel }) {
       </div>
       {overallLevel !== 'excellent' && (
         <p className="text-zinc-600 text-[11px] mt-2 leading-snug">
-          {overallLevel === 'poor' && 'Fill in description, audience, and tone first: these drive the most AI quality.'}
+          {overallLevel === 'poor' && 'Fill in description, audience, and tone first: these drive the biggest quality lift.'}
           {overallLevel === 'fair' && 'Making progress. Focus on any fields still showing Poor or Can Be Better.'}
           {overallLevel === 'good' && 'Almost there: a few more fields will push you to Excellent.'}
         </p>
@@ -962,7 +962,7 @@ export default function BrandKitPage() {
                 <ScoreBadge score={S.visual_system} />
                 <p className="text-ink/40 text-xs mt-1 max-w-xl">
                   Tokens drive generated backgrounds, logo placement, and Bannerbear accents. Set primary colours to
-                  match your real brand (not generic AI defaults).
+                  match your real brand (not generic defaults).
                 </p>
               </div>
               <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
@@ -971,7 +971,7 @@ export default function BrandKitPage() {
                   <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
                     Raster images open a crop step; we save a {BRAND_KIT_LOGO_PX}×{BRAND_KIT_LOGO_PX} PNG for crisp compositing.
                     SVG uploads skip cropping. Use a transparent background when possible. This logo is burned onto generated
-                    covers — it is not drawn by the AI model.
+                    covers — it is not drawn inside the image model.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-4">
@@ -1328,7 +1328,7 @@ export default function BrandKitPage() {
 
               <div className={cardCls}>
                 <h3 className={`${sectionTitleCls} mb-1`}>Active compliance rules</h3>
-                <p className="text-ink/40 text-xs mb-5">These rules will be applied to all AI-generated content for this brand.</p>
+                <p className="text-ink/40 text-xs mb-5">These rules will be applied to all generated content for this brand.</p>
 
                 {[
                   ['disclaimer', 'Include disclaimer on every post', 'Adds "This is not financial/legal/medical advice" where appropriate'],

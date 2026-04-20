@@ -64,6 +64,20 @@ const useAppStore = create(
         return ws
       },
 
+      renameWorkspace: async (workspaceId, name) => {
+        const wsId = workspaceId || get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        const trimmed = String(name || '').trim()
+        if (!trimmed) throw new Error('Workspace name is required')
+        const updated = await workspaceApi.update(wsId, { name: trimmed })
+        set((s) => {
+          const workspaces = s.workspaces.map((w) => (w.id === wsId ? { ...w, ...updated } : w))
+          const activeWorkspace = s.activeWorkspace?.id === wsId ? { ...s.activeWorkspace, ...updated } : s.activeWorkspace
+          return { workspaces, activeWorkspace }
+        })
+        return updated
+      },
+
       // ── Brands ──────────────────────────────────────────────────
       fetchBrands: async (workspaceId) => {
         const wsId = workspaceId || get().activeWorkspaceId
@@ -107,7 +121,6 @@ const useAppStore = create(
         only_new_changes,
         use_reference_research,
         variant_count,
-        template_id,
         confirm_duplicate,
       }) => {
         const brandId = get().activeBrandId
@@ -126,7 +139,6 @@ const useAppStore = create(
             include_holidays_in_content: include_holidays_in_content !== false,
             use_reference_research: use_reference_research !== false,
             variant_count: Number(variant_count || 2),
-            template_id: template_id || null,
             generation_brief: generation_brief || null,
             use_website_intelligence: use_website_intelligence !== false,
             only_new_changes: !!only_new_changes,

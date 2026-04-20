@@ -14,7 +14,16 @@ def _sanitize_ai_copy_dashes(text: str | None) -> str | None:
     t = text.replace("\u2014", ", ").replace("\u2013", ", ")
     t = re.sub(r"\s*--\s*", ", ", t)
     t = re.sub(r"(?<=\w)--(?=\w)", ", ", t)
+    t = re.sub(r"\s-\s", ", ", t)
     t = re.sub(r",\s*,+", ", ", t)
+    return t
+
+
+def _sanitize_ai_mentions(text: str | None) -> str | None:
+    if text is None or not isinstance(text, str):
+        return text
+    t = re.sub(r"\bartificial intelligence\b", "content", text, flags=re.IGNORECASE)
+    t = re.sub(r"\bai\b", "content", t, flags=re.IGNORECASE)
     return t
 
 
@@ -29,7 +38,8 @@ def _sanitize_post_copy_fields(post: dict) -> dict:
         "image_prompt_explanation",
     ):
         if key in post:
-            post[key] = _sanitize_ai_copy_dashes(post.get(key))
+            v = _sanitize_ai_copy_dashes(post.get(key))
+            post[key] = _sanitize_ai_mentions(v)
     return post
 
 
@@ -849,7 +859,7 @@ Rules: max 100 words, platform-native, strong hook on first line, no generic phr
     result["hashtags"] = [str(h).lstrip("#") for h in result["hashtags"]][:2]
 
     if isinstance(result.get("caption"), str):
-        result["caption"] = _sanitize_ai_copy_dashes(result["caption"]) or ""
+        result["caption"] = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(result["caption"])) or ""
 
     return result
 
@@ -1369,7 +1379,7 @@ async def run_brand_form_coach_chat(
             if m != "template"
             else "Describe the recurring pattern you want (e.g. weekly service reminders, monthly sale) and I will suggest fields."
         )
-    reply = (_sanitize_ai_copy_dashes(reply.strip()) or reply.strip())
+    reply = (_sanitize_ai_mentions(_sanitize_ai_copy_dashes(reply.strip())) or reply.strip())
 
     patch_raw = data.get("patch")
     if m == "template":
@@ -1443,7 +1453,7 @@ async def run_generation_prep_chat(brand: dict, month: int, year: int, messages:
     message = data.get("message")
     if not isinstance(message, str) or not message.strip():
         message = "Tell me what is launching or what you want to emphasise this month."
-    message = _sanitize_ai_copy_dashes(message.strip()) or message.strip()
+    message = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(message.strip())) or message.strip()
 
     choices_out: list[dict] = []
     for c in (data.get("choices") or [])[:4]:
@@ -1517,8 +1527,8 @@ Rules: topic 2-5 words titlecase, description one sentence, volume e.g. "4.2M po
             desc = str(t["description"])[:500] if t.get("description") else None
             topic_raw = str(t["topic"])
             valid.append({
-                "topic": str(_sanitize_ai_copy_dashes(topic_raw) or topic_raw)[:255],
-                "description": (_sanitize_ai_copy_dashes(desc) if desc else None),
+                "topic": str(_sanitize_ai_mentions(_sanitize_ai_copy_dashes(topic_raw)) or topic_raw)[:255],
+                "description": (_sanitize_ai_mentions(_sanitize_ai_copy_dashes(desc)) if desc else None),
                 "volume": str(t["volume"])[:50] if t.get("volume") else None,
                 "badge": badge if badge in ("viral", "rising", "steady") else "rising",
             })
@@ -1568,6 +1578,6 @@ Rules: platform-native, strong hook, no generic phrases, no forbidden words, max
     result["hashtags"] = [str(h).lstrip("#") for h in result["hashtags"]][:2]
 
     if isinstance(result.get("caption"), str):
-        result["caption"] = _sanitize_ai_copy_dashes(result["caption"]) or ""
+        result["caption"] = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(result["caption"])) or ""
 
     return result

@@ -7,6 +7,10 @@ class WorkspaceCreate(BaseModel):
     name: str
 
 
+class WorkspaceUpdate(BaseModel):
+    name: str
+
+
 class WorkspaceOut(BaseModel):
     id: str
     name: str

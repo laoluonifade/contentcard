@@ -954,7 +954,7 @@ export default function CalendarPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-ink font-semibold">Generate {MONTHS[month-1]} {year}</h3>
-                <p className="text-ink/40 text-xs mt-0.5">AI will create a full month of on-brand content</p>
+                <p className="text-ink/40 text-xs mt-0.5">This will create a full month of on-brand content</p>
               </div>
               <button onClick={()=>setShowGenPanel(false)} className="text-ink/30 hover:text-ink p-1.5 -mr-1 transition-colors"><X size={18}/></button>
             </div>

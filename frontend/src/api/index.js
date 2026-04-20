@@ -55,6 +55,7 @@ export const workspaceApi = {
   list:   ()     => api.get('/workspaces').then(r => r.data),
   create: (data) => api.post('/workspaces', data).then(r => r.data),
   get:    (id)   => api.get(`/workspaces/${id}`).then(r => r.data),
+  update: (id, data) => api.put(`/workspaces/${id}`, data).then(r => r.data),
   members: (id)  => api.get(`/workspaces/${id}/members`).then(r => r.data),
   updateMemberRole: (wsId, memberId, role) =>
     api.put(`/workspaces/${wsId}/members/${memberId}`, { role }).then(r => r.data),

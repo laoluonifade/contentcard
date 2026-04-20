@@ -25,7 +25,7 @@ const inputCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink
 
 export default function SettingsPage() {
   const { user, updateUser, fetchMe } = useAuthStore()
-  const { activeWorkspace, activeWorkspaceId, fetchWorkspaces } = useAppStore()
+  const { activeWorkspace, activeWorkspaceId, fetchWorkspaces, renameWorkspace } = useAppStore()
   const { theme, setTheme } = useTheme()
   const [searchParams] = useSearchParams()
   const [tab, setTab] = useState('Profile')
@@ -50,6 +50,12 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState('editor')
   const [inviting, setInviting] = useState(false)
   const [lastInviteLink, setLastInviteLink] = useState(null)
+  const [workspaceName, setWorkspaceName] = useState('')
+  const [renamingWorkspace, setRenamingWorkspace] = useState(false)
+
+  useEffect(() => {
+    setWorkspaceName(activeWorkspace?.name || '')
+  }, [activeWorkspace?.id, activeWorkspace?.name])
 
   const nameParts = (user?.full_name || '').split(' ')
   const [profileForm, setProfileForm] = useState({
@@ -129,6 +135,22 @@ export default function SettingsPage() {
 
   const inviteRowLabel = (email) =>
     email && email.toLowerCase().endsWith(LINK_INVITE_HINT.toLowerCase()) ? 'Link invite' : email
+
+  const saveWorkspaceName = async () => {
+    const nextName = workspaceName.trim()
+    if (!activeWorkspaceId) { toast('No active workspace', 'error'); return }
+    if (!nextName) { toast('Workspace name is required', 'error'); return }
+    if (nextName === (activeWorkspace?.name || '')) return
+    setRenamingWorkspace(true)
+    try {
+      await renameWorkspace(activeWorkspaceId, nextName)
+      toast('Workspace name updated')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Could not update workspace name', 'error')
+    } finally {
+      setRenamingWorkspace(false)
+    }
+  }
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
@@ -260,6 +282,25 @@ export default function SettingsPage() {
               <div className="bg-surface border border-fog rounded-2xl p-6">
                 <h3 className="text-ink font-bold text-sm mb-1">Active workspace</h3>
                 <p className="text-ink/40 text-xs mb-5">{activeWorkspace?.name}</p>
+                <div className="mb-4">
+                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Workspace name</label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      value={workspaceName}
+                      onChange={(e) => setWorkspaceName(e.target.value)}
+                      placeholder="Workspace name"
+                      className={`${inputCls} flex-1`}
+                    />
+                    <button
+                      type="button"
+                      onClick={saveWorkspaceName}
+                      disabled={renamingWorkspace || !workspaceName.trim() || workspaceName.trim() === (activeWorkspace?.name || '')}
+                      className="px-4 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap"
+                    >
+                      {renamingWorkspace ? 'Saving…' : 'Save name'}
+                    </button>
+                  </div>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Plan</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm">{workspacePlanLabel(activeWorkspace)}</div></div>
                   <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Payment provider</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.payment_provider || 'Not set'}</div></div>
