@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, Heart, FileText,
   CreditCard, BarChart2, TrendingUp, LayoutTemplate, Settings, LogOut, Shield, Download,
 } from 'lucide-react'
+import { downloadContentCardLogoPng, BRAND_KIT_LOGO_PX } from '../../lib/contentcardLogoDownload'
 
 const NAV = [
   { to: '/admindash',            icon: LayoutDashboard, label: 'Overview'   },
@@ -19,6 +21,19 @@ const NAV = [
 
 export default function AdminLayout({ children }) {
   const navigate = useNavigate()
+  const [logoDownloading, setLogoDownloading] = useState(false)
+
+  const handleDownloadLogoPng = async () => {
+    setLogoDownloading(true)
+    try {
+      await downloadContentCardLogoPng(BRAND_KIT_LOGO_PX)
+    } catch (e) {
+      console.error(e)
+      window.alert('Could not generate PNG. Try opening the app on the same domain and try again.')
+    } finally {
+      setLogoDownloading(false)
+    }
+  }
 
   const handleLogout = () => {
     localStorage.removeItem('contentcard-admin')
@@ -62,25 +77,35 @@ export default function AdminLayout({ children }) {
         </nav>
 
         <div className="px-3 py-2 border-t border-white/5">
+          <button
+            type="button"
+            onClick={handleDownloadLogoPng}
+            disabled={logoDownloading}
+            className="flex items-center gap-2.5 w-full px-3 py-2 rounded-xl text-white/45 hover:text-brand-400 hover:bg-white/5 text-sm font-medium transition-all disabled:opacity-50 text-left"
+          >
+            <Download size={15} />
+            {logoDownloading ? 'Preparing PNG…' : 'Download logo (PNG)'}
+          </button>
+          <p className="text-white/20 text-[10px] px-3 mt-0.5 leading-snug">
+            {BRAND_KIT_LOGO_PX}×{BRAND_KIT_LOGO_PX} — matches Brand Kit upload size
+          </p>
           <a
             href="/contentcard-logo-mark.svg"
             download="contentcard-logo-mark.svg"
-            className="flex items-center gap-2.5 px-3 py-2 rounded-xl text-white/45 hover:text-brand-400 hover:bg-white/5 text-sm font-medium transition-all"
+            className="block text-[10px] text-white/25 hover:text-white/45 px-3 mt-1.5 underline underline-offset-2"
           >
-            <Download size={15} />
-            Download logo
+            Also get SVG (vector)
           </a>
-          <p className="text-white/20 text-[10px] px-3 mt-0.5 leading-snug">Official ContentCard mark (SVG)</p>
           <p className="text-white/28 text-[10px] px-3 mt-2 leading-relaxed">
-            To use it on generated designs for your ContentCard workspace: open the{' '}
+            In the main app:{' '}
             <a
               href="/dashboard/brand-kit"
               className="text-brand-400/90 hover:text-brand-300 underline underline-offset-2"
             >
-              main app → Brand Kit → Visual
+              Brand Kit → Visual
             </a>
-            , then under <span className="text-white/40">Brand logo (on designs)</span> upload this file (PNG/SVG with
-            transparency works best). Save the brand kit when done.
+            {' '}
+            → <span className="text-white/40">Brand logo</span>. You can crop after upload. Save the brand kit when done.
           </p>
         </div>
 
