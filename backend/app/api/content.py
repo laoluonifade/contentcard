@@ -11,7 +11,14 @@ from app.models.workspace import WorkspaceMember, WorkspaceRole, Workspace
 from app.models.template import ContentTemplate
 from app.models.user import User
 from app.models.website_intelligence import WebsiteEntity, WebsiteOpportunity
-from app.models.creative_engine import CampaignPlan, RenderVariant, StyleFingerprint
+from app.models.creative_engine import (
+    CampaignPlan,
+    RenderVariant,
+    StyleFingerprint,
+    DesignPlaybookIndustry,
+    DesignPlaybookContentType,
+    DesignPlaybookVisualDirection,
+)
 from app.core.dependencies import get_current_user
 from app.schemas.content import (
     GenerateMonthRequest,
@@ -435,6 +442,89 @@ async def _get_website_grounding_inputs(
     if not approved_payload and not entities_payload:
         return None, []
     return _website_grounding_text(approved_payload, entities_payload, only_new_changes), approved_payload
+
+
+def _industry_key_from_brand(brand_dict: dict) -> str:
+    raw = str(brand_dict.get("industry") or "").strip().lower()
+    if not raw:
+        return "tech_saas"
+    if raw in ("tech", "technology", "saas", "software", "tech_saas", "fintech", "edtech", "healthtech", "ai", "marketing_tech"):
+        return "tech_saas"
+    if raw in ("ecommerce", "e-commerce", "retail", "shopify", "bumpa", "fashion", "beauty", "consumer_goods", "d2c"):
+        return "ecommerce"
+    if raw in ("food", "restaurant", "hospitality", "food_beverage", "bakery", "cafe"):
+        return "food"
+    if any(k in raw for k in ("shop", "store", "commerce", "retail", "fashion", "beauty")):
+        return "ecommerce"
+    if any(k in raw for k in ("food", "restaurant", "cafe", "kitchen", "meal", "drink")):
+        return "food"
+    if any(k in raw for k in ("tech", "software", "saas", "cloud", "app", "platform", "fintech")):
+        return "tech_saas"
+    return raw.replace(" ", "_")
+
+
+async def _load_design_playbook_for_industry(db: AsyncSession, industry_key: str) -> dict | None:
+    industry = (
+        await db.execute(
+            select(DesignPlaybookIndustry)
+            .where(
+                DesignPlaybookIndustry.key == industry_key,
+                DesignPlaybookIndustry.is_active.is_(True),
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not industry:
+        return None
+    content_types = (
+        await db.execute(
+            select(DesignPlaybookContentType)
+            .where(
+                DesignPlaybookContentType.industry_id == industry.id,
+                DesignPlaybookContentType.is_active.is_(True),
+            )
+            .order_by(DesignPlaybookContentType.sort_order.asc(), DesignPlaybookContentType.created_at.asc())
+        )
+    ).scalars().all()
+    if not content_types:
+        return None
+    ct_ids = [ct.id for ct in content_types]
+    vds = (
+        await db.execute(
+            select(DesignPlaybookVisualDirection)
+            .where(
+                DesignPlaybookVisualDirection.content_type_id.in_(ct_ids),
+                DesignPlaybookVisualDirection.is_active.is_(True),
+            )
+            .order_by(DesignPlaybookVisualDirection.sort_order.asc(), DesignPlaybookVisualDirection.created_at.asc())
+        )
+    ).scalars().all()
+    by_ct: dict[str, list[dict]] = {}
+    for row in vds:
+        by_ct.setdefault(str(row.content_type_id), []).append(
+            {
+                "id": row.id,
+                "post_type": "carousel" if "carousel" in str(row.post_type or "").lower() else "single",
+                "visual_direction": row.visual_direction,
+            }
+        )
+    payload = {
+        "industry_key": industry.key,
+        "industry_name": industry.name,
+        "content_types": [],
+    }
+    for ct in content_types:
+        options = by_ct.get(str(ct.id), [])
+        if not options:
+            continue
+        payload["content_types"].append(
+            {
+                "id": ct.id,
+                "name": ct.name,
+                "options": options,
+            }
+        )
+    return payload if payload["content_types"] else None
 
 
 def _post_has_hard_claim(post: dict) -> bool:
@@ -1584,6 +1674,11 @@ async def _do_generate_month(
         try:
             selected_template = None
             template_contract: dict = {}
+            brand_for_planner = dict(brand_dict or {})
+            industry_key = _industry_key_from_brand(brand_for_planner)
+            playbook = await _load_design_playbook_for_industry(db, industry_key)
+            if playbook:
+                brand_for_planner["design_playbook"] = playbook
             if template_id:
                 selected_template = (
                     await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
@@ -1608,7 +1703,7 @@ async def _do_generate_month(
             combined_generation_brief = "\n\n".join(brief_parts) if brief_parts else None
 
             posts = await generate_monthly_plan(
-                brand=brand_dict, month=month, year=year,
+                brand=brand_for_planner, month=month, year=year,
                 platforms=platforms, format_mix=format_mix,
                 posts_per_week=posts_per_week,
                 topic_override=topic_override, template_topics=template_topics,

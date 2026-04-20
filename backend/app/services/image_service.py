@@ -33,11 +33,10 @@ def has_brand_logo(brand: dict) -> bool:
 
 def _build_image_prompt(post: dict, brand: dict) -> str:
     """
-    Build a photorealistic background-only prompt for DALL-E 3.
+    Build a campaign-ready visual prompt for DALL-E.
 
-    Reads the full brand kit for visual identity signals, but never asks DALL-E
-    to render text, logos, UI elements, or graphic design. All of that is handled
-    post-generation by the canvas layout system and Bannerbear templates.
+    Reads the full brand kit for visual identity signals and requires subtle
+    integrated logo placement in the requested safe zone.
 
     When post["art_brief"] is present (Structured Art Brief), composition and
     colour emphasis follow archetype_id and dominant_colors_from_tokens.
@@ -60,6 +59,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     strategy_note = brand.get("strategy_note", "")
 
     platform = (post.get("platform") or "instagram").lower()
+    logo_safe_zone = str(post.get("logo_safe_zone") or "lower_right").strip().lower().replace("-", "_")
     content_idea = post.get("content_idea") or post.get("topic", "")
     description = post.get("description", "")
     visual_direction = post.get("visual_direction", "")
@@ -140,6 +140,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         or ""
     ).strip()
     website_source_note = f"Website source context: {website_source_url}." if website_source_url else ""
+    logo_note = (
+        f"Include the uploaded {brand_name} logo as a subtle integrated mark in the {logo_safe_zone} zone, "
+        "with clear breathing room and strong contrast. Keep logo scale premium and non-dominant."
+    )
     brand_photos = brand.get("brand_photos") or []
     brand_photo_note = ""
     if isinstance(brand_photos, list) and brand_photos:
@@ -244,21 +248,21 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     # Hard negative constraints — appended to every prompt regardless of input
     if vt == "abstract":
         negative = (
-            "No text, no words, no letters, no logos, no watermarks, no UI elements, "
+            "No text, no words, no letters, no watermarks, no UI elements, "
             "no human figures, no faces, no hands as subject, no typography, no captions, "
             "no stock office crowds, no illustrated characters. "
             "Abstract colour, light, texture, pattern, or materials only."
         )
     elif vt == "product":
         negative = (
-            "No text, no words, no letters, no logos, no watermarks, no UI elements, "
+            "No text, no words, no letters, no watermarks, no UI elements, "
             "no readable packaging claims, no subtitles, no typography, no captions, "
             "no cartoon, no illustration, no CGI toy look. "
             "Photoreal product, food, ingredients, or objects only; if hands appear they are secondary to the product."
         )
     elif vt == "illustration":
         negative = (
-            "No text, no words, no letters, no logos, no watermarks, no UI elements, "
+            "No text, no words, no letters, no watermarks, no UI elements, "
             "no photorealistic humans, no synthetic photo faces, no stock portrait photography, "
             "no 3D renders pretending to be photos, no typography, no captions, "
             "no childish clip-art, no meme aesthetics. "
@@ -266,7 +270,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         )
     else:
         negative = (
-            "No text, no words, no letters, no logos, no watermarks, no UI elements, "
+            "No text, no words, no letters, no watermarks, no UI elements, "
             "no overlays, no graphic design elements, no illustration, no 3D render, "
             "no CGI, no cartoon, no anime, no vector art, no stylised characters, no claymation, "
             "no synthetic faces, no typography, no captions, "
@@ -282,7 +286,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     if ref_urls and (brand.get("visual_system") or {}).get("reference_rights_attested"):
         negative += (
             " Match the colour energy and composition density of a premium consumer brand social campaign; "
-            "still no logos or text in-image."
+            "still no readable text in-image."
         )
 
     if ai_image_prompt and len(ai_image_prompt) > 50:
@@ -308,7 +312,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"Brand context: {brand_name} ({industry}). "
             f"Color palette: {color_str}. Tone: {tone_str}. "
             f"{audience_note} {cultural_note} {motif_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note}\n"
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {logo_note}\n"
             f"{cam_line} "
             f"{lighting}. {format_note} "
             f"{style_close} "
@@ -350,7 +354,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
             f"{audience_note} {cultural_note} {motif_note} {imagery_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} "
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {logo_note} "
             f"{f'Strategy context: {strategy_note} ' if strategy_note else ''}"
             f"{cam_block} "
             f"{lighting}. {format_note} "

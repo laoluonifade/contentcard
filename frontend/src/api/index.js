@@ -231,6 +231,16 @@ export const adminApi = {
     adminAxios
       .post(`/admin/workspaces/${encodeURIComponent(workspaceId)}/billing/reconcile-paystack`, data)
       .then((r) => r.data),
+  designPlaybook:     ()        => adminAxios.get('/admin/design-playbook').then(r => r.data),
+  createPlaybookIndustry: (data) => adminAxios.post('/admin/design-playbook/industries', data).then(r => r.data),
+  updatePlaybookIndustry: (industryId, data) => adminAxios.put(`/admin/design-playbook/industries/${industryId}`, data).then(r => r.data),
+  deletePlaybookIndustry: (industryId) => adminAxios.delete(`/admin/design-playbook/industries/${industryId}`).then(r => r.data),
+  createPlaybookContentType: (data) => adminAxios.post('/admin/design-playbook/content-types', data).then(r => r.data),
+  updatePlaybookContentType: (contentTypeId, data) => adminAxios.put(`/admin/design-playbook/content-types/${contentTypeId}`, data).then(r => r.data),
+  deletePlaybookContentType: (contentTypeId) => adminAxios.delete(`/admin/design-playbook/content-types/${contentTypeId}`).then(r => r.data),
+  createPlaybookVisualDirection: (data) => adminAxios.post('/admin/design-playbook/visual-directions', data).then(r => r.data),
+  updatePlaybookVisualDirection: (visualDirectionId, data) => adminAxios.put(`/admin/design-playbook/visual-directions/${visualDirectionId}`, data).then(r => r.data),
+  deletePlaybookVisualDirection: (visualDirectionId) => adminAxios.delete(`/admin/design-playbook/visual-directions/${visualDirectionId}`).then(r => r.data),
   brands:             (params)  => adminAxios.get('/admin/brands', { params }).then(r => r.data),
   content:            (params)  => adminAxios.get('/admin/content', { params }).then(r => r.data),
   deleteContentByUser:(email)   => adminAxios.delete(`/admin/content/by-user/${encodeURIComponent(email)}`).then(r => r.data),

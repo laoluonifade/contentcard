@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, Heart, FileText,
-  CreditCard, BarChart2, TrendingUp, LayoutTemplate, Settings, LogOut, Download,
+  CreditCard, BarChart2, TrendingUp, LayoutTemplate, Settings, LogOut, Download, Palette,
 } from 'lucide-react'
 import { downloadContentCardLogoPng, BRAND_KIT_LOGO_PX } from '../../lib/contentcardLogoDownload'
 import { LogoMark } from '../ui/Logo'
@@ -17,6 +17,7 @@ const NAV = [
   { to: '/admindash/analytics',  icon: BarChart2,       label: 'Analytics'  },
   { to: '/admindash/trends',     icon: TrendingUp,      label: 'Trends'     },
   { to: '/admindash/templates',  icon: LayoutTemplate,  label: 'Templates'  },
+  { to: '/admindash/design-playbook', icon: Palette,    label: 'Design Playbook' },
   { to: '/admindash/settings',   icon: Settings,        label: 'Settings'   },
 ]
 

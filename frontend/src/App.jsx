@@ -44,6 +44,7 @@ import AdminAnalyticsPage   from './pages/AdminAnalyticsPage'
 import AdminTrendsPage      from './pages/AdminTrendsPage'
 import AdminTemplatesPage   from './pages/AdminTemplatesPage'
 import AdminSettingsPage    from './pages/AdminSettingsPage'
+import AdminDesignPlaybookPage from './pages/AdminDesignPlaybookPage'
 
 function PrivateRoute({ children }) {
   const { isAuthenticated } = useAuthStore()
@@ -115,6 +116,7 @@ export default function App() {
         <Route path="/admindash/analytics"   element={<AdminRoute><AdminAnalyticsPage /></AdminRoute>} />
         <Route path="/admindash/trends"      element={<AdminRoute><AdminTrendsPage /></AdminRoute>} />
         <Route path="/admindash/templates"   element={<AdminRoute><AdminTemplatesPage /></AdminRoute>} />
+        <Route path="/admindash/design-playbook" element={<AdminRoute><AdminDesignPlaybookPage /></AdminRoute>} />
         <Route path="/admindash/settings"    element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
