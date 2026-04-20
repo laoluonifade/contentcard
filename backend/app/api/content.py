@@ -43,7 +43,7 @@ from app.services.image_service import (
     finalize_rendered_urls_with_logo,
     generate_post_image,
 )
-from app.services.bannerbear_service import generate_post_images
+from app.services.bannerbear_service import generate_post_images, detect_template_family
 from app.services.billing_entitlements import effective_plan_for_owner, total_free_generations_used_by_owner
 from datetime import date
 import logging
@@ -698,6 +698,7 @@ async def _regenerate_visual_core(
         "visual_archetype": sab["archetype_id"],
         "art_brief": sab,
         "visual_lint": lint,
+        "template_family": detect_template_family(post),
     }
     item.theme = th
     await db.commit()
@@ -857,6 +858,7 @@ async def _do_generate_month(
                     "art_brief": sab,
                     "visual_lint": None,
                     "visual_type": post.get("visual_type"),
+                    "template_family": detect_template_family(post),
                 }
                 item.theme = th
                 logger.info(
@@ -929,6 +931,11 @@ def _brand_to_dict(brand: Brand) -> dict:
     """
     kit = brand.brand_kit or {}
 
+    logo_from_kit = (
+        (kit.get("logo_url") if isinstance(kit, dict) else None)
+        or ((kit.get("visual_system") or {}).get("logo_url") if isinstance(kit, dict) else None)
+    )
+
     base = {
         # ── Core identity ──────────────────────────────────────────────
         "name": brand.name or "My Brand",
@@ -936,7 +943,7 @@ def _brand_to_dict(brand: Brand) -> dict:
         "description": brand.description or "",
         "website": brand.website or "",
         "location": brand.location or "",
-        "logo_url": brand.logo_url or None,
+        "logo_url": brand.logo_url or logo_from_kit or None,
 
         # ── Audience ───────────────────────────────────────────────────
         "target_audience": brand.target_audience or "",

@@ -56,7 +56,7 @@ function formatArchetypeLabel(id) {
 
 function PostThumb({ post, brand, onClick, selectMode, selected }) {
   const isCarousel = (post?.slide_count||1) > 1
-  const imageUrl = post?.image_url || (post?.image_urls?.[0])
+  const imageUrl = (post?.image_urls?.[0]) || post?.image_url
   const arch = post?.visual_archetype
   const isSel = !!selected
 
