@@ -63,11 +63,16 @@ function mergeVisualSystem(kit, brandColors, brandFont) {
     reference_urls: Array.isArray(cur.reference_urls) ? cur.reference_urls : [],
     reference_rights_attested: !!cur.reference_rights_attested,
     forbidden_hexes: Array.isArray(cur.forbidden_hexes) ? cur.forbidden_hexes : [],
-    image_people_style: ['real_people', 'illustration', 'mixed'].includes(
+    image_people_style: ['real_people', 'illustration', 'cartoon', 'mixed'].includes(
       String(cur.image_people_style || 'real_people').toLowerCase()
     )
       ? String(cur.image_people_style || 'real_people').toLowerCase()
       : 'real_people',
+    default_visual_type: ['auto', 'real_people', 'illustration', 'abstract', 'product'].includes(
+      String(cur.default_visual_type || 'auto').toLowerCase()
+    )
+      ? String(cur.default_visual_type || 'auto').toLowerCase()
+      : 'auto',
   }
   const merged = {
     ...def,
@@ -75,7 +80,7 @@ function mergeVisualSystem(kit, brandColors, brandFont) {
     allowed_archetypes: cur.allowed_archetypes?.length ? cur.allowed_archetypes : def.allowed_archetypes,
   }
   const ips = String(merged.image_people_style || 'real_people').toLowerCase()
-  merged.image_people_style = ['real_people', 'illustration', 'mixed'].includes(ips) ? ips : 'real_people'
+  merged.image_people_style = ['real_people', 'illustration', 'cartoon', 'mixed'].includes(ips) ? ips : 'real_people'
   return merged
 }
 
@@ -1101,10 +1106,28 @@ export default function BrandKitPage() {
                   >
                     <option value="real_people">Real people (photography)</option>
                     <option value="illustration">Illustration / cartoon-style art</option>
+                    <option value="cartoon">Cartoon / comic illustration</option>
                     <option value="mixed">Mix (vary by post)</option>
                   </select>
                   <p className="text-ink/35 text-[11px] mt-1.5">
                     Controls how month generation and image prompts treat humans: photoreal, illustrated, or both across the month.
+                  </p>
+                </label>
+                <label className="space-y-1 sm:col-span-2">
+                  <span className={labelCls}>Default visual type for templates</span>
+                  <select
+                    className={inpCls}
+                    value={vs().default_visual_type || 'auto'}
+                    onChange={(e) => setVs({ default_visual_type: e.target.value })}
+                  >
+                    <option value="auto">Auto (recommended)</option>
+                    <option value="real_people">Real people</option>
+                    <option value="illustration">Illustration</option>
+                    <option value="abstract">Abstract graphic</option>
+                    <option value="product">Product-led</option>
+                  </select>
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Templates and preview design generation start from this mode, then adapt to each template category.
                   </p>
                 </label>
                 <label className="space-y-1">

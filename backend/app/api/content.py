@@ -162,7 +162,7 @@ async def _resolve_generation_template(
     if not tmpl:
         raise HTTPException(
             status_code=422,
-            detail="Generate AI design templates first in Templates before content generation.",
+            detail="Generate design templates first in Templates before content generation.",
         )
     return str(tmpl.id), list(tmpl.topics or [])
 
@@ -179,13 +179,139 @@ def _template_generation_context(tmpl: ContentTemplate | None) -> str | None:
         f"Business type: {tmpl.business_type or 'N/A'}",
         f"Country: {tmpl.country_code or 'N/A'}",
     ]
+    content_template_type = str(design_spec.get("content_template_type") or "").strip()
+    design_template_type = str(design_spec.get("design_template_type") or "").strip()
+    if content_template_type:
+        parts.append(f"Content template type: {content_template_type}")
+    if design_template_type:
+        parts.append(f"Design template type: {design_template_type}")
     if palette:
         parts.append(f"Palette lock: {', '.join(str(x) for x in palette[:6])}")
     if tmpl.generated_visual_direction:
         parts.append(f"Template visual direction: {tmpl.generated_visual_direction}")
     if tmpl.generated_image_prompt:
         parts.append(f"Template image prompt baseline: {tmpl.generated_image_prompt}")
+    slot_contract = design_spec.get("slot_contract") if isinstance(design_spec.get("slot_contract"), dict) else {}
+    if slot_contract:
+        parts.append(
+            "Template slot contract: "
+            f"headline_max_words={slot_contract.get('headline_max_words')}, "
+            f"support_max_words={slot_contract.get('support_max_words')}, "
+            f"evidence_max_words={slot_contract.get('evidence_max_words')}, "
+            f"cta_max_words={slot_contract.get('cta_max_words')}"
+        )
     return "\n".join(parts)
+
+
+def _map_design_type_to_template_family(design_type: str | None) -> str:
+    d = str(design_type or "").strip().lower()
+    mapping = {
+        "feature_ui_spotlight": "product_hero",
+        "promo_cta_banner": "promo",
+        "testimonial_proof_card": "testimonial",
+        "product_showcase_grid": "product_hero",
+        "educational_explainer": "edu",
+        "editorial_story": "story_carousel",
+        "culture_campaign": "illustration_editorial",
+        "general_social": "default",
+    }
+    return mapping.get(d, "default")
+
+
+def _template_contract_from_row(tmpl: ContentTemplate | None) -> dict:
+    if not tmpl:
+        return {}
+    spec = tmpl.design_spec if isinstance(tmpl.design_spec, dict) else {}
+    content_template_type = str(spec.get("content_template_type") or "").strip().lower()
+    design_template_type = str(spec.get("design_template_type") or "").strip().lower()
+    family = _map_design_type_to_template_family(design_template_type)
+    slot_contract = spec.get("slot_contract") if isinstance(spec.get("slot_contract"), dict) else {}
+    if not slot_contract:
+        slot_contract = {
+            "headline_max_words": 7,
+            "support_max_words": 14,
+            "evidence_max_words": 16,
+            "cta_max_words": 8,
+        }
+    return {
+        "template_name": tmpl.name,
+        "content_template_type": content_template_type or "general",
+        "design_template_type": design_template_type or "general_social",
+        "template_family": family,
+        "slot_contract": slot_contract,
+    }
+
+
+def _template_contract_text(contract: dict | None) -> str | None:
+    if not isinstance(contract, dict) or not contract:
+        return None
+    sc = contract.get("slot_contract") if isinstance(contract.get("slot_contract"), dict) else {}
+    return "\n".join(
+        [
+            "=== TEMPLATE MESSAGE-ARCHITECTURE CONTRACT ===",
+            f"Template family to render: {contract.get('template_family')}",
+            f"Content template type: {contract.get('content_template_type')}",
+            f"Design template type: {contract.get('design_template_type')}",
+            "Every post MUST include a clear one-line hook, one support line, one evidence/proof line, and one CTA line.",
+            f"Headline max words: {sc.get('headline_max_words', 7)}",
+            f"Support max words: {sc.get('support_max_words', 14)}",
+            f"Evidence max words: {sc.get('evidence_max_words', 16)}",
+            f"CTA max words: {sc.get('cta_max_words', 8)}",
+            "Do not return generic scene-only designs; return structured ad-style concepts with clear hierarchy.",
+        ]
+    )
+
+
+def _trim_words(text: str, max_words: int) -> str:
+    words = [w for w in str(text or "").strip().split() if w]
+    if max_words <= 0:
+        return ""
+    return " ".join(words[:max_words]).strip()
+
+
+def _build_message_architecture(post: dict, contract: dict | None) -> dict:
+    sc = (contract or {}).get("slot_contract") if isinstance((contract or {}).get("slot_contract"), dict) else {}
+    hook_max = int(sc.get("headline_max_words") or 7)
+    support_max = int(sc.get("support_max_words") or 14)
+    evidence_max = int(sc.get("evidence_max_words") or 16)
+    cta_max = int(sc.get("cta_max_words") or 8)
+
+    topic = str(post.get("topic") or post.get("content_idea") or "").strip()
+    description = str(post.get("description") or "").strip()
+    cta = str(post.get("cta") or "").strip()
+    caption = str(post.get("caption") or "").strip()
+    cap_lines = [ln.strip() for ln in caption.replace("\r", "").split("\n") if ln.strip()]
+
+    hook = _trim_words(topic or (cap_lines[0] if cap_lines else "Ready to post"), hook_max)
+    support_src = cap_lines[1] if len(cap_lines) > 1 else description
+    support = _trim_words(support_src or "Built for clear social communication", support_max)
+    evidence_src = description or (cap_lines[2] if len(cap_lines) > 2 else "")
+    evidence = _trim_words(evidence_src or "Brand and product proof in one glance", evidence_max)
+    cta_line = _trim_words(cta or (cap_lines[-1] if cap_lines else "Get started"), cta_max)
+    return {"hook": hook, "support": support, "evidence": evidence, "cta": cta_line}
+
+
+def _apply_template_contract_to_post(post: dict, contract: dict | None) -> dict:
+    if not isinstance(contract, dict) or not contract:
+        return post
+    out = dict(post)
+    out["template_family"] = contract.get("template_family") or "default"
+    out["force_template_family"] = out["template_family"]
+    if not str(out.get("content_type") or "").strip():
+        out["content_type"] = str(contract.get("content_template_type") or "general")
+    message_arch = _build_message_architecture(out, contract)
+    out["message_architecture"] = message_arch
+    # Keep existing caption, but ensure deterministic slot texts exist for renderers.
+    out["headline"] = message_arch.get("hook")
+    out["support_line"] = message_arch.get("support")
+    out["evidence_line"] = message_arch.get("evidence")
+    out["cta_line"] = message_arch.get("cta")
+    vd = str(out.get("visual_direction") or "").strip()
+    if vd:
+        out["visual_direction"] = (
+            f"{vd} Ensure hierarchy follows hook -> support -> evidence -> CTA with clear spacing."
+        )
+    return out
 
 
 async def _ensure_campaign_plan(db: AsyncSession, brand_id: str, month: int, year: int, style_fp: StyleFingerprint | None) -> CampaignPlan:
@@ -413,7 +539,8 @@ async def _render_with_quality_gate(
                 "Cleaner focal hierarchy, fewer background objects, stronger tonal separation, "
                 "more ad-quality realism, and less synthetic aesthetics."
             )
-            render_post["force_template_family"] = "default"
+            if not str(render_post.get("force_template_family") or "").strip():
+                render_post["force_template_family"] = "default"
 
         bg_urls = await generate_post_image(render_post, brand_dict)
         if bg_urls:
@@ -450,7 +577,8 @@ async def _render_with_quality_gate(
     # so posts are still delivered instead of staying pending forever.
     fallback_post = dict(post_data)
     fallback_post["quality_gate_fallback"] = True
-    fallback_post["force_template_family"] = "default"
+    if not str(fallback_post.get("force_template_family") or "").strip():
+        fallback_post["force_template_family"] = "default"
     fallback_post["template_family"] = detect_template_family(fallback_post)
     fallback_post["quality_gate_notes"] = (
         "Fallback mode: clean layout, strong hierarchy, low clutter, ad-style readability."
@@ -1331,6 +1459,13 @@ async def _do_generate_month(
     from app.db.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         try:
+            selected_template = None
+            template_contract: dict = {}
+            if template_id:
+                selected_template = (
+                    await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
+                ).scalar_one_or_none()
+                template_contract = _template_contract_from_row(selected_template)
             holiday_context = await build_month_holiday_context(
                 db,
                 user_id,
@@ -1342,6 +1477,9 @@ async def _do_generate_month(
             brief_parts: list[str] = []
             if generation_brief and generation_brief.strip():
                 brief_parts.append(generation_brief.strip())
+            contract_text = _template_contract_text(template_contract)
+            if contract_text:
+                brief_parts.append(contract_text)
             if website_grounding_text and website_grounding_text.strip():
                 brief_parts.append(website_grounding_text.strip())
             combined_generation_brief = "\n\n".join(brief_parts) if brief_parts else None
@@ -1372,6 +1510,8 @@ async def _do_generate_month(
                     brand_id, month, year,
                 )
                 return
+            if template_contract:
+                posts = [_apply_template_contract_to_post(p, template_contract) for p in posts]
             saved_items = []
             for post in posts:
                 try:
@@ -1453,6 +1593,8 @@ async def _do_generate_month(
                     "visual_lint": None,
                     "visual_type": post.get("visual_type"),
                     "template_family": detect_template_family(post),
+                    "template_contract": template_contract if template_contract else None,
+                    "message_architecture": post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else None,
                     "website_grounding": matched_op if isinstance(matched_op, dict) else None,
                     "website_grounding_gate": _website_grounding_gate(
                         matched_op if isinstance(matched_op, dict) else None,
@@ -1513,6 +1655,10 @@ async def _do_generate_month(
                 cm["logo_required"] = has_brand_logo(brand_dict)
                 cm["logo_applied"] = logo_ok
                 cm["quality_failure_tags"] = _quality_failure_tags(quality_gate)
+                if template_contract:
+                    cm["template_contract"] = template_contract
+                if isinstance(post_data.get("message_architecture"), dict):
+                    cm["message_architecture"] = post_data.get("message_architecture")
                 th["cc_meta"] = cm
                 item.theme = th
                 await db.commit()
@@ -1594,9 +1740,13 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
     cm = (item.theme or {}).get("cc_meta") if isinstance(item.theme, dict) else None
     arch = None
     ab = None
+    tf = None
+    ma = None
     if isinstance(cm, dict):
         arch = cm.get("visual_archetype")
         ab = cm.get("art_brief") if isinstance(cm.get("art_brief"), dict) else None
+        tf = cm.get("template_family")
+        ma = cm.get("message_architecture") if isinstance(cm.get("message_architecture"), dict) else None
     vt = "real_people"
     if isinstance(cm, dict):
         v = cm.get("visual_type")
@@ -1615,4 +1765,7 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         "visual_type": vt,
         "visual_archetype": arch,
         "art_brief": ab,
+        "force_template_family": tf,
+        "template_family": tf,
+        "message_architecture": ma,
     }

@@ -184,11 +184,12 @@ def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
     """
     topic = post_data.get("topic") or ""
     caption = post_data.get("caption") or ""
+    ma = post_data.get("message_architecture") if isinstance(post_data.get("message_architecture"), dict) else {}
     tokens = _family_tokens(post_data)
     fam = detect_template_family(post_data)
-    cover_headline = _clean_inline(topic, 68)
+    cover_headline = _clean_inline(ma.get("hook") or topic, 68)
     sents = _split_caption_sentences(caption)
-    subtitle_core = _clean_inline(sents[0] if sents else "Swipe for practical takeaways.", 96)
+    subtitle_core = _clean_inline(ma.get("support") or (sents[0] if sents else "Swipe for practical takeaways."), 96)
     subtitle = _clean_inline(f"{tokens['badge']} · {subtitle_core}", 96)
     if slide_count <= 1:
         return [{"headline": cover_headline, "subtitle": subtitle}]
@@ -221,7 +222,7 @@ def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
             h = _clean_inline(f"{tokens['chip']} {i + 1}", 40)
         bodies.append({"headline": h, "body": body_text})
 
-    cta = _clean_inline(" ".join(sents[-1:]) if sents else tokens["cta"], 120)
+    cta = _clean_inline(ma.get("cta") or (" ".join(sents[-1:]) if sents else tokens["cta"]), 120)
     return [{"headline": cover_headline, "subtitle": subtitle}, *bodies, {"headline": tokens["cta"], "body": cta}]
 
 
@@ -286,14 +287,16 @@ def _cover_mods(
     background_image_url: str | None = None,
     art_brief: dict | None = None,
     family: str = "default",
+    post_data: dict | None = None,
 ) -> list[dict]:
     fam = family or "default"
     bg_hex = _primary_color(brand_dict)
     if art_brief and art_brief.get("dominant_colors_from_tokens"):
         bg_hex = art_brief["dominant_colors_from_tokens"][0]
     brand_name = _clean_inline(brand_dict.get("name") or "", 40)
-    headline = _clean_inline(topic, _copy_limit(fam, "headline", 68))
-    subtitle = _clean_inline((_split_caption_sentences(caption) or [""])[0], _copy_limit(fam, "subtitle", 96))
+    ma = (post_data or {}).get("message_architecture") if isinstance((post_data or {}).get("message_architecture"), dict) else {}
+    headline = _clean_inline(ma.get("hook") or topic, _copy_limit(fam, "headline", 68))
+    subtitle = _clean_inline(ma.get("support") or (_split_caption_sentences(caption) or [""])[0], _copy_limit(fam, "subtitle", 96))
     if not subtitle:
         subtitle = "Swipe for details"
     mods = [
@@ -397,7 +400,7 @@ async def generate_post_images(
     cover_url = await _create_image(
         cover_template,
         # Background image only on cover — gives the photographic hero shot
-        _cover_mods(topic, caption, brand_dict, cover_bg_url, ab, family=fam),
+        _cover_mods(topic, caption, brand_dict, cover_bg_url, ab, family=fam, post_data=post_data),
     )
     if not cover_url:
         return []

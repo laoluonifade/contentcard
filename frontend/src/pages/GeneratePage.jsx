@@ -87,6 +87,14 @@ export default function GeneratePage() {
   }, [location.state])
 
   useEffect(() => {
+    const incomingTemplateId = location.state?.templateId
+    if (!incomingTemplateId || !readyTemplates.length) return
+    if (readyTemplates.some((t) => t.id === incomingTemplateId)) {
+      setSelectedTemplateId(incomingTemplateId)
+    }
+  }, [location.state?.templateId, readyTemplates.length])
+
+  useEffect(() => {
     if (!showTrends) return
     if (trends.length) return
     fetchTrends().catch(() => {})
@@ -252,7 +260,9 @@ export default function GeneratePage() {
                     }`}
                   >
                     <p className="text-xs font-semibold text-ink">{t.name}</p>
-                    <p className="text-[10px] text-ink/40 capitalize">{t.category} · {t.source || 'manual'}</p>
+                    <p className="text-[10px] text-ink/40 capitalize">
+                      {t.category} · {t.design_spec?.design_template_type ? String(t.design_spec.design_template_type).replace(/_/g, ' ') : 'general social'}
+                    </p>
                   </button>
                 ))}
               </div>

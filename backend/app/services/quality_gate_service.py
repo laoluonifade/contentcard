@@ -192,15 +192,18 @@ def _score_template_fidelity(post: dict[str, Any]) -> float:
     fam = str(post.get("template_family") or "").lower()
     fmt = str(post.get("format") or "single").lower()
     slide_count = int(post.get("slide_count") or 1)
+    ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+    has_arch = all(str(ma.get(k) or "").strip() for k in ("hook", "support", "evidence", "cta"))
+    architecture_bonus = 0.08 if has_arch else -0.08
     if fmt == "carousel":
         if slide_count < 3:
-            return 0.35
+            return _clamp01(0.35 + architecture_bonus)
         if fam in ("story_carousel", "data_card", "edu", "announcement", "product_hero"):
-            return 0.9
-        return 0.7
+            return _clamp01(0.9 + architecture_bonus)
+        return _clamp01(0.7 + architecture_bonus)
     if fam in ("text_poster", "product_hero", "data_card", "announcement", "illustration_editorial", "promo"):
-        return 0.85
-    return 0.65
+        return _clamp01(0.85 + architecture_bonus)
+    return _clamp01(0.65 + architecture_bonus)
 
 
 async def _reference_style_score(img: Image.Image, brand: dict[str, Any]) -> float:
