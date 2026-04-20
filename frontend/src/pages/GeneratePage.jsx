@@ -61,6 +61,8 @@ export default function GeneratePage() {
     trends,
     brands,
     fetchTrends,
+    templates,
+    fetchTemplates,
   } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
   const showTrends = planIncludesTrendingTopics(activeWorkspace?.plan)
@@ -76,7 +78,9 @@ export default function GeneratePage() {
   const [onlyNewWebsiteChanges, setOnlyNewWebsiteChanges] = useState(false)
   const [useReferenceResearch, setUseReferenceResearch] = useState(true)
   const [variantCount, setVariantCount] = useState(2)
+  const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
+  const readyTemplates = (templates || []).filter(t => t.is_active && t.is_design_ready)
 
   useEffect(() => {
     if (location.state?.topic) { setTopic(location.state.topic); setSelTrend(null) }
@@ -87,6 +91,21 @@ export default function GeneratePage() {
     if (trends.length) return
     fetchTrends().catch(() => {})
   }, [showTrends, activeWorkspace?.id])
+
+  useEffect(() => {
+    if (!activeBrandId) return
+    fetchTemplates().catch(() => {})
+  }, [activeBrandId])
+
+  useEffect(() => {
+    if (readyTemplates.length === 0) {
+      setSelectedTemplateId('')
+      return
+    }
+    if (!readyTemplates.find(t => t.id === selectedTemplateId)) {
+      setSelectedTemplateId(readyTemplates[0].id)
+    }
+  }, [templates, selectedTemplateId])
 
   useEffect(() => {
     if (!generatingMonth || !generationStartedAt) {
@@ -120,12 +139,17 @@ export default function GeneratePage() {
       only_new_changes: onlyNewWebsiteChanges,
       use_reference_research: useReferenceResearch,
       variant_count: variantCount,
+      template_id: selectedTemplateId || null,
       confirm_duplicate: confirmDuplicate,
     })
   }
 
   const handleGenerate = async () => {
     if (!activeBrandId) { toast('Select or create a brand first', 'error'); return }
+    if (!selectedTemplateId) {
+      toast('Generate and select a design-ready template first in Templates.', 'error')
+      return
+    }
     const visErr = brandVisualBlockReason(activeBrand)
     if (visErr) {
       toast(visErr, 'error')
@@ -192,13 +216,53 @@ export default function GeneratePage() {
         </div>
       )}
 
+      {activeBrandId && readyTemplates.length === 0 && (
+        <div className="border border-amber-200 bg-amber-50 rounded-2xl p-5 mb-6">
+          <p className="text-amber-800 text-sm font-semibold mb-1">Template setup required before generation</p>
+          <p className="text-amber-700 text-xs mb-3">
+            Generate AI design templates in Templates first. Content generation now runs from those template designs.
+          </p>
+          <button onClick={() => navigate('/dashboard/templates')} className="btn-primary text-xs">
+            Open Templates
+          </button>
+        </div>
+      )}
+
       <div className="grid lg:grid-cols-[1fr_240px] gap-6 items-start">
         <div className="space-y-3">
 
-          {/* Step 1: Platform */}
+          {/* Step 1: Template */}
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">1</span>
+              Design template
+            </p>
+            {readyTemplates.length === 0 ? (
+              <p className="text-xs text-ink/40">
+                No design-ready templates yet. Create or generate templates in the Templates tab.
+              </p>
+            ) : (
+              <div className="grid sm:grid-cols-2 gap-2">
+                {readyTemplates.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => setSelectedTemplateId(t.id)}
+                    className={`text-left border rounded-xl p-3 transition-all ${
+                      selectedTemplateId === t.id ? 'border-ink bg-mist' : 'border-fog hover:border-ink/20'
+                    }`}
+                  >
+                    <p className="text-xs font-semibold text-ink">{t.name}</p>
+                    <p className="text-[10px] text-ink/40 capitalize">{t.category} · {t.source || 'manual'}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Step 2: Platform */}
+          <div className="bg-white border border-fog rounded-2xl p-5">
+            <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">2</span>
               Platform
             </p>
             <div className="grid grid-cols-4 gap-2">
@@ -216,10 +280,10 @@ export default function GeneratePage() {
             </div>
           </div>
 
-          {/* Step 2: Month */}
+          {/* Step 3: Month */}
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
-              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">2</span>
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">3</span>
               Month
             </p>
             <div className="flex flex-wrap gap-2">
@@ -234,10 +298,10 @@ export default function GeneratePage() {
             </div>
           </div>
 
-          {/* Step 3: Posting frequency */}
+          {/* Step 4: Posting frequency */}
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
-              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">3</span>
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">4</span>
               Posting frequency
             </p>
             <p className="text-ink/30 text-xs mb-4 ml-6">
@@ -259,9 +323,10 @@ export default function GeneratePage() {
             </p>
           </div>
 
+          {/* Step 5: Website intelligence */}
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-3 flex items-center gap-2">
-              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">4</span>
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">5</span>
               Website intelligence
             </p>
             <div className="space-y-3">
@@ -311,7 +376,7 @@ export default function GeneratePage() {
           {/* Step 4: Topic */}
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
-              <span className="w-4 h-4 rounded-full bg-mist text-ink/30 text-[9px] font-bold flex items-center justify-center">4</span>
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/30 text-[9px] font-bold flex items-center justify-center">6</span>
               Focus topic <span className="text-ink/25 font-normal ml-1">(optional)</span>
             </p>
             <p className="text-ink/30 text-xs mb-3 ml-6">Leave blank for varied topics, automatically selected</p>
@@ -328,7 +393,7 @@ export default function GeneratePage() {
           </div>
 
           {/* Generate button */}
-          <button onClick={handleGenerate} disabled={generatingMonth || !activeBrandId}
+          <button onClick={handleGenerate} disabled={generatingMonth || !activeBrandId || !selectedTemplateId}
             className="btn-primary w-full justify-center py-4 rounded-2xl text-sm">
             {generatingMonth
               ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{progressLabel()}</>

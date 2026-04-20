@@ -58,6 +58,7 @@ export default function BrandFormCoachPanel({
   inputPlaceholder,
   emptyStateHint,
   minimizeStorageKey,
+  onMinimizedChange,
 }) {
   const minKey = minimizeStorageKey || (mode === 'template' ? TEMPLATE_COACH_MIN_KEY : BRAND_COACH_MIN_KEY)
   const title =
@@ -94,6 +95,10 @@ export default function BrandFormCoachPanel({
       /* ignore */
     }
   }
+
+  useEffect(() => {
+    onMinimizedChange?.(minimized)
+  }, [minimized, onMinimizedChange])
 
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -154,7 +159,7 @@ export default function BrandFormCoachPanel({
       <button
         type="button"
         onClick={() => setMin(false)}
-        className={`flex items-center gap-3 w-full rounded-2xl border border-fog bg-white shadow-sm px-4 py-3 text-left hover:bg-mist/50 transition-colors ${className}`}
+        className={`inline-flex items-center gap-3 rounded-2xl border border-fog bg-white shadow-sm px-3 py-3 text-left hover:bg-mist/50 transition-colors ${className}`}
         aria-expanded="false"
       >
         <div className="w-8 h-8 rounded-lg bg-brand-500/15 flex items-center justify-center shrink-0">

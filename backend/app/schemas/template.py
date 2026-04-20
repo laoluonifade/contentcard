@@ -17,6 +17,10 @@ class TemplateCreate(BaseModel):
     topics: list[str] = []
     tone_tags: list[str] = []
     platforms: list[str] = ["instagram", "facebook", "twitter"]
+    source: str = "manual"
+    country_code: str | None = None
+    business_type: str | None = None
+    is_system_default: bool = False
 
 
 class TemplateUpdate(TemplateCreate):
@@ -41,8 +45,28 @@ class TemplateOut(BaseModel):
     topics: list
     tone_tags: list
     platforms: list
+    design_spec: dict | None
+    generated_visual_direction: str | None
+    generated_image_prompt: str | None
+    preview_image_url: str | None
+    preview_image_urls: list | None
+    source: str
+    country_code: str | None
+    business_type: str | None
+    is_system_default: bool
+    is_design_ready: bool
     is_active: bool
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class TemplateBootstrapRequest(BaseModel):
+    brand_id: str
+    force: bool = False
+    generate_designs: bool = True
+
+
+class TemplateDesignGenerateRequest(BaseModel):
+    month_context: str | None = None

@@ -145,7 +145,9 @@ export const contentApi = {
 export const templateApi = {
   list:   (brandId) => api.get('/templates', { params: { brand_id: brandId } }).then(r => r.data),
   create: (data)    => api.post('/templates', data).then(r => r.data),
+  bootstrapDefaults: (data) => api.post('/templates/bootstrap-defaults', data).then(r => r.data),
   get:    (id)      => api.get(`/templates/${id}`).then(r => r.data),
+  generateDesign: (id, data = {}) => api.post(`/templates/${id}/generate-design`, data).then(r => r.data),
   update: (id, d)   => api.put(`/templates/${id}`, d).then(r => r.data),
   delete: (id)      => api.delete(`/templates/${id}`).then(r => r.data),
 }

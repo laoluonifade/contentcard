@@ -46,6 +46,7 @@ class GenerateMonthV2Request(BaseModel):
     format_mix: str = "mixed"
     posts_per_week: int = 3
     topic_override: str | None = None
+    template_id: str | None = None
     use_website_intelligence: bool = True
     only_new_changes: bool = False
     use_reference_research: bool = True
