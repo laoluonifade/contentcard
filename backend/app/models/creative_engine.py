@@ -62,3 +62,66 @@ class RenderVariant(Base):
     image_urls: Mapped[list | None] = mapped_column(JSON, default=list)
     status: Mapped[str] = mapped_column(String(32), default="generated")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class DesignPlaybookIndustry(Base):
+    __tablename__ = "design_playbook_industries"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    key: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    content_types: Mapped[list["DesignPlaybookContentType"]] = relationship(
+        "DesignPlaybookContentType",
+        back_populates="industry",
+        cascade="all, delete-orphan",
+    )
+
+
+class DesignPlaybookContentType(Base):
+    __tablename__ = "design_playbook_content_types"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    industry_id: Mapped[str] = mapped_column(String, ForeignKey("design_playbook_industries.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    industry: Mapped["DesignPlaybookIndustry"] = relationship("DesignPlaybookIndustry", back_populates="content_types")
+    visual_directions: Mapped[list["DesignPlaybookVisualDirection"]] = relationship(
+        "DesignPlaybookVisualDirection",
+        back_populates="content_type",
+        cascade="all, delete-orphan",
+    )
+
+
+class DesignPlaybookVisualDirection(Base):
+    __tablename__ = "design_playbook_visual_directions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    content_type_id: Mapped[str] = mapped_column(String, ForeignKey("design_playbook_content_types.id"), nullable=False, index=True)
+    post_type: Mapped[str] = mapped_column(String(32), nullable=False)  # single | carousel
+    visual_direction: Mapped[str] = mapped_column(Text, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+    content_type: Mapped["DesignPlaybookContentType"] = relationship("DesignPlaybookContentType", back_populates="visual_directions")

@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, delete, or_
-from sqlalchemy.orm import aliased
+from sqlalchemy.orm import aliased, selectinload
 from pydantic import BaseModel, Field
 from app.services.billing_service import verify_paystack_transaction, PLANS
 from app.core.config import settings
@@ -14,7 +14,14 @@ from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.models.brand import Brand
 from app.models.content import ContentItem
 from app.models.website_intelligence import WebsiteEntity, WebsiteSnapshot, WebsiteChangeEvent, WebsiteOpportunity
-from app.models.creative_engine import CampaignPlan, RenderVariant, StyleFingerprint
+from app.models.creative_engine import (
+    CampaignPlan,
+    RenderVariant,
+    StyleFingerprint,
+    DesignPlaybookIndustry,
+    DesignPlaybookContentType,
+    DesignPlaybookVisualDirection,
+)
 from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
@@ -77,6 +84,304 @@ class ReconcilePaystackBody(BaseModel):
 class ReconcileWorkspacePaystackBody(BaseModel):
     reference: str = Field(..., description="Paystack transaction reference from receipt/dashboard")
     plan: str | None = Field(None, description="Override plan if metadata is missing: starter | smb | pro")
+
+
+class PlaybookIndustryIn(BaseModel):
+    key: str
+    name: str
+    is_active: bool = True
+
+
+class PlaybookContentTypeIn(BaseModel):
+    industry_id: str
+    name: str
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class PlaybookVisualDirectionIn(BaseModel):
+    content_type_id: str
+    post_type: str  # single | carousel
+    visual_direction: str
+    sort_order: int = 0
+    is_active: bool = True
+
+
+def _normalize_playbook_post_type(value: str) -> str:
+    v = str(value or "").strip().lower().replace("image", "").replace("post", "").strip()
+    if "carousel" in v:
+        return "carousel"
+    return "single"
+
+
+def _playbook_tree_payload(rows: list[DesignPlaybookIndustry]) -> list[dict]:
+    out: list[dict] = []
+    for industry in rows:
+        cts = sorted(
+            [ct for ct in (industry.content_types or []) if bool(ct.is_active)],
+            key=lambda x: (int(x.sort_order or 0), str(x.name or "").lower()),
+        )
+        out.append(
+            {
+                "id": industry.id,
+                "key": industry.key,
+                "name": industry.name,
+                "is_active": bool(industry.is_active),
+                "content_types": [
+                    {
+                        "id": ct.id,
+                        "name": ct.name,
+                        "sort_order": int(ct.sort_order or 0),
+                        "is_active": bool(ct.is_active),
+                        "visual_directions": [
+                            {
+                                "id": vd.id,
+                                "post_type": _normalize_playbook_post_type(vd.post_type),
+                                "visual_direction": vd.visual_direction,
+                                "sort_order": int(vd.sort_order or 0),
+                                "is_active": bool(vd.is_active),
+                            }
+                            for vd in sorted(
+                                [v for v in (ct.visual_directions or []) if bool(v.is_active)],
+                                key=lambda x: (int(x.sort_order or 0), x.created_at),
+                            )
+                        ],
+                    }
+                    for ct in cts
+                ],
+            }
+        )
+    return out
+
+
+@router.get("/design-playbook")
+async def admin_design_playbook(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = (
+        await db.execute(
+            select(DesignPlaybookIndustry)
+            .where(DesignPlaybookIndustry.is_active.is_(True))
+            .options(
+                selectinload(DesignPlaybookIndustry.content_types).selectinload(
+                    DesignPlaybookContentType.visual_directions
+                )
+            )
+            .order_by(DesignPlaybookIndustry.name.asc())
+        )
+    ).scalars().all()
+    return {"industries": _playbook_tree_payload(rows)}
+
+
+@router.post("/design-playbook/industries", status_code=201)
+async def admin_create_playbook_industry(
+    body: PlaybookIndustryIn,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    key = str(body.key or "").strip().lower().replace(" ", "_")
+    name = str(body.name or "").strip()
+    if not key or not name:
+        raise HTTPException(status_code=400, detail="Industry key and name are required")
+    exists = (
+        await db.execute(select(DesignPlaybookIndustry).where(DesignPlaybookIndustry.key == key))
+    ).scalar_one_or_none()
+    if exists:
+        raise HTTPException(status_code=409, detail="Industry key already exists")
+    row = DesignPlaybookIndustry(key=key, name=name, is_active=bool(body.is_active))
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {"id": row.id, "key": row.key, "name": row.name, "is_active": bool(row.is_active)}
+
+
+@router.put("/design-playbook/industries/{industry_id}")
+async def admin_update_playbook_industry(
+    industry_id: str,
+    body: PlaybookIndustryIn,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = (
+        await db.execute(select(DesignPlaybookIndustry).where(DesignPlaybookIndustry.id == industry_id))
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Industry not found")
+    key = str(body.key or "").strip().lower().replace(" ", "_")
+    name = str(body.name or "").strip()
+    if not key or not name:
+        raise HTTPException(status_code=400, detail="Industry key and name are required")
+    dup = (
+        await db.execute(
+            select(DesignPlaybookIndustry).where(
+                DesignPlaybookIndustry.key == key,
+                DesignPlaybookIndustry.id != industry_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if dup:
+        raise HTTPException(status_code=409, detail="Industry key already exists")
+    row.key = key
+    row.name = name
+    row.is_active = bool(body.is_active)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/design-playbook/industries/{industry_id}", status_code=204)
+async def admin_delete_playbook_industry(
+    industry_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    row = (
+        await db.execute(select(DesignPlaybookIndustry).where(DesignPlaybookIndustry.id == industry_id))
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Industry not found")
+    await db.delete(row)
+    await db.commit()
+
+
+@router.post("/design-playbook/content-types", status_code=201)
+async def admin_create_playbook_content_type(
+    body: PlaybookContentTypeIn,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    industry = (
+        await db.execute(select(DesignPlaybookIndustry).where(DesignPlaybookIndustry.id == body.industry_id))
+    ).scalar_one_or_none()
+    if not industry:
+        raise HTTPException(status_code=404, detail="Industry not found")
+    name = str(body.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Content type name is required")
+    row = DesignPlaybookContentType(
+        industry_id=industry.id,
+        name=name,
+        sort_order=int(body.sort_order or 0),
+        is_active=bool(body.is_active),
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {"id": row.id, "industry_id": row.industry_id, "name": row.name}
+
+
+@router.put("/design-playbook/content-types/{content_type_id}")
+async def admin_update_playbook_content_type(
+    content_type_id: str,
+    body: PlaybookContentTypeIn,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = (
+        await db.execute(select(DesignPlaybookContentType).where(DesignPlaybookContentType.id == content_type_id))
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Content type not found")
+    if body.industry_id:
+        industry = (
+            await db.execute(select(DesignPlaybookIndustry).where(DesignPlaybookIndustry.id == body.industry_id))
+        ).scalar_one_or_none()
+        if not industry:
+            raise HTTPException(status_code=404, detail="Industry not found")
+        row.industry_id = industry.id
+    row.name = str(body.name or "").strip() or row.name
+    row.sort_order = int(body.sort_order or 0)
+    row.is_active = bool(body.is_active)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/design-playbook/content-types/{content_type_id}", status_code=204)
+async def admin_delete_playbook_content_type(
+    content_type_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    row = (
+        await db.execute(select(DesignPlaybookContentType).where(DesignPlaybookContentType.id == content_type_id))
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Content type not found")
+    await db.delete(row)
+    await db.commit()
+
+
+@router.post("/design-playbook/visual-directions", status_code=201)
+async def admin_create_playbook_visual_direction(
+    body: PlaybookVisualDirectionIn,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    ct = (
+        await db.execute(select(DesignPlaybookContentType).where(DesignPlaybookContentType.id == body.content_type_id))
+    ).scalar_one_or_none()
+    if not ct:
+        raise HTTPException(status_code=404, detail="Content type not found")
+    visual_direction = str(body.visual_direction or "").strip()
+    if not visual_direction:
+        raise HTTPException(status_code=400, detail="Visual direction is required")
+    row = DesignPlaybookVisualDirection(
+        content_type_id=ct.id,
+        post_type=_normalize_playbook_post_type(body.post_type),
+        visual_direction=visual_direction,
+        sort_order=int(body.sort_order or 0),
+        is_active=bool(body.is_active),
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {"id": row.id, "content_type_id": row.content_type_id}
+
+
+@router.put("/design-playbook/visual-directions/{visual_direction_id}")
+async def admin_update_playbook_visual_direction(
+    visual_direction_id: str,
+    body: PlaybookVisualDirectionIn,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = (
+        await db.execute(
+            select(DesignPlaybookVisualDirection).where(DesignPlaybookVisualDirection.id == visual_direction_id)
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Visual direction not found")
+    if body.content_type_id:
+        ct = (
+            await db.execute(select(DesignPlaybookContentType).where(DesignPlaybookContentType.id == body.content_type_id))
+        ).scalar_one_or_none()
+        if not ct:
+            raise HTTPException(status_code=404, detail="Content type not found")
+        row.content_type_id = ct.id
+    row.post_type = _normalize_playbook_post_type(body.post_type)
+    row.visual_direction = str(body.visual_direction or "").strip() or row.visual_direction
+    row.sort_order = int(body.sort_order or 0)
+    row.is_active = bool(body.is_active)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.delete("/design-playbook/visual-directions/{visual_direction_id}", status_code=204)
+async def admin_delete_playbook_visual_direction(
+    visual_direction_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    row = (
+        await db.execute(
+            select(DesignPlaybookVisualDirection).where(DesignPlaybookVisualDirection.id == visual_direction_id)
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Visual direction not found")
+    await db.delete(row)
+    await db.commit()
 
 
 async def _reconcile_paystack_transaction_for_workspace(

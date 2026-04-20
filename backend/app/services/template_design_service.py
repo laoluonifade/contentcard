@@ -31,7 +31,39 @@ def _brand_country(brand: Brand, fallback_country: str | None) -> str:
     return (fallback_country or "NG").upper()
 
 
-def build_default_templates(brand: Brand, country_code: str | None = None) -> list[dict[str, Any]]:
+def _normalize_playbook(playbook: dict | None) -> list[dict[str, Any]]:
+    if not isinstance(playbook, dict):
+        return []
+    out: list[dict[str, Any]] = []
+    for ct in (playbook.get("content_types") or []):
+        if not isinstance(ct, dict):
+            continue
+        ct_name = str(ct.get("name") or "").strip()
+        if not ct_name:
+            continue
+        options: list[dict[str, str]] = []
+        for opt in (ct.get("options") or []):
+            if not isinstance(opt, dict):
+                continue
+            vd = str(opt.get("visual_direction") or "").strip()
+            if not vd:
+                continue
+            options.append(
+                {
+                    "post_type": "carousel" if "carousel" in str(opt.get("post_type") or "").lower() else "single",
+                    "visual_direction": vd,
+                }
+            )
+        if options:
+            out.append({"name": ct_name, "options": options})
+    return out
+
+
+def build_default_templates(
+    brand: Brand,
+    country_code: str | None = None,
+    playbook: dict | None = None,
+) -> list[dict[str, Any]]:
     business_type = infer_business_type(brand)
     cc = _brand_country(brand, country_code)
     palette = brand.brand_colors or ["#7c3aed"]
@@ -130,6 +162,49 @@ def build_default_templates(brand: Brand, country_code: str | None = None) -> li
                 "color": primary,
             }
         )
+    pb = _normalize_playbook(playbook)
+    if pb:
+        mapped: list[dict[str, Any]] = []
+        for idx, row in enumerate(pb[:12], start=1):
+            ct_name = str(row.get("name") or "").strip()
+            name = f"{ct_name} Template"
+            options = row.get("options") if isinstance(row.get("options"), list) else []
+            first = options[0] if options else {}
+            post_type = str(first.get("post_type") or "single")
+            categories = {
+                "testimonial": TemplateCategory.EVENT,
+                "proof": TemplateCategory.EVENT,
+                "feature": TemplateCategory.SERVICE,
+                "education": TemplateCategory.SERVICE,
+                "offer": TemplateCategory.PRODUCT,
+                "promo": TemplateCategory.PRODUCT,
+                "showcase": TemplateCategory.PRODUCT,
+                "arrival": TemplateCategory.PRODUCT,
+                "seasonal": TemplateCategory.SEASONAL,
+            }
+            cat = TemplateCategory.SERVICE
+            lower = ct_name.lower()
+            for k, v in categories.items():
+                if k in lower:
+                    cat = v
+                    break
+            topics = [ct_name.lower(), f"{ct_name.lower()} example", "campaign-ready post"]
+            mapped.append(
+                {
+                    "name": name,
+                    "category": cat,
+                    "description": f"Playbook-aligned template example for {ct_name}.",
+                    "design_template_type": "general_social",
+                    "topics": topics,
+                    "recurrence": TemplateRecurrence.WEEKLY,
+                    "recurrence_days": [idx % 7],
+                    "platforms": ["instagram", "facebook", "twitter"] if post_type == "single" else ["instagram", "linkedin"],
+                    "color": primary,
+                    "playbook_content_type": ct_name,
+                    "playbook_post_type": post_type,
+                }
+            )
+        return mapped
     return defaults
 
 
@@ -146,7 +221,21 @@ def _infer_content_template_type(template: ContentTemplate) -> str:
     return "general"
 
 
-def _infer_design_template_type(template: ContentTemplate) -> str:
+def _infer_design_template_type(template: ContentTemplate, playbook_content_type: str | None = None) -> str:
+    pb_ct = str(playbook_content_type or "").strip().lower()
+    if pb_ct:
+        if any(k in pb_ct for k in ("feature", "integration", "product update", "release")):
+            return "feature_ui_spotlight"
+        if any(k in pb_ct for k in ("offer", "promo", "drop", "launch", "combo")):
+            return "promo_cta_banner"
+        if any(k in pb_ct for k in ("testimonial", "proof", "review", "reaction")):
+            return "testimonial_proof_card"
+        if any(k in pb_ct for k in ("showcase", "highlight", "arrival", "menu")):
+            return "product_showcase_grid"
+        if any(k in pb_ct for k in ("education", "recipe", "guide", "comparison", "tip")):
+            return "educational_explainer"
+        if any(k in pb_ct for k in ("story", "culture", "behind", "community", "chef", "founder")):
+            return "editorial_story"
     existing = template.design_spec if isinstance(template.design_spec, dict) else {}
     maybe_existing = str(existing.get("design_template_type") or "").strip().lower()
     if maybe_existing:
@@ -170,6 +259,40 @@ def _infer_design_template_type(template: ContentTemplate) -> str:
     return "general_social"
 
 
+def _pick_playbook_direction(template: ContentTemplate, playbook: dict | None) -> dict | None:
+    content_types = _normalize_playbook(playbook)
+    if not content_types:
+        return None
+    spec = template.design_spec if isinstance(template.design_spec, dict) else {}
+    requested_ct = str(spec.get("playbook_content_type") or "").strip().lower()
+    requested_post = str(spec.get("playbook_post_type") or "").strip().lower()
+    name_bag = f"{template.name} {template.description or ''} {' '.join(template.topics or [])}".lower()
+    chosen_ct = None
+    if requested_ct:
+        for ct in content_types:
+            if str(ct.get("name") or "").lower() == requested_ct:
+                chosen_ct = ct
+                break
+    if chosen_ct is None:
+        for ct in content_types:
+            ct_name = str(ct.get("name") or "").lower()
+            if ct_name and (ct_name in name_bag or any(tok in name_bag for tok in ct_name.split())):
+                chosen_ct = ct
+                break
+    if chosen_ct is None:
+        chosen_ct = content_types[0]
+    options = chosen_ct.get("options") if isinstance(chosen_ct.get("options"), list) else []
+    if not options:
+        return None
+    filtered = [o for o in options if str(o.get("post_type") or "") == requested_post] if requested_post else []
+    selected = filtered[0] if filtered else options[0]
+    return {
+        "content_type": chosen_ct.get("name"),
+        "post_type": selected.get("post_type"),
+        "visual_direction": selected.get("visual_direction"),
+    }
+
+
 def _brand_to_prompt_dict(brand: Brand) -> dict[str, Any]:
     kit = brand.brand_kit or {}
     return {
@@ -189,9 +312,19 @@ def _brand_to_prompt_dict(brand: Brand) -> dict[str, Any]:
     }
 
 
-def build_template_design_spec(template: ContentTemplate, brand: Brand) -> dict[str, Any]:
+def build_template_design_spec(
+    template: ContentTemplate,
+    brand: Brand,
+    playbook: dict | None = None,
+) -> dict[str, Any]:
+    playbook_pick = _pick_playbook_direction(template, playbook)
     content_template_type = _infer_content_template_type(template)
-    design_template_type = _infer_design_template_type(template)
+    if playbook_pick and playbook_pick.get("content_type"):
+        content_template_type = str(playbook_pick.get("content_type"))
+    design_template_type = _infer_design_template_type(
+        template,
+        playbook_content_type=(playbook_pick or {}).get("content_type"),
+    )
     palette = (brand.brand_colors or ["#7c3aed", "#111827"])[:4]
     font = brand.brand_font or "Inter"
     visual_system = (brand.brand_kit or {}).get("visual_system") or {}
@@ -244,20 +377,28 @@ def build_template_design_spec(template: ContentTemplate, brand: Brand) -> dict[
         "general_social": "Structure composition for modern social campaign layouts with clear hero and supporting regions.",
     }
     structure_note = structure_note_map.get(design_template_type, structure_note_map["general_social"])
-    visual_direction = (
-        f"Design a premium social campaign template for {brand.name} called '{template.name}'. "
-        f"Template class is content_type={content_template_type} and design_type={design_template_type}. "
-        f"Focal idea is '{topic_hint}', with layered foreground, midground, and background structure; "
-        f"use {font} as typographic intent and keep colour hierarchy around {', '.join(palette)}. "
-        f"{structure_note} "
-        f"{style_note} "
-        "Leave clean logo lockup breathing room in the lower right for consistent brand signature."
-    )
+    if playbook_pick:
+        visual_direction = (
+            f"{str(playbook_pick.get('visual_direction') or '').strip()} "
+            f"Brand kit lock: use palette {', '.join(palette)}, typography intent {font}, and audience tone for {brand.name}. "
+            f"{structure_note} Keep logo lockup breathing room in the lower right."
+        )
+    else:
+        visual_direction = (
+            f"Design a premium social campaign template for {brand.name} called '{template.name}'. "
+            f"Template class is content_type={content_template_type} and design_type={design_template_type}. "
+            f"Focal idea is '{topic_hint}', with layered foreground, midground, and background structure; "
+            f"use {font} as typographic intent and keep colour hierarchy around {', '.join(palette)}. "
+            f"{structure_note} "
+            f"{style_note} "
+            "Leave clean logo lockup breathing room in the lower right for consistent brand signature."
+        )
     image_prompt = (
         f"Create a campaign-quality social media background for {brand.name} in {brand.industry or 'business'} context, "
         f"with palette accents {', '.join(palette)} and a composition that supports template '{template.name}'. "
+        "Include the uploaded brand logo as a subtle integrated mark in the lower-right safe zone with clear breathing room. "
         "Designed, crisp, premium, with structured props and depth suitable for overlaying social post copy and CTA modules. "
-        "No text, no letters, no words, no logos, no watermark, no UI overlays."
+        "No text, no letters, no words, no watermark, no UI overlays."
     )
     return {
         "template_name": template.name,
@@ -276,6 +417,8 @@ def build_template_design_spec(template: ContentTemplate, brand: Brand) -> dict[
         "visual_type": visual_type,
         "visual_archetype": visual_archetype,
         "people_style": people_style,
+        "playbook_content_type": (playbook_pick or {}).get("content_type"),
+        "playbook_post_type": (playbook_pick or {}).get("post_type"),
         "dummy_preview_copy": {
             "headline": topic_hint,
             "subhead": template.description or "Template preview with realistic placeholder campaign copy.",
@@ -286,15 +429,19 @@ def build_template_design_spec(template: ContentTemplate, brand: Brand) -> dict[
     }
 
 
-async def generate_template_preview(template: ContentTemplate, brand: Brand) -> tuple[list[str], bool, dict[str, Any]]:
-    spec = build_template_design_spec(template, brand)
+async def generate_template_preview(
+    template: ContentTemplate,
+    brand: Brand,
+    playbook: dict | None = None,
+) -> tuple[list[str], bool, dict[str, Any]]:
+    spec = build_template_design_spec(template, brand, playbook=playbook)
     post = {
         "topic": template.name,
         "content_idea": template.name,
         "description": template.description or "",
         "platform": (template.platforms or ["instagram"])[0],
-        "format": "single",
-        "slide_count": 1,
+        "format": "carousel" if str(spec.get("playbook_post_type") or "") == "carousel" else "single",
+        "slide_count": 4 if str(spec.get("playbook_post_type") or "") == "carousel" else 1,
         "visual_type": spec.get("visual_type") or "illustration",
         "visual_archetype": spec.get("visual_archetype") or "flat_edu",
         "visual_direction": spec["visual_direction"],

@@ -5,7 +5,14 @@ from app.models.content import ContentItem, ContentStatus, ContentPlatform, Cont
 from app.models.template import ContentTemplate, TemplateCategory, TemplateRecurrence
 from app.models.trend import TrendingTopic
 from app.models.holiday import UserDismissedHoliday
-from app.models.creative_engine import StyleFingerprint, CampaignPlan, RenderVariant
+from app.models.creative_engine import (
+    StyleFingerprint,
+    CampaignPlan,
+    RenderVariant,
+    DesignPlaybookIndustry,
+    DesignPlaybookContentType,
+    DesignPlaybookVisualDirection,
+)
 from app.models.website_intelligence import (
     WebsiteSnapshot,
     WebsiteEntity,
@@ -24,4 +31,5 @@ __all__ = [
     "UserDismissedHoliday",
     "WebsiteSnapshot", "WebsiteEntity", "WebsiteChangeEvent", "WebsiteOpportunity", "WebsiteOpportunityStatus",
     "StyleFingerprint", "CampaignPlan", "RenderVariant",
+    "DesignPlaybookIndustry", "DesignPlaybookContentType", "DesignPlaybookVisualDirection",
 ]

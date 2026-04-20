@@ -88,21 +88,24 @@ VISUAL_DIRECTION_DESIGN_TOKENS = (
 def _image_prompt_ending_for_style(ips: str) -> str:
     if ips == "real_people":
         return (
-            'Must end with: "No text, no logos, no watermarks, no typography, no UI elements, no illustration, '
-            'photorealistic photograph; subjects must match the post topic (people only when the idea truly needs faces)."'
+            'Must end with: "No large text overlays, no watermarks, no typography blocks, no UI elements, no illustration. '
+            'Integrate the uploaded brand logo naturally in the assigned logo_safe_zone at subtle ad-grade scale. '
+            'Photorealistic photograph; subjects must match the post topic (people only when the idea truly needs faces)."'
         )
     if ips == "illustration":
         return (
-            'Must end with: "No text, no logos, no watermarks, no typography, no UI elements, '
-            'premium brand illustration or modern flat graphic only; no photorealistic humans."'
+            'Must end with: "No large text overlays, no watermarks, no typography blocks, no UI elements. '
+            'Integrate the uploaded brand logo naturally in the assigned logo_safe_zone at subtle ad-grade scale. '
+            'Premium brand illustration or modern flat graphic only; no photorealistic humans."'
         )
     if ips == "cartoon":
         return (
-            'Must end with: "No text, no logos, no watermarks, no typography, no UI elements, '
-            'cartoon/comic illustration style only; bold linework and expressive shapes; no photorealistic humans."'
+            'Must end with: "No large text overlays, no watermarks, no typography blocks, no UI elements. '
+            'Integrate the uploaded brand logo naturally in the assigned logo_safe_zone at subtle ad-grade scale. '
+            'Cartoon/comic illustration style only; bold linework and expressive shapes; no photorealistic humans."'
         )
     return (
-        "End by forbidding logos and readable text in-image. "
+        "End by forbidding readable text in-image while requiring a subtle integrated brand logo in logo_safe_zone. "
         "visual_type per post must be one of real_people, illustration, abstract, or product — pick the best fit; "
         "prefer abstract or product when the content is not about people; do not default every post to humans."
     )
@@ -364,19 +367,27 @@ def _visual_system_prompt_block(brand: dict) -> str:
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
         f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; cartoon = comic illustration; mixed = vary by post). "
         f"Design visual_direction around the uploaded brand logo lockup and choose logo_safe_zone where the final mark should sit. "
-        f"Do NOT ask the image model to rasterize text or logo artwork; instead, preserve a clean lockup zone and describe how composition balances around that zone. "
+        f"Require the generated visual to include the uploaded brand logo in the chosen safe zone at subtle, premium scale. "
         f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
     )
 
 
 def _validate_posts(
-    posts: list, words_to_avoid: list[str] | None = None, brand: dict | None = None
+    posts: list,
+    words_to_avoid: list[str] | None = None,
+    brand: dict | None = None,
+    playbook_plan: list[dict] | None = None,
 ) -> list[dict]:
     """
     Validate and coerce post list. Logs issues, drops structurally invalid posts,
     but is lenient on optional fields to avoid losing content unnecessarily.
     """
     avoid = [w.lower() for w in (words_to_avoid or [])]
+    by_date = {
+        str(row.get("date") or ""): row
+        for row in (playbook_plan or [])
+        if isinstance(row, dict) and str(row.get("date") or "").strip()
+    }
     valid = []
     for i, post in enumerate(posts):
         if not isinstance(post, dict):
@@ -389,16 +400,30 @@ def _validate_posts(
             logger.warning(f"Post {i}: missing required fields {missing}; dropped")
             continue
 
-        # Coerce format
-        fmt = str(post.get("format", "single")).lower()
+        date_key = str(post.get("date") or "").strip()
+        assigned = by_date.get(date_key)
+
+        # Coerce format (playbook assignment takes priority)
+        if assigned:
+            fmt = "carousel" if str(assigned.get("post_type") or "") == "carousel" else "single"
+        else:
+            fmt = str(post.get("format", "single")).lower()
         if fmt not in VALID_FORMATS:
             fmt = "single"
         post["format"] = fmt
 
+        if assigned:
+            post["content_type"] = str(assigned.get("content_type") or "")
+            post["visual_direction"] = str(assigned.get("visual_direction") or "")
+
         # Coerce slide_count
         try:
-            post["slide_count"] = max(1, int(post.get("slide_count", 1)))
+            requested_slides = int(post.get("slide_count", 1))
         except (TypeError, ValueError):
+            requested_slides = 1
+        if post["format"] == "carousel":
+            post["slide_count"] = max(2, requested_slides)
+        else:
             post["slide_count"] = 1
 
         # Coerce hashtags
@@ -560,6 +585,121 @@ def _get_posting_dates(year: int, month: int, posts_per_week: int) -> list[str]:
     return [weekdays[int(i * step)].isoformat() for i in range(total)]
 
 
+def _playbook_from_brand(brand: dict | None) -> dict | None:
+    pb = (brand or {}).get("design_playbook")
+    if not isinstance(pb, dict):
+        return None
+    cts = pb.get("content_types")
+    if not isinstance(cts, list) or not cts:
+        return None
+    normalized_cts: list[dict] = []
+    for ct in cts:
+        if not isinstance(ct, dict):
+            continue
+        ct_name = str(ct.get("name") or "").strip()
+        options = ct.get("options")
+        if not ct_name or not isinstance(options, list):
+            continue
+        normalized_opts: list[dict] = []
+        for opt in options:
+            if not isinstance(opt, dict):
+                continue
+            vd = str(opt.get("visual_direction") or "").strip()
+            if not vd:
+                continue
+            post_type = "carousel" if "carousel" in str(opt.get("post_type") or "").lower() else "single"
+            normalized_opts.append(
+                {
+                    "post_type": post_type,
+                    "visual_direction": vd,
+                }
+            )
+        if normalized_opts:
+            normalized_cts.append({"name": ct_name, "options": normalized_opts})
+    if not normalized_cts:
+        return None
+    return {
+        "industry_key": str(pb.get("industry_key") or ""),
+        "industry_name": str(pb.get("industry_name") or ""),
+        "content_types": normalized_cts,
+    }
+
+
+def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, seed_key: str) -> list[dict]:
+    if not posting_dates:
+        return []
+    if not playbook:
+        return []
+    content_types = [ct for ct in (playbook.get("content_types") or []) if isinstance(ct, dict)]
+    if not content_types:
+        return []
+    import random, hashlib
+    seed = int(hashlib.md5(seed_key.encode()).hexdigest(), 16)
+    rng = random.Random(seed)
+    ct_pool = content_types[:]
+    rng.shuffle(ct_pool)
+    plan: list[dict] = []
+    prev_ct = None
+    recent_vds: list[str] = []
+    cursor = 0
+    for d in posting_dates:
+        if not ct_pool:
+            ct_pool = content_types[:]
+            rng.shuffle(ct_pool)
+        ct = ct_pool[cursor % len(ct_pool)]
+        cursor += 1
+        if prev_ct and str(ct.get("name")) == prev_ct and len(ct_pool) > 1:
+            for candidate in ct_pool:
+                if str(candidate.get("name")) != prev_ct:
+                    ct = candidate
+                    break
+        options = [o for o in (ct.get("options") or []) if isinstance(o, dict)]
+        if not options:
+            continue
+        ranked = options[:]
+        rng.shuffle(ranked)
+        ranked.sort(key=lambda x: 1 if str(x.get("visual_direction") or "") in recent_vds[-2:] else 0)
+        selected = ranked[0]
+        vd = str(selected.get("visual_direction") or "")
+        recent_vds.append(vd)
+        plan.append(
+            {
+                "date": d,
+                "content_type": str(ct.get("name") or ""),
+                "post_type": "carousel" if str(selected.get("post_type") or "") == "carousel" else "single",
+                "visual_direction": vd,
+            }
+        )
+        prev_ct = str(ct.get("name") or "")
+    return plan
+
+
+def _playbook_assignment_text(plan: list[dict]) -> str:
+    return "\n".join(
+        [
+            f"• {row.get('date')}: content_type={row.get('content_type')} | post_type={row.get('post_type')} | visual_direction={row.get('visual_direction')}"
+            for row in plan
+        ]
+    )
+
+
+def _enforce_playbook_assignments(posts: list[dict], plan: list[dict]) -> list[dict]:
+    if not posts or not plan:
+        return posts
+    by_date = {str(row.get("date") or ""): row for row in plan}
+    for post in posts:
+        date_key = str(post.get("date") or "").strip()
+        assigned = by_date.get(date_key)
+        if not assigned:
+            continue
+        post["content_type"] = assigned.get("content_type")
+        fmt = "carousel" if str(assigned.get("post_type") or "") == "carousel" else "single"
+        post["format"] = fmt
+        post["slide_count"] = max(4, int(post.get("slide_count") or 1)) if fmt == "carousel" else 1
+        post["visual_direction"] = assigned.get("visual_direction")
+    return posts
+
+
 # ── Per-platform generation ────────────────────────────────────────────────────
 
 async def _generate_for_platform(
@@ -581,17 +721,28 @@ async def _generate_for_platform(
     today = datetime.date.today()
     n = len(posting_dates)
 
-    content_types = [
-        "Educational Tip", "Meme / Relatable Humour", "CTA / Promotion",
-        "Trending Moment", "Behind the Scenes", "Customer Testimonial",
-        "Hot Take", "Engagement Question", "Product Spotlight",
-        "Monday Motivation", "Founder Story", "Industry Insight",
-    ]
+    playbook = _playbook_from_brand(brand_dict)
+    playbook_plan = _build_playbook_schedule(
+        posting_dates,
+        playbook,
+        seed_key=f"{month_name}{year}{platform}",
+    )
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
     rng = random.Random(seed)
-    assigned_types = [content_types[rng.randint(0, len(content_types) - 1)] for _ in posting_dates]
-    type_instructions = "\n".join([f"• {d}: {t}" for d, t in zip(posting_dates, assigned_types)])
+    if playbook_plan:
+        assignment_instructions = _playbook_assignment_text(playbook_plan)
+    else:
+        content_types = [
+            "Educational Tip", "Meme / Relatable Humour", "CTA / Promotion",
+            "Trending Moment", "Behind the Scenes", "Customer Testimonial",
+            "Hot Take", "Engagement Question", "Product Spotlight",
+            "Monday Motivation", "Founder Story", "Industry Insight",
+        ]
+        assigned_types = [content_types[rng.randint(0, len(content_types) - 1)] for _ in posting_dates]
+        assignment_instructions = "\n".join(
+            [f"• {d}: content_type={t} | post_type=single" for d, t in zip(posting_dates, assigned_types)]
+        )
 
     platform_notes = {
         "instagram": "Instagram square 1:1",
@@ -608,7 +759,7 @@ async def _generate_for_platform(
     if ips == "real_people":
         img_style_rules = (
             "• ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
-            "• NEVER mention logos, wordmarks, or typography in image_prompt. Raster is logo-free and text-free; logo is added in post-production\n"
+            "• ALWAYS include the uploaded brand logo in image_prompt as a subtle mark placed in logo_safe_zone with clear breathing room\n"
             "• ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
             "• People are the default subject style: photoreal campaign/documentary humans with authentic local casting, natural skin texture, realistic hands, true facial anatomy, and candid expressions\n"
             "• Avoid plastic AI faces, duplicated faces, malformed hands, and generic smiling stock-pose crowds\n"
@@ -619,7 +770,7 @@ async def _generate_for_platform(
         img_style_rules = (
             f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
             "• image_prompt may use premium 2D illustration, flat brand graphics, or tasteful vector-adjacent art; keep it on-brand, not childish\n"
-            "• NEVER mention logos or typography in-image. Logo is added in post-production\n"
+            "• ALWAYS include the uploaded brand logo in image_prompt as a subtle mark placed in logo_safe_zone with clear breathing room\n"
             "• People may be illustrated (stylised but professional), not photoreal stock\n"
             "• NEVER use generic AI-art clichés"
         )
@@ -627,7 +778,7 @@ async def _generate_for_platform(
         img_style_rules = (
             f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
             "• image_prompt should use premium cartoon/comic illustration: strong shape language, clean linework, modern editorial composition\n"
-            "• NEVER mention logos or typography in-image. Logo is added in post-production\n"
+            "• ALWAYS include the uploaded brand logo in image_prompt as a subtle mark placed in logo_safe_zone with clear breathing room\n"
             "• Characters, if used, should be stylised and expressive, but not childish clip-art\n"
             "• NEVER use generic low-quality sticker-pack aesthetics"
         )
@@ -636,7 +787,7 @@ async def _generate_for_platform(
             f"• ALWAYS name the brand ({brand_name}) and honour VISUAL IDENTITY colours and motifs\n"
             "• Vary the month: mix photoreal (with or without people), premium illustration, abstract texture, and product or still-life heroes\n"
             "• Pick visual_type per post; do not default to crowds or smiling models — lean abstract/product when the topic is not human-centric\n"
-            "• NEVER logos or readable text inside the image; logo is added in post-production\n"
+            "• ALWAYS include the uploaded brand logo in image_prompt as a subtle mark placed in logo_safe_zone with clear breathing room\n"
             "• NEVER generic stock or clichéd \"AI slop\""
         )
 
@@ -665,8 +816,8 @@ Platform: {platform} ({platform_format})
 Format preference: {format_mix}
 {topics_hint}
 
-Assign one post to each date:
-{type_instructions}
+Assign one post to each date using this exact assignment map:
+{assignment_instructions}
 
 For EACH post return ALL these fields:
 
@@ -677,13 +828,13 @@ For EACH post return ALL these fields:
 5. cta: standalone call to action, max 12 words
 6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
 7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) planned logo lockup behavior in one quadrant using the uploaded brand logo and clear breathing room. Do NOT describe caption text overlaid on the image. Copy lives only in the caption field.
-8. image_prompt: background-only prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience. Must NOT mention logos or readable text in-image.
+8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and subtle placement of uploaded brand logo in logo_safe_zone. Must NOT ask for readable text blocks.
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
 10. visual_type: {_visual_type_rule_for_style(ips)}
 11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story"; must align with content_type and visual_type (for abstract prefer pattern_headline or flat_edu; for product prefer photo_hero)
-12. format: "single", "carousel", or "quote"
-13. slide_count: 1 for single/quote, 2-5 for carousel
+12. format: must match post_type assignment (single->"single", carousel->"carousel")
+13. slide_count: 1 for single, 2-5 for carousel
 14. date: posting date in YYYY-MM-DD format exactly as listed above
 15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
 
@@ -700,9 +851,10 @@ HARD RULES:
 • Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely
 • topic must equal content_idea exactly
 {_hard_visual_type_rule(ips)}
-• image_prompt must never ask for text, titles, captions, or logos drawn into the image
+• image_prompt must never ask for text, titles, or captions; logo inclusion is required but should be subtle and premium
 • visual_direction should explicitly design around final logo lockup placement, spacing, and balance
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
+• If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""
@@ -758,7 +910,13 @@ Return a JSON object with a single key "posts" containing the array:
             if not isinstance(posts, list) or len(posts) == 0:
                 raise ValueError("posts array is empty or not a list")
 
-            validated = _validate_posts(posts, words_to_avoid, brand_dict)
+            posts = _enforce_playbook_assignments(posts, playbook_plan)
+            validated = _validate_posts(
+                posts,
+                words_to_avoid=words_to_avoid,
+                brand=brand_dict,
+                playbook_plan=playbook_plan,
+            )
             if len(validated) == 0:
                 raise ValueError("All posts failed validation")
 
