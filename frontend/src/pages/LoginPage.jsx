@@ -64,6 +64,13 @@ export default function LoginPage() {
   const [showPw, setShowPw] = useState(false)
   const { login, isLoading } = useAuthStore()
   const navigate = useNavigate()
+  const authLightThemeVars = {
+    '--cc-ink-rgb': '15 23 42',
+    '--cc-fog-rgb': '229 231 235',
+    '--cc-mist-rgb': '247 247 248',
+    '--cc-surface-rgb': '255 255 255',
+    '--cc-page-rgb': '255 255 255',
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -79,7 +86,7 @@ export default function LoginPage() {
   const fillDemo = () => setForm({ email: 'hellovoya@gmail.com', password: 'demo1234' })
 
   return (
-    <div className="min-h-screen flex">
+    <div className="min-h-screen flex" style={authLightThemeVars}>
       {/* Left: form */}
       <div className="flex-1 lg:max-w-lg bg-mist flex flex-col justify-center px-8 py-12 lg:px-16">
         <div className="mb-10">
