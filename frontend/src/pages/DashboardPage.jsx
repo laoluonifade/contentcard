@@ -18,7 +18,7 @@ function parseLocalDate(str) {
 
 function StatCard({ icon: Icon, val, lbl, loading }) {
   return (
-    <div className="bg-white border border-fog rounded-2xl p-5">
+    <div className="bg-surface border border-fog rounded-2xl p-5">
       <div className="w-8 h-8 rounded-xl bg-mist flex items-center justify-center mb-4">
         <Icon size={15} className="text-ink/40" />
       </div>
@@ -259,7 +259,7 @@ export default function DashboardPage() {
       {/* No brand CTA */}
       {!activeBrandId && !loading && (
         <div className="bg-mist border border-fog rounded-2xl p-10 text-center mb-8">
-          <div className="w-10 h-10 bg-white border border-fog rounded-xl flex items-center justify-center mx-auto mb-4">
+          <div className="w-10 h-10 bg-surface border border-fog rounded-xl flex items-center justify-center mx-auto mb-4">
             <Sparkles size={18} className="text-brand-500" />
           </div>
           <h2 className="text-ink font-semibold text-base mb-2">Set up your brand</h2>
@@ -272,7 +272,7 @@ export default function DashboardPage() {
 
       {/* Month summary bar */}
       {activeBrandId && (
-        <div className="flex items-center justify-between bg-white border border-fog rounded-2xl px-5 py-4 mb-6">
+        <div className="flex items-center justify-between bg-surface border border-fog rounded-2xl px-5 py-4 mb-6">
           <div>
             <p className="text-xs text-ink/40 font-medium mb-0.5">{monthLabel}</p>
             <p className="text-ink font-semibold text-sm">
@@ -300,7 +300,7 @@ export default function DashboardPage() {
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
 
           {/* Platform breakdown */}
-          <div className="bg-white border border-fog rounded-2xl p-6">
+          <div className="bg-surface border border-fog rounded-2xl p-6">
             <h3 className="text-sm font-semibold text-ink mb-5">Platform breakdown</h3>
             {loading || stats.total === 0
               ? <p className="text-ink/30 text-sm">{loading ? 'Loading…' : 'Generate content to see breakdown.'}</p>
@@ -327,7 +327,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Upcoming posts */}
-          <div className="bg-white border border-fog rounded-2xl p-6">
+          <div className="bg-surface border border-fog rounded-2xl p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-sm font-semibold text-ink">Upcoming posts</h3>
               <button onClick={() => navigate('/dashboard/calendar')}
@@ -374,7 +374,7 @@ export default function DashboardPage() {
       )}
 
       {/* Trending topics: Growth + Pro only */}
-      <div className="bg-white border border-fog rounded-2xl p-6">
+      <div className="bg-surface border border-fog rounded-2xl p-6">
         <div className="flex items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-2">
             <TrendingUp size={15} className="text-ink/40" />
@@ -457,7 +457,7 @@ export default function DashboardPage() {
       {/* Generate-post modal */}
       {genModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={closeGenModal}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-fog" onClick={e => e.stopPropagation()}>
             {/* Modal header */}
             <div className="flex items-start justify-between p-5 pb-0">
               <div>

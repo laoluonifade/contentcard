@@ -84,7 +84,7 @@ export default function DashboardLayout() {
     : '??'
 
   const Sidebar = () => (
-    <aside className="w-[220px] flex-shrink-0 flex flex-col bg-white border-r border-fog h-full">
+    <aside className="w-[220px] flex-shrink-0 flex flex-col bg-surface border-r border-fog h-full">
       <Link to="/" className="flex items-center gap-3 px-4 py-[18px] border-b border-fog hover:opacity-80 transition-opacity flex-shrink-0">
         <LogoMark size={26} />
         <span className="font-bold text-ink text-[14px]" style={{ letterSpacing: '-0.02em' }}>ContentCard</span>
@@ -180,7 +180,7 @@ export default function DashboardLayout() {
     <div className="flex h-screen bg-mist overflow-hidden">
       {newWsOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
-          <div className="bg-white rounded-2xl border border-fog shadow-xl max-w-md w-full p-6">
+          <div className="bg-surface rounded-2xl border border-fog shadow-xl max-w-md w-full p-6">
             <h2 className="text-ink font-bold text-lg mb-1">New client workspace</h2>
             <p className="text-ink/45 text-sm mb-4">
               Each workspace is a separate company: its own brands, brand kits, billing, and content. Switch between them from the sidebar.
@@ -222,7 +222,7 @@ export default function DashboardLayout() {
             <Sidebar />
           </div>
           <button onClick={() => setSidebarOpen(false)}
-            className="absolute top-4 right-4 z-50 w-8 h-8 bg-white rounded-lg flex items-center justify-center text-ink/50 hover:text-ink border border-fog">
+            className="absolute top-4 right-4 z-50 w-8 h-8 bg-surface rounded-lg flex items-center justify-center text-ink/50 hover:text-ink border border-fog">
             <X size={16} />
           </button>
         </div>
@@ -230,7 +230,7 @@ export default function DashboardLayout() {
 
       <main className="flex-1 overflow-y-auto bg-mist min-w-0 flex flex-col">
         {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-fog bg-white flex-shrink-0">
+        <div className="lg:hidden flex items-center gap-3 px-4 py-3 border-b border-fog bg-surface flex-shrink-0">
           <button onClick={() => setSidebarOpen(true)} className="w-8 h-8 flex items-center justify-center text-ink/50 hover:text-ink transition-colors">
             <Menu size={20} />
           </button>
@@ -245,7 +245,7 @@ export default function DashboardLayout() {
         </div>
 
         {/* Mobile bottom nav */}
-        <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-fog z-30 flex">
+        <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface border-t border-fog z-30 flex">
           {MOBILE_NAV.map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} end={to === '/dashboard'}
               className={({ isActive }) =>
