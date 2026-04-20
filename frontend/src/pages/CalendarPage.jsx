@@ -58,6 +58,8 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
   const isCarousel = (post?.slide_count||1) > 1
   const imageUrl = (post?.image_urls?.[0]) || post?.image_url
   const arch = post?.visual_archetype
+  const websiteGrounding = post?.theme?.cc_meta?.website_grounding
+  const websiteSourceLabel = websiteGrounding?.trigger_type ? String(websiteGrounding.trigger_type).replace('.', ' ') : ''
   const isSel = !!selected
 
   const cls = "group relative bg-surface border border-fog rounded-xl overflow-hidden hover:border-ink/20 transition-colors text-left w-full"
@@ -93,6 +95,14 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
             title={formatArchetypeLabel(arch)}
           >
             {formatArchetypeLabel(arch)}
+          </div>
+        )}
+        {websiteSourceLabel && (
+          <div
+            className="absolute bottom-2 left-2 max-w-[90%] bg-brand-500/85 px-1.5 py-0.5 rounded text-white text-[9px] font-semibold truncate"
+            title={`Website grounded: ${websiteSourceLabel}`}
+          >
+            {websiteSourceLabel}
           </div>
         )}
       </div>
@@ -322,6 +332,12 @@ export default function CalendarPage() {
     const timer = setInterval(tick, 1000)
     return () => clearInterval(timer)
   }, [generatingMonth, generationStartedAt])
+
+  useEffect(() => {
+    if (generatingMonth && showGenPanel) {
+      setShowGenPanel(false)
+    }
+  }, [generatingMonth, showGenPanel])
 
   useEffect(() => {
     if (!showGenPanel || !activeBrandId) return
@@ -700,7 +716,7 @@ export default function CalendarPage() {
               Select
             </button>
           )}
-          <button onClick={() => setShowGenPanel(true)} className="btn-primary text-sm px-4 py-2">
+          <button onClick={() => !generatingMonth && setShowGenPanel(true)} className="btn-primary text-sm px-4 py-2">
             <Plus size={14}/><span className="hidden sm:inline">Generate</span>
           </button>
         </div>
@@ -841,7 +857,7 @@ export default function CalendarPage() {
         <div className="border border-dashed border-fog rounded-2xl p-16 text-center">
           <p className="text-ink/50 font-medium mb-1.5">No content for {MONTHS[month-1]} {year}</p>
           <p className="text-ink/30 text-sm mb-6">Generate a full month of posts in under a minute.</p>
-          <button onClick={()=>setShowGenPanel(true)} className="btn-primary text-sm">
+          <button onClick={()=>!generatingMonth && setShowGenPanel(true)} className="btn-primary text-sm">
             <Plus size={14}/> Generate content
           </button>
         </div>

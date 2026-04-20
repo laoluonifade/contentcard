@@ -103,6 +103,8 @@ const useAppStore = create(
         template_id,
         include_holidays_in_content,
         generation_brief,
+        use_website_intelligence,
+        only_new_changes,
         confirm_duplicate,
       }) => {
         const brandId = get().activeBrandId
@@ -120,6 +122,8 @@ const useAppStore = create(
             topic_override: topic_override || null, template_id: template_id || null,
             include_holidays_in_content: include_holidays_in_content !== false,
             generation_brief: generation_brief || null,
+            use_website_intelligence: use_website_intelligence !== false,
+            only_new_changes: !!only_new_changes,
             confirm_duplicate: !!confirm_duplicate,
           })
           const count = await get()._pollForContent(brandId, month, year)

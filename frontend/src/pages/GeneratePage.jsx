@@ -72,6 +72,8 @@ export default function GeneratePage() {
   const [postsPerWeek, setPostsPerWeek] = useState(3)
   const [topic, setTopic]               = useState('')
   const [selTrend, setSelTrend]         = useState(null)
+  const [useWebsiteIntelligence, setUseWebsiteIntelligence] = useState(true)
+  const [onlyNewWebsiteChanges, setOnlyNewWebsiteChanges] = useState(false)
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
 
   useEffect(() => {
@@ -112,6 +114,8 @@ export default function GeneratePage() {
       format_mix: 'mixed',
       posts_per_week: postsPerWeek,
       topic_override: topic.trim() || null,
+      use_website_intelligence: useWebsiteIntelligence,
+      only_new_changes: onlyNewWebsiteChanges,
       confirm_duplicate: confirmDuplicate,
     })
   }
@@ -249,6 +253,34 @@ export default function GeneratePage() {
             <p className="text-ink/30 text-xs mt-3">
               ≈ <span className="text-ink/50 font-medium">{totalPosts} posts</span> will be generated for this month
             </p>
+          </div>
+
+          <div className="bg-white border border-fog rounded-2xl p-5">
+            <p className="text-xs font-medium text-ink/40 mb-3 flex items-center gap-2">
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">4</span>
+              Website intelligence
+            </p>
+            <div className="space-y-3">
+              <label className="flex items-start gap-2 text-xs text-ink/70">
+                <input
+                  type="checkbox"
+                  checked={useWebsiteIntelligence}
+                  onChange={(e) => setUseWebsiteIntelligence(e.target.checked)}
+                  className="mt-0.5"
+                />
+                Use approved website opportunities and entities while planning this month.
+              </label>
+              <label className="flex items-start gap-2 text-xs text-ink/70">
+                <input
+                  type="checkbox"
+                  checked={onlyNewWebsiteChanges}
+                  onChange={(e) => setOnlyNewWebsiteChanges(e.target.checked)}
+                  disabled={!useWebsiteIntelligence}
+                  className="mt-0.5"
+                />
+                Prioritize newly detected website changes only.
+              </label>
+            </div>
           </div>
 
           {/* Step 4: Topic */}

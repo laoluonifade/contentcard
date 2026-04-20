@@ -63,3 +63,15 @@ class Brand(Base):
     workspace: Mapped["Workspace"] = relationship("Workspace", back_populates="brands")
     content_items: Mapped[list["ContentItem"]] = relationship("ContentItem", back_populates="brand", cascade="all, delete-orphan")
     templates: Mapped[list["ContentTemplate"]] = relationship("ContentTemplate", back_populates="brand", cascade="all, delete-orphan")
+    website_snapshots: Mapped[list["WebsiteSnapshot"]] = relationship(
+        "WebsiteSnapshot", back_populates="brand", cascade="all, delete-orphan"
+    )
+    website_entities: Mapped[list["WebsiteEntity"]] = relationship(
+        "WebsiteEntity", back_populates="brand", cascade="all, delete-orphan"
+    )
+    website_change_events: Mapped[list["WebsiteChangeEvent"]] = relationship(
+        "WebsiteChangeEvent", back_populates="brand", cascade="all, delete-orphan"
+    )
+    website_opportunities: Mapped[list["WebsiteOpportunity"]] = relationship(
+        "WebsiteOpportunity", back_populates="brand", cascade="all, delete-orphan"
+    )
