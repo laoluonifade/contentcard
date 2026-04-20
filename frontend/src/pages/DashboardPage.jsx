@@ -189,7 +189,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-0.5">Onboarding Tip</p>
-                <h4 className="text-ink font-semibold text-sm mb-1.5">Complete your brand kit to unlock AI generation</h4>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Complete your brand kit to unlock generation</h4>
                 <p className="text-ink/50 text-xs mb-3">
                   Fill in {missing.length} required {missing.length === 1 ? 'field' : 'fields'} so ContentCard can create on-brand content for you:
                 </p>
@@ -218,7 +218,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-0.5">Onboarding Tip</p>
-                <h4 className="text-ink font-semibold text-sm mb-1.5">Generate your AI design templates first</h4>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Generate your design templates first</h4>
                 <p className="text-ink/50 text-xs mb-3">
                   Content generation now runs from design templates. Create defaults in Templates, review visuals, and refine before generating posts.
                 </p>
@@ -379,7 +379,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <TrendingUp size={15} className="text-ink/40" />
             <h3 className="text-sm font-semibold text-ink">Trending in Nigeria</h3>
-            <span className="text-xs text-ink/30 hidden sm:inline">· Powered by AI</span>
+            <span className="text-xs text-ink/30 hidden sm:inline">· Live signals</span>
           </div>
           {planIncludesTrendingTopics(activeWorkspace?.plan) && (
             <button
@@ -396,7 +396,7 @@ export default function DashboardPage() {
           <div className="text-center py-8 px-4">
             <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
             <p className="text-ink/50 text-sm mb-1 max-w-md mx-auto">
-              AI trending topics are included on <span className="font-semibold text-ink/70">Growth</span> and{' '}
+              Trending topics are included on <span className="font-semibold text-ink/70">Growth</span> and{' '}
               <span className="font-semibold text-ink/70">Pro</span>. Upgrade to see what&apos;s trending and spin up quick posts.
             </p>
             <button

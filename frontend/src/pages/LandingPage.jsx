@@ -32,7 +32,7 @@ const FEATURES = [
     badge: 'Trend Intelligence',
     title: 'Post on trends before\nyour competitors do.',
     body: 'Our live trend engine monitors what your industry is talking about right now and surfaces actionable post ideas. First-mover advantage on every trending moment, built in.',
-    bullets: ['Industry-specific trend feed, updated daily', 'One click to build a post around any trend', 'AI predicts what will perform before it peaks'],
+    bullets: ['Industry-specific trend feed, updated daily', 'One click to build a post around any trend', 'Performance signals show what may work before it peaks'],
     side: 'mockup-trends',
   },
   {
@@ -103,13 +103,13 @@ function GenerateMockup() {
             <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0" style={{ background: p.color + '22', color: p.color }}>{p.plat}</div>
             <div className="flex-1">
               <div className="text-white/70 text-xs font-medium">{p.label}</div>
-              <div className="text-white/65 text-[10px] mt-0.5">AI caption generated · On-brand graphic ready</div>
+              <div className="text-white/65 text-[10px] mt-0.5">Caption generated · Brand graphic ready</div>
             </div>
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${p.status === 'Ready' ? 'bg-teal/15 text-teal' : 'bg-white/15 text-white/70'}`}>{p.status}</span>
           </div>
         ))}
         <div className="mt-3 p-3 rounded-xl bg-brand-500/5 border border-brand-500/20">
-          <div className="text-white/70 text-[10px] mb-1.5 font-mono">AI caption preview</div>
+          <div className="text-white/70 text-[10px] mb-1.5 font-mono">Caption preview</div>
           <p className="text-white/65 text-xs leading-relaxed">"The future of banking is not just digital. It is personal. Here is how we are redefining what service means for 2026. 🚀 #FinanceForward #AxleDigital"</p>
         </div>
       </div>
@@ -120,7 +120,7 @@ function GenerateMockup() {
 function TrendsMockup() {
   const trends = [
     { topic: '#OpenBanking2026', heat: 94, posts: '12.4k posts', rising: true },
-    { topic: 'AI in fintech',    heat: 87, posts: '8.1k posts',  rising: true },
+    { topic: 'Digital banking in fintech',    heat: 87, posts: '8.1k posts',  rising: true },
     { topic: '#NigeriaStartups', heat: 76, posts: '5.9k posts',  rising: false },
   ]
   return (
@@ -566,7 +566,7 @@ export default function LandingPage() {
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
               <Link to="/"><LogoFull size={24} dark /></Link>
-              <p className="text-white/75 text-sm mt-4 leading-relaxed">AI-powered social content for enterprise teams, agencies, and startups.</p>
+              <p className="text-white/75 text-sm mt-4 leading-relaxed">Social content for enterprise teams, agencies, and startups.</p>
             </div>
             {[
               { heading: 'Product',   links: [['Features','/features'],['Product guide','/product-guide'],['Pricing','/pricing'],['Changelog','/changelog'],['Roadmap','/roadmap']] },

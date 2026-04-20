@@ -220,7 +220,7 @@ export default function GeneratePage() {
         <div className="border border-amber-200 bg-amber-50 rounded-2xl p-5 mb-6">
           <p className="text-amber-800 text-sm font-semibold mb-1">Template setup required before generation</p>
           <p className="text-amber-700 text-xs mb-3">
-            Generate AI design templates in Templates first. Content generation now runs from those template designs.
+            Generate design templates in Templates first. Content generation now runs from those template designs.
           </p>
           <button onClick={() => navigate('/dashboard/templates')} className="btn-primary text-xs">
             Open Templates
@@ -435,7 +435,7 @@ export default function GeneratePage() {
           </div>
           {!showTrends ? (
             <div className="text-ink/40 text-xs leading-relaxed">
-              <p className="mb-3">AI trending topics are on the Growth and Pro plans.</p>
+              <p className="mb-3">Trending topics are on the Growth and Pro plans.</p>
               <button
                 type="button"
                 onClick={() => navigate('/dashboard/billing')}

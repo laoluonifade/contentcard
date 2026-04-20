@@ -68,7 +68,7 @@ export default function OnboardingPage() {
       })
       setTemplateSetupRunning(true)
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: true })
-      toast('Brand profile and AI templates created. Review templates before generating content.')
+      toast('Brand profile and templates created. Review templates before generating content.')
       navigate('/dashboard/templates')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Something went wrong. Please try again.', 'error')
@@ -82,7 +82,7 @@ export default function OnboardingPage() {
     { icon: Building2, label: 'Brand basics' },
     { icon: Users,     label: 'Your audience' },
     { icon: Palette,   label: 'Brand voice' },
-    { icon: Zap,       label: 'AI templates' },
+    { icon: Zap,       label: 'Design templates' },
   ]
 
   const firstName = user?.full_name?.split(' ')[0] || ''
@@ -253,7 +253,7 @@ export default function OnboardingPage() {
             {step === 4 && (
               <div className="space-y-5">
                 <div>
-                  <h2 className="text-xl font-bold text-ink mb-1">Generate default AI templates</h2>
+                  <h2 className="text-xl font-bold text-ink mb-1">Generate default templates</h2>
                   <p className="text-ink/50 text-sm">
                     Before content generation, ContentCard creates country-aware and business-type templates from your brand kit (colors, font, tone, logo rules).
                   </p>
