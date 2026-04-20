@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 from app.core.config import settings
 
@@ -49,6 +50,18 @@ async def seed_trends(db):
     for t in topics:
         db.add(t)
     await db.commit()
+
+
+async def _run_startup_task(name: str, coro, timeout_seconds: float = 20.0) -> None:
+    """
+    Run non-critical startup work with a timeout so deploy boot isn't blocked.
+    """
+    try:
+        await asyncio.wait_for(coro, timeout=timeout_seconds)
+    except asyncio.TimeoutError:
+        logger.warning("%s timed out after %.1fs (non-fatal)", name, timeout_seconds)
+    except Exception as exc:
+        logger.warning("%s failed (non-fatal): %s", name, exc)
 
 
 @asynccontextmanager
@@ -103,14 +116,11 @@ async def lifespan(app: FastAPI):
 
     # Seed default trending topics
     async with AsyncSessionLocal() as db:
-        await seed_trends(db)
+        await _run_startup_task("Trend seed", seed_trends(db), timeout_seconds=15.0)
 
     # Ensure Paystack subscription plans exist
     from app.services.billing_service import ensure_paystack_plans
-    try:
-        await ensure_paystack_plans()
-    except Exception as e:
-        logger.warning(f"Paystack plan setup failed (non-fatal): {e}")
+    await _run_startup_task("Paystack plan setup", ensure_paystack_plans(), timeout_seconds=12.0)
 
     yield
 
