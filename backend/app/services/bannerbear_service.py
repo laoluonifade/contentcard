@@ -22,6 +22,29 @@ BB_API = "https://api.bannerbear.com/v2"
 POLL_INTERVAL = 3   # seconds between status checks
 MAX_POLLS = 20      # 60 seconds max per image
 
+PATTERN_LIBRARY = {
+    "giant_headline_texture": {"families": {"text_poster", "edu", "data_card"}, "template_setting": "BANNERBEAR_TEMPLATE_TEXT_POSTER"},
+    "card_over_background": {"families": {"announcement", "product_hero"}, "template_setting": "BANNERBEAR_TEMPLATE_ANNOUNCEMENT"},
+    "split_blocks_iconography": {"families": {"illustration_editorial", "hiring"}, "template_setting": "BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL"},
+    "product_ui_mock_device": {"families": {"product_hero", "promo"}, "template_setting": "BANNERBEAR_TEMPLATE_PRODUCT_HERO"},
+    "speech_quote_tweet": {"families": {"story_carousel", "testimonial"}, "template_setting": "BANNERBEAR_TEMPLATE_STORY_CAROUSEL"},
+    "data_stat_card": {"families": {"data_card", "edu"}, "template_setting": "BANNERBEAR_TEMPLATE_DATA_CARD"},
+}
+
+FAMILY_COPY_LIMITS = {
+    "text_poster": {"headline": 56, "subtitle": 80, "body": 120},
+    "data_card": {"headline": 58, "subtitle": 88, "body": 150},
+    "product_hero": {"headline": 60, "subtitle": 96, "body": 150},
+    "announcement": {"headline": 62, "subtitle": 100, "body": 140},
+    "story_carousel": {"headline": 64, "subtitle": 100, "body": 165},
+    "illustration_editorial": {"headline": 58, "subtitle": 92, "body": 140},
+    "promo": {"headline": 58, "subtitle": 90, "body": 145},
+    "edu": {"headline": 60, "subtitle": 92, "body": 150},
+    "testimonial": {"headline": 58, "subtitle": 92, "body": 150},
+    "hiring": {"headline": 58, "subtitle": 88, "body": 140},
+    "default": {"headline": 60, "subtitle": 96, "body": 160},
+}
+
 
 def _clean_inline(text: str | None, max_len: int) -> str:
     t = " ".join(str(text or "").strip().split())
@@ -33,20 +56,50 @@ def _split_caption_sentences(caption: str) -> list[str]:
     return [p for p in parts if p]
 
 
+def _copy_limit(fam: str, key: str, fallback: int) -> int:
+    return int((FAMILY_COPY_LIMITS.get(fam) or FAMILY_COPY_LIMITS["default"]).get(key, fallback))
+
+
+def _resolve_family_template(fam: str, fallback: str) -> str:
+    pattern_order = (
+        "giant_headline_texture",
+        "card_over_background",
+        "split_blocks_iconography",
+        "product_ui_mock_device",
+        "speech_quote_tweet",
+        "data_stat_card",
+    )
+    for p in pattern_order:
+        cfg = PATTERN_LIBRARY[p]
+        if fam in cfg["families"]:
+            uid = getattr(settings, cfg["template_setting"], "") or ""
+            if uid:
+                return uid
+    return fallback
+
+
 def _route_template_family(post_data: dict, body_index: int = 0) -> str:
     """
     Route body slides to a template family using content_type/topic hints.
     Falls back to hook template for the first body slide, then generic content.
     """
     fam = detect_template_family(post_data)
-    if fam == "promo" and getattr(settings, "BANNERBEAR_TEMPLATE_PROMO", ""):
-        return settings.BANNERBEAR_TEMPLATE_PROMO
-    if fam == "edu" and getattr(settings, "BANNERBEAR_TEMPLATE_EDU", ""):
-        return settings.BANNERBEAR_TEMPLATE_EDU
-    if fam == "testimonial" and getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", ""):
-        return settings.BANNERBEAR_TEMPLATE_TESTIMONIAL
-    if fam == "hiring" and getattr(settings, "BANNERBEAR_TEMPLATE_HIRING", ""):
-        return settings.BANNERBEAR_TEMPLATE_HIRING
+    if fam in ("promo", "product_hero", "announcement"):
+        uid = _resolve_family_template(fam, getattr(settings, "BANNERBEAR_TEMPLATE_PROMO", "") or "")
+        if uid:
+            return uid
+    if fam in ("edu", "data_card", "text_poster"):
+        uid = _resolve_family_template(fam, getattr(settings, "BANNERBEAR_TEMPLATE_EDU", "") or "")
+        if uid:
+            return uid
+    if fam in ("testimonial", "story_carousel"):
+        uid = _resolve_family_template(fam, getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", "") or "")
+        if uid:
+            return uid
+    if fam in ("hiring", "illustration_editorial"):
+        uid = _resolve_family_template(fam, getattr(settings, "BANNERBEAR_TEMPLATE_HIRING", "") or "")
+        if uid:
+            return uid
 
     hook_uid = getattr(settings, "BANNERBEAR_TEMPLATE_HOOK", "") or ""
     if body_index == 0 and hook_uid:
@@ -59,17 +112,41 @@ def detect_template_family(post_data: dict) -> str:
     Debug-friendly family key for admin inspection.
     """
     forced = _clean_inline(post_data.get("force_template_family"), 40).lower()
-    if forced in ("promo", "edu", "testimonial", "hiring", "default"):
+    if forced in (
+        "promo",
+        "edu",
+        "testimonial",
+        "hiring",
+        "product_hero",
+        "data_card",
+        "text_poster",
+        "announcement",
+        "story_carousel",
+        "illustration_editorial",
+        "default",
+    ):
         return forced
     ctype = _clean_inline(post_data.get("content_type"), 80).lower()
     topic = _clean_inline(post_data.get("topic"), 120).lower()
     bag = f"{ctype} {topic}"
-    if any(k in bag for k in ("promo", "offer", "sale", "discount", "deal", "launch", "announcement")):
+    if any(k in bag for k in ("promo", "offer", "sale", "discount", "deal")):
         return "promo"
+    if any(k in bag for k in ("launch", "announcement", "event", "webinar", "live session", "speaker")):
+        return "announcement"
+    if any(k in bag for k in ("product spotlight", "feature", "tool", "app", "dashboard", "integration")):
+        return "product_hero"
     if any(k in bag for k in ("education", "tip", "how to", "guide", "explainer", "myth", "mistake")):
         return "edu"
+    if any(k in bag for k in ("report", "data", "stat", "insight", "benchmark", "trend", "thread")):
+        return "data_card"
+    if any(k in bag for k in ("question", "hot take", "thought", "opinion", "lesson")):
+        return "text_poster"
     if any(k in bag for k in ("testimonial", "customer", "review", "proof", "case study", "success story")):
         return "testimonial"
+    if any(k in bag for k in ("story", "journey", "behind the scenes", "founder")):
+        return "story_carousel"
+    if any(k in bag for k in ("meme", "humour", "fun", "relatable")):
+        return "illustration_editorial"
     if any(k in bag for k in ("hiring", "job", "career", "vacancy", "role", "join our team")):
         return "hiring"
     return "default"
@@ -79,10 +156,22 @@ def _family_tokens(post_data: dict) -> dict:
     fam = detect_template_family(post_data)
     if fam == "promo":
         return {"badge": "LIMITED OFFER", "cta": "Claim offer now", "chip": "Deal"}
+    if fam == "announcement":
+        return {"badge": "JUST ANNOUNCED", "cta": "Save your seat", "chip": "Update"}
+    if fam == "product_hero":
+        return {"badge": "NEW FEATURE", "cta": "Try it now", "chip": "Product"}
     if fam == "edu":
         return {"badge": "PRO TIP", "cta": "Save this post", "chip": "Learn"}
+    if fam == "data_card":
+        return {"badge": "INSIGHT", "cta": "Read the breakdown", "chip": "Data"}
+    if fam == "text_poster":
+        return {"badge": "THOUGHT", "cta": "Share your view", "chip": "Idea"}
     if fam == "testimonial":
         return {"badge": "SOCIAL PROOF", "cta": "See results", "chip": "Proof"}
+    if fam == "story_carousel":
+        return {"badge": "STORY", "cta": "Swipe to continue", "chip": "Story"}
+    if fam == "illustration_editorial":
+        return {"badge": "EDITORIAL", "cta": "Read and react", "chip": "Perspective"}
     if fam == "hiring":
         return {"badge": "WE ARE HIRING", "cta": "Apply today", "chip": "Careers"}
     return {"badge": "CONTENTCARD", "cta": "Follow for more", "chip": "Update"}
@@ -96,6 +185,7 @@ def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
     topic = post_data.get("topic") or ""
     caption = post_data.get("caption") or ""
     tokens = _family_tokens(post_data)
+    fam = detect_template_family(post_data)
     cover_headline = _clean_inline(topic, 68)
     sents = _split_caption_sentences(caption)
     subtitle_core = _clean_inline(sents[0] if sents else "Swipe for practical takeaways.", 96)
@@ -106,18 +196,30 @@ def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
     body_slides = max(0, slide_count - 2)
     body_parts = sents[1:] if len(sents) > 1 else sents[:]
     per_slide = max(1, (len(body_parts) + max(body_slides, 1) - 1) // max(body_slides, 1))
+    module_cycle = {
+        "data_card": ("Stat card", "Insight", "Breakdown", "Comparison"),
+        "edu": ("Checklist", "Key lesson", "Example", "Action step"),
+        "text_poster": ("Point", "Thought", "Takeaway", "Prompt"),
+        "story_carousel": ("Scene", "Moment", "Turning point", "Result"),
+        "product_hero": ("Feature", "Benefit", "Use case", "Proof"),
+        "announcement": ("Update", "Detail", "Timeline", "Next step"),
+    }
     bodies: list[dict] = []
     for i in range(body_slides):
         chunk = body_parts[i * per_slide : (i + 1) * per_slide]
         body_text = _clean_inline(". ".join(chunk), 170)
         if not body_text:
             body_text = "Practical action point for this step."
-        bodies.append(
-            {
-                "headline": _clean_inline(f"{tokens['chip']} {i + 1}", 40),
-                "body": body_text,
-            }
-        )
+        prefix = module_cycle.get(fam, ("Point", "Detail", "Proof", "CTA"))[i % 4]
+        if fam in ("data_card", "edu", "text_poster"):
+            h = _clean_inline(f"{prefix} {i + 1}", 40)
+        elif fam in ("story_carousel", "testimonial"):
+            h = _clean_inline(f"{prefix} {i + 1}", 40)
+        elif fam in ("product_hero", "announcement"):
+            h = _clean_inline(f"{prefix} {i + 1}", 40)
+        else:
+            h = _clean_inline(f"{tokens['chip']} {i + 1}", 40)
+        bodies.append({"headline": h, "body": body_text})
 
     cta = _clean_inline(" ".join(sents[-1:]) if sents else tokens["cta"], 120)
     return [{"headline": cover_headline, "subtitle": subtitle}, *bodies, {"headline": tokens["cta"], "body": cta}]
@@ -183,13 +285,15 @@ def _cover_mods(
     topic: str, caption: str, brand_dict: dict,
     background_image_url: str | None = None,
     art_brief: dict | None = None,
+    family: str = "default",
 ) -> list[dict]:
+    fam = family or "default"
     bg_hex = _primary_color(brand_dict)
     if art_brief and art_brief.get("dominant_colors_from_tokens"):
         bg_hex = art_brief["dominant_colors_from_tokens"][0]
     brand_name = _clean_inline(brand_dict.get("name") or "", 40)
-    headline = _clean_inline(topic, 68)
-    subtitle = _clean_inline((_split_caption_sentences(caption) or [""])[0], 96)
+    headline = _clean_inline(topic, _copy_limit(fam, "headline", 68))
+    subtitle = _clean_inline((_split_caption_sentences(caption) or [""])[0], _copy_limit(fam, "subtitle", 96))
     if not subtitle:
         subtitle = "Swipe for details"
     mods = [
@@ -209,14 +313,16 @@ def _content_mods(
     headline: str, body: str, brand_dict: dict,
     background_image_url: str | None = None,
     art_brief: dict | None = None,
+    family: str = "default",
 ) -> list[dict]:
+    fam = family or "default"
     accent = _secondary_color(brand_dict)
     if art_brief and len(art_brief.get("dominant_colors_from_tokens") or []) > 1:
         accent = art_brief["dominant_colors_from_tokens"][1]
     brand_name = _clean_inline(brand_dict.get("name") or "", 40)
     mods = [
         {"name": "headline",   "text": _clean_inline(headline, 56)},
-        {"name": "body",       "text": _clean_inline(body, 180)},
+        {"name": "body",       "text": _clean_inline(body, _copy_limit(fam, "body", 180))},
         {"name": "brand_name", "text": brand_name.upper() if brand_name else ""},
         {"name": "accent",     "color": accent},
     ]
@@ -229,13 +335,15 @@ def _quote_mods(
     quote: str, brand_dict: dict,
     background_image_url: str | None = None,
     art_brief: dict | None = None,
+    family: str = "text_poster",
 ) -> list[dict]:
+    fam = family or "text_poster"
     bg = _primary_color(brand_dict)
     if art_brief and art_brief.get("dominant_colors_from_tokens"):
         bg = art_brief["dominant_colors_from_tokens"][0]
     brand_name = _clean_inline(brand_dict.get("name") or "", 40)
     mods = [
-        {"name": "quote_text", "text": _clean_inline(quote or "", 180)},
+        {"name": "quote_text", "text": _clean_inline(quote or "", _copy_limit(fam, "body", 180))},
         {"name": "brand_name", "text": brand_name.upper() if brand_name else ""},
         {"name": "background", "color": bg},
     ]
@@ -267,6 +375,9 @@ async def generate_post_images(
     caption = post_data.get("caption") or ""
     slide_count = max(1, int(post_data.get("slide_count") or 1))
     ab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else None
+    fam = detect_template_family(post_data)
+    use_photo_bg = fam in ("promo", "product_hero", "testimonial", "hiring", "default")
+    cover_bg_url = background_image_url if use_photo_bg else None
 
     # ── Quote post — single slide
     if fmt == "quote":
@@ -274,7 +385,7 @@ async def generate_post_images(
             return []
         url = await _create_image(
             settings.BANNERBEAR_TEMPLATE_QUOTE,
-            _quote_mods(caption or topic, brand_dict, background_image_url, ab),
+            _quote_mods(caption or topic, brand_dict, cover_bg_url, ab, family=fam),
         )
         return [url] if url else []
 
@@ -282,10 +393,11 @@ async def generate_post_images(
     if not settings.BANNERBEAR_TEMPLATE_COVER:
         return []
 
+    cover_template = _resolve_family_template(fam, settings.BANNERBEAR_TEMPLATE_COVER)
     cover_url = await _create_image(
-        settings.BANNERBEAR_TEMPLATE_COVER,
+        cover_template,
         # Background image only on cover — gives the photographic hero shot
-        _cover_mods(topic, caption, brand_dict, background_image_url, ab),
+        _cover_mods(topic, caption, brand_dict, cover_bg_url, ab, family=fam),
     )
     if not cover_url:
         return []
@@ -306,14 +418,26 @@ async def generate_post_images(
             cp = copy_plan[i + 1] if (i + 1) < len(copy_plan) else {}
             tasks.append(_create_image(
                 tmpl,
-                _content_mods(cp.get("headline", f"Point {i + 1}"), cp.get("body", ""), brand_dict, art_brief=ab),
+                _content_mods(
+                    cp.get("headline", f"Point {i + 1}"),
+                    cp.get("body", ""),
+                    brand_dict,
+                    art_brief=ab,
+                    family=fam,
+                ),
             ))
 
         # CTA slide
         cta = copy_plan[-1] if copy_plan else {"headline": "Take action today", "body": ""}
         tasks.append(_create_image(
-            settings.BANNERBEAR_TEMPLATE_CONTENT,
-            _content_mods(cta.get("headline", "Take action today"), cta.get("body", ""), brand_dict, art_brief=ab),
+            _route_template_family(post_data, body_index=max(0, body_slides)),
+            _content_mods(
+                cta.get("headline", "Take action today"),
+                cta.get("body", ""),
+                brand_dict,
+                art_brief=ab,
+                family=fam,
+            ),
         ))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)

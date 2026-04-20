@@ -89,27 +89,27 @@ function GenerateMockup() {
     <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
       <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
         {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Generate: April 2026</span>
+        <span className="text-white/55 text-xs ml-2 font-mono">Generate: April 2026</span>
       </div>
       <div className="p-4 space-y-2">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-white/50 text-xs">Brand: <span className="text-white/80 font-semibold">Axle Digital</span></span>
+          <span className="text-white/75 text-xs">Brand: <span className="text-white font-semibold">Axle Digital</span></span>
           <div className="bg-brand-500 text-white text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 cursor-pointer">
             <Zap size={9} /> Generate month
           </div>
         </div>
         {posts.map(p => (
-          <div key={p.plat} className="flex items-center gap-3 bg-white/[0.04] rounded-xl p-3 border border-white/[0.06]">
+          <div key={p.plat} className="flex items-center gap-3 bg-white/[0.06] rounded-xl p-3 border border-white/[0.12]">
             <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0" style={{ background: p.color + '22', color: p.color }}>{p.plat}</div>
             <div className="flex-1">
               <div className="text-white/70 text-xs font-medium">{p.label}</div>
-              <div className="text-white/30 text-[10px] mt-0.5">AI caption generated · On-brand graphic ready</div>
+              <div className="text-white/65 text-[10px] mt-0.5">AI caption generated · On-brand graphic ready</div>
             </div>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${p.status === 'Ready' ? 'bg-teal/15 text-teal' : 'bg-white/10 text-white/40'}`}>{p.status}</span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${p.status === 'Ready' ? 'bg-teal/15 text-teal' : 'bg-white/15 text-white/70'}`}>{p.status}</span>
           </div>
         ))}
         <div className="mt-3 p-3 rounded-xl bg-brand-500/5 border border-brand-500/20">
-          <div className="text-white/40 text-[10px] mb-1.5 font-mono">AI caption preview</div>
+          <div className="text-white/70 text-[10px] mb-1.5 font-mono">AI caption preview</div>
           <p className="text-white/65 text-xs leading-relaxed">"The future of banking is not just digital. It is personal. Here is how we are redefining what service means for 2026. 🚀 #FinanceForward #AxleDigital"</p>
         </div>
       </div>
@@ -127,15 +127,15 @@ function TrendsMockup() {
     <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
       <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
         {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Live Trend Engine</span>
+        <span className="text-white/55 text-xs ml-2 font-mono">Live Trend Engine</span>
       </div>
       <div className="p-4 space-y-2">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-white/40 text-xs">Trending in <span className="text-brand-400">Fintech</span> right now</span>
+          <span className="text-white/70 text-xs">Trending in <span className="text-brand-300">Fintech</span> right now</span>
           <span className="text-teal text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse inline-block" />LIVE</span>
         </div>
         {trends.map(t => (
-          <div key={t.topic} className="bg-white/[0.04] rounded-xl p-3 border border-white/[0.06] hover:border-brand-500/30 transition-colors cursor-pointer group">
+          <div key={t.topic} className="bg-white/[0.06] rounded-xl p-3 border border-white/[0.12] hover:border-brand-500/40 transition-colors cursor-pointer group">
             <div className="flex items-center justify-between mb-2">
               <span className="text-white/80 text-xs font-bold">{t.topic}</span>
               {t.rising && <span className="text-teal text-[10px] font-bold flex items-center gap-0.5"><TrendingUp size={10} /> Rising</span>}
@@ -144,7 +144,7 @@ function TrendsMockup() {
               <div className="flex-1 h-1.5 rounded-full bg-white/10">
                 <div className="h-full rounded-full bg-brand-500" style={{ width: `${t.heat}%` }} />
               </div>
-              <span className="text-white/30 text-[10px]">{t.posts}</span>
+              <span className="text-white/65 text-[10px]">{t.posts}</span>
             </div>
             <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
               <div className="text-brand-400 text-[10px] font-bold flex items-center gap-1">Create post from this trend <ArrowRight size={9} /></div>
@@ -166,28 +166,28 @@ function TeamMockup() {
     <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
       <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
         {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Team Workspace: Novabridg</span>
+        <span className="text-white/55 text-xs ml-2 font-mono">Team Workspace: Novabridg</span>
       </div>
       <div className="p-4">
         <div className="grid grid-cols-3 gap-2 mb-4">
           {[['3', 'Brands'], ['10', 'Members'], ['92%', 'Approved']].map(([n, l]) => (
-            <div key={l} className="bg-white/[0.04] rounded-xl p-3 text-center border border-white/[0.06]">
+            <div key={l} className="bg-white/[0.06] rounded-xl p-3 text-center border border-white/[0.12]">
               <div className="text-brand-400 font-bold text-lg">{n}</div>
-              <div className="text-white/40 text-[10px]">{l}</div>
+              <div className="text-white/70 text-[10px]">{l}</div>
             </div>
           ))}
         </div>
         <div className="space-y-2">
           {members.map(m => (
-            <div key={m.name} className="flex items-center gap-3 bg-white/[0.04] rounded-xl p-3 border border-white/[0.06]">
+            <div key={m.name} className="flex items-center gap-3 bg-white/[0.06] rounded-xl p-3 border border-white/[0.12]">
               <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0" style={{ background: m.avatar }}>
                 {m.name.slice(0, 2)}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-white/70 text-xs font-semibold">{m.name}</div>
-                <div className="text-white/30 text-[10px] truncate">{m.action}</div>
+                <div className="text-white/65 text-[10px] truncate">{m.action}</div>
               </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/40 flex-shrink-0">{m.role}</span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/15 text-white/70 flex-shrink-0">{m.role}</span>
             </div>
           ))}
         </div>
@@ -202,22 +202,29 @@ const MOCKUPS = { 'mockup-generate': GenerateMockup, 'mockup-trends': TrendsMock
 
 export default function LandingPage() {
   const navigate = useNavigate()
+  const landingDefaultThemeVars = {
+    '--cc-ink-rgb': '15 23 42',
+    '--cc-fog-rgb': '229 231 235',
+    '--cc-mist-rgb': '247 247 248',
+    '--cc-surface-rgb': '255 255 255',
+    '--cc-page-rgb': '255 255 255',
+  }
 
   return (
-    <div className="bg-ink min-h-screen text-white overflow-x-hidden">
+    <div className="bg-ink min-h-screen text-white overflow-x-hidden" style={landingDefaultThemeVars}>
 
       {/* ── Nav ── */}
-      <nav className="sticky top-0 z-50 border-b border-white/5 bg-ink/90 backdrop-blur-xl">
+      <nav className="sticky top-0 z-50 border-b border-white/10 bg-ink">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link to="/"><LogoFull size={26} dark /></Link>
           <div className="hidden md:flex items-center gap-7">
             {[['Product', '/features'], ['Solutions', '/solutions/agencies'], ['Enterprise', '/enterprise'], ['Pricing', '/pricing']].map(([l, h]) => (
-              <Link key={l} to={h} className="text-white/45 hover:text-white text-sm font-medium transition-colors">{l}</Link>
+              <Link key={l} to={h} className="text-white/75 hover:text-white text-sm font-medium transition-colors">{l}</Link>
             ))}
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/login')} className="text-white/50 hover:text-white text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
-            <button onClick={() => navigate('/demo')} className="text-sm font-bold px-4 py-2 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all hidden sm:block">Get a demo</button>
+            <button onClick={() => navigate('/login')} className="text-white/80 hover:text-white text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
+            <button onClick={() => navigate('/demo')} className="text-sm font-bold px-4 py-2 rounded-xl border border-white/20 text-white/85 hover:text-white hover:bg-white/5 transition-all hidden sm:block">Get a demo</button>
             <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free trial <ArrowRight size={13} /></button>
           </div>
         </div>
@@ -226,28 +233,28 @@ export default function LandingPage() {
       {/* ── Hero ── */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-0 right-0 w-[700px] h-[700px] rounded-full bg-brand-600/10 blur-[160px]" />
-          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] rounded-full bg-teal/5 blur-[120px]" />
+          <div className="absolute top-0 right-0 w-[700px] h-[700px] rounded-full bg-brand-600/20 blur-[150px]" />
+          <div className="absolute bottom-0 left-0 w-[420px] h-[420px] rounded-full bg-teal/15 blur-[110px]" />
         </div>
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 pt-12 sm:pt-16 pb-0 grid lg:grid-cols-2 gap-8 sm:gap-12 items-center">
 
           {/* Left */}
           <div className="py-12 lg:py-20">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500/10 border border-brand-500/20 rounded-full text-brand-400 text-xs font-bold uppercase tracking-widest mb-8">
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500/20 border border-brand-400/40 rounded-full text-brand-300 text-xs font-bold uppercase tracking-widest mb-8">
               <Zap size={10} /> Trusted by 500+ enterprise marketing teams
             </div>
             <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] mb-6" style={{ letterSpacing: '-0.03em' }}>
               Social content that<br />performs, generated<br />
               <span className="text-brand-400">in seconds.</span>
             </h1>
-            <p className="text-base sm:text-lg text-white/50 mb-10 leading-relaxed max-w-lg">
+            <p className="text-base sm:text-lg text-white/80 mb-10 leading-relaxed max-w-lg">
               ContentCard gives marketing teams, agencies, and growing brands a complete system to plan, generate, and publish on-brand content, without the overhead of agencies or additional headcount.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <button onClick={() => navigate('/signup')} className="btn-primary px-7 py-3.5 text-base">
                 Start your free trial <ArrowRight size={16} />
               </button>
-              <button onClick={() => navigate('/demo')} className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
+              <button onClick={() => navigate('/demo')} className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-white/20 text-white/90 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
                 <Play size={13} className="fill-white/60" /> See how it works
               </button>
             </div>
@@ -266,7 +273,7 @@ export default function LandingPage() {
                 <div className="flex gap-0.5 mb-0.5">
                   {Array(5).fill(0).map((_, i) => <Star key={i} size={11} className="fill-yellow-400 text-yellow-400" />)}
                 </div>
-                <p className="text-white/40 text-xs"><strong className="text-white/70">4.9/5</strong> from 300+ enterprise reviews</p>
+                <p className="text-white/70 text-xs"><strong className="text-white">4.9/5</strong> from 300+ enterprise reviews</p>
               </div>
             </div>
           </div>
@@ -283,23 +290,23 @@ export default function LandingPage() {
               <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-ink to-transparent" />
 
               {/* Floating cards */}
-              <div className="absolute top-8 -left-8 bg-[#13121F] border border-white/10 rounded-2xl px-4 py-3 shadow-2xl backdrop-blur-sm">
-                <div className="text-[10px] text-white/40 mb-1">This month's reach</div>
+              <div className="absolute top-8 -left-8 bg-[#0B1222] border border-white/20 rounded-2xl px-4 py-3 shadow-2xl">
+                <div className="text-[10px] text-white/70 mb-1">This month's reach</div>
                 <div className="text-2xl font-bold text-white">2.4M</div>
                 <div className="text-teal text-[10px] font-bold flex items-center gap-1 mt-0.5"><TrendingUp size={9} /> +31% vs last month</div>
               </div>
 
-              <div className="absolute top-32 -right-8 bg-[#13121F] border border-white/10 rounded-2xl px-4 py-3 shadow-2xl backdrop-blur-sm">
-                <div className="text-[10px] text-white/40 mb-1">Content generated</div>
+              <div className="absolute top-32 -right-8 bg-[#0B1222] border border-white/20 rounded-2xl px-4 py-3 shadow-2xl">
+                <div className="text-[10px] text-white/70 mb-1">Content generated</div>
                 <div className="flex items-end gap-1">
                   <span className="text-2xl font-bold text-white">30</span>
-                  <span className="text-white/40 text-xs mb-0.5">posts</span>
+                  <span className="text-white/70 text-xs mb-0.5">posts</span>
                 </div>
                 <div className="text-brand-400 text-[10px] font-bold mt-0.5">In 28 seconds ⚡</div>
               </div>
 
-              <div className="absolute bottom-24 -left-8 bg-[#13121F] border border-white/10 rounded-2xl px-4 py-3 shadow-2xl backdrop-blur-sm">
-                <div className="text-[10px] text-white/40 mb-1.5">Team approval</div>
+              <div className="absolute bottom-24 -left-8 bg-[#0B1222] border border-white/20 rounded-2xl px-4 py-3 shadow-2xl">
+                <div className="text-[10px] text-white/70 mb-1.5">Team approval</div>
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-full bg-teal flex items-center justify-center">
                     <Check size={10} className="text-ink" />
@@ -315,7 +322,7 @@ export default function LandingPage() {
       {/* ── Logo bar ── */}
       <section className="border-y border-white/5 bg-white/[0.015] py-10 px-4 sm:px-6">
         <div className="max-w-7xl mx-auto">
-          <p className="text-white/25 text-xs font-bold uppercase tracking-widest text-center mb-8">Trusted by content teams at Africa's leading organisations</p>
+          <p className="text-white/65 text-xs font-bold uppercase tracking-widest text-center mb-8">Trusted by content teams at Africa's leading organisations</p>
           <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-5">
             {LOGOS.map(({ name, style }) => (
               <span key={name} className="text-base opacity-60 hover:opacity-100 transition-opacity cursor-default" style={style}>{name}</span>
@@ -332,17 +339,17 @@ export default function LandingPage() {
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-4" style={{ letterSpacing: '-0.02em' }}>
               Measurable business outcomes
             </h2>
-            <p className="text-white/40 text-lg max-w-xl mx-auto">Real results from real organisations, across marketing, cost, and revenue.</p>
+            <p className="text-white/75 text-lg max-w-xl mx-auto">Real results from real organisations, across marketing, cost, and revenue.</p>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
             {ROI_STATS.map(({ stat, label, company, detail }) => (
-              <div key={stat} className="bg-white/[0.03] border border-white/[0.06] rounded-3xl p-8 hover:border-brand-500/30 transition-all group">
+              <div key={stat} className="bg-white/[0.05] border border-white/[0.12] rounded-3xl p-8 hover:border-brand-500/35 transition-all group">
                 <div className="text-6xl font-black text-brand-400 mb-3 group-hover:text-brand-300 transition-colors" style={{ letterSpacing: '-0.03em' }}>{stat}</div>
                 <div className="text-white text-lg font-bold mb-2">{label}</div>
-                <div className="text-white/30 text-sm leading-relaxed mb-5">{detail}</div>
+                <div className="text-white/70 text-sm leading-relaxed mb-5">{detail}</div>
                 <div className="flex items-center gap-2 pt-4 border-t border-white/5">
                   <div className="w-1.5 h-1.5 rounded-full bg-teal" />
-                  <span className="text-white/40 text-xs font-medium">{company}</span>
+                  <span className="text-white/70 text-xs font-medium">{company}</span>
                 </div>
               </div>
             ))}
@@ -364,10 +371,10 @@ export default function LandingPage() {
                   <h2 className="text-4xl font-bold text-white mb-5 leading-tight" style={{ letterSpacing: '-0.02em' }}>
                     {title.split('\n').map((line, i) => <span key={i}>{line}{i < title.split('\n').length - 1 && <br />}</span>)}
                   </h2>
-                  <p className="text-white/45 leading-relaxed mb-8 text-lg">{body}</p>
+                  <p className="text-white/80 leading-relaxed mb-8 text-lg">{body}</p>
                   <div className="space-y-3 mb-8">
                     {bullets.map(b => (
-                      <div key={b} className="flex items-center gap-3 text-white/65 text-sm">
+                      <div key={b} className="flex items-center gap-3 text-white/80 text-sm">
                         <div className="w-5 h-5 rounded-full bg-brand-500/15 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
                           <Check size={10} className="text-brand-400" />
                         </div>
@@ -400,11 +407,11 @@ export default function LandingPage() {
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-3" style={{ letterSpacing: '-0.02em' }}>
               The teams behind the results
             </h2>
-            <p className="text-white/40 text-lg">CMOs, agency directors, and brand leaders share what changed after switching to ContentCard.</p>
+            <p className="text-white/75 text-lg">CMOs, agency directors, and brand leaders share what changed after switching to ContentCard.</p>
           </div>
           <div className="grid md:grid-cols-3 gap-6">
             {TESTIMONIALS.map(({ quote, name, title, company, result, img }) => (
-              <div key={name} className="bg-white/[0.03] border border-white/[0.06] hover:border-white/10 rounded-3xl p-7 flex flex-col transition-all">
+              <div key={name} className="bg-white/[0.05] border border-white/[0.12] hover:border-white/20 rounded-3xl p-7 flex flex-col transition-all">
                 {/* Result badge */}
                 <div className="inline-flex items-center gap-2 bg-brand-500/10 border border-brand-500/20 rounded-full px-3 py-1.5 mb-6 self-start">
                   <TrendingUp size={10} className="text-brand-400" />
@@ -415,13 +422,13 @@ export default function LandingPage() {
                   {Array(5).fill(0).map((_, i) => <Star key={i} size={12} className="fill-yellow-400 text-yellow-400" />)}
                 </div>
                 {/* Quote */}
-                <p className="text-white/60 text-sm leading-relaxed mb-7 flex-1">"{quote}"</p>
+                <p className="text-white/80 text-sm leading-relaxed mb-7 flex-1">"{quote}"</p>
                 {/* Person */}
                 <div className="flex items-center gap-3 pt-5 border-t border-white/5">
                   <img src={img} alt={name} className="w-11 h-11 rounded-full object-cover border-2 border-white/10" />
                   <div>
                     <div className="text-white font-bold text-sm">{name}</div>
-                    <div className="text-white/40 text-xs mt-0.5">{title}</div>
+                    <div className="text-white/70 text-xs mt-0.5">{title}</div>
                     <div className="text-brand-400 text-xs font-semibold mt-0.5">{company}</div>
                   </div>
                 </div>
@@ -442,7 +449,7 @@ export default function LandingPage() {
                 <h2 className="text-4xl font-bold text-white mb-5" style={{ letterSpacing: '-0.02em' }}>
                   Built for complex organisations at scale
                 </h2>
-                <p className="text-white/50 leading-relaxed mb-8 text-lg">
+                <p className="text-white/80 leading-relaxed mb-8 text-lg">
                   ContentCard Enterprise supports organisations managing multiple regional brands, large distributed marketing teams, and strict requirements around brand consistency and compliance.
                 </p>
                 <div className="space-y-3 mb-10">
@@ -453,7 +460,7 @@ export default function LandingPage() {
                     'Nigerian ₦ and international $ billing',
                     'SSO & advanced permissions',
                   ].map(f => (
-                    <div key={f} className="flex items-center gap-3 text-white/65 text-sm">
+                    <div key={f} className="flex items-center gap-3 text-white/80 text-sm">
                       <div className="w-5 h-5 rounded-full bg-brand-500/20 border border-brand-500/40 flex items-center justify-center flex-shrink-0">
                         <Check size={10} className="text-brand-400" />
                       </div>
@@ -475,9 +482,9 @@ export default function LandingPage() {
                 <div className="absolute inset-0 bg-gradient-to-r from-[#0F0E17] via-transparent to-transparent" />
                 <div className="absolute bottom-10 right-10 grid grid-cols-2 gap-3">
                   {[['10+', 'Brand profiles'], ['∞', 'Team seats'], ['∞', 'Monthly posts'], ['24/7', 'Priority support']].map(([n, l]) => (
-                    <div key={l} className="bg-ink/80 backdrop-blur-sm border border-white/10 rounded-2xl p-4">
+                    <div key={l} className="bg-ink/90 border border-white/20 rounded-2xl p-4">
                       <div className="text-2xl font-bold text-brand-400">{n}</div>
-                      <div className="text-white/50 text-xs mt-0.5">{l}</div>
+                      <div className="text-white/75 text-xs mt-0.5">{l}</div>
                     </div>
                   ))}
                 </div>
@@ -493,19 +500,19 @@ export default function LandingPage() {
           <div className="text-center mb-14">
             <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Pricing</div>
             <h2 className="text-4xl font-bold text-white mb-3" style={{ letterSpacing: '-0.02em' }}>Clear pricing, no hidden costs.</h2>
-            <p className="text-white/40 text-sm max-w-md mx-auto">Nigerian teams pay in ₦ via Paystack. International billing via Stripe. Currency is detected automatically.</p>
+            <p className="text-white/75 text-sm max-w-md mx-auto">Nigerian teams pay in ₦ via Paystack. International billing via Stripe. Currency is detected automatically.</p>
           </div>
           <div className="grid md:grid-cols-3 gap-5">
             {PLANS.map(p => (
-              <div key={p.name} className={`rounded-2xl p-7 flex flex-col relative ${p.featured ? 'border-2 border-brand-500 bg-brand-500/5' : 'border border-white/[0.06] bg-white/[0.02]'}`}>
+              <div key={p.name} className={`rounded-2xl p-7 flex flex-col relative ${p.featured ? 'border-2 border-brand-500 bg-brand-500/10' : 'border border-white/[0.12] bg-white/[0.05]'}`}>
                 {p.featured && <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-500 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider whitespace-nowrap">Most popular</div>}
-                <div className="text-white/50 text-xs font-bold uppercase tracking-widest mb-2">{p.name}</div>
-                <p className="text-white/35 text-xs mb-5 leading-relaxed">{p.desc}</p>
+                <div className="text-white/75 text-xs font-bold uppercase tracking-widest mb-2">{p.name}</div>
+                <p className="text-white/70 text-xs mb-5 leading-relaxed">{p.desc}</p>
                 <div className="text-4xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>{p.usd}</div>
-                <div className="text-white/25 text-xs mb-6">{p.ngn}/mo in Nigeria · billed monthly</div>
+                <div className="text-white/65 text-xs mb-6">{p.ngn}/mo in Nigeria · billed monthly</div>
                 <div className="flex-1 space-y-2.5 mb-7">
                   {p.features.map(f => (
-                    <div key={f} className="flex items-center gap-2.5 text-sm text-white/55">
+                    <div key={f} className="flex items-center gap-2.5 text-sm text-white/80">
                       <div className="w-4 h-4 rounded-full bg-brand-500/15 border border-brand-500/25 flex items-center justify-center flex-shrink-0"><Check size={9} className="text-brand-400" /></div>
                       {f}
                     </div>
@@ -518,7 +525,7 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
-          <p className="text-center text-white/25 text-xs mt-8">14-day free trial on all plans · No credit card required · Cancel anytime</p>
+          <p className="text-center text-white/65 text-xs mt-8">14-day free trial on all plans · No credit card required · Cancel anytime</p>
         </div>
       </section>
 
@@ -537,16 +544,16 @@ export default function LandingPage() {
                 <h2 className="text-4xl lg:text-5xl font-bold text-white mb-5" style={{ letterSpacing: '-0.03em' }}>
                   Your content operation, transformed.
                 </h2>
-                <p className="text-white/50 text-lg mb-8">Join 500+ marketing teams using ContentCard to publish consistently, strengthen brand equity, and deliver measurable results from social.</p>
+                <p className="text-white/80 text-lg mb-8">Join 500+ marketing teams using ContentCard to publish consistently, strengthen brand equity, and deliver measurable results from social.</p>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <button onClick={() => navigate('/signup')} className="btn-primary px-8 py-4 text-base">
                     Start your free trial <ArrowRight size={17} />
                   </button>
-                  <button onClick={() => navigate('/demo')} className="px-8 py-4 rounded-xl border border-white/20 text-white/70 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
+                  <button onClick={() => navigate('/demo')} className="px-8 py-4 rounded-xl border border-white/30 text-white/90 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
                     Request a demo
                   </button>
                 </div>
-                <p className="text-white/25 text-sm mt-5">14-day free trial · No credit card required · Cancel anytime</p>
+                <p className="text-white/70 text-sm mt-5">14-day free trial · No credit card required · Cancel anytime</p>
               </div>
             </div>
           </div>
@@ -559,7 +566,7 @@ export default function LandingPage() {
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
               <Link to="/"><LogoFull size={24} dark /></Link>
-              <p className="text-white/30 text-sm mt-4 leading-relaxed">AI-powered social content for enterprise teams, agencies, and startups.</p>
+              <p className="text-white/75 text-sm mt-4 leading-relaxed">AI-powered social content for enterprise teams, agencies, and startups.</p>
             </div>
             {[
               { heading: 'Product',   links: [['Features','/features'],['Product guide','/product-guide'],['Pricing','/pricing'],['Changelog','/changelog'],['Roadmap','/roadmap']] },
@@ -567,21 +574,21 @@ export default function LandingPage() {
               { heading: 'Company',   links: [['About','/about'],['Blog','/blog'],['Careers','/careers'],['Contact','/contact'],['Pitch Deck','/pitch-deck']] },
             ].map(({ heading, links }) => (
               <div key={heading}>
-                <div className="text-white/60 text-xs font-bold uppercase tracking-widest mb-4">{heading}</div>
+                <div className="text-white/80 text-xs font-bold uppercase tracking-widest mb-4">{heading}</div>
                 <div className="space-y-2.5">
-                  {links.map(([l, h]) => <Link key={l} to={h} className="block text-white/30 hover:text-white/60 text-sm transition-colors">{l}</Link>)}
+                  {links.map(([l, h]) => <Link key={l} to={h} className="block text-white/70 hover:text-white text-sm transition-colors">{l}</Link>)}
                   {heading === 'Company' && (
-                    <a href="/contentcard-pitch-deck.pdf" target="_blank" rel="noopener noreferrer" className="block text-white/30 hover:text-white/60 text-sm transition-colors">Pitch Deck ↗</a>
+                    <a href="/contentcard-pitch-deck.pdf" target="_blank" rel="noopener noreferrer" className="block text-white/70 hover:text-white text-sm transition-colors">Pitch Deck ↗</a>
                   )}
                 </div>
               </div>
             ))}
           </div>
           <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-8 border-t border-white/5">
-            <p className="text-white/20 text-xs">© 2025 ContentCard. All rights reserved.</p>
+            <p className="text-white/60 text-xs">© 2025 ContentCard. All rights reserved.</p>
             <div className="flex gap-6">
               {[['Privacy','/privacy'],['Terms','/terms'],['Security','/security'],['Support','/support']].map(([l,h]) => (
-                <Link key={l} to={h} className="text-white/25 hover:text-white/50 text-xs transition-colors">{l}</Link>
+                <Link key={l} to={h} className="text-white/65 hover:text-white text-xs transition-colors">{l}</Link>
               ))}
             </div>
           </div>

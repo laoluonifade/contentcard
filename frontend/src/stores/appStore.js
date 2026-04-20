@@ -19,6 +19,7 @@ const useAppStore = create(
       activeBrandId: null,
       contentByMonth: {},
       generatingMonth: false,
+      generationStartedAt: null,
       generationPollCount: 0,
       generationProgress: null,
       templates: [],
@@ -106,7 +107,12 @@ const useAppStore = create(
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
-        set({ generatingMonth: true, generationPollCount: 0, generationProgress: null })
+        set({
+          generatingMonth: true,
+          generationStartedAt: Date.now(),
+          generationPollCount: 0,
+          generationProgress: null,
+        })
         try {
           await contentApi.generateMonth({
             brand_id: brandId, month, year, platforms, format_mix,
@@ -119,7 +125,7 @@ const useAppStore = create(
           const count = await get()._pollForContent(brandId, month, year)
           return count
         } finally {
-          set({ generatingMonth: false, generationProgress: null })
+          set({ generatingMonth: false, generationStartedAt: null, generationProgress: null })
         }
       },
 

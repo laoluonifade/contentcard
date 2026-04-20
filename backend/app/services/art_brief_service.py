@@ -39,7 +39,8 @@ def _infer_archetype(visual_type: str) -> str:
         return "pattern_headline"
     if vt == "product":
         return "photo_hero"
-    return "portrait_story"
+    # Prefer designer-friendly composition over default portrait framing.
+    return "photo_hero"
 
 
 def _infer_logo_placement_from_content(post: dict[str, Any], arch: str, brand: dict[str, Any]) -> str:

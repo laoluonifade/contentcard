@@ -143,6 +143,66 @@ def _score_human_realism_proxy(img: Image.Image, visual_type: str) -> float:
     return _clamp01(0.55 * sat_score + 0.45 * tex)
 
 
+def _score_spacing_rhythm(img: Image.Image) -> float:
+    g = img.convert("L").resize((128, 128))
+    edges = g.filter(ImageFilter.FIND_EDGES)
+    px = list(edges.getdata())
+    if not px:
+        return 0.0
+    row_means = []
+    for r in range(128):
+        row = px[r * 128 : (r + 1) * 128]
+        row_means.append(sum(row) / max(1, len(row)))
+    diffs = [abs(row_means[i] - row_means[i - 1]) for i in range(1, len(row_means))]
+    avg_diff = sum(diffs) / max(1, len(diffs))
+    return _clamp01(1.0 - max(0.0, avg_diff - 18.0) / 45.0)
+
+
+def _score_cta_prominence_proxy(img: Image.Image, post: dict[str, Any]) -> float:
+    cta = str(post.get("cta") or "").strip()
+    if not cta:
+        return 0.6
+    w, h = img.size
+    if w < 16 or h < 16:
+        return 0.0
+    lower_third = img.crop((0, int(h * 0.64), w, h)).convert("L")
+    px = list(lower_third.getdata())
+    if not px:
+        return 0.0
+    spread = (max(px) - min(px)) / 255.0
+    return _clamp01((spread - 0.14) / 0.55)
+
+
+def _score_brand_consistency(brand: dict[str, Any], post: dict[str, Any]) -> float:
+    vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
+    allowed = vs.get("allowed_archetypes") if isinstance(vs.get("allowed_archetypes"), list) else []
+    arche = str(post.get("visual_archetype") or "").lower()
+    fam = str(post.get("template_family") or "").lower()
+    score = 0.55
+    if allowed and arche in allowed:
+        score += 0.2
+    if fam and fam != "default":
+        score += 0.15
+    if str(post.get("logo_safe_zone") or "").strip():
+        score += 0.1
+    return _clamp01(score)
+
+
+def _score_template_fidelity(post: dict[str, Any]) -> float:
+    fam = str(post.get("template_family") or "").lower()
+    fmt = str(post.get("format") or "single").lower()
+    slide_count = int(post.get("slide_count") or 1)
+    if fmt == "carousel":
+        if slide_count < 3:
+            return 0.35
+        if fam in ("story_carousel", "data_card", "edu", "announcement", "product_hero"):
+            return 0.9
+        return 0.7
+    if fam in ("text_poster", "product_hero", "data_card", "announcement", "illustration_editorial", "promo"):
+        return 0.85
+    return 0.65
+
+
 async def _reference_style_score(img: Image.Image, brand: dict[str, Any]) -> float:
     vs = brand.get("visual_system") or {}
     refs = [str(u).strip() for u in (vs.get("reference_urls") or []) if str(u).strip()]
@@ -158,6 +218,33 @@ async def _reference_style_score(img: Image.Image, brand: dict[str, Any]) -> flo
     if not sims:
         return 0.5
     return sum(sims) / len(sims)
+
+
+def _score_template_fit(post: dict[str, Any]) -> float:
+    """
+    Judge whether selected visual type aligns with content intent.
+    """
+    ctype = str(post.get("content_type") or "").lower()
+    topic = str(post.get("topic") or post.get("content_idea") or "").lower()
+    bag = f"{ctype} {topic}"
+    vt = str(post.get("visual_type") or "real_people").lower()
+    fam = str(post.get("template_family") or "").lower()
+
+    if any(k in bag for k in ("tip", "guide", "how to", "insight", "report", "thread", "breakdown")):
+        if vt == "real_people":
+            return 0.35
+        return 0.85
+    if any(k in bag for k in ("promo", "offer", "sale", "launch", "announcement", "feature")):
+        if vt in ("product", "illustration"):
+            return 0.9
+        return 0.55
+    if any(k in bag for k in ("testimonial", "customer", "story", "founder")):
+        if vt in ("real_people", "illustration"):
+            return 0.85
+        return 0.6
+    if fam in ("data_card", "text_poster", "edu") and vt == "real_people":
+        return 0.4
+    return 0.7
 
 
 async def score_visual_quality(
@@ -199,6 +286,11 @@ async def score_visual_quality(
     s_read = _score_readability(img)
     s_human = _score_human_realism_proxy(img, vt)
     s_ref = await _reference_style_score(img, brand)
+    s_fit = _score_template_fit(post)
+    s_space = _score_spacing_rhythm(img)
+    s_cta = _score_cta_prominence_proxy(img, post)
+    s_brand = _score_brand_consistency(brand, post)
+    s_fidelity = _score_template_fidelity(post)
     s_lint = 1.0
     if isinstance(lint, dict):
         st = str(lint.get("status") or "")
@@ -211,7 +303,12 @@ async def score_visual_quality(
         + 0.14 * s_clut
         + 0.14 * s_read
         + 0.20 * s_human
-        + 0.12 * s_ref
+        + 0.08 * s_ref
+        + 0.08 * s_fit
+        + 0.06 * s_space
+        + 0.05 * s_cta
+        + 0.05 * s_brand
+        + 0.04 * s_fidelity
         + 0.04 * s_lint
     )
     scores = {
@@ -221,6 +318,11 @@ async def score_visual_quality(
         "readability": round(s_read, 3),
         "human_realism": round(s_human, 3),
         "reference_style": round(s_ref, 3),
+        "template_fit": round(s_fit, 3),
+        "spacing_rhythm": round(s_space, 3),
+        "cta_prominence": round(s_cta, 3),
+        "brand_consistency": round(s_brand, 3),
+        "template_fidelity": round(s_fidelity, 3),
         "lint_bonus": round(s_lint, 3),
     }
     out["scores"] = scores
@@ -240,6 +342,21 @@ async def score_visual_quality(
     if s_ref < 0.45:
         reasons.append("Style drift from approved references")
         hints.append("Align palette/composition with approved reference set")
+    if s_fit < 0.5:
+        reasons.append("Visual type does not match post intent")
+        hints.append("Use non-portrait design pattern for educational/data/promotional post")
+    if s_space < 0.45:
+        reasons.append("Spacing rhythm feels uneven")
+        hints.append("Use cleaner block spacing and stronger alignment rhythm")
+    if s_cta < 0.45:
+        reasons.append("CTA prominence is weak")
+        hints.append("Reserve stronger contrast zone for CTA module")
+    if s_brand < 0.55:
+        reasons.append("Brand consistency is weak")
+        hints.append("Align archetype and safe-zone choices with brand visual system")
+    if s_fidelity < 0.55:
+        reasons.append("Template fidelity is weak")
+        hints.append("Use a template family better matched to this format and content intent")
 
     out["reasons"] = reasons
     out["retry_hints"] = hints

@@ -56,10 +56,16 @@ def apply_visual_system_defaults(brand: dict[str, Any]) -> dict[str, Any]:
         ],
         "reference_urls": [str(u).strip() for u in (vs.get("reference_urls") or []) if str(u).strip()][:10],
         "reference_rights_attested": bool(vs.get("reference_rights_attested")),
+        "style_mix_targets": {
+            "text_poster": 0.2,
+            "product_hero": 0.2,
+            "illustration": 0.25,
+            "people_photo": 0.35,
+        },
     }
-    _ips = str(vs.get("image_people_style") or "real_people").lower()
+    _ips = str(vs.get("image_people_style") or "mixed").lower()
     if _ips not in ("real_people", "illustration", "mixed"):
-        _ips = "real_people"
+        _ips = "mixed"
     defaults["image_people_style"] = _ips
     merged_vs = defaults.copy()
     for k, v in vs.items():
@@ -71,7 +77,7 @@ def apply_visual_system_defaults(brand: dict[str, Any]) -> dict[str, Any]:
     merged_vs["primary_hex"] = _norm_hex(str(merged_vs.get("primary_hex"))) or primary
     merged_vs["secondary_hex"] = _norm_hex(str(merged_vs.get("secondary_hex"))) or sec
     merged_vs["accent_hex"] = _norm_hex(str(merged_vs.get("accent_hex"))) or accent
-    ips = str(merged_vs.get("image_people_style") or "real_people").lower()
-    merged_vs["image_people_style"] = ips if ips in ("real_people", "illustration", "mixed") else "real_people"
+    ips = str(merged_vs.get("image_people_style") or "mixed").lower()
+    merged_vs["image_people_style"] = ips if ips in ("real_people", "illustration", "mixed") else "mixed"
     brand["visual_system"] = merged_vs
     return brand

@@ -217,7 +217,16 @@ function CalendarPrepBody({
 export default function CalendarPage() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
-  const { activeBrandId, brands, fetchMonthContent, generateMonth, generatingMonth, generationPollCount, generationProgress } = useAppStore()
+  const {
+    activeBrandId,
+    brands,
+    fetchMonthContent,
+    generateMonth,
+    generatingMonth,
+    generationStartedAt,
+    generationPollCount,
+    generationProgress,
+  } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
@@ -238,6 +247,7 @@ export default function CalendarPage() {
   const [prepInput, setPrepInput] = useState('')
   const [prepSending, setPrepSending] = useState(false)
   const [prepExecuteBusy, setPrepExecuteBusy] = useState(false)
+  const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
   const [prepMinimized, setPrepMinimized] = useState(() => {
     try {
       return localStorage.getItem(PREP_ASSISTANT_MIN_KEY) === '1'
@@ -299,6 +309,19 @@ export default function CalendarPage() {
     setSelectedIds(new Set())
     setSelectMode(false)
   }, [month, year, activeBrandId])
+
+  useEffect(() => {
+    if (!generatingMonth || !generationStartedAt) {
+      setGenerationElapsedSec(0)
+      return
+    }
+    const tick = () => {
+      setGenerationElapsedSec(Math.max(0, Math.floor((Date.now() - generationStartedAt) / 1000)))
+    }
+    tick()
+    const timer = setInterval(tick, 1000)
+    return () => clearInterval(timer)
+  }, [generatingMonth, generationStartedAt])
 
   useEffect(() => {
     if (!showGenPanel || !activeBrandId) return
@@ -629,6 +652,11 @@ export default function CalendarPage() {
     } catch (err) {
       const d = err.response?.data?.detail
       const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
+      if (msg.toLowerCase().includes('taking longer than expected')) {
+        toast(msg)
+        setShowGenPanel(false)
+        return
+      }
       toast(msg, 'error')
     }
   }
@@ -711,6 +739,11 @@ export default function CalendarPage() {
               Generation is running. Posts will appear here automatically once captions and images are finished
               (poll #{generationPollCount}).
             </>
+          )}
+          {generationElapsedSec >= 45 && (
+            <p className="mt-2 text-xs text-ink/55">
+              Rendering can take longer than usual. Check back in about a minute; this calendar updates automatically as visuals finish.
+            </p>
           )}
         </div>
       )}

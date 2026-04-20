@@ -60,6 +60,19 @@ VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
 VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
 VALID_LOGO_SAFE_ZONES = frozenset({"upper_left", "upper_right", "lower_left", "lower_right"})
 TEASER_STYLE_WORDS = ("inside", "part 1", "part one", "swipe", "thread", "behind the scenes", "step-by-step")
+VISUAL_DIRECTION_DESIGN_TOKENS = (
+    "foreground",
+    "midground",
+    "background",
+    "negative space",
+    "composition",
+    "focal",
+    "props",
+    "texture",
+    "lighting",
+    "depth",
+    "layer",
+)
 
 
 def _image_prompt_ending_for_style(ips: str) -> str:
@@ -103,6 +116,130 @@ def _hard_visual_type_rule(ips: str) -> str:
     )
 
 
+def _coerce_visual_type_by_content_type(post: dict) -> str:
+    """
+    Route style by content intent so we do not default to generic people photos.
+    """
+    ctype = str(post.get("content_type") or "").lower()
+    topic = str(post.get("topic") or post.get("content_idea") or "").lower()
+    bag = f"{ctype} {topic}"
+    current = str(post.get("visual_type") or "real_people").lower()
+    if current not in VALID_VISUAL_TYPES:
+        current = "real_people"
+
+    if any(k in bag for k in ("tip", "guide", "how to", "insight", "myth", "mistake", "breakdown", "thread")):
+        return current if current in ("illustration", "abstract", "product") else "illustration"
+    if any(k in bag for k in ("promo", "offer", "sale", "launch", "product spotlight", "announcement")):
+        return current if current in ("product", "illustration") else "product"
+    if any(k in bag for k in ("testimonial", "customer", "case study", "proof", "review", "founder story")):
+        return current if current in ("real_people", "illustration") else "real_people"
+    if any(k in bag for k in ("meme", "relatable humour", "hot take", "engagement question")):
+        return current if current in ("illustration", "abstract") else "illustration"
+    return current
+
+
+def _detect_template_family_for_mix(post: dict) -> str:
+    ctype = str(post.get("content_type") or "").lower()
+    topic = str(post.get("topic") or post.get("content_idea") or "").lower()
+    bag = f"{ctype} {topic}"
+    if any(k in bag for k in ("promo", "offer", "sale", "discount", "deal")):
+        return "promo"
+    if any(k in bag for k in ("launch", "announcement", "event", "webinar", "live session", "speaker")):
+        return "announcement"
+    if any(k in bag for k in ("product spotlight", "feature", "tool", "app", "dashboard", "integration")):
+        return "product_hero"
+    if any(k in bag for k in ("education", "tip", "how to", "guide", "explainer", "myth", "mistake")):
+        return "edu"
+    if any(k in bag for k in ("report", "data", "stat", "insight", "benchmark", "trend", "thread")):
+        return "data_card"
+    if any(k in bag for k in ("question", "hot take", "thought", "opinion", "lesson")):
+        return "text_poster"
+    if any(k in bag for k in ("testimonial", "customer", "review", "proof", "case study", "success story")):
+        return "testimonial"
+    if any(k in bag for k in ("story", "journey", "behind the scenes", "founder")):
+        return "story_carousel"
+    if any(k in bag for k in ("meme", "humour", "fun", "relatable")):
+        return "illustration_editorial"
+    if any(k in bag for k in ("hiring", "job", "career", "vacancy", "role", "join our team")):
+        return "hiring"
+    return "default"
+
+
+def _apply_style_mix_targets(valid: list[dict], brand: dict | None) -> list[dict]:
+    """
+    Enforce brand-level style profile and cap people-photo dominance.
+    """
+    if not valid:
+        return valid
+    vs = ((brand or {}).get("visual_system") or {}) if isinstance((brand or {}).get("visual_system"), dict) else {}
+    mix = vs.get("style_mix_targets") if isinstance(vs.get("style_mix_targets"), dict) else {}
+    people_cap = float(mix.get("people_photo", settings.MAX_REAL_PEOPLE_SHARE))
+    people_cap = max(0.0, min(1.0, people_cap))
+    max_people = max(1, int(round(len(valid) * people_cap)))
+
+    people_idxs = [i for i, p in enumerate(valid) if str(p.get("visual_type") or "").lower() == "real_people"]
+    if len(people_idxs) > max_people:
+        overflow = people_idxs[max_people:]
+        for idx in overflow:
+            fam = _detect_template_family_for_mix(valid[idx])
+            if fam in ("product_hero", "promo", "announcement"):
+                valid[idx]["visual_type"] = "product"
+                valid[idx]["visual_archetype"] = "photo_hero"
+            elif fam in ("data_card", "text_poster", "edu", "illustration_editorial"):
+                valid[idx]["visual_type"] = "illustration"
+                valid[idx]["visual_archetype"] = "flat_edu"
+            else:
+                valid[idx]["visual_type"] = "illustration"
+                valid[idx]["visual_archetype"] = "pov_comic"
+            _enforce_designer_visual_direction(valid[idx])
+    return valid
+
+
+def _enforce_designer_visual_direction(post: dict) -> None:
+    """
+    Ensure visual_direction reads like a real design brief, not a vague scene note.
+    """
+    vd_raw = str(post.get("visual_direction") or "").strip()
+    vd_lc = vd_raw.lower()
+    token_hits = sum(1 for t in VISUAL_DIRECTION_DESIGN_TOKENS if t in vd_lc)
+    has_generic_person_scene = (
+        ("person" in vd_lc or "woman" in vd_lc or "man" in vd_lc or "girl" in vd_lc)
+        and ("props" not in vd_lc and "product" not in vd_lc and "object" not in vd_lc and "environment" not in vd_lc)
+    )
+    if len(vd_raw) >= 110 and token_hits >= 3 and not has_generic_person_scene:
+        return
+
+    topic = str(post.get("topic") or post.get("content_idea") or "the message").strip()
+    zone = str(post.get("logo_safe_zone") or "lower_right").replace("_", " ")
+    vt = str(post.get("visual_type") or "illustration").lower()
+    if vt == "illustration":
+        style_line = (
+            "Use illustration-first composition with vector-like shape language, iconography cues, "
+            "and clean geometric blocks suitable for social feed graphics."
+        )
+    elif vt == "product":
+        style_line = (
+            "Use product-led composition with mock-device or product module framing, card overlays, "
+            "and supporting interface-style context blocks."
+        )
+    elif vt == "abstract":
+        style_line = (
+            "Use abstract graphic composition with controlled gradients, motif shapes, and intentional "
+            "negative-space rhythm that supports headline-led design."
+        )
+    else:
+        style_line = (
+            "Use campaign-grade composition with strong subject hierarchy and context props, not a generic portrait."
+        )
+    post["visual_direction"] = (
+        f"Design this like a premium social ad for {topic}: define one clear focal subject tied to the idea, "
+        "build layered foreground, midground, and background depth, and include contextual props or product cues that prove the message. "
+        f"{style_line} "
+        "Use controlled lighting, real material texture, and clean colour hierarchy so it feels art-directed, not a random lifestyle snapshot. "
+        f"Keep deliberate negative space in the {zone} area for post-production brand lockup, and avoid generic portrait-only composition."
+    )
+
+
 def _visual_system_prompt_block(brand: dict) -> str:
     _raw = brand.get("visual_system")
     vs = _raw if isinstance(_raw, dict) else {}
@@ -110,9 +247,9 @@ def _visual_system_prompt_block(brand: dict) -> str:
         return "Visual tokens: derive from brand colours; vary visual_archetype across the month."
     arch = vs.get("allowed_archetypes") or []
     motifs = vs.get("never_show_motifs") or []
-    ips = str(vs.get("image_people_style") or "real_people").lower()
+    ips = str(vs.get("image_people_style") or "mixed").lower()
     if ips not in ("real_people", "illustration", "mixed"):
-        ips = "real_people"
+        ips = "mixed"
     return (
         f"Allowed visual_archetype values: {', '.join(str(a) for a in arch)}. "
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
@@ -162,9 +299,9 @@ def _validate_posts(
 
         _br_vs = (brand or {}).get("visual_system")
         vs = _br_vs if isinstance(_br_vs, dict) else {}
-        ips = str(vs.get("image_people_style") or "real_people").lower()
+        ips = str(vs.get("image_people_style") or "mixed").lower()
         if ips not in ("real_people", "illustration", "mixed"):
-            ips = "real_people"
+            ips = "mixed"
         vt_ai = str(post.get("visual_type", "real_people")).lower()
         if vt_ai not in VALID_VISUAL_TYPES:
             vt_ai = "real_people"
@@ -174,6 +311,7 @@ def _validate_posts(
             post["visual_type"] = "illustration"
         else:
             post["visual_type"] = vt_ai
+        post["visual_type"] = _coerce_visual_type_by_content_type(post)
 
         # visual_archetype: layout family for VBS / art brief (PRD)
         va = str(post.get("visual_archetype", "")).strip().lower()
@@ -187,12 +325,18 @@ def _validate_posts(
             post["visual_archetype"] = "pattern_headline"
         elif vt == "product" and post["visual_archetype"] not in ("photo_hero", "flat_edu", "pattern_headline"):
             post["visual_archetype"] = "photo_hero"
+        elif vt == "illustration" and post["visual_archetype"] not in ("flat_edu", "pattern_headline", "pov_comic"):
+            post["visual_archetype"] = "flat_edu"
+        elif vt == "real_people" and post["visual_archetype"] not in ("photo_hero", "portrait_story", "pov_comic"):
+            post["visual_archetype"] = "photo_hero"
 
         zone = str(post.get("logo_safe_zone", "")).strip().lower().replace(" ", "_")
         if zone not in VALID_LOGO_SAFE_ZONES:
             post.pop("logo_safe_zone", None)
         else:
             post["logo_safe_zone"] = zone
+
+        _enforce_designer_visual_direction(post)
 
         # Backfill topic from content_idea
         if not post.get("topic"):
@@ -220,7 +364,7 @@ def _validate_posts(
 
         valid.append(_sanitize_post_copy_fields(post))
 
-    return valid
+    return _apply_style_mix_targets(valid, brand)
 
 
 # ── Core OpenAI chat wrapper ───────────────────────────────────────────────────
@@ -348,8 +492,8 @@ async def _generate_for_platform(
 
     _vs_raw = (brand_dict or {}).get("visual_system")
     _vs_dict = _vs_raw if isinstance(_vs_raw, dict) else {}
-    ips = str(_vs_dict.get("image_people_style") or "real_people")
-    ips = ips.lower() if ips in ("real_people", "illustration", "mixed") else "real_people"
+    ips = str(_vs_dict.get("image_people_style") or "mixed")
+    ips = ips.lower() if ips in ("real_people", "illustration", "mixed") else "mixed"
     if ips == "real_people":
         img_style_rules = (
             "• ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
@@ -413,7 +557,7 @@ For EACH post return ALL these fields:
 4. caption: full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
 5. cta: standalone call to action, max 12 words
 6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction: 3-4 sentences for a designer: scene, composition, lighting, subjects, mood. Do NOT describe text overlaid on the image. Copy lives only in the caption field.
+7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) planned negative space quadrant for brand lockup. Do NOT describe text overlaid on the image. Copy lives only in the caption field.
 8. image_prompt: background-only prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience. Must NOT mention logos or readable text in-image.
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
@@ -433,6 +577,7 @@ HARD RULES:
 • topic must equal content_idea exactly
 {_hard_visual_type_rule(ips)}
 • image_prompt and visual_direction must never ask for text, titles, captions, or logos drawn into the image
+• Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""
