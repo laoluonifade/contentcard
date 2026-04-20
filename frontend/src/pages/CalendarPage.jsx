@@ -68,7 +68,7 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
       {selectMode && (
         <div
           className={`absolute top-2 left-2 z-10 w-5 h-5 rounded-md border-2 flex items-center justify-center pointer-events-none ${
-            isSel ? 'bg-ink border-ink' : 'bg-white/90 border-ink/25'
+            isSel ? 'bg-ink border-ink' : 'bg-surface/90 border-ink/25'
           }`}
         >
           {isSel && <Check size={12} className="text-white" strokeWidth={3} />}
@@ -159,7 +159,7 @@ function CalendarPrepBody({
                     key={ch.id}
                     type="button"
                     onClick={() => onPickChoice(ch)}
-                    className="text-[11px] px-2 py-1 rounded-lg border border-fog bg-white text-ink/70 hover:border-ink/20 hover:text-ink transition-colors"
+                    className="text-[11px] px-2 py-1 rounded-lg border border-fog bg-surface text-ink/70 hover:border-ink/20 hover:text-ink transition-colors"
                   >
                     {ch.label}
                   </button>
@@ -697,7 +697,7 @@ export default function CalendarPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          <div className="flex items-center gap-0.5 bg-white border border-fog rounded-xl p-1">
+          <div className="flex items-center gap-0.5 bg-surface border border-fog rounded-xl p-1">
             <button onClick={()=>shiftMonth(-1)} className="p-2 hover:bg-mist rounded-lg text-ink/40 transition-colors"><ChevronLeft size={15}/></button>
             <span className="text-ink text-sm font-medium px-2 whitespace-nowrap">{MONTHS[month-1].slice(0,3)} {year}</span>
             <button onClick={()=>shiftMonth(1)}  className="p-2 hover:bg-mist rounded-lg text-ink/40 transition-colors"><ChevronRight size={15}/></button>
@@ -772,11 +772,11 @@ export default function CalendarPage() {
       <div className="min-w-0">
 
       <details
-        className="lg:hidden mb-4 border border-fog rounded-2xl bg-white overflow-hidden group"
+        className="lg:hidden mb-4 border border-fog rounded-2xl bg-surface overflow-hidden group"
         open={!prepMinimized}
         onToggle={(e) => setPrepMinimizedPersist(!e.currentTarget.open)}
       >
-        <summary className="list-none cursor-pointer px-4 py-3 flex items-center gap-2 border-b border-fog bg-white [&::-webkit-details-marker]:hidden">
+        <summary className="list-none cursor-pointer px-4 py-3 flex items-center gap-2 border-b border-fog bg-surface [&::-webkit-details-marker]:hidden">
           <MessageSquare size={16} className="text-ink/40 flex-shrink-0" />
           <div className="min-w-0">
             <p className="text-ink text-sm font-semibold">Prep assistant</p>
@@ -889,7 +889,7 @@ export default function CalendarPage() {
 
       </div>
 
-      <aside className="hidden lg:flex flex-col border border-fog rounded-2xl bg-white overflow-hidden mt-6 lg:mt-0 sticky top-6 max-h-[calc(100vh-5rem)]">
+      <aside className="hidden lg:flex flex-col border border-fog rounded-2xl bg-surface overflow-hidden mt-6 lg:mt-0 sticky top-6 max-h-[calc(100vh-5rem)]">
         {prepMinimized ? (
           <button
             type="button"
@@ -950,7 +950,7 @@ export default function CalendarPage() {
       {showGenPanel && (
         <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
           onClick={e=>e.target===e.currentTarget&&setShowGenPanel(false)}>
-          <div className="bg-white border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-6 space-y-5">
+          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-6 space-y-5">
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-ink font-semibold">Generate {MONTHS[month-1]} {year}</h3>
@@ -1065,10 +1065,10 @@ export default function CalendarPage() {
       {modal && (
         <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
           onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-          <div className="bg-white border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl max-h-[94vh] overflow-y-auto">
+          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl max-h-[94vh] overflow-y-auto">
 
             {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-fog sticky top-0 bg-white z-10">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-fog sticky top-0 bg-surface z-10">
               <div>
                 <p className="text-ink/40 text-xs mb-0.5 capitalize">
                   {modal.platform} · {fmtDate(modal.scheduled_date)}
@@ -1187,7 +1187,7 @@ export default function CalendarPage() {
                     <label className="label">Hashtags</label>
                     <div className="flex flex-wrap gap-1.5 p-3 bg-mist border border-fog rounded-xl min-h-[42px]">
                       {editHashtags.map((h,i)=>(
-                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-fog text-ink/60 text-xs rounded-lg">
+                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-fog text-ink/60 text-xs rounded-lg">
                           #{h}
                           <button onClick={()=>setEditHashtags(hs=>hs.filter((_,j)=>j!==i))} className="hover:text-ink ml-0.5 text-sm leading-none">×</button>
                         </span>
@@ -1284,7 +1284,7 @@ export default function CalendarPage() {
                         e.target.value = ''
                         if (v) regenVisual('new_archetype', v)
                       }}
-                      className="text-xs border border-fog rounded-lg px-2 py-2 bg-white text-ink/70"
+                      className="text-xs border border-fog rounded-lg px-2 py-2 bg-surface text-ink/70"
                     >
                       <option value="">New layout…</option>
                       {['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic'].map((a) => (
