@@ -80,7 +80,7 @@ export default function GeneratePage() {
   const [variantCount, setVariantCount] = useState(2)
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
-  const readyTemplates = (templates || []).filter(t => t.is_active && t.is_design_ready)
+  const usableTemplates = (templates || []).filter(t => t.is_active)
 
   useEffect(() => {
     if (location.state?.topic) { setTopic(location.state.topic); setSelTrend(null) }
@@ -88,11 +88,11 @@ export default function GeneratePage() {
 
   useEffect(() => {
     const incomingTemplateId = location.state?.templateId
-    if (!incomingTemplateId || !readyTemplates.length) return
-    if (readyTemplates.some((t) => t.id === incomingTemplateId)) {
+    if (!incomingTemplateId || !usableTemplates.length) return
+    if (usableTemplates.some((t) => t.id === incomingTemplateId)) {
       setSelectedTemplateId(incomingTemplateId)
     }
-  }, [location.state?.templateId, readyTemplates.length])
+  }, [location.state?.templateId, usableTemplates.length])
 
   useEffect(() => {
     if (!showTrends) return
@@ -106,12 +106,12 @@ export default function GeneratePage() {
   }, [activeBrandId])
 
   useEffect(() => {
-    if (readyTemplates.length === 0) {
+    if (usableTemplates.length === 0) {
       setSelectedTemplateId('')
       return
     }
-    if (!readyTemplates.find(t => t.id === selectedTemplateId)) {
-      setSelectedTemplateId(readyTemplates[0].id)
+    if (!usableTemplates.find(t => t.id === selectedTemplateId)) {
+      setSelectedTemplateId(usableTemplates[0].id)
     }
   }, [templates, selectedTemplateId])
 
@@ -220,11 +220,11 @@ export default function GeneratePage() {
         </div>
       )}
 
-      {activeBrandId && readyTemplates.length === 0 && (
+      {activeBrandId && usableTemplates.length === 0 && (
         <div className="border border-amber-200 bg-amber-50 rounded-2xl p-5 mb-6">
-          <p className="text-amber-800 text-sm font-semibold mb-1">Templates are still preparing</p>
+          <p className="text-amber-800 text-sm font-semibold mb-1">No templates yet</p>
           <p className="text-amber-700 text-xs mb-3">
-            You can still generate content now. We will keep auto-building your industry templates in the background.
+            Create your industry templates in Templates first, then generate content from those refined content types.
           </p>
           <button onClick={() => navigate('/dashboard/templates')} className="btn-primary text-xs">
             Open Templates
@@ -239,15 +239,15 @@ export default function GeneratePage() {
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">1</span>
-              Design template (optional)
+              Template blueprint
             </p>
-            {readyTemplates.length === 0 ? (
+            {usableTemplates.length === 0 ? (
               <p className="text-xs text-ink/40">
-                No design-ready templates yet. Generation will use your brand kit + industry playbook automatically.
+                No templates yet. Create one from your industry playbook to generate content with it.
               </p>
             ) : (
               <div className="grid sm:grid-cols-2 gap-2">
-                {readyTemplates.map((t) => (
+                {usableTemplates.map((t) => (
                   <button
                     key={t.id}
                     onClick={() => setSelectedTemplateId(t.id)}

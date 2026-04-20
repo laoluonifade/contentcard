@@ -1,10 +1,9 @@
-import asyncio
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.db.database import AsyncSessionLocal, get_db
+from app.db.database import get_db
 from app.models.template import ContentTemplate
 from app.models.brand import Brand
 from app.models.creative_engine import (
@@ -23,15 +22,12 @@ from app.schemas.template import (
     TemplateUpdate,
 )
 from app.services.template_design_service import (
-    build_template_design_spec,
     build_default_templates,
-    generate_template_preview,
     infer_business_type,
 )
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 logger = logging.getLogger(__name__)
-TEMPLATE_RENDER_TIMEOUT_SECONDS = 55.0
 
 
 def _industry_key_from_value(value: str | None) -> str:
@@ -135,46 +131,6 @@ async def _check_brand_access(brand_id: str, user_id: str, db: AsyncSession, nee
     return brand
 
 
-async def _render_templates_background(brand_id: str, template_ids: list[str]) -> None:
-    """
-    Non-blocking renderer for template previews.
-    Runs after response is sent to avoid gateway timeouts on bulk template generation.
-    """
-    if not template_ids:
-        return
-    try:
-        async with AsyncSessionLocal() as db:
-            brand = (
-                await db.execute(select(Brand).where(Brand.id == brand_id).limit(1))
-            ).scalar_one_or_none()
-            if not brand:
-                return
-            playbook = await _load_industry_playbook(db, brand.industry)
-            for tid in template_ids:
-                tmpl = (
-                    await db.execute(select(ContentTemplate).where(ContentTemplate.id == tid).limit(1))
-                ).scalar_one_or_none()
-                if not tmpl:
-                    continue
-                try:
-                    urls, _logo_ok, design_spec = await asyncio.wait_for(
-                        generate_template_preview(tmpl, brand, playbook=playbook),
-                        timeout=TEMPLATE_RENDER_TIMEOUT_SECONDS,
-                    )
-                except Exception as e:
-                    logger.warning("Background template render failed for %s: %s", tid, e)
-                    continue
-                tmpl.design_spec = design_spec
-                tmpl.generated_visual_direction = design_spec.get("visual_direction")
-                tmpl.generated_image_prompt = design_spec.get("image_prompt")
-                tmpl.preview_image_urls = urls
-                tmpl.preview_image_url = urls[0] if urls else None
-                tmpl.is_design_ready = bool(urls)
-                await db.commit()
-    except Exception as e:
-        logger.warning("Template background rendering batch failed for brand %s: %s", brand_id, e)
-
-
 @router.get("")
 async def list_templates(
     brand_id: str,
@@ -207,7 +163,6 @@ async def create_template(
 @router.post("/bootstrap-defaults", response_model=list[TemplateOut])
 async def bootstrap_default_templates(
     body: TemplateBootstrapRequest,
-    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -259,18 +214,17 @@ async def bootstrap_default_templates(
             design_spec={
                 "playbook_content_type": spec.get("playbook_content_type"),
                 "playbook_post_type": spec.get("playbook_post_type"),
+                "content_template_type": spec.get("playbook_content_type") or spec.get("name"),
+                "design_template_type": "playbook_standard",
             },
             is_system_default=True,
-            is_design_ready=False,
+            is_design_ready=True,
         )
         db.add(tmpl)
         created.append(tmpl)
     await db.flush()
 
     await db.commit()
-    if body.generate_designs:
-        # Render previews asynchronously to prevent Render gateway 502 on long-running requests.
-        background_tasks.add_task(_render_templates_background, brand.id, [str(t.id) for t in created])
     for tmpl in created:
         await db.refresh(tmpl)
     return [TemplateOut.model_validate(t) for t in created]
@@ -320,26 +274,20 @@ async def generate_template_design(
     tmpl = r.scalar_one_or_none()
     if not tmpl:
         raise HTTPException(status_code=404, detail="Template not found")
-    brand = await _check_brand_access(tmpl.brand_id, current_user.id, db)
-    playbook = await _load_industry_playbook(db, brand.industry)
-    try:
-        urls, _logo_ok, design_spec = await asyncio.wait_for(
-            generate_template_preview(tmpl, brand, playbook=playbook),
-            timeout=TEMPLATE_RENDER_TIMEOUT_SECONDS,
-        )
-    except Exception as e:
-        # Fail soft so callers don't see transient 502/timeout.
-        logger.warning("Template render failed for %s: %s", template_id, e)
-        design_spec = build_template_design_spec(tmpl, brand, playbook=playbook)
-        urls = []
-    tmpl.design_spec = design_spec
-    tmpl.generated_visual_direction = design_spec.get("visual_direction")
-    tmpl.generated_image_prompt = design_spec.get("image_prompt")
-    tmpl.preview_image_urls = urls
-    tmpl.preview_image_url = urls[0] if urls else None
-    tmpl.is_design_ready = bool(urls)
+    await _check_brand_access(tmpl.brand_id, current_user.id, db)
+    # Templates are now content-type blueprints only; image preview generation is intentionally disabled.
+    tmpl.is_design_ready = True
+    if not isinstance(tmpl.design_spec, dict):
+        tmpl.design_spec = {}
+    tmpl.design_spec = {
+        **tmpl.design_spec,
+        "design_template_type": str(tmpl.design_spec.get("design_template_type") or "playbook_standard"),
+    }
+    tmpl.preview_image_url = None
+    tmpl.preview_image_urls = []
     await db.commit()
     await db.refresh(tmpl)
+    logger.info("Skipped template image generation for %s (blueprint-only mode)", template_id)
     return TemplateOut.model_validate(tmpl)
 
 

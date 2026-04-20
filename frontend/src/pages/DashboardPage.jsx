@@ -178,7 +178,7 @@ export default function DashboardPage() {
         const missing = getMissingFields(activeBrand)
         const brandReady = missing.length === 0
         const hasContent = stats.total > 0
-        const readyTemplates = (templates || []).filter(t => t.is_active && t.is_design_ready)
+        const readyTemplates = (templates || []).filter(t => t.is_active)
 
         // Brand kit incomplete: show what to fill in
         if (!brandReady) return (
@@ -218,9 +218,9 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-0.5">Onboarding Tip</p>
-                <h4 className="text-ink font-semibold text-sm mb-1.5">Generate your design templates first</h4>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Create your content templates first</h4>
                 <p className="text-ink/50 text-xs mb-3">
-                  Content generation now runs from design templates. Create defaults in Templates, review visuals, and refine before generating posts.
+                  Content generation now runs from your editable industry templates. Create defaults in Templates, refine details, and generate posts.
                 </p>
                 <button onClick={() => navigate('/dashboard/templates')}
                   className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-colors">

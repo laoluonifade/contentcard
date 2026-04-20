@@ -45,7 +45,6 @@ from app.services.website_intelligence_service import (
 from app.services.reference_research_service import sync_brand_reference_research
 from app.services.template_design_service import (
     build_default_templates,
-    generate_template_preview,
     infer_business_type,
 )
 import cloudinary
@@ -214,22 +213,15 @@ async def _bootstrap_brand_templates(brand_id: str, country_code: str | None) ->
                     design_spec={
                         "playbook_content_type": spec.get("playbook_content_type"),
                         "playbook_post_type": spec.get("playbook_post_type"),
+                        "content_template_type": spec.get("playbook_content_type") or spec.get("name"),
+                        "design_template_type": "playbook_standard",
                     },
                     is_system_default=True,
-                    is_design_ready=False,
+                    is_design_ready=True,
                 )
                 db.add(tmpl)
                 created.append(tmpl)
             await db.flush()
-
-            for tmpl in created:
-                urls, _logo_ok, design_spec = await generate_template_preview(tmpl, brand, playbook=playbook)
-                tmpl.design_spec = design_spec
-                tmpl.generated_visual_direction = design_spec.get("visual_direction")
-                tmpl.generated_image_prompt = design_spec.get("image_prompt")
-                tmpl.preview_image_urls = urls
-                tmpl.preview_image_url = urls[0] if urls else None
-                tmpl.is_design_ready = bool(urls)
 
             await db.commit()
             logger.info("Brand templates bootstrapped for %s", brand_id)

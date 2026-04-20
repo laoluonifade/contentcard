@@ -157,7 +157,6 @@ async def _resolve_generation_template(
                 ContentTemplate.is_active.is_(True),
             )
             .order_by(
-                ContentTemplate.is_design_ready.desc(),
                 ContentTemplate.is_system_default.desc(),
                 ContentTemplate.created_at.asc(),
             )
@@ -165,8 +164,10 @@ async def _resolve_generation_template(
         )
     ).scalar_one_or_none()
     if not tmpl:
-        # Templates are optional for generation. Planner can run from playbook + brand kit only.
-        return None, []
+        raise HTTPException(
+            status_code=422,
+            detail="No active templates found. Create templates from your industry playbook before generating content.",
+        )
     return str(tmpl.id), list(tmpl.topics or [])
 
 
