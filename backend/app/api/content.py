@@ -134,7 +134,7 @@ async def _resolve_generation_template(
     db: AsyncSession,
     brand_id: str,
     template_id: str | None,
-) -> tuple[str, list[str]]:
+) -> tuple[str | None, list[str]]:
     if template_id:
         tmpl = (
             await db.execute(
@@ -147,11 +147,6 @@ async def _resolve_generation_template(
         ).scalar_one_or_none()
         if not tmpl:
             raise HTTPException(status_code=404, detail="Selected template not found for this brand")
-        if not bool(getattr(tmpl, "is_design_ready", False)):
-            raise HTTPException(
-                status_code=422,
-                detail="Selected template has no generated design yet. Open Templates and click Generate design first.",
-            )
         return str(tmpl.id), list(tmpl.topics or [])
 
     tmpl = (
@@ -160,17 +155,18 @@ async def _resolve_generation_template(
             .where(
                 ContentTemplate.brand_id == brand_id,
                 ContentTemplate.is_active.is_(True),
-                ContentTemplate.is_design_ready.is_(True),
             )
-            .order_by(ContentTemplate.is_system_default.desc(), ContentTemplate.created_at.asc())
+            .order_by(
+                ContentTemplate.is_design_ready.desc(),
+                ContentTemplate.is_system_default.desc(),
+                ContentTemplate.created_at.asc(),
+            )
             .limit(1)
         )
     ).scalar_one_or_none()
     if not tmpl:
-        raise HTTPException(
-            status_code=422,
-            detail="Generate design templates first in Templates before content generation.",
-        )
+        # Templates are optional for generation. Planner can run from playbook + brand kit only.
+        return None, []
     return str(tmpl.id), list(tmpl.topics or [])
 
 
@@ -446,8 +442,26 @@ async def _get_website_grounding_inputs(
 
 def _industry_key_from_brand(brand_dict: dict) -> str:
     raw = str(brand_dict.get("industry") or "").strip().lower()
+    aliases = {
+        "fashion & beauty": "fashion_beauty",
+        "food & beverage": "food",
+        "technology": "tech_saas",
+        "finance & fintech": "finance_fintech",
+        "health & wellness": "health_wellness",
+        "real estate": "real_estate",
+        "education": "education",
+        "entertainment & media": "entertainment_media",
+        "e-commerce & retail": "ecommerce",
+        "marketing & creative agency": "marketing_agency",
+        "church & ministry": "church_ministry",
+        "events & hospitality": "events_hospitality",
+        "legal & professional services": "legal_professional_services",
+        "other": "other",
+    }
     if not raw:
         return "tech_saas"
+    if raw in aliases:
+        return aliases[raw]
     if raw in ("tech", "technology", "saas", "software", "tech_saas", "fintech", "edtech", "healthtech", "ai", "marketing_tech"):
         return "tech_saas"
     if raw in ("ecommerce", "e-commerce", "retail", "shopify", "bumpa", "fashion", "beauty", "consumer_goods", "d2c"):
@@ -946,13 +960,11 @@ async def generate_month(
             )
 
     resolved_template_id, template_topics = await _resolve_generation_template(db, brand.id, body.template_id)
-    selected_template = (
-        await db.execute(select(ContentTemplate).where(ContentTemplate.id == resolved_template_id))
-    ).scalar_one_or_none()
-    template_context = _template_generation_context(selected_template)
-    selected_template = (
-        await db.execute(select(ContentTemplate).where(ContentTemplate.id == resolved_template_id))
-    ).scalar_one_or_none()
+    selected_template = None
+    if resolved_template_id:
+        selected_template = (
+            await db.execute(select(ContentTemplate).where(ContentTemplate.id == resolved_template_id))
+        ).scalar_one_or_none()
     template_context = _template_generation_context(selected_template)
 
     existing_snapshot = dict(existing_counts)
@@ -1035,6 +1047,13 @@ async def generate_month_v2(
         website_grounding_text, approved_website_opportunities = await _get_website_grounding_inputs(
             db, brand.id, body.only_new_changes
         )
+
+    selected_template = None
+    if resolved_template_id:
+        selected_template = (
+            await db.execute(select(ContentTemplate).where(ContentTemplate.id == resolved_template_id))
+        ).scalar_one_or_none()
+    template_context = _template_generation_context(selected_template)
 
     style_brief = None
     if style_fp:

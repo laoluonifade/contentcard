@@ -5,6 +5,7 @@ import re
 import time
 from datetime import datetime, timezone
 from urllib.parse import urljoin, urlparse
+from xml.etree import ElementTree as ET
 
 import httpx
 from sqlalchemy import Select, and_, func, select
@@ -70,6 +71,14 @@ async def _fetch_text(url: str) -> str:
         res = await client.get(url)
         res.raise_for_status()
         return res.text
+
+
+async def _fetch_bytes(url: str) -> bytes:
+    timeout = httpx.Timeout(12.0, connect=8.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        res = await client.get(url)
+        res.raise_for_status()
+        return res.content
 
 
 async def _fetch_text_with_retry(url: str, max_attempts: int = 3) -> tuple[str, int]:
@@ -169,6 +178,251 @@ def _extract_generic_entities_from_html(base_url: str, html: str) -> list[dict]:
             }
         )
     return entities
+
+
+def _extract_urls_from_sitemap_xml(xml_bytes: bytes) -> list[str]:
+    urls: list[str] = []
+    try:
+        root = ET.fromstring(xml_bytes)
+    except Exception:
+        return urls
+    for node in root.iter():
+        if node.tag.endswith("loc") and node.text:
+            u = str(node.text).strip()
+            if u:
+                urls.append(u)
+    # de-dup
+    out: list[str] = []
+    seen: set[str] = set()
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
+
+
+async def _discover_product_urls(base_url: str) -> list[str]:
+    candidates = [
+        urljoin(f"{base_url}/", "sitemap.xml"),
+        urljoin(f"{base_url}/", "wp-sitemap.xml"),
+        urljoin(f"{base_url}/", "product-sitemap.xml"),
+        urljoin(f"{base_url}/", "sitemap_index.xml"),
+    ]
+    discovered: list[str] = []
+    for u in candidates:
+        try:
+            xml = await _fetch_bytes(u)
+        except Exception:
+            continue
+        locs = _extract_urls_from_sitemap_xml(xml)
+        # Handle nested sitemap index files.
+        nested = [x for x in locs if x.lower().endswith(".xml")]
+        for n in nested[:20]:
+            try:
+                nested_xml = await _fetch_bytes(n)
+            except Exception:
+                continue
+            locs.extend(_extract_urls_from_sitemap_xml(nested_xml))
+        for link in locs:
+            ll = link.lower()
+            if any(k in ll for k in ("/product/", "/products/", "/shop/", "product-sitemap")):
+                discovered.append(link)
+    # de-dup and cap
+    out: list[str] = []
+    seen: set[str] = set()
+    for u in discovered:
+        if u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out[:60]
+
+
+def _jsonld_product_objects(html: str) -> list[dict]:
+    scripts = re.findall(
+        r"<script[^>]*type=[\"']application/ld\+json[\"'][^>]*>(.*?)</script>",
+        html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    objs: list[dict] = []
+    for raw in scripts:
+        t = (raw or "").strip()
+        if not t:
+            continue
+        try:
+            parsed = json.loads(t)
+        except Exception:
+            continue
+        stack = [parsed]
+        while stack:
+            cur = stack.pop()
+            if isinstance(cur, list):
+                stack.extend(cur)
+                continue
+            if not isinstance(cur, dict):
+                continue
+            typ = str(cur.get("@type") or "").lower()
+            if typ == "product" or "product" in typ.split(","):
+                objs.append(cur)
+            graph = cur.get("@graph")
+            if isinstance(graph, list):
+                stack.extend(graph)
+    return objs
+
+
+def _extract_products_from_jsonld(page_url: str, html: str) -> list[dict]:
+    out: list[dict] = []
+    for obj in _jsonld_product_objects(html):
+        title = str(obj.get("name") or "").strip()
+        if not title:
+            continue
+        image_val = obj.get("image")
+        if isinstance(image_val, str):
+            images = [image_val]
+        elif isinstance(image_val, list):
+            images = [str(x).strip() for x in image_val if str(x or "").strip()]
+        else:
+            images = []
+        offers = obj.get("offers")
+        offer = offers[0] if isinstance(offers, list) and offers else (offers if isinstance(offers, dict) else {})
+        price = str(offer.get("price") or "").strip() or None
+        currency = str(offer.get("priceCurrency") or "").strip() or None
+        availability_raw = str(offer.get("availability") or "").strip()
+        availability = availability_raw.split("/")[-1].lower() if availability_raw else None
+        sku = str(obj.get("sku") or "").strip() or None
+        product_url = str(obj.get("url") or page_url).strip()
+        attrs = {
+            "sku": sku,
+            "price": price,
+            "currency": currency,
+            "availability": availability,
+            "brand": obj.get("brand"),
+            "images": images[:12],
+        }
+        out.append(
+            {
+                "entity_type": "product",
+                "external_id": sku or product_url,
+                "title": title[:300],
+                "summary": str(obj.get("description") or "")[:600] or None,
+                "attributes": attrs,
+                "source_url": product_url,
+                "confidence_score": 0.9,
+                "freshness_score": 0.9,
+            }
+        )
+    return out
+
+
+def _extract_products_from_woocommerce_meta(page_url: str, html: str) -> list[dict]:
+    title_match = re.search(r"<meta[^>]+property=[\"']og:title[\"'][^>]+content=[\"']([^\"']+)[\"']", html, flags=re.IGNORECASE)
+    price_match = re.search(r"<meta[^>]+property=[\"']product:price:amount[\"'][^>]+content=[\"']([^\"']+)[\"']", html, flags=re.IGNORECASE)
+    curr_match = re.search(r"<meta[^>]+property=[\"']product:price:currency[\"'][^>]+content=[\"']([^\"']+)[\"']", html, flags=re.IGNORECASE)
+    image_match = re.search(r"<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']", html, flags=re.IGNORECASE)
+    if not title_match or not price_match:
+        return []
+    title = title_match.group(1).strip()
+    price = price_match.group(1).strip()
+    currency = curr_match.group(1).strip() if curr_match else None
+    image = image_match.group(1).strip() if image_match else None
+    return [
+        {
+            "entity_type": "product",
+            "external_id": page_url,
+            "title": title[:300],
+            "summary": None,
+            "attributes": {
+                "price": price,
+                "currency": currency,
+                "availability": "in_stock",
+                "images": [image] if image else [],
+            },
+            "source_url": page_url,
+            "confidence_score": 0.78,
+            "freshness_score": 0.8,
+        }
+    ]
+
+
+def _extract_product_from_page_fallback(page_url: str, html: str) -> list[dict]:
+    """
+    Last-resort extractor for Woo/WordPress shops that do not expose JSON-LD Product
+    or product:price meta tags. This still creates product entities so product-led
+    generation has grounded references.
+    """
+    title_match = re.search(r"<title>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
+    title = re.sub(r"\s+", " ", (title_match.group(1) if title_match else "")).strip()
+    title = re.sub(r"\s*-\s*Smiley Socks Company\s*$", "", title, flags=re.IGNORECASE).strip()
+    if not title:
+        return []
+    # Ignore index/listing pages.
+    path = urlparse(page_url).path.lower().strip("/")
+    if path in ("shop", "", "product-sitemap.xml"):
+        return []
+
+    og_img = re.search(
+        r"<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']",
+        html,
+        flags=re.IGNORECASE,
+    )
+    desc_m = re.search(
+        r"<meta[^>]+name=[\"']description[\"'][^>]+content=[\"']([^\"']+)[\"']",
+        html,
+        flags=re.IGNORECASE,
+    )
+    # Try light price hints from rendered HTML text.
+    price_m = re.search(r"(₦\s?[0-9,]+|NGN\s?[0-9,]+|\$\s?[0-9,]+)", html, flags=re.IGNORECASE)
+    price = price_m.group(1).strip() if price_m else None
+
+    return [
+        {
+            "entity_type": "product",
+            "external_id": page_url,
+            "title": title[:300],
+            "summary": (desc_m.group(1).strip()[:600] if desc_m else None),
+            "attributes": {
+                "price": price,
+                "currency": "NGN" if price and ("₦" in price or "NGN" in price.upper()) else None,
+                "availability": "unknown",
+                "images": [og_img.group(1).strip()] if og_img else [],
+            },
+            "source_url": page_url,
+            "confidence_score": 0.62,
+            "freshness_score": 0.75,
+        }
+    ]
+
+
+async def _fetch_products_from_non_shopify(base_url: str) -> tuple[list[dict], int]:
+    product_urls = await _discover_product_urls(base_url)
+    if not product_urls:
+        return [], 0
+    entities: list[dict] = []
+    attempts = 0
+    for u in product_urls[:30]:
+        attempts += 1
+        try:
+            html = await _fetch_text(u)
+        except Exception:
+            continue
+        via_jsonld = _extract_products_from_jsonld(u, html)
+        if via_jsonld:
+            entities.extend(via_jsonld)
+            continue
+        via_wc = _extract_products_from_woocommerce_meta(u, html)
+        if via_wc:
+            entities.extend(via_wc)
+            continue
+        entities.extend(_extract_product_from_page_fallback(u, html))
+    # de-dup by external_id/source_url
+    dedup: list[dict] = []
+    seen: set[str] = set()
+    for e in entities:
+        k = str(e.get("external_id") or e.get("source_url") or "")
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        dedup.append(e)
+    return dedup[:80], attempts
 
 
 def _sync_health_from_snapshots(latest: WebsiteSnapshot | None, recent: list[WebsiteSnapshot]) -> tuple[str | None, int]:
@@ -329,6 +583,7 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
     now = _utcnow()
 
     shopify_attempts = 0
+    non_shopify_attempts = 0
     page_attempts = 0
     started_at = time.perf_counter()
     try:
@@ -336,6 +591,11 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
         if shopify_products:
             entities.extend(_extract_products_from_shopify_payload(source_url, shopify_products))
             raw_payload["shopify_products_count"] = len(shopify_products)
+        else:
+            non_shopify_products, non_shopify_attempts = await _fetch_products_from_non_shopify(source_url)
+            if non_shopify_products:
+                entities.extend(non_shopify_products)
+                raw_payload["non_shopify_products_count"] = len(non_shopify_products)
         html, page_attempts = await _fetch_text_with_retry(source_url, max_attempts=3)
         entities.extend(_extract_generic_entities_from_html(source_url, html))
     except Exception as exc:
@@ -354,6 +614,7 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
             "timestamp": now.isoformat(),
             "latency_ms": latency_ms,
             "shopify_attempts": int(shopify_attempts),
+            "non_shopify_attempts": int(non_shopify_attempts),
             "page_attempts": int(page_attempts),
         },
         raw_payload=raw_payload,
@@ -407,7 +668,7 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
         "updated_count": updated_count,
         "opportunity_count": opportunity_count,
         "latency_ms": latency_ms,
-        "attempts": max(shopify_attempts, page_attempts),
+        "attempts": max(shopify_attempts, non_shopify_attempts, page_attempts),
     }
 
 

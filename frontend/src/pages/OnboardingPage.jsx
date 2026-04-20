@@ -68,8 +68,8 @@ export default function OnboardingPage() {
       })
       setTemplateSetupRunning(true)
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: true })
-      toast('Brand profile and templates created. Review templates before generating content.')
-      navigate('/dashboard/templates')
+      toast('Brand profile created. Your industry templates are being prepared automatically.')
+      navigate('/dashboard/generate')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Something went wrong. Please try again.', 'error')
     } finally {
@@ -253,14 +253,14 @@ export default function OnboardingPage() {
             {step === 4 && (
               <div className="space-y-5">
                 <div>
-                  <h2 className="text-xl font-bold text-ink mb-1">Generate default templates</h2>
+                  <h2 className="text-xl font-bold text-ink mb-1">Industry templates are auto-created</h2>
                   <p className="text-ink/50 text-sm">
-                    Before content generation, ContentCard creates country-aware and business-type templates from your brand kit (colors, font, tone, logo rules).
+                    As soon as you finish, ContentCard automatically prepares templates from your industry playbook and brand kit.
                   </p>
                 </div>
                 <div className="rounded-xl border border-fog bg-mist p-4">
                   <p className="text-xs text-ink/60">
-                    We will auto-create template designs in the Templates tab immediately after this step. You can edit or regenerate any template before generating content.
+                    You can generate content immediately. Templates will appear in the Templates tab and can be refined any time.
                   </p>
                 </div>
               </div>
@@ -279,8 +279,8 @@ export default function OnboardingPage() {
                 ) : (
                   <button onClick={finish} disabled={saving} className="btn-primary px-6 py-2.5 text-sm">
                     {saving || templateSetupRunning
-                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating brand and templates…</>
-                      : <><Zap size={15} /> Create brand and templates</>}
+                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating your brand…</>
+                      : <><Zap size={15} /> Create brand</>}
                   </button>
                 )}
             </div>

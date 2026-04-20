@@ -154,10 +154,6 @@ export default function GeneratePage() {
 
   const handleGenerate = async () => {
     if (!activeBrandId) { toast('Select or create a brand first', 'error'); return }
-    if (!selectedTemplateId) {
-      toast('Generate and select a design-ready template first in Templates.', 'error')
-      return
-    }
     const visErr = brandVisualBlockReason(activeBrand)
     if (visErr) {
       toast(visErr, 'error')
@@ -226,9 +222,9 @@ export default function GeneratePage() {
 
       {activeBrandId && readyTemplates.length === 0 && (
         <div className="border border-amber-200 bg-amber-50 rounded-2xl p-5 mb-6">
-          <p className="text-amber-800 text-sm font-semibold mb-1">Template setup required before generation</p>
+          <p className="text-amber-800 text-sm font-semibold mb-1">Templates are still preparing</p>
           <p className="text-amber-700 text-xs mb-3">
-            Generate design templates in Templates first. Content generation now runs from those template designs.
+            You can still generate content now. We will keep auto-building your industry templates in the background.
           </p>
           <button onClick={() => navigate('/dashboard/templates')} className="btn-primary text-xs">
             Open Templates
@@ -243,11 +239,11 @@ export default function GeneratePage() {
           <div className="bg-white border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">1</span>
-              Design template
+              Design template (optional)
             </p>
             {readyTemplates.length === 0 ? (
               <p className="text-xs text-ink/40">
-                No design-ready templates yet. Create or generate templates in the Templates tab.
+                No design-ready templates yet. Generation will use your brand kit + industry playbook automatically.
               </p>
             ) : (
               <div className="grid sm:grid-cols-2 gap-2">
