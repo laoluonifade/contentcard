@@ -445,7 +445,15 @@ async def admin_workspaces(
                 "name": ws.name,
                 "plan": ws.plan,
                 "created_at": ws.created_at.isoformat(),
+                "updated_at": ws.updated_at.isoformat() if ws.updated_at else None,
                 "owner_email": owner_email,
+                "subscription_id": ws.subscription_id,
+                "customer_id": ws.customer_id,
+                "payment_provider": ws.payment_provider,
+                "card_last4": ws.card_last4,
+                "card_type": ws.card_type,
+                "card_bank": ws.card_bank,
+                "next_payment_date": ws.next_payment_date.isoformat() if ws.next_payment_date else None,
             }
             for ws, owner_email in rows
         ],

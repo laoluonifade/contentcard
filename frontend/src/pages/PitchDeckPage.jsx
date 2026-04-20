@@ -50,7 +50,11 @@ export default function PitchDeckPage() {
             <div style={{ position: 'relative', zIndex: 1 }}>
               <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, marginBottom: 32 }}>
                 <div style={{ width: 40, height: 40, background: BRAND, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Zap size={22} color="white" />
+                  <svg width="22" height="22" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+                    <rect x="6.25" y="8" width="9.2" height="12.2" rx="2.1" transform="rotate(-8 10.85 14.1)" fill="rgba(255,255,255,0.86)" />
+                    <rect x="12.55" y="7.8" width="9.2" height="12.2" rx="2.1" transform="rotate(8 17.15 13.9)" fill="white" />
+                    <path d="M13.85 10.2h1.9" stroke="rgba(16,163,127,0.32)" strokeWidth="0.9" strokeLinecap="round" />
+                  </svg>
                 </div>
                 <span style={{ color: 'white', fontSize: 22, fontWeight: 800, letterSpacing: '-0.03em' }}>ContentCard</span>
               </div>

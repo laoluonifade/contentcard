@@ -484,6 +484,109 @@ def _website_grounding_gate(
     }
 
 
+def _collect_product_image_urls(payload: dict | None) -> list[str]:
+    if not isinstance(payload, dict):
+        return []
+    out: list[str] = []
+    for key in ("image_url", "hero_image_url", "thumbnail_url"):
+        v = str(payload.get(key) or "").strip()
+        if v:
+            out.append(v)
+    images = payload.get("images")
+    if isinstance(images, list):
+        for x in images:
+            v = str(x or "").strip()
+            if v:
+                out.append(v)
+    dedup: list[str] = []
+    seen: set[str] = set()
+    for u in out:
+        if u not in seen:
+            seen.add(u)
+            dedup.append(u)
+    return dedup[:8]
+
+
+async def _product_grounding_context(
+    db: AsyncSession, brand_id: str, matched_op: dict | None
+) -> dict:
+    if not isinstance(matched_op, dict):
+        return {}
+    payload = matched_op.get("payload") if isinstance(matched_op.get("payload"), dict) else {}
+    urls = _collect_product_image_urls(payload)
+    entity_id = str(matched_op.get("entity_id") or payload.get("entity_id") or "").strip()
+    if entity_id:
+        ent = (
+            await db.execute(
+                select(WebsiteEntity).where(
+                    WebsiteEntity.id == entity_id,
+                    WebsiteEntity.brand_id == brand_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if ent:
+            attrs = ent.attributes if isinstance(ent.attributes, dict) else {}
+            urls = urls + _collect_product_image_urls(attrs)
+            if not payload:
+                payload = {}
+            if not payload.get("price"):
+                payload["price"] = attrs.get("price")
+            if not payload.get("availability"):
+                payload["availability"] = attrs.get("availability") or attrs.get("status")
+            if not payload.get("entity_title"):
+                payload["entity_title"] = ent.title
+            if not payload.get("source_url"):
+                payload["source_url"] = ent.source_url
+    dedup: list[str] = []
+    seen: set[str] = set()
+    for u in urls:
+        if u not in seen:
+            seen.add(u)
+            dedup.append(u)
+    if not dedup:
+        return {}
+    return {
+        "product_image_urls": dedup[:8],
+        "product_image_url": dedup[0],
+        "product_price": payload.get("price"),
+        "product_availability": payload.get("availability"),
+    }
+
+
+def _is_product_based_brand(brand_dict: dict) -> bool:
+    ind = str(brand_dict.get("industry") or "").lower()
+    return any(
+        k in ind
+        for k in ("ecommerce", "e-commerce", "retail", "shopify", "shop", "fashion", "beauty", "food")
+    )
+
+
+async def _brand_product_image_pool(db: AsyncSession, brand_id: str, limit: int = 200) -> list[str]:
+    rows = (
+        await db.execute(
+            select(WebsiteEntity)
+            .where(
+                WebsiteEntity.brand_id == brand_id,
+                WebsiteEntity.entity_type == "product",
+                WebsiteEntity.is_active.is_(True),
+            )
+            .order_by(WebsiteEntity.last_seen_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    out: list[str] = []
+    for row in rows:
+        attrs = row.attributes if isinstance(row.attributes, dict) else {}
+        out.extend(_collect_product_image_urls(attrs))
+    dedup: list[str] = []
+    seen: set[str] = set()
+    for u in out:
+        if u not in seen:
+            seen.add(u)
+            dedup.append(u)
+    return dedup[:60]
+
+
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
     """Burn logo onto final cover (Bannerbear) or raster-only hero — never rely on the image model for logos."""
     logo_required = has_brand_logo(brand_dict)
@@ -542,9 +645,25 @@ async def _render_with_quality_gate(
             if not str(render_post.get("force_template_family") or "").strip():
                 render_post["force_template_family"] = "default"
 
-        bg_urls = await generate_post_image(render_post, brand_dict)
-        if bg_urls:
-            item.image_url = bg_urls[0]
+        fam = detect_template_family(render_post)
+        product_bg_url = str(render_post.get("product_image_url") or "").strip()
+        grounding = render_post.get("website_grounding") if isinstance(render_post.get("website_grounding"), dict) else {}
+        grounding_payload = grounding.get("payload") if isinstance(grounding.get("payload"), dict) else {}
+        grounding_entity_type = str(
+            grounding.get("entity_type") or grounding_payload.get("entity_type") or ""
+        ).lower()
+        should_use_product_bg = bool(product_bg_url) and (
+            fam in ("product_hero", "promo", "announcement")
+            or str(render_post.get("visual_type") or "").lower() == "product"
+            or grounding_entity_type == "product"
+        )
+        if should_use_product_bg:
+            item.image_url = product_bg_url
+        else:
+            bg_urls = await generate_post_image(render_post, brand_dict)
+            if bg_urls:
+                item.image_url = bg_urls[0]
+
         bb_urls = await generate_post_images(render_post, brand_dict, background_image_url=item.image_url or None)
         if bb_urls:
             item.image_urls = bb_urls
@@ -584,8 +703,9 @@ async def _render_with_quality_gate(
         "Fallback mode: clean layout, strong hierarchy, low clutter, ad-style readability."
     )
     try:
-        item.image_url = None
-        bb_urls = await generate_post_images(fallback_post, brand_dict, background_image_url=None)
+        fallback_bg = str(fallback_post.get("product_image_url") or "").strip() or None
+        item.image_url = fallback_bg
+        bb_urls = await generate_post_images(fallback_post, brand_dict, background_image_url=fallback_bg)
         if bb_urls:
             item.image_urls = bb_urls
             item.image_url = bb_urls[0]
@@ -1389,6 +1509,9 @@ async def _regenerate_visual_core(
         "visual_lint": lint,
         "quality_gate": quality_gate,
         "template_family": detect_template_family(post),
+        "website_grounding": post.get("website_grounding") if isinstance(post.get("website_grounding"), dict) else None,
+        "product_image_url": post.get("product_image_url"),
+        "product_image_urls": post.get("product_image_urls") if isinstance(post.get("product_image_urls"), list) else None,
         "logo_required": has_brand_logo(brand_dict),
         "logo_applied": logo_ok,
         "quality_failure_tags": _quality_failure_tags(quality_gate),
@@ -1571,12 +1694,14 @@ async def _do_generate_month(
                     if key:
                         approved_map[key] = op
             used_approved_ids: set[str] = set()
+            brand_product_images = await _brand_product_image_pool(db, brand_id)
+            enforce_product_imagery = _is_product_based_brand(brand_dict)
+            product_img_idx = 0
 
             for i in range(len(saved_items)):
                 item, post = saved_items[i]
                 sab = build_art_brief(post, brand_dict)
                 enriched = {**post, "art_brief": sab}
-                saved_items[i] = (item, enriched)
                 th = dict(item.theme) if isinstance(item.theme, dict) else dict(random.choice(THEMES))
                 topic_l = str(post.get("topic") or "").strip().lower()
                 matched_op = approved_map.get(topic_l)
@@ -1585,8 +1710,38 @@ async def _do_generate_month(
                         if k in topic_l or topic_l in k:
                             matched_op = op
                             break
+                if not matched_op and approved_map:
+                    # Fallback: for ecommerce/product-led posts, anchor to a recent product opportunity
+                    # even when topic text doesn't exactly match entity titles.
+                    for op in (approved_website_opportunities or []):
+                        if not isinstance(op, dict):
+                            continue
+                        op_payload = op.get("payload") if isinstance(op.get("payload"), dict) else {}
+                        op_entity_type = str(op.get("entity_type") or op_payload.get("entity_type") or "").lower()
+                        op_trigger = str(op.get("trigger_type") or "").lower()
+                        if op_entity_type == "product" or op_trigger.startswith("product."):
+                            matched_op = op
+                            break
                 if matched_op and matched_op.get("id"):
                     used_approved_ids.add(str(matched_op.get("id")))
+                product_ctx = await _product_grounding_context(
+                    db,
+                    brand_id,
+                    matched_op if isinstance(matched_op, dict) else None,
+                )
+                if enforce_product_imagery and (not product_ctx or not product_ctx.get("product_image_url")) and brand_product_images:
+                    fallback_img = brand_product_images[product_img_idx % len(brand_product_images)]
+                    product_img_idx += 1
+                    fallback_urls = [fallback_img]
+                    product_ctx = {
+                        **(product_ctx or {}),
+                        "product_image_url": fallback_img,
+                        "product_image_urls": fallback_urls,
+                    }
+                if product_ctx:
+                    enriched.update(product_ctx)
+                if isinstance(matched_op, dict):
+                    enriched["website_grounding"] = matched_op
                 th["cc_meta"] = {
                     "visual_archetype": sab["archetype_id"],
                     "art_brief": sab,
@@ -1596,6 +1751,8 @@ async def _do_generate_month(
                     "template_contract": template_contract if template_contract else None,
                     "message_architecture": post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else None,
                     "website_grounding": matched_op if isinstance(matched_op, dict) else None,
+                    "product_image_url": product_ctx.get("product_image_url") if product_ctx else None,
+                    "product_image_urls": product_ctx.get("product_image_urls") if product_ctx else None,
                     "website_grounding_gate": _website_grounding_gate(
                         matched_op if isinstance(matched_op, dict) else None,
                         post,
@@ -1604,6 +1761,7 @@ async def _do_generate_month(
                     ),
                 }
                 item.theme = th
+                saved_items[i] = (item, enriched)
                 logger.info(
                     "contentcard.visual post_id=%s archetype=%s colors=%s",
                     item.id,
@@ -1742,11 +1900,17 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
     ab = None
     tf = None
     ma = None
+    wg = None
+    p_img_url = None
+    p_img_urls = None
     if isinstance(cm, dict):
         arch = cm.get("visual_archetype")
         ab = cm.get("art_brief") if isinstance(cm.get("art_brief"), dict) else None
         tf = cm.get("template_family")
         ma = cm.get("message_architecture") if isinstance(cm.get("message_architecture"), dict) else None
+        wg = cm.get("website_grounding") if isinstance(cm.get("website_grounding"), dict) else None
+        p_img_url = str(cm.get("product_image_url") or "").strip() or None
+        p_img_urls = cm.get("product_image_urls") if isinstance(cm.get("product_image_urls"), list) else None
     vt = "real_people"
     if isinstance(cm, dict):
         v = cm.get("visual_type")
@@ -1768,4 +1932,7 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         "force_template_family": tf,
         "template_family": tf,
         "message_architecture": ma,
+        "website_grounding": wg,
+        "product_image_url": p_img_url,
+        "product_image_urls": p_img_urls,
     }

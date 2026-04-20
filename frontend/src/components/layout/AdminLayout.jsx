@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, Building2, Heart, FileText,
-  CreditCard, BarChart2, TrendingUp, LayoutTemplate, Settings, LogOut, Shield, Download,
+  CreditCard, BarChart2, TrendingUp, LayoutTemplate, Settings, LogOut, Download,
 } from 'lucide-react'
 import { downloadContentCardLogoPng, BRAND_KIT_LOGO_PX } from '../../lib/contentcardLogoDownload'
+import { LogoMark } from '../ui/Logo'
 
 const NAV = [
   { to: '/admindash',            icon: LayoutDashboard, label: 'Overview'   },
@@ -46,9 +47,7 @@ export default function AdminLayout({ children }) {
       <aside className="w-56 flex-shrink-0 border-r border-white/5 flex flex-col">
         {/* Logo */}
         <div className="h-14 flex items-center gap-2.5 px-4 sm:px-5 border-b border-white/5">
-          <div className="w-7 h-7 rounded-lg bg-brand-500 flex items-center justify-center flex-shrink-0">
-            <Shield size={14} className="text-white" />
-          </div>
+          <LogoMark size={28} className="flex-shrink-0" />
           <div>
             <div className="text-white font-bold text-sm leading-none">ContentCard</div>
             <div className="text-white/30 text-[10px] mt-0.5">Admin Console</div>

@@ -11,7 +11,7 @@ import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/Br
 import LogoCropModal from '../components/brand/LogoCropModal'
 import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 
-const TABS = ['Basics', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
+const TABS = ['Basics', 'Products', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
 
 const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
 
@@ -339,10 +339,13 @@ export default function BrandKitPage() {
   const [form, setForm]     = useState({})
   const [websiteStatus, setWebsiteStatus] = useState(null)
   const [websiteOps, setWebsiteOps] = useState([])
+  const [products, setProducts] = useState([])
+  const [productStateFilter, setProductStateFilter] = useState('all')
   const [screenshotStatus, setScreenshotStatus] = useState(null)
   const [referenceStatus, setReferenceStatus] = useState(null)
   const [websiteSyncing, setWebsiteSyncing] = useState(false)
   const [referenceSyncing, setReferenceSyncing] = useState(false)
+  const [productsLoading, setProductsLoading] = useState(false)
   const [authCaptureSaving, setAuthCaptureSaving] = useState(false)
   const [authCaptureRunning, setAuthCaptureRunning] = useState(false)
   const [websiteLoading, setWebsiteLoading] = useState(false)
@@ -377,23 +380,26 @@ export default function BrandKitPage() {
     const loadWebsiteIntel = async () => {
       setWebsiteLoading(true)
       try {
-        const [status, opportunities, screenshots, refStatus] = await Promise.all([
+        const [status, opportunities, screenshots, refStatus, productRows] = await Promise.all([
           brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
           brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
           brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId),
           brandApi.referenceStatus(activeWorkspaceId, activeBrandId).catch(() => null),
+          brandApi.websiteProducts(activeWorkspaceId, activeBrandId, { limit: 120, state: 'all' }).catch(() => []),
         ])
         if (cancelled) return
         setWebsiteStatus(status)
         setWebsiteOps(opportunities || [])
         setScreenshotStatus(screenshots || null)
         setReferenceStatus(refStatus || null)
+        setProducts(Array.isArray(productRows) ? productRows : [])
       } catch {
         if (!cancelled) {
           setWebsiteStatus(null)
           setWebsiteOps([])
           setScreenshotStatus(null)
           setReferenceStatus(null)
+          setProducts([])
         }
       } finally {
         if (!cancelled) setWebsiteLoading(false)
@@ -404,6 +410,11 @@ export default function BrandKitPage() {
       cancelled = true
     }
   }, [activeBrandId, activeWorkspaceId])
+
+  useEffect(() => {
+    if (!activeBrandId || !activeWorkspaceId) return
+    loadProducts(productStateFilter)
+  }, [productStateFilter, activeBrandId, activeWorkspaceId])
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
@@ -470,6 +481,32 @@ export default function BrandKitPage() {
     setForm((f) => ({ ...f, brand_kit: kit }))
   }
 
+  const isEcommerceBrand = useMemo(() => {
+    const industry = String(form.industry || '').toLowerCase()
+    const website = String(form.website || '').toLowerCase()
+    if (products.length > 0) return true
+    return (
+      industry.includes('e-commerce') ||
+      industry.includes('ecommerce') ||
+      industry.includes('retail') ||
+      industry.includes('shopify') ||
+      website.includes('shopify.com')
+    )
+  }, [form.industry, form.website, products.length])
+
+  const loadProducts = async (state = productStateFilter) => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setProductsLoading(true)
+    try {
+      const rows = await brandApi.websiteProducts(activeWorkspaceId, activeBrandId, { limit: 120, state })
+      setProducts(Array.isArray(rows) ? rows : [])
+    } catch {
+      setProducts([])
+    } finally {
+      setProductsLoading(false)
+    }
+  }
+
   const runWebsiteSync = async () => {
     if (!activeWorkspaceId || !activeBrandId) return
     setWebsiteSyncing(true)
@@ -482,6 +519,7 @@ export default function BrandKitPage() {
       ])
       setWebsiteStatus(status)
       setWebsiteOps(opportunities || [])
+      await loadProducts(productStateFilter)
       try {
         const screenshots = await brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId)
         setScreenshotStatus(screenshots || null)
@@ -925,6 +963,120 @@ export default function BrandKitPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {tab === 'Products' && (
+            <div className={cardCls}>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className={sectionTitleCls}>Products</h3>
+                  <p className="text-ink/40 text-xs mt-1">
+                    Synced from your website/store and reused for product-led content generation.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={runWebsiteSync}
+                  disabled={websiteSyncing || !form.website}
+                  className="px-3 py-2 rounded-lg border border-fog bg-white text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                >
+                  {websiteSyncing ? 'Refreshing…' : 'Refresh products'}
+                </button>
+              </div>
+
+              {!isEcommerceBrand && products.length === 0 && (
+                <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
+                  <p className="text-sm font-semibold text-ink">No ecommerce signals yet</p>
+                  <p className="text-xs text-ink/45 mt-1">
+                    Set your industry to ecommerce/retail and ensure website sync is enabled. We will detect product entities and list them here.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="text-xs text-ink/50">
+                  Showing <span className="font-semibold text-ink">{products.length}</span> product{products.length === 1 ? '' : 's'}
+                </div>
+                <select
+                  className="px-3 py-2 rounded-lg border border-fog bg-white text-xs text-ink/70"
+                  value={productStateFilter}
+                  onChange={(e) => setProductStateFilter(e.target.value)}
+                >
+                  <option value="all">All updates</option>
+                  <option value="new">New only</option>
+                  <option value="updated">Updated only</option>
+                  <option value="unchanged">Unchanged</option>
+                </select>
+              </div>
+
+              {productsLoading ? (
+                <div className="py-12 text-center text-sm text-ink/45">Loading products…</div>
+              ) : products.length === 0 ? (
+                <div className="py-12 text-center text-sm text-ink/45">
+                  No products found yet. Run <span className="font-semibold text-ink/70">Refresh products</span> after updating your website.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {products.map((p) => {
+                    const statePill =
+                      p.sync_state === 'new'
+                        ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20'
+                        : p.sync_state === 'updated'
+                          ? 'bg-blue-500/10 text-blue-700 border-blue-500/20'
+                          : 'bg-zinc-500/10 text-zinc-600 border-zinc-500/20'
+                    const availability = String(p.availability || '').toLowerCase()
+                    const inStock = availability.includes('in') || availability.includes('active')
+                    return (
+                      <div key={p.id} className="rounded-xl border border-fog bg-white p-3">
+                        <div className="flex gap-3">
+                          <div className="w-16 h-16 rounded-lg border border-fog bg-mist/60 overflow-hidden flex-shrink-0">
+                            {p.image_url ? (
+                              <img src={p.image_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-[10px] text-ink/30">No image</div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-semibold text-ink truncate">{p.title}</p>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statePill}`}>
+                                {p.sync_state}
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${inStock ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' : 'bg-amber-500/10 text-amber-700 border-amber-500/20'}`}>
+                                {p.availability || 'availability unknown'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-ink/45 mt-1">
+                              {p.summary || 'No summary available from source.'}
+                            </p>
+                            <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">
+                              {p.price && (
+                                <span className="text-ink/80 font-semibold">
+                                  {p.currency ? `${p.currency} ` : ''}{p.price}
+                                  {p.compare_at_price ? <span className="text-ink/35 ml-1 line-through">{p.compare_at_price}</span> : null}
+                                </span>
+                              )}
+                              {p.vendor ? <span className="text-ink/45">Vendor: {p.vendor}</span> : null}
+                              {p.product_type ? <span className="text-ink/45">Type: {p.product_type}</span> : null}
+                            </div>
+                            {p.source_url && (
+                              <a
+                                href={p.source_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-block mt-2 text-[11px] font-semibold text-brand-600 hover:text-brand-700"
+                              >
+                                View product page
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
 

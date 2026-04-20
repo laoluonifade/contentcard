@@ -263,22 +263,28 @@ async def _create_image(template_uid: str, modifications: list[dict]) -> str | N
 
 
 def _primary_color(brand_dict: dict) -> str:
+    colors = brand_dict.get("colors") or brand_dict.get("brand_colors") or []
+    if isinstance(colors, list) and colors:
+        c0 = str(colors[0] or "").strip()
+        if c0.startswith("#") and len(c0) >= 4:
+            return c0
     vs = brand_dict.get("visual_system") or {}
     hx = vs.get("primary_hex")
     if isinstance(hx, str) and hx.startswith("#") and len(hx.strip()) >= 4:
         return hx.strip()
-    colors = brand_dict.get("colors") or []
-    return colors[0] if colors else "#6C63FF"
+    return "#6C63FF"
 
 
 def _secondary_color(brand_dict: dict) -> str:
+    colors = brand_dict.get("colors") or brand_dict.get("brand_colors") or []
+    if isinstance(colors, list) and len(colors) > 1:
+        c1 = str(colors[1] or "").strip()
+        if c1.startswith("#") and len(c1) >= 4:
+            return c1
     vs = brand_dict.get("visual_system") or {}
     hx = vs.get("secondary_hex") or vs.get("accent_hex")
     if isinstance(hx, str) and hx.startswith("#") and len(hx.strip()) >= 4:
         return hx.strip()
-    colors = brand_dict.get("colors") or []
-    if len(colors) > 1:
-        return colors[1]
     return _primary_color(brand_dict)
 
 

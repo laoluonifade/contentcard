@@ -132,7 +132,7 @@ const useAppStore = create(
           generationProgress: null,
         })
         try {
-          await contentApi.generateMonthV2({
+          const reqV2 = {
             brand_id: brandId, month, year, platforms, format_mix,
             posts_per_week: posts_per_week || 3,
             topic_override: topic_override || null, template_id: template_id || null,
@@ -143,7 +143,27 @@ const useAppStore = create(
             use_website_intelligence: use_website_intelligence !== false,
             only_new_changes: !!only_new_changes,
             confirm_duplicate: !!confirm_duplicate,
-          })
+          }
+          try {
+            await contentApi.generateMonthV2(reqV2)
+          } catch (e) {
+            const status = Number(e?.response?.status || 0)
+            // Production safety net: if v2 backend is unavailable or throws transient 5xx/network errors,
+            // fall back to v1 so users can still generate content instead of seeing a dead-end error.
+            if (!status || status >= 500) {
+              await contentApi.generateMonth({
+                brand_id: brandId, month, year, platforms, format_mix,
+                posts_per_week: posts_per_week || 3,
+                topic_override: topic_override || null,
+                template_id: template_id || null,
+                include_holidays_in_content: include_holidays_in_content !== false,
+                generation_brief: generation_brief || null,
+                confirm_duplicate: !!confirm_duplicate,
+              })
+            } else {
+              throw e
+            }
+          }
           const count = await get()._pollForContent(brandId, month, year)
           return count
         } finally {

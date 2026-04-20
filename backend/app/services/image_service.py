@@ -67,6 +67,18 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     fmt = post.get("format", "single")
     qg_notes = str(post.get("quality_gate_notes") or "").strip()
     qg_retry = int(post.get("quality_gate_retry") or 0) if str(post.get("quality_gate_retry") or "").isdigit() else 0
+    message_arch = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+    website_grounding = post.get("website_grounding") if isinstance(post.get("website_grounding"), dict) else {}
+    grounding_payload = website_grounding.get("payload") if isinstance(website_grounding.get("payload"), dict) else {}
+    product_image_urls = post.get("product_image_urls") if isinstance(post.get("product_image_urls"), list) else []
+    product_price = post.get("product_price") or grounding_payload.get("price")
+    product_availability = post.get("product_availability") or grounding_payload.get("availability")
+    grounded_product_title = (
+        grounding_payload.get("entity_title")
+        or website_grounding.get("entity_title")
+        or website_grounding.get("title")
+        or ""
+    )
 
     platform_note = PLATFORM_FORMAT.get(platform, "social media post 1:1")
 
@@ -98,6 +110,36 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     # Audience note
     audience_parts = [p for p in [target_audience, f"age {audience_age_range}" if audience_age_range else ""] if p]
     audience_note = f"Target audience: {', '.join(audience_parts)}." if audience_parts else ""
+    msg_note_parts = []
+    if message_arch.get("hook"):
+        msg_note_parts.append(f"Hook direction: {str(message_arch.get('hook')).strip()}")
+    if message_arch.get("support"):
+        msg_note_parts.append(f"Support angle: {str(message_arch.get('support')).strip()}")
+    if message_arch.get("evidence"):
+        msg_note_parts.append(f"Evidence to visually imply: {str(message_arch.get('evidence')).strip()}")
+    msg_note = " ".join(msg_note_parts)
+    product_grounding_bits = []
+    if grounded_product_title:
+        product_grounding_bits.append(f"Grounded product: {grounded_product_title}.")
+    if product_price:
+        product_grounding_bits.append(f"Product price context: {product_price}.")
+    if product_availability:
+        product_grounding_bits.append(f"Availability context: {product_availability}.")
+    if product_image_urls:
+        product_grounding_bits.append(
+            f"Use the provided product photo reference(s) ({len(product_image_urls)} image source(s)) "
+            "for silhouette, materials, and merchandising composition."
+        )
+        product_grounding_bits.append(
+            "Only depict products present in these references. Do not invent unrelated SKUs, shapes, or categories."
+        )
+    product_grounding_note = " ".join(product_grounding_bits)
+    website_source_url = str(
+        grounding_payload.get("source_url")
+        or website_grounding.get("source_url")
+        or ""
+    ).strip()
+    website_source_note = f"Website source context: {website_source_url}." if website_source_url else ""
     brand_photos = brand.get("brand_photos") or []
     brand_photo_note = ""
     if isinstance(brand_photos, list) and brand_photos:
@@ -265,7 +307,8 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{ai_image_prompt}\n\n"
             f"Brand context: {brand_name} ({industry}). "
             f"Color palette: {color_str}. Tone: {tone_str}. "
-            f"{audience_note} {cultural_note} {motif_note} {brand_photo_note}\n"
+            f"{audience_note} {cultural_note} {motif_note} {msg_note} "
+            f"{product_grounding_note} {website_source_note} {brand_photo_note}\n"
             f"{cam_line} "
             f"{lighting}. {format_note} "
             f"{style_close} "
@@ -306,7 +349,8 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{f'Post goal: {description} ' if description else ''}"
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
-            f"{audience_note} {cultural_note} {motif_note} {imagery_note} {brand_photo_note} "
+            f"{audience_note} {cultural_note} {motif_note} {imagery_note} {msg_note} "
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} "
             f"{f'Strategy context: {strategy_note} ' if strategy_note else ''}"
             f"{cam_block} "
             f"{lighting}. {format_note} "
