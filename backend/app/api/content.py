@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, or_
 from app.db.database import get_db
+from app.core.config import settings
 from app.models.brand import Brand
 from app.models.content import ContentItem, ContentStatus, ContentPlatform, ContentFormat
 from app.models.workspace import WorkspaceMember, WorkspaceRole, Workspace
@@ -23,6 +24,8 @@ from app.schemas.content import (
     PrepChatDesignIntent,
     PrepExecuteVisualRequest,
     PrepExecuteVisualResponse,
+    RegenerateMonthVisualsRequest,
+    RegenerateMonthVisualsResponse,
     BulkDeleteContentRequest,
     BrandFormCoachRequest,
     BrandFormCoachResponse,
@@ -38,10 +41,12 @@ from app.services.month_holiday_context import build_month_holiday_context
 from app.services.visual_tokens import apply_visual_system_defaults
 from app.services.art_brief_service import build_art_brief
 from app.services.visual_lint_service import lint_final_image
+from app.services.quality_gate_service import score_visual_quality
 from app.services.image_service import (
     burn_logo_into_image_url,
     finalize_rendered_urls_with_logo,
     generate_post_image,
+    has_brand_logo,
 )
 from app.services.bannerbear_service import generate_post_images, detect_template_family
 from app.services.billing_entitlements import effective_plan_for_owner, total_free_generations_used_by_owner
@@ -54,6 +59,7 @@ router = APIRouter(prefix="/content", tags=["content"])
 
 MAX_POSTS_PER_PLATFORM_PER_MONTH = 15
 MAX_PREP_VISUAL_BATCH = 15
+MAX_MONTH_REGEN_BATCH = 100
 
 
 def _item_has_visual_assets(item: ContentItem) -> bool:
@@ -61,6 +67,20 @@ def _item_has_visual_assets(item: ContentItem) -> bool:
         return True
     urls = item.image_urls
     return isinstance(urls, list) and len(urls) > 0
+
+
+def _item_ready_for_user(item: ContentItem) -> bool:
+    if not _item_has_visual_assets(item):
+        return False
+    cm = ((item.theme or {}).get("cc_meta") or {}) if isinstance(item.theme, dict) else {}
+    if not settings.QUALITY_GATE_ENABLED:
+        return True
+    qg = cm.get("quality_gate") if isinstance(cm.get("quality_gate"), dict) else {}
+    if qg and str(qg.get("status") or "") == "fail":
+        return False
+    if cm.get("logo_required") and not cm.get("logo_applied"):
+        return False
+    return True
 
 
 async def _counts_by_platform_month(
@@ -78,20 +98,126 @@ async def _counts_by_platform_month(
     return {row[0].value: int(row[1] or 0) for row in r.all()}
 
 
-async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> None:
+async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
     """Burn logo onto final cover (Bannerbear) or raster-only hero — never rely on the image model for logos."""
+    logo_required = has_brand_logo(brand_dict)
     try:
         if item.image_urls:
-            finalized = await finalize_rendered_urls_with_logo(item.image_urls, brand_dict, post_data)
+            finalized, all_applied = await finalize_rendered_urls_with_logo(item.image_urls, brand_dict, post_data)
             item.image_urls = finalized
             if finalized:
                 item.image_url = finalized[0]
+            if logo_required and not all_applied:
+                # Strict gate: do not ship ready visuals without brand logo.
+                item.image_urls = None
+                item.image_url = None
+                return False
         elif item.image_url:
             nu = await burn_logo_into_image_url(item.image_url, brand_dict, post_data)
             if nu:
                 item.image_url = nu
+            elif logo_required:
+                item.image_url = None
+                return False
     except Exception as e:
         logger.warning("_apply_brand_logo_to_visuals failed for %s: %s", item.id, e)
+        if logo_required:
+            item.image_urls = None
+            item.image_url = None
+            return False
+    return True
+
+
+async def _render_with_quality_gate(
+    db: AsyncSession,
+    item: ContentItem,
+    post_data: dict,
+    brand_dict: dict,
+    sab: dict,
+) -> tuple[dict, dict, bool]:
+    """
+    Render -> logo -> lint -> quality gate with retry loop.
+    Returns (lint, quality_gate, logo_ok).
+    """
+    max_attempts = 1 + max(0, int(settings.QUALITY_GATE_MAX_RETRIES))
+    last_lint: dict = {"status": "skip", "hints": []}
+    last_qg: dict = {"status": "skip", "overall_score": 0.0, "scores": {}, "reasons": [], "retry_hints": []}
+    last_logo_ok = False
+    for attempt in range(max_attempts):
+        render_post = dict(post_data)
+        render_post["quality_gate_retry"] = attempt
+        if attempt > 0:
+            # Stricter fallback guidance for retries.
+            render_post["quality_gate_notes"] = (
+                "Cleaner focal hierarchy, fewer background objects, stronger tonal separation, "
+                "more ad-quality realism, and less synthetic aesthetics."
+            )
+            render_post["force_template_family"] = "default"
+
+        bg_urls = await generate_post_image(render_post, brand_dict)
+        if bg_urls:
+            item.image_url = bg_urls[0]
+        bb_urls = await generate_post_images(render_post, brand_dict, background_image_url=item.image_url or None)
+        if bb_urls:
+            item.image_urls = bb_urls
+
+        last_logo_ok = await _apply_brand_logo_to_visuals(item, render_post, brand_dict)
+        cover_url = (item.image_urls or [item.image_url])[0] if (item.image_urls or item.image_url) else None
+        last_lint = await lint_final_image(cover_url, brand_dict, sab)
+        if settings.QUALITY_GATE_ENABLED:
+            last_qg = await score_visual_quality(
+                cover_url,
+                brand_dict,
+                render_post,
+                lint=last_lint,
+                min_score=float(settings.QUALITY_GATE_MIN_SCORE),
+            )
+        else:
+            last_qg = {
+                "status": "pass",
+                "overall_score": 1.0,
+                "scores": {},
+                "reasons": [],
+                "retry_hints": [],
+            }
+
+        pass_quality = str(last_qg.get("status") or "") == "pass"
+        if pass_quality and last_logo_ok:
+            return last_lint, last_qg, last_logo_ok
+
+    # Final fallback render: deterministic branded template output (no AI background)
+    # so posts are still delivered instead of staying pending forever.
+    fallback_post = dict(post_data)
+    fallback_post["quality_gate_fallback"] = True
+    fallback_post["force_template_family"] = "default"
+    fallback_post["quality_gate_notes"] = (
+        "Fallback mode: clean layout, strong hierarchy, low clutter, ad-style readability."
+    )
+    try:
+        item.image_url = None
+        bb_urls = await generate_post_images(fallback_post, brand_dict, background_image_url=None)
+        if bb_urls:
+            item.image_urls = bb_urls
+            item.image_url = bb_urls[0]
+        last_logo_ok = await _apply_brand_logo_to_visuals(item, fallback_post, brand_dict)
+        cover_url = (item.image_urls or [item.image_url])[0] if (item.image_urls or item.image_url) else None
+        last_lint = await lint_final_image(cover_url, brand_dict, sab)
+        if cover_url and last_logo_ok:
+            last_qg = {
+                "status": "pass_fallback",
+                "overall_score": round(float(last_qg.get("overall_score") or 0.0), 3),
+                "scores": last_qg.get("scores") or {},
+                "reasons": ["Primary quality gate retries failed; used deterministic fallback template render."],
+                "retry_hints": last_qg.get("retry_hints") or [],
+            }
+            return last_lint, last_qg, True
+    except Exception as e:
+        logger.warning("quality fallback render failed for %s: %s", item.id, e)
+
+    # Hard block only when both retries and fallback fail (or logo still missing).
+    item.image_url = None
+    item.image_urls = None
+    return last_lint, last_qg, last_logo_ok
 
 THEMES = [
     {"bg": "#7C3AED", "fg": "#fff", "ac": "#E1306C", "pattern": "circles"},
@@ -302,18 +428,26 @@ async def generation_status(
     items = result.scalars().all()
     total = len(items)
     with_visuals = sum(1 for i in items if _item_has_visual_assets(i))
+    ready_items = sum(1 for i in items if _item_ready_for_user(i))
+    failed_quality = 0
+    for i in items:
+        cm = ((i.theme or {}).get("cc_meta") or {}) if isinstance(i.theme, dict) else {}
+        qg = cm.get("quality_gate") if isinstance(cm.get("quality_gate"), dict) else {}
+        if str(qg.get("status") or "") == "fail":
+            failed_quality += 1
     by_platform: dict[str, int] = {}
     for i in items:
-        if not _item_has_visual_assets(i):
+        if not _item_ready_for_user(i):
             continue
         k = i.platform.value
         by_platform[k] = by_platform.get(k, 0) + 1
     return {
-        "count": with_visuals,
+        "count": ready_items,
         "total": total,
         "with_visuals": with_visuals,
-        "pending_assets": max(0, total - with_visuals),
-        "ready": total > 0 and with_visuals >= total,
+        "pending_assets": max(0, total - ready_items),
+        "failed_quality": failed_quality,
+        "ready": total > 0 and ready_items >= total,
         "by_platform": by_platform,
     }
 
@@ -355,7 +489,8 @@ async def list_directory(
         )
         .order_by(ContentItem.created_at.desc())
     )
-    return [ContentOut.model_validate(c) for c in result.scalars().all()]
+    rows = [c for c in result.scalars().all() if _item_ready_for_user(c)]
+    return [ContentOut.model_validate(c) for c in rows]
 
 
 # ── List content ────────────────────────────────────────────────────
@@ -393,7 +528,7 @@ async def list_content(
     )
     rows = list(result.scalars().all())
     if month and year and not include_pending:
-        rows = [c for c in rows if _item_has_visual_assets(c)]
+        rows = [c for c in rows if _item_ready_for_user(c)]
     return [ContentOut.model_validate(c) for c in rows]
 
 
@@ -470,6 +605,76 @@ async def prep_execute_visual(
             errors.append({"id": cid, "detail": "Visual regeneration failed"})
 
     return PrepExecuteVisualResponse(updated_ids=updated, errors=errors)
+
+
+async def _do_regenerate_month_visuals(
+    brand_id: str,
+    month: int,
+    year: int,
+    platform: str | None,
+    mode: str,
+    new_archetype: str | None,
+    limit: int,
+) -> None:
+    from app.db.database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        brand_r = await db.execute(select(Brand).where(Brand.id == brand_id))
+        brand = brand_r.scalar_one_or_none()
+        if not brand:
+            return
+        q = select(ContentItem).where(
+            ContentItem.brand_id == brand_id,
+            ContentItem.generation_month == month,
+            ContentItem.generation_year == year,
+        )
+        if platform:
+            try:
+                q = q.where(ContentItem.platform == ContentPlatform(platform))
+            except Exception:
+                return
+        q = q.order_by(ContentItem.scheduled_date).limit(max(1, min(limit, MAX_MONTH_REGEN_BATCH)))
+        rows = (await db.execute(q)).scalars().all()
+        body = RegenerateVisualRequest(mode=mode, new_archetype=new_archetype)
+        for item in rows:
+            try:
+                await _regenerate_visual_core(db, item, brand, body)
+            except Exception as e:
+                logger.warning("month visual regen failed for %s: %s", item.id, e)
+
+
+@router.post("/regenerate-month-visuals", response_model=RegenerateMonthVisualsResponse)
+async def regenerate_month_visuals(
+    body: RegenerateMonthVisualsRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.month < 1 or body.month > 12:
+        raise HTTPException(status_code=400, detail="Month must be 1–12")
+    if body.mode not in ("same_archetype", "new_archetype"):
+        raise HTTPException(status_code=400, detail="mode must be same_archetype or new_archetype")
+    await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
+    q = select(func.count()).select_from(ContentItem).where(
+        ContentItem.brand_id == body.brand_id,
+        ContentItem.generation_month == body.month,
+        ContentItem.generation_year == body.year,
+    )
+    if body.platform:
+        q = q.where(ContentItem.platform == body.platform)
+    total = (await db.execute(q)).scalar() or 0
+    queued = max(0, min(int(total), max(1, min(body.limit, MAX_MONTH_REGEN_BATCH))))
+    background_tasks.add_task(
+        _do_regenerate_month_visuals,
+        body.brand_id,
+        body.month,
+        body.year,
+        body.platform.value if body.platform else None,
+        body.mode,
+        body.new_archetype,
+        queued,
+    )
+    return RegenerateMonthVisualsResponse(queued=queued)
 
 
 @router.post("/brand-form-coach", response_model=BrandFormCoachResponse)
@@ -683,22 +888,16 @@ async def _regenerate_visual_core(
     sab = build_art_brief(post, brand_dict)
     post["art_brief"] = sab
 
-    bg_urls = await generate_post_image(post, brand_dict)
-    if bg_urls:
-        item.image_url = bg_urls[0]
-    bb_urls = await generate_post_images(
-        post, brand_dict, background_image_url=item.image_url or None
-    )
-    if bb_urls:
-        item.image_urls = bb_urls
-    await _apply_brand_logo_to_visuals(item, post, brand_dict)
-    lint = await lint_final_image((item.image_urls or [None])[0], brand_dict, sab)
+    lint, quality_gate, logo_ok = await _render_with_quality_gate(db, item, post, brand_dict, sab)
     th = dict(item.theme) if isinstance(item.theme, dict) else dict(random.choice(THEMES))
     th["cc_meta"] = {
         "visual_archetype": sab["archetype_id"],
         "art_brief": sab,
         "visual_lint": lint,
+        "quality_gate": quality_gate,
         "template_family": detect_template_family(post),
+        "logo_required": has_brand_logo(brand_dict),
+        "logo_applied": logo_ok,
     }
     item.theme = th
     await db.commit()
@@ -878,47 +1077,22 @@ async def _do_generate_month(
             await db.rollback()
             return
 
-        # ── Phase 1: AI background generation ─────────────────────────────────────
-        # Runs outside the text transaction. Each image failure is isolated —
-        # one bad post doesn't affect the others.
-        for item, post_data in saved_items:
-            try:
-                bg_urls = await generate_post_image(post_data, brand_dict)
-                if bg_urls:
-                    item.image_url = bg_urls[0]   # primary background for Bannerbear
-                    await db.commit()
-            except Exception as e:
-                logger.error(f"Background image generation failed for post {item.id}: {e}")
-
-        # ── Phase 2: Bannerbear final render ───────────────────────────────────────
-        # Each Bannerbear call is isolated. Failure on one post doesn't affect others.
-        for item, post_data in saved_items:
-            try:
-                bb_urls = await generate_post_images(
-                    post_data, brand_dict,
-                    background_image_url=item.image_url or None,
-                )
-                if bb_urls:
-                    item.image_urls = bb_urls
-                await _apply_brand_logo_to_visuals(item, post_data, brand_dict)
-                await db.commit()
-            except Exception as e:
-                logger.error(f"Bannerbear failed for post {item.id}: {e}")
-
-        # ── Phase 3: visual lint (async-friendly, non-blocking of assets) ───────────
+        # ── Phase 1: render with quality gate + retry loop ──────────────────────────
         for item, post_data in saved_items:
             try:
                 sab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else {}
-                cover = (item.image_urls or [None])[0]
-                lint = await lint_final_image(cover, brand_dict, sab)
+                lint, quality_gate, logo_ok = await _render_with_quality_gate(db, item, post_data, brand_dict, sab)
                 th = dict(item.theme) if isinstance(item.theme, dict) else {}
                 cm = dict(th.get("cc_meta") or {})
                 cm["visual_lint"] = lint
+                cm["quality_gate"] = quality_gate
+                cm["logo_required"] = has_brand_logo(brand_dict)
+                cm["logo_applied"] = logo_ok
                 th["cc_meta"] = cm
                 item.theme = th
                 await db.commit()
             except Exception as e:
-                logger.warning(f"visual_lint failed for post {item.id}: {e}")
+                logger.warning(f"quality gate/render failed for post {item.id}: {e}")
 
 
 def _brand_to_dict(brand: Brand) -> dict:

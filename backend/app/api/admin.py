@@ -537,6 +537,9 @@ async def admin_content_visual_debug(
         "template_family": cc_meta.get("template_family"),
         "visual_archetype": cc_meta.get("visual_archetype"),
         "visual_lint": cc_meta.get("visual_lint"),
+        "quality_gate": cc_meta.get("quality_gate"),
+        "logo_required": cc_meta.get("logo_required"),
+        "logo_applied": cc_meta.get("logo_applied"),
         "art_brief": cc_meta.get("art_brief"),
         "has_bannerbear_urls": isinstance(item.image_urls, list) and len(item.image_urls) > 0,
         "bannerbear_template_config": {

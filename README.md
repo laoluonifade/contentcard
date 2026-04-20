@@ -86,6 +86,9 @@ Open: http://localhost:5173
 | `BANNERBEAR_TEMPLATE_EDU` | Optional educational/explainer template UID |
 | `BANNERBEAR_TEMPLATE_TESTIMONIAL` | Optional testimonial/social-proof template UID |
 | `BANNERBEAR_TEMPLATE_HIRING` | Optional hiring/recruitment template UID |
+| `QUALITY_GATE_ENABLED` | `true`/`false` creative QA gate before marking visuals ready |
+| `QUALITY_GATE_MIN_SCORE` | Minimum gate score (e.g. `0.66`) |
+| `QUALITY_GATE_MAX_RETRIES` | Auto-retry attempts after first failed render (e.g. `2`) |
 | `FRONTEND_URL` | `http://localhost:5173` (dev) or your prod URL |
 | `FREE_TRIAL_DAYS` | `14` |
 
@@ -140,6 +143,12 @@ The user never sees a payment provider choice.
 ## API Reference
 
 Full Swagger docs at `http://localhost:8000/docs`
+
+---
+
+## Design System Docs
+
+- Bannerbear production template contract: `docs/BANNERBEAR_TEMPLATE_SPEC.md`
 
 ```
 POST   /api/v1/auth/signup                     Create account + workspace + start trial

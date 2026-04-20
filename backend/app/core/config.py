@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:5173"
     # Max workspaces a single user may own when agency_mode is enabled (guardrail).
     AGENCY_MAX_OWNED_WORKSPACES: int = 50
+    QUALITY_GATE_ENABLED: bool = True
+    QUALITY_GATE_MIN_SCORE: float = 0.66
+    QUALITY_GATE_MAX_RETRIES: int = 2
 
     class Config:
         env_file = ".env"
