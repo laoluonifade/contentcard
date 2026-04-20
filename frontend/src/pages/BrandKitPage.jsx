@@ -8,6 +8,8 @@ import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
 import { normalizeHex } from '../lib/brandVisualValidate'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
+import LogoCropModal from '../components/brand/LogoCropModal'
+import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 
 const TABS = ['Basics', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
 
@@ -323,6 +325,9 @@ export default function BrandKitPage() {
   const [tab, setTab]       = useState('Basics')
   const [saving, setSaving] = useState(false)
   const [logoUploading, setLogoUploading] = useState(false)
+  const [logoCropOpen, setLogoCropOpen] = useState(false)
+  const [logoCropSrc, setLogoCropSrc] = useState(null)
+  const [logoCropFile, setLogoCropFile] = useState(null)
   const [newWord, setNewWord]     = useState('')
   const [newColorHex, setNewColorHex] = useState('#6C63FF')
   const [form, setForm]     = useState({})
@@ -395,14 +400,15 @@ export default function BrandKitPage() {
     setNewWord('')
   }
 
-  const onBrandLogoFile = async (e) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file || !activeBrandId || !activeWorkspaceId) return
-    if (!file.type.startsWith('image/')) {
-      toast('Please choose an image file (PNG, JPG, or SVG).', 'error')
-      return
-    }
+  const closeLogoCrop = () => {
+    if (logoCropSrc) URL.revokeObjectURL(logoCropSrc)
+    setLogoCropSrc(null)
+    setLogoCropFile(null)
+    setLogoCropOpen(false)
+  }
+
+  const uploadLogoFile = async (file) => {
+    if (!activeBrandId || !activeWorkspaceId || !file) return
     setLogoUploading(true)
     try {
       const { logo_url: logoUrl } = await brandApi.uploadLogo(activeWorkspaceId, activeBrandId, file)
@@ -413,9 +419,37 @@ export default function BrandKitPage() {
       toast('Logo saved. It will be composited onto generated post images.')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Upload failed', 'error')
+      throw err
     } finally {
       setLogoUploading(false)
     }
+  }
+
+  const handleLogoCropConfirm = async (file) => {
+    try {
+      await uploadLogoFile(file)
+      closeLogoCrop()
+    } catch {
+      /* toast shown in uploadLogoFile */
+    }
+  }
+
+  const onBrandLogoFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !activeBrandId || !activeWorkspaceId) return
+    if (!file.type.startsWith('image/')) {
+      toast('Please choose an image file (PNG, JPG, or SVG).', 'error')
+      return
+    }
+    if (file.type === 'image/svg+xml') {
+      await uploadLogoFile(file)
+      return
+    }
+    const url = URL.createObjectURL(file)
+    setLogoCropSrc(url)
+    setLogoCropFile(file)
+    setLogoCropOpen(true)
   }
 
   // Live scores: recomputed on every keystroke
@@ -568,8 +602,9 @@ export default function BrandKitPage() {
                 <div>
                   <span className={labelCls}>Brand logo (on designs)</span>
                   <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
-                    Upload a PNG or SVG with a transparent background when possible. This logo is burned onto generated
-                    covers and raster visuals — it is not drawn by the AI model.
+                    Raster images open a crop step; we save a {BRAND_KIT_LOGO_PX}×{BRAND_KIT_LOGO_PX} PNG for crisp compositing.
+                    SVG uploads skip cropping. Use a transparent background when possible. This logo is burned onto generated
+                    covers — it is not drawn by the AI model.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-4">
@@ -1027,6 +1062,15 @@ export default function BrandKitPage() {
           </p>
         </aside>
       </div>
+      {logoCropOpen && logoCropSrc && logoCropFile && (
+        <LogoCropModal
+          imageSrc={logoCropSrc}
+          originalFile={logoCropFile}
+          onClose={closeLogoCrop}
+          onConfirm={handleLogoCropConfirm}
+          busy={logoUploading}
+        />
+      )}
     </div>
   )
 }
