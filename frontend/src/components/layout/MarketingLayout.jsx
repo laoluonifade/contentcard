@@ -39,9 +39,16 @@ const LEGAL_LINKS = [
 
 export default function MarketingLayout({ children }) {
   const navigate = useNavigate()
+  const marketingLightThemeVars = {
+    '--cc-ink-rgb': '15 23 42',
+    '--cc-fog-rgb': '229 231 235',
+    '--cc-mist-rgb': '247 247 248',
+    '--cc-surface-rgb': '255 255 255',
+    '--cc-page-rgb': '255 255 255',
+  }
 
   return (
-    <div className="bg-ink min-h-screen text-white flex flex-col">
+    <div className="bg-ink min-h-screen text-white flex flex-col" style={marketingLightThemeVars}>
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-white/5 bg-ink/90 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">

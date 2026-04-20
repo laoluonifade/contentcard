@@ -18,6 +18,14 @@ const DARK  = '#0D0D1A'
 const CARD  = '#13131F'
 
 export default function PitchDeckPage() {
+  const marketingLightThemeVars = {
+    '--cc-ink-rgb': '15 23 42',
+    '--cc-fog-rgb': '229 231 235',
+    '--cc-mist-rgb': '247 247 248',
+    '--cc-surface-rgb': '255 255 255',
+    '--cc-page-rgb': '255 255 255',
+  }
+
   useEffect(() => {
     document.title = 'ContentCard: Pitch Deck'
     return () => { document.title = 'ContentCard' }
@@ -26,7 +34,7 @@ export default function PitchDeckPage() {
   const handlePrint = () => window.print()
 
   return (
-    <div style={{ fontFamily: "'Inter', system-ui, sans-serif", background: '#f4f4f8', minHeight: '100vh' }}>
+    <div style={{ ...marketingLightThemeVars, fontFamily: "'Inter', system-ui, sans-serif", background: '#f4f4f8', minHeight: '100vh' }}>
       <style>{SLIDE_STYLES}</style>
 
       {/* Nav bar: hidden on print */}
