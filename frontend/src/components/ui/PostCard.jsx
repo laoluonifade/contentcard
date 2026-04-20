@@ -155,10 +155,7 @@ function drawSlideBadge(ctx, current, total, right, top, ff) {
 // Used for: all cover slides (single & carousel) when an AI image exists
 // ──────────────────────────────────────────────────────────────────────────
 
-async function renderOverlay(ctx, post, slide, brand, totalSlides, bgImage) {
-  const brandColor = brand?.colors?.[0] || '#6C63FF'
-  const ff = `'Inter', system-ui, -apple-system, sans-serif`
-
+async function renderOverlay(ctx, brand, bgImage) {
   // Background
   if (bgImage) {
     const scale = Math.max(W / bgImage.naturalWidth, H / bgImage.naturalHeight)
@@ -170,36 +167,6 @@ async function renderOverlay(ctx, post, slide, brand, totalSlides, bgImage) {
     grad.addColorStop(1, darken(brandColor, 0.30))
     ctx.fillStyle = grad
     ctx.fillRect(0, 0, W, H)
-  }
-
-  // Gradient: bottom 45% only: transparent → near-black
-  const grad = ctx.createLinearGradient(0, H * 0.42, 0, H)
-  grad.addColorStop(0, 'rgba(0,0,0,0)')
-  grad.addColorStop(0.38, 'rgba(0,0,0,0.48)')
-  grad.addColorStop(1, 'rgba(0,0,0,0.88)')
-  ctx.fillStyle = grad
-  ctx.fillRect(0, 0, W, H)
-
-  // Headline: white, positioned in the lower third
-  const headline = slide.topic || ''
-  const headSize = headline.length > 45 ? 78 : headline.length > 30 ? 96 : 114
-  ctx.font = `900 ${headSize}px ${ff}`
-  ctx.fillStyle = '#ffffff'
-  const headY = H * 0.60
-  drawWrapped(ctx, headline, PAD, headY, W - PAD * 2, headSize * 1.1, 3)
-
-  // Swipe indicator: bottom right (carousel only, subtle pill)
-  if (totalSlides > 1) {
-    const label = 'Swipe  →'
-    ctx.font = `500 24px ${ff}`
-    const tw = ctx.measureText(label).width
-    const pw = tw + 44, ph = 48
-    const px = W - PAD - pw, py = H - PAD - ph
-    ctx.fillStyle = 'rgba(255,255,255,0.16)'
-    rrect(ctx, px, py, pw, ph, 24)
-    ctx.fill()
-    ctx.fillStyle = 'rgba(255,255,255,0.85)'
-    ctx.fillText(label, px + 22, py + 31)
   }
 }
 
@@ -552,7 +519,7 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
   // ── Quote format
   if (format === 'quote') {
     if (bgImage) {
-      await renderOverlay(ctx, post, slide, brand, totalSlides, bgImage)
+      await renderOverlay(ctx, brand, bgImage)
     } else {
       renderQuote(ctx, post, slide, brand)
     }
@@ -567,7 +534,7 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
       } else {
         // 'bold', 'minimal', 'clean', 'editorial', and all others → Overlay
         // Gives the AI photo maximum impact; text in lower third only
-        await renderOverlay(ctx, post, slide, brand, totalSlides, bgImage)
+        await renderOverlay(ctx, brand, bgImage)
       }
     } else {
       renderCover(ctx, post, slide, brand, totalSlides)
@@ -586,6 +553,9 @@ function getBannerbearUrl(post, slideIndex) {
   if (post.image_urls && Array.isArray(post.image_urls) && post.image_urls[slideIndex]) {
     return post.image_urls[slideIndex]
   }
+  // If Bannerbear slides are unavailable, use the raw generated image on slide 0
+  // instead of drawing text overlays in-canvas.
+  if (slideIndex === 0 && post.image_url) return post.image_url
   return null
 }
 

@@ -6,9 +6,9 @@ Template layer naming convention (must match your Bannerbear templates exactly):
   Content template: headline, body, brand_name, accent
   Quote template:   quote_text, brand_name, background
 
-Typography layers are driven with empty strings so the exported graphic stays
-photo-first; captions live in the post body. The app composites the brand logo
-onto the final PNG after Bannerbear.
+Unlike the previous photo-only mode, this service now fills typography layers
+with concise, on-brand copy so assets read like intentional social design
+rather than generic AI backgrounds.
 """
 
 import asyncio
@@ -21,6 +21,102 @@ logger = logging.getLogger(__name__)
 BB_API = "https://api.bannerbear.com/v2"
 POLL_INTERVAL = 3   # seconds between status checks
 MAX_POLLS = 20      # 60 seconds max per image
+
+
+def _clean_inline(text: str | None, max_len: int) -> str:
+    t = " ".join(str(text or "").strip().split())
+    return t[:max_len].strip()
+
+
+def _split_caption_sentences(caption: str) -> list[str]:
+    parts = [p.strip() for p in caption.replace("!", ".").replace("?", ".").split(".")]
+    return [p for p in parts if p]
+
+
+def _route_template_family(post_data: dict, body_index: int = 0) -> str:
+    """
+    Route body slides to a template family using content_type/topic hints.
+    Falls back to hook template for the first body slide, then generic content.
+    """
+    ctype = _clean_inline(post_data.get("content_type"), 80).lower()
+    topic = _clean_inline(post_data.get("topic"), 120).lower()
+    bag = f"{ctype} {topic}"
+
+    candidates = [
+        (
+            ("promo", "offer", "sale", "discount", "deal", "launch", "announcement"),
+            getattr(settings, "BANNERBEAR_TEMPLATE_PROMO", "") or "",
+        ),
+        (
+            ("education", "tip", "how to", "guide", "explainer", "myth", "mistake"),
+            getattr(settings, "BANNERBEAR_TEMPLATE_EDU", "") or "",
+        ),
+        (
+            ("testimonial", "customer", "review", "proof", "case study", "success story"),
+            getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", "") or "",
+        ),
+        (
+            ("hiring", "job", "career", "vacancy", "role", "join our team"),
+            getattr(settings, "BANNERBEAR_TEMPLATE_HIRING", "") or "",
+        ),
+    ]
+    for keys, uid in candidates:
+        if uid and any(k in bag for k in keys):
+            return uid
+
+    hook_uid = getattr(settings, "BANNERBEAR_TEMPLATE_HOOK", "") or ""
+    if body_index == 0 and hook_uid:
+        return hook_uid
+    return settings.BANNERBEAR_TEMPLATE_CONTENT
+
+
+def detect_template_family(post_data: dict) -> str:
+    """
+    Debug-friendly family key for admin inspection.
+    """
+    ctype = _clean_inline(post_data.get("content_type"), 80).lower()
+    topic = _clean_inline(post_data.get("topic"), 120).lower()
+    bag = f"{ctype} {topic}"
+    if any(k in bag for k in ("promo", "offer", "sale", "discount", "deal", "launch", "announcement")):
+        return "promo"
+    if any(k in bag for k in ("education", "tip", "how to", "guide", "explainer", "myth", "mistake")):
+        return "edu"
+    if any(k in bag for k in ("testimonial", "customer", "review", "proof", "case study", "success story")):
+        return "testimonial"
+    if any(k in bag for k in ("hiring", "job", "career", "vacancy", "role", "join our team")):
+        return "hiring"
+    return "default"
+
+
+def _carousel_copy_plan(topic: str, caption: str, slide_count: int) -> list[dict]:
+    """
+    Build per-slide copy plan: cover + body slides + CTA.
+    The copy is concise so templates remain readable on mobile feeds.
+    """
+    cover_headline = _clean_inline(topic, 68)
+    sents = _split_caption_sentences(caption)
+    subtitle = _clean_inline(sents[0] if sents else "Swipe for practical takeaways.", 96)
+    if slide_count <= 1:
+        return [{"headline": cover_headline, "subtitle": subtitle}]
+
+    body_slides = max(0, slide_count - 2)
+    body_parts = sents[1:] if len(sents) > 1 else sents[:]
+    per_slide = max(1, (len(body_parts) + max(body_slides, 1) - 1) // max(body_slides, 1))
+    bodies: list[dict] = []
+    for i in range(body_slides):
+        chunk = body_parts[i * per_slide : (i + 1) * per_slide]
+        body_text = _clean_inline(". ".join(chunk), 170)
+        if not body_text:
+            body_text = "Practical action point for this step."
+        bodies.append(
+            {
+                "headline": _clean_inline(f"Point {i + 1}", 40),
+                "body": body_text,
+            }
+        )
+
+    cta = _clean_inline(" ".join(sents[-1:]) if sents else "Follow for more updates.", 120)
+    return [{"headline": cover_headline, "subtitle": subtitle}, *bodies, {"headline": "Take action today", "body": cta}]
 
 
 async def _create_image(template_uid: str, modifications: list[dict]) -> str | None:
@@ -87,11 +183,15 @@ def _cover_mods(
     bg_hex = _primary_color(brand_dict)
     if art_brief and art_brief.get("dominant_colors_from_tokens"):
         bg_hex = art_brief["dominant_colors_from_tokens"][0]
-    # No headline / subtitle / brand name on the raster — photo-only export; copy lives in the caption field.
+    brand_name = _clean_inline(brand_dict.get("name") or "", 40)
+    headline = _clean_inline(topic, 68)
+    subtitle = _clean_inline((_split_caption_sentences(caption) or [""])[0], 96)
+    if not subtitle:
+        subtitle = "Swipe for details"
     mods = [
-        {"name": "headline",   "text": ""},
-        {"name": "subtitle",   "text": ""},
-        {"name": "brand_name", "text": ""},
+        {"name": "headline",   "text": headline},
+        {"name": "subtitle",   "text": subtitle},
+        {"name": "brand_name", "text": brand_name.upper() if brand_name else ""},
         {"name": "background", "color": bg_hex},
     ]
     # Inject DALL-E background into Bannerbear template image layer if present.
@@ -109,10 +209,11 @@ def _content_mods(
     accent = _secondary_color(brand_dict)
     if art_brief and len(art_brief.get("dominant_colors_from_tokens") or []) > 1:
         accent = art_brief["dominant_colors_from_tokens"][1]
+    brand_name = _clean_inline(brand_dict.get("name") or "", 40)
     mods = [
-        {"name": "headline",   "text": ""},
-        {"name": "body",       "text": ""},
-        {"name": "brand_name", "text": ""},
+        {"name": "headline",   "text": _clean_inline(headline, 56)},
+        {"name": "body",       "text": _clean_inline(body, 180)},
+        {"name": "brand_name", "text": brand_name.upper() if brand_name else ""},
         {"name": "accent",     "color": accent},
     ]
     if background_image_url:
@@ -128,9 +229,10 @@ def _quote_mods(
     bg = _primary_color(brand_dict)
     if art_brief and art_brief.get("dominant_colors_from_tokens"):
         bg = art_brief["dominant_colors_from_tokens"][0]
+    brand_name = _clean_inline(brand_dict.get("name") or "", 40)
     mods = [
-        {"name": "quote_text", "text": ""},
-        {"name": "brand_name", "text": ""},
+        {"name": "quote_text", "text": _clean_inline(quote or "", 180)},
+        {"name": "brand_name", "text": brand_name.upper() if brand_name else ""},
         {"name": "background", "color": bg},
     ]
     if background_image_url:
@@ -187,25 +289,27 @@ async def generate_post_images(
     if fmt == "single" or slide_count <= 1:
         return [cover_url]
 
-    # ── Carousel — cover + body slides + CTA (photo-first; caption lives in the post)
+    # ── Carousel — cover + body slides + CTA with explicit copy hierarchy
     urls = [cover_url]
+    copy_plan = _carousel_copy_plan(topic, caption, slide_count)
 
     if settings.BANNERBEAR_TEMPLATE_CONTENT and slide_count > 2:
         body_slides = slide_count - 2
 
         tasks = []
-        hook_uid = getattr(settings, "BANNERBEAR_TEMPLATE_HOOK", "") or ""
         for i in range(body_slides):
-            tmpl = hook_uid if (i == 0 and hook_uid) else settings.BANNERBEAR_TEMPLATE_CONTENT
+            tmpl = _route_template_family(post_data, body_index=i)
+            cp = copy_plan[i + 1] if (i + 1) < len(copy_plan) else {}
             tasks.append(_create_image(
                 tmpl,
-                _content_mods("", "", brand_dict, art_brief=ab),
+                _content_mods(cp.get("headline", f"Point {i + 1}"), cp.get("body", ""), brand_dict, art_brief=ab),
             ))
 
-        # CTA slide — no background image, brand color only (no overlay text)
+        # CTA slide
+        cta = copy_plan[-1] if copy_plan else {"headline": "Take action today", "body": ""}
         tasks.append(_create_image(
             settings.BANNERBEAR_TEMPLATE_CONTENT,
-            _content_mods("", "", brand_dict, art_brief=ab),
+            _content_mods(cta.get("headline", "Take action today"), cta.get("body", ""), brand_dict, art_brief=ab),
         ))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)

@@ -181,6 +181,16 @@ class ContentOut(BaseModel):
                 return cm.get("visual_lint") if isinstance(cm.get("visual_lint"), dict) else None
         return None
 
+    @computed_field
+    def template_family(self) -> str | None:
+        t = self.theme
+        if isinstance(t, dict):
+            cm = t.get("cc_meta")
+            if isinstance(cm, dict):
+                v = cm.get("template_family")
+                return str(v) if v is not None else None
+        return None
+
 
 class ContentListParams(BaseModel):
     brand_id: str

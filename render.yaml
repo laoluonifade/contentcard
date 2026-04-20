@@ -40,6 +40,24 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+      - key: BANNERBEAR_API_KEY
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_COVER
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_CONTENT
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_QUOTE
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_HOOK
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_PROMO
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_EDU
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_TESTIMONIAL
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_HIRING
+        sync: false
       - key: FREE_TRIAL_DAYS
         value: "14"
 

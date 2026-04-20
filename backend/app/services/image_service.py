@@ -81,6 +81,14 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     # Audience note
     audience_parts = [p for p in [target_audience, f"age {audience_age_range}" if audience_age_range else ""] if p]
     audience_note = f"Target audience: {', '.join(audience_parts)}." if audience_parts else ""
+    brand_photos = brand.get("brand_photos") or []
+    brand_photo_note = ""
+    if isinstance(brand_photos, list) and brand_photos:
+        brand_photo_note = (
+            f"Reference the look-and-feel of approved brand photography set ({len(brand_photos)} assets): "
+            "authentic casting, realistic skin texture, credible wardrobe, natural expressions, and true-to-market environments. "
+            "Do not clone any specific face."
+        )
 
     arch = (ab.get("archetype_id") or "").lower()
     vt = str(post.get("visual_type") or "real_people").lower()
@@ -231,12 +239,16 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             cam_line = "Illustration execution: crisp edges, intentional colour blocking, print-quality vector-adjacent finish."
         else:
             style_close = "Photoreal editorial photograph; topic-led subjects (people, product, place, or detail), never generic illustration."
-            cam_line = "Camera: Canon EOS R5, 35–85mm, shallow or medium depth of field; subject chosen to match the post idea."
+            cam_line = (
+                "Camera: Canon EOS R5, 35–85mm, shallow or medium depth of field; subject chosen to match the post idea. "
+                "If people are present, cast 1–3 believable people with natural skin texture, realistic hands, true facial anatomy, "
+                "documentary energy, and no synthetic gloss."
+            )
         prompt = (
             f"{ai_image_prompt}\n\n"
             f"Brand context: {brand_name} ({industry}). "
             f"Color palette: {color_str}. Tone: {tone_str}. "
-            f"{audience_note} {cultural_note} {motif_note}\n"
+            f"{audience_note} {cultural_note} {motif_note} {brand_photo_note}\n"
             f"{cam_line} "
             f"{lighting}. {format_note} "
             f"{style_close} "
@@ -262,7 +274,9 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             opener = f"Photorealistic editorial photograph for {brand_name}, a {industry} brand."
             cam_block = (
                 "Camera: Canon EOS R5, 35–85mm lens, depth of field chosen for the subject (product, place, detail, or people). "
-                "Environment and talent must match the post idea; avoid default anonymous office crowds."
+                "Environment and talent must match the post idea; avoid default anonymous office crowds. "
+                "If people appear: authentic local casting, natural wardrobe styling, realistic hands, realistic skin microtexture, "
+                "true facial proportions, and candid body language."
             )
             style_close = ""
         prompt = (
@@ -271,7 +285,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{f'Post goal: {description} ' if description else ''}"
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
-            f"{audience_note} {cultural_note} {motif_note} {imagery_note} "
+            f"{audience_note} {cultural_note} {motif_note} {imagery_note} {brand_photo_note} "
             f"{f'Strategy context: {strategy_note} ' if strategy_note else ''}"
             f"{cam_block} "
             f"{lighting}. {format_note} "
@@ -384,11 +398,17 @@ async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | Non
     Download a rendered image (e.g. Bannerbear PNG), composite the brand logo from
     brand['logo_url'], re-upload to Cloudinary. Logo is never left to the image model.
     """
-    logo_url = (brand.get("logo_url") or "").strip()
+    vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
+    logo_url = (
+        brand.get("logo_url")
+        or brand.get("brand_logo_url")
+        or vs.get("logo_url")
+        or ""
+    )
+    logo_url = str(logo_url).strip()
     if not image_url or not logo_url:
         return None
     ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
-    vs = brand.get("visual_system") or {}
     placement = str(ab.get("logo_placement") or vs.get("logo_placement") or "bottom_right")
     try:
         min_w = int(ab.get("logo_min_width_px") or vs.get("logo_min_width_px") or 80)
@@ -414,13 +434,14 @@ async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | Non
 
 
 async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: dict | None) -> list[str]:
-    """Apply burn-in logo to slide 0 (cover) when URLs exist."""
+    """Apply burn-in logo to every rendered slide URL when possible."""
     if not urls:
         return []
-    burned = await burn_logo_into_image_url(urls[0], brand, post)
-    if burned:
-        return [burned, *urls[1:]]
-    return urls
+    out: list[str] = []
+    for u in urls:
+        burned = await burn_logo_into_image_url(u, brand, post)
+        out.append(burned or u)
+    return out
 
 
 async def generate_post_image(post: dict, brand: dict) -> list[str]:

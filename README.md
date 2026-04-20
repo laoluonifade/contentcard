@@ -77,6 +77,15 @@ Open: http://localhost:5173
 | `CLOUDINARY_CLOUD_NAME` | From Cloudinary dashboard |
 | `CLOUDINARY_API_KEY` | From Cloudinary dashboard |
 | `CLOUDINARY_API_SECRET` | From Cloudinary dashboard |
+| `BANNERBEAR_API_KEY` | From Bannerbear dashboard |
+| `BANNERBEAR_TEMPLATE_COVER` | Cover template UID |
+| `BANNERBEAR_TEMPLATE_CONTENT` | Default content template UID |
+| `BANNERBEAR_TEMPLATE_QUOTE` | Quote template UID |
+| `BANNERBEAR_TEMPLATE_HOOK` | Optional hook-slide template UID |
+| `BANNERBEAR_TEMPLATE_PROMO` | Optional promo/offer template UID |
+| `BANNERBEAR_TEMPLATE_EDU` | Optional educational/explainer template UID |
+| `BANNERBEAR_TEMPLATE_TESTIMONIAL` | Optional testimonial/social-proof template UID |
+| `BANNERBEAR_TEMPLATE_HIRING` | Optional hiring/recruitment template UID |
 | `FRONTEND_URL` | `http://localhost:5173` (dev) or your prod URL |
 | `FREE_TRIAL_DAYS` | `14` |
 
@@ -112,6 +121,7 @@ Open: http://localhost:5173
 4. Set the `sync: false` env vars manually in Render dashboard after first deploy:
    - All `*_KEY`, `*_SECRET` values
    - `STRIPE_PRICE_*` IDs
+   - `BANNERBEAR_TEMPLATE_*` IDs (at minimum: cover/content/quote; optional family templates for promo/edu/testimonial/hiring)
    - `FRONTEND_URL` = your Render frontend URL (e.g. `https://contentcard-web.onrender.com`)
    - `VITE_API_URL` = your backend URL + `/api/v1`
 

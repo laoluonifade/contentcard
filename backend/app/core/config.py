@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     BANNERBEAR_TEMPLATE_CONTENT: str = ""
     BANNERBEAR_TEMPLATE_QUOTE: str = ""
     BANNERBEAR_TEMPLATE_HOOK: str = ""
+    BANNERBEAR_TEMPLATE_PROMO: str = ""
+    BANNERBEAR_TEMPLATE_EDU: str = ""
+    BANNERBEAR_TEMPLATE_TESTIMONIAL: str = ""
+    BANNERBEAR_TEMPLATE_HIRING: str = ""
 
     FREE_TRIAL_DAYS: int = 14
     FRONTEND_URL: str = "http://localhost:5173"

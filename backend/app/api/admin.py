@@ -2,7 +2,7 @@ import asyncio
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, delete
+from sqlalchemy import select, func, desc, delete, or_
 from sqlalchemy.orm import aliased
 from pydantic import BaseModel, Field
 from app.services.billing_service import verify_paystack_transaction, PLANS
@@ -17,9 +17,25 @@ from datetime import datetime, timezone, timedelta
 
 logger = logging.getLogger(__name__)
 
-# Claude Haiku 4.5 pricing: $0.80/M input + $4/M output
+# Claude Haiku 4.5 pricing: $0.80/M input + $4/M output (legacy heuristic only)
 # Estimate per post: ~1200 input tokens + 400 output tokens
 COST_PER_POST_USD = (1200 * 0.80 / 1_000_000) + (400 * 4.0 / 1_000_000)
+
+# OpenAI text (matches `TEXT_MODEL` in ai_service — gpt-4o): list prices USD per 1M tokens (approx.)
+# Heuristic: ~1200 input + 400 completion tokens per generated post (copy path).
+GPT4O_INPUT_USD_PER_M = 2.50
+GPT4O_OUTPUT_USD_PER_M = 10.00
+OPENAI_EST_INPUT_TOKENS_PER_POST = 1200
+OPENAI_EST_OUTPUT_TOKENS_PER_POST = 400
+COST_PER_POST_OPENAI_CHAT_USD = (
+    (OPENAI_EST_INPUT_TOKENS_PER_POST * GPT4O_INPUT_USD_PER_M / 1_000_000)
+    + (OPENAI_EST_OUTPUT_TOKENS_PER_POST * GPT4O_OUTPUT_USD_PER_M / 1_000_000)
+)
+
+# DALL·E / images API — rough average per 1024-class image (varies by model/tier)
+OPENAI_EST_COST_PER_IMAGE_USD = 0.04
+
+PAID_PLAN_KEYS = frozenset(PLANS.keys())  # starter | smb | pro
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -272,6 +288,41 @@ async def admin_stats(
     content_delta_pct = round(((content_this_week - content_prev_week) / max(content_prev_week, 1)) * 100)
     user_delta = users_this_week - users_prev_week
 
+    users_last_30_days = (await db.execute(
+        select(func.count()).select_from(User).where(User.created_at >= month_ago)
+    )).scalar() or 0
+
+    content_last_30_days = (await db.execute(
+        select(func.count()).select_from(ContentItem).where(ContentItem.created_at >= month_ago)
+    )).scalar() or 0
+
+    # Plan mix + implied catalog MRR (NGN minor units / “kobo”: PLANS.ngn_price is 1/100 of ₦)
+    plan_rows = (await db.execute(
+        select(Workspace.plan, func.count(Workspace.id)).group_by(Workspace.plan)
+    )).all()
+    workspaces_by_plan: dict[str, int] = {}
+    for plan_key, cnt in plan_rows:
+        pk = (plan_key or "unknown").lower()
+        workspaces_by_plan[pk] = int(cnt or 0)
+
+    implied_mrr_kobo = 0
+    paying_workspace_count = 0
+    for pk in PAID_PLAN_KEYS:
+        c = workspaces_by_plan.get(pk, 0)
+        if c:
+            implied_mrr_kobo += PLANS[pk]["ngn_price"] * c
+            paying_workspace_count += c
+
+    trial_workspace_count = workspaces_by_plan.get("trial", 0)
+    workspaces_with_paystack_subscription = (await db.execute(
+        select(func.count()).select_from(Workspace).where(Workspace.subscription_id.isnot(None))
+    )).scalar() or 0
+    paystack_distinct_customers = (await db.execute(
+        select(func.count(func.distinct(Workspace.customer_id)))
+        .select_from(Workspace)
+        .where(Workspace.customer_id.isnot(None))
+    )).scalar() or 0
+
     # Spend estimation — content per workspace via brand join
     ws_content_rows = (await db.execute(
         select(Brand.workspace_id, func.count(ContentItem.id).label("cnt"))
@@ -285,19 +336,50 @@ async def admin_stats(
         (sum(c * COST_PER_POST_USD for c in ws_counts) / max(len(ws_counts), 1)), 4
     ) if ws_counts else 0.0
 
+    posts_with_stored_image = (await db.execute(
+        select(func.count()).select_from(ContentItem).where(
+            or_(ContentItem.image_url.isnot(None), ContentItem.image_urls.isnot(None))
+        )
+    )).scalar() or 0
+
+    estimated_openai_chat_spend_usd = round(total_content * COST_PER_POST_OPENAI_CHAT_USD, 4)
+    estimated_openai_image_spend_usd = round(posts_with_stored_image * OPENAI_EST_COST_PER_IMAGE_USD, 4)
+    estimated_openai_spend_usd = round(estimated_openai_chat_spend_usd + estimated_openai_image_spend_usd, 4)
+    n_ws_for_avg = max(len(ws_counts), 1)
+    chat_avg_per_ws = (
+        (sum(c * COST_PER_POST_OPENAI_CHAT_USD for c in ws_counts) / n_ws_for_avg) if ws_counts else 0.0
+    )
+    image_avg_per_ws = (posts_with_stored_image * OPENAI_EST_COST_PER_IMAGE_USD) / max(total_ws, 1)
+    avg_openai_spend_per_workspace_usd = round(chat_avg_per_ws + image_avg_per_ws, 4)
+
     return {
         "total_users": total_users,
         "users_this_week": users_this_week,
         "user_delta": user_delta,
+        "users_last_30_days": users_last_30_days,
         "total_workspaces": total_ws,
         "total_content": total_content,
         "content_this_week": content_this_week,
+        "content_last_30_days": content_last_30_days,
         "content_delta_pct": content_delta_pct,
         "total_brands": total_brands,
         "daily_signups": daily_signups,
         "daily_content": daily_content,
         "total_estimated_spend": total_estimated_spend,
         "avg_spend_per_workspace": avg_spend_per_workspace,
+        "estimated_openai_spend_usd": estimated_openai_spend_usd,
+        "estimated_openai_chat_spend_usd": estimated_openai_chat_spend_usd,
+        "estimated_openai_image_spend_usd": estimated_openai_image_spend_usd,
+        "avg_openai_spend_per_workspace_usd": avg_openai_spend_per_workspace_usd,
+        "posts_with_stored_image": posts_with_stored_image,
+        "openai_spend_model_note": "gpt-4o text (heuristic tokens/post) + flat est. per stored image",
+        "implied_mrr_kobo": implied_mrr_kobo,
+        "implied_arr_kobo": implied_mrr_kobo * 12,
+        "paying_workspace_count": paying_workspace_count,
+        "trial_workspace_count": trial_workspace_count,
+        "workspaces_by_plan": workspaces_by_plan,
+        "workspaces_with_paystack_subscription": workspaces_with_paystack_subscription,
+        "paystack_distinct_customers": paystack_distinct_customers,
     }
 
 
@@ -424,11 +506,49 @@ async def admin_content(
                 "platform": i.platform,
                 "status": i.status,
                 "brand_id": i.brand_id,
+                "template_family": (((i.theme or {}).get("cc_meta") or {}).get("template_family") if isinstance(i.theme, dict) else None),
+                "visual_archetype": (((i.theme or {}).get("cc_meta") or {}).get("visual_archetype") if isinstance(i.theme, dict) else None),
                 "scheduled_date": i.scheduled_date,
                 "created_at": i.created_at.isoformat(),
             }
             for i in items
         ],
+    }
+
+
+@router.get("/content/{content_id}/visual-debug")
+async def admin_content_visual_debug(
+    content_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Quick debug payload for visual routing and lint metadata."""
+    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
+    item = r.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    theme = item.theme if isinstance(item.theme, dict) else {}
+    cc_meta = theme.get("cc_meta") if isinstance(theme.get("cc_meta"), dict) else {}
+    return {
+        "id": item.id,
+        "topic": item.topic,
+        "platform": item.platform,
+        "format": item.format,
+        "template_family": cc_meta.get("template_family"),
+        "visual_archetype": cc_meta.get("visual_archetype"),
+        "visual_lint": cc_meta.get("visual_lint"),
+        "art_brief": cc_meta.get("art_brief"),
+        "has_bannerbear_urls": isinstance(item.image_urls, list) and len(item.image_urls) > 0,
+        "bannerbear_template_config": {
+            "cover": bool(settings.BANNERBEAR_TEMPLATE_COVER),
+            "content": bool(settings.BANNERBEAR_TEMPLATE_CONTENT),
+            "quote": bool(settings.BANNERBEAR_TEMPLATE_QUOTE),
+            "hook": bool(getattr(settings, "BANNERBEAR_TEMPLATE_HOOK", "")),
+            "promo": bool(getattr(settings, "BANNERBEAR_TEMPLATE_PROMO", "")),
+            "edu": bool(getattr(settings, "BANNERBEAR_TEMPLATE_EDU", "")),
+            "testimonial": bool(getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", "")),
+            "hiring": bool(getattr(settings, "BANNERBEAR_TEMPLATE_HIRING", "")),
+        },
     }
 
 

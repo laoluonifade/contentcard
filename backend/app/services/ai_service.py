@@ -59,6 +59,7 @@ VALID_FORMATS = {"single", "carousel", "quote"}
 VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
 VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
 VALID_LOGO_SAFE_ZONES = frozenset({"upper_left", "upper_right", "lower_left", "lower_right"})
+TEASER_STYLE_WORDS = ("inside", "part 1", "part one", "swipe", "thread", "behind the scenes", "step-by-step")
 
 
 def _image_prompt_ending_for_style(ips: str) -> str:
@@ -196,6 +197,10 @@ def _validate_posts(
         # Backfill topic from content_idea
         if not post.get("topic"):
             post["topic"] = post.get("content_idea", "")
+        topic_lc = str(post.get("topic") or "").lower()
+        if post["format"] in ("single", "quote") and any(t in topic_lc for t in TEASER_STYLE_WORDS):
+            post["format"] = "carousel"
+            post["slide_count"] = max(3, int(post.get("slide_count", 3)))
 
         # Truncate caption
         caption = str(post.get("caption", ""))
@@ -350,7 +355,8 @@ async def _generate_for_platform(
             "• ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
             "• NEVER mention logos, wordmarks, or typography in image_prompt. Raster is logo-free and text-free; logo is added in post-production\n"
             "• ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
-            "• When people appear they must be photoreal and on-brief for target_audience; never cartoon, 3D, or toy-like characters\n"
+            "• People are the default subject style: photoreal campaign/documentary humans with authentic local casting, natural skin texture, realistic hands, true facial anatomy, and candid expressions\n"
+            "• Avoid plastic AI faces, duplicated faces, malformed hands, and generic smiling stock-pose crowds\n"
             "• Many posts should have zero people: use product, environment, macro detail, hands-at-work, or abstract texture when the idea allows\n"
             "• NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", or \"modern design\""
         ).format(bn=brand_name)
@@ -422,6 +428,8 @@ HARD RULES:
 • Each post must feel distinctly different; vary tone, angle, format, and style
 • NEVER use words from the words_to_avoid list
 • NEVER produce generic AI-sounding captions
+• If format is "single" or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next"
+• Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely
 • topic must equal content_idea exactly
 {_hard_visual_type_rule(ips)}
 • image_prompt and visual_direction must never ask for text, titles, captions, or logos drawn into the image
