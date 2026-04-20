@@ -123,6 +123,71 @@ async def _counts_by_platform_month(
     return {row[0].value: int(row[1] or 0) for row in r.all()}
 
 
+async def _resolve_generation_template(
+    db: AsyncSession,
+    brand_id: str,
+    template_id: str | None,
+) -> tuple[str, list[str]]:
+    if template_id:
+        tmpl = (
+            await db.execute(
+                select(ContentTemplate).where(
+                    ContentTemplate.id == template_id,
+                    ContentTemplate.brand_id == brand_id,
+                    ContentTemplate.is_active.is_(True),
+                )
+            )
+        ).scalar_one_or_none()
+        if not tmpl:
+            raise HTTPException(status_code=404, detail="Selected template not found for this brand")
+        if not bool(getattr(tmpl, "is_design_ready", False)):
+            raise HTTPException(
+                status_code=422,
+                detail="Selected template has no generated design yet. Open Templates and click Generate design first.",
+            )
+        return str(tmpl.id), list(tmpl.topics or [])
+
+    tmpl = (
+        await db.execute(
+            select(ContentTemplate)
+            .where(
+                ContentTemplate.brand_id == brand_id,
+                ContentTemplate.is_active.is_(True),
+                ContentTemplate.is_design_ready.is_(True),
+            )
+            .order_by(ContentTemplate.is_system_default.desc(), ContentTemplate.created_at.asc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not tmpl:
+        raise HTTPException(
+            status_code=422,
+            detail="Generate AI design templates first in Templates before content generation.",
+        )
+    return str(tmpl.id), list(tmpl.topics or [])
+
+
+def _template_generation_context(tmpl: ContentTemplate | None) -> str | None:
+    if not tmpl:
+        return None
+    design_spec = tmpl.design_spec if isinstance(tmpl.design_spec, dict) else {}
+    palette = design_spec.get("palette_lock") if isinstance(design_spec.get("palette_lock"), list) else []
+    parts: list[str] = [
+        "=== TEMPLATE-FIRST GENERATION CONTEXT ===",
+        f"Template name: {tmpl.name}",
+        f"Template category: {tmpl.category.value if getattr(tmpl, 'category', None) else 'N/A'}",
+        f"Business type: {tmpl.business_type or 'N/A'}",
+        f"Country: {tmpl.country_code or 'N/A'}",
+    ]
+    if palette:
+        parts.append(f"Palette lock: {', '.join(str(x) for x in palette[:6])}")
+    if tmpl.generated_visual_direction:
+        parts.append(f"Template visual direction: {tmpl.generated_visual_direction}")
+    if tmpl.generated_image_prompt:
+        parts.append(f"Template image prompt baseline: {tmpl.generated_image_prompt}")
+    return "\n".join(parts)
+
+
 async def _ensure_campaign_plan(db: AsyncSession, brand_id: str, month: int, year: int, style_fp: StyleFingerprint | None) -> CampaignPlan:
     existing = (
         await db.execute(
@@ -542,12 +607,15 @@ async def generate_month(
                 },
             )
 
-    template_topics = None
-    if body.template_id:
-        t_r = await db.execute(select(ContentTemplate).where(ContentTemplate.id == body.template_id))
-        tmpl = t_r.scalar_one_or_none()
-        if tmpl:
-            template_topics = tmpl.topics
+    resolved_template_id, template_topics = await _resolve_generation_template(db, brand.id, body.template_id)
+    selected_template = (
+        await db.execute(select(ContentTemplate).where(ContentTemplate.id == resolved_template_id))
+    ).scalar_one_or_none()
+    template_context = _template_generation_context(selected_template)
+    selected_template = (
+        await db.execute(select(ContentTemplate).where(ContentTemplate.id == resolved_template_id))
+    ).scalar_one_or_none()
+    template_context = _template_generation_context(selected_template)
 
     existing_snapshot = dict(existing_counts)
     website_grounding_text = None
@@ -568,11 +636,15 @@ async def generate_month(
         posts_per_week=max(1, min(7, body.posts_per_week)),
         topic_override=body.topic_override,
         template_topics=template_topics,
-        template_id=body.template_id,
+        template_id=resolved_template_id,
         user_id=current_user.id,
         country_code=current_user.country_code,
         include_holidays_in_content=body.include_holidays_in_content,
-        generation_brief=body.generation_brief,
+        generation_brief=(
+            "\n\n".join([x for x in [body.generation_brief, template_context] if x and str(x).strip()])
+            if template_context
+            else body.generation_brief
+        ),
         website_grounding_text=website_grounding_text,
         approved_website_opportunities=approved_website_opportunities,
         only_new_website_changes=body.only_new_changes,
@@ -596,6 +668,13 @@ async def generate_month_v2(
         raise HTTPException(status_code=400, detail="Select at least one platform")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+    missing = _validate_brand_readiness(brand)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Your brand kit is incomplete. Fill in these fields before generating: {', '.join(missing)}",
+        )
+    resolved_template_id, template_topics = await _resolve_generation_template(db, brand.id, body.template_id)
     style_fp = None
     if body.use_reference_research:
         style_fp = (
@@ -627,7 +706,7 @@ async def generate_month_v2(
             f"motifs={', '.join((style_fp.motif_keywords or [])[:8])}; "
             "ensure crisp hierarchy, product-forward composition, premium ecommerce polish."
         )
-    generation_brief = style_brief
+    generation_brief = "\n\n".join([x for x in [style_brief, template_context] if x and str(x).strip()]) or None
 
     background_tasks.add_task(
         _do_generate_month,
@@ -639,8 +718,8 @@ async def generate_month_v2(
         format_mix=body.format_mix,
         posts_per_week=max(1, min(7, body.posts_per_week)),
         topic_override=body.topic_override,
-        template_topics=None,
-        template_id=None,
+        template_topics=template_topics,
+        template_id=resolved_template_id,
         user_id=current_user.id,
         country_code=current_user.country_code,
         include_holidays_in_content=True,

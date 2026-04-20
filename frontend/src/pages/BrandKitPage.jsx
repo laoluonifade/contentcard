@@ -328,6 +328,7 @@ export default function BrandKitPage() {
   const [logoCropOpen, setLogoCropOpen] = useState(false)
   const [logoCropSrc, setLogoCropSrc] = useState(null)
   const [logoCropFile, setLogoCropFile] = useState(null)
+  const [coachMinimized, setCoachMinimized] = useState(false)
   const [newWord, setNewWord]     = useState('')
   const [newColorHex, setNewColorHex] = useState('#6C63FF')
   const [form, setForm]     = useState({})
@@ -668,7 +669,12 @@ export default function BrandKitPage() {
       {/* Brand Strength Banner */}
       <StrengthBanner overall={overall} overallLevel={overallLevel} />
 
-      <div className="grid xl:grid-cols-[1fr_min(360px,100%)] gap-8 items-start">
+      <div className={clsx(
+        'grid gap-8 items-start',
+        coachMinimized
+          ? 'xl:grid-cols-[1fr_64px]'
+          : 'xl:grid-cols-[1fr_min(360px,100%)]'
+      )}>
         <div className="grid lg:grid-cols-[190px_1fr] gap-6 items-start min-w-0">
         <nav className="bg-white border border-fog rounded-2xl p-2 sticky top-6">
           {TABS.map(t => (
@@ -1410,15 +1416,19 @@ export default function BrandKitPage() {
         </div>
         </div>
 
-        <aside className="space-y-2 xl:sticky xl:top-24">
+        <aside className={clsx(
+          'space-y-2 xl:sticky xl:top-24',
+          coachMinimized ? 'xl:justify-self-end' : ''
+        )}>
           <BrandFormCoachPanel
             mode="brand_kit"
             brandId={activeBrandId}
             formSnapshot={form}
             onApplyPatch={(patch) => setForm((f) => mergeBrandFormPatch(f, patch))}
-            className="min-h-[320px]"
+            onMinimizedChange={setCoachMinimized}
+            className={coachMinimized ? '' : 'min-h-[320px]'}
           />
-          <p className="text-[11px] text-ink/45 px-1">
+          <p className={clsx('text-[11px] text-ink/45 px-1', coachMinimized ? 'hidden' : '')}>
             Suggestions merge into the form. Review tabs, then use Save changes when you are ready.
           </p>
         </aside>

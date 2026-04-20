@@ -4,7 +4,7 @@ import { ArrowRight, Building2, Users, Palette, Check, Zap } from 'lucide-react'
 import { LogoMark } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAppStore from '../stores/appStore'
-import { workspaceApi } from '../api'
+import { workspaceApi, templateApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 
@@ -26,6 +26,7 @@ export default function OnboardingPage() {
   const { user } = useAuthStore()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
+  const [templateSetupRunning, setTemplateSetupRunning] = useState(false)
 
   const [form, setForm] = useState({
     name: '',
@@ -61,15 +62,18 @@ export default function OnboardingPage() {
         await workspaceApi.create({ name: form.name || 'My Workspace' })
         await fetchWorkspaces()
       }
-      await createBrand({
+      const brand = await createBrand({
         ...form,
         tone_tags: form.tone_tags.map(t => t.toLowerCase()),
       })
-      toast('Brand profile created. You\'re ready to generate content.')
-      navigate('/dashboard/generate')
+      setTemplateSetupRunning(true)
+      await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: true })
+      toast('Brand profile and AI templates created. Review templates before generating content.')
+      navigate('/dashboard/templates')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Something went wrong. Please try again.', 'error')
     } finally {
+      setTemplateSetupRunning(false)
       setSaving(false)
     }
   }
@@ -78,6 +82,7 @@ export default function OnboardingPage() {
     { icon: Building2, label: 'Brand basics' },
     { icon: Users,     label: 'Your audience' },
     { icon: Palette,   label: 'Brand voice' },
+    { icon: Zap,       label: 'AI templates' },
   ]
 
   const firstName = user?.full_name?.split(' ')[0] || ''
@@ -245,21 +250,37 @@ export default function OnboardingPage() {
               </div>
             )}
 
+            {step === 4 && (
+              <div className="space-y-5">
+                <div>
+                  <h2 className="text-xl font-bold text-ink mb-1">Generate default AI templates</h2>
+                  <p className="text-ink/50 text-sm">
+                    Before content generation, ContentCard creates country-aware and business-type templates from your brand kit (colors, font, tone, logo rules).
+                  </p>
+                </div>
+                <div className="rounded-xl border border-fog bg-mist p-4">
+                  <p className="text-xs text-ink/60">
+                    We will auto-create template designs in the Templates tab immediately after this step. You can edit or regenerate any template before generating content.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Footer */}
             <div className="flex items-center justify-between mt-7 pt-5 border-t border-fog">
               {step > 1
                 ? <button onClick={() => setStep(s => s - 1)} className="text-ink/40 hover:text-ink text-sm transition-colors">← Back</button>
                 : <div />}
-              {step < 3
+              {step < 4
                 ? (
                   <button onClick={next} className="btn-primary px-6 py-2.5 text-sm">
                     Continue <ArrowRight size={15} />
                   </button>
                 ) : (
                   <button onClick={finish} disabled={saving} className="btn-primary px-6 py-2.5 text-sm">
-                    {saving
-                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating brand profile…</>
-                      : <><Zap size={15} /> Create brand profile</>}
+                    {saving || templateSetupRunning
+                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating brand and templates…</>
+                      : <><Zap size={15} /> Create brand and templates</>}
                   </button>
                 )}
             </div>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, Play, Pause, Trash2, Layers } from 'lucide-react'
+import { Plus, Play, Pause, Trash2, Layers, Sparkles, Wand2 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
 import BrandFormCoachPanel, { mergeTemplateFormPatch } from '../components/brand/BrandFormCoachPanel'
@@ -28,13 +28,25 @@ const INITIAL_FORM = () => ({
 })
 
 export default function TemplatesPage() {
-  const { activeBrandId, templates, fetchTemplates, createTemplate, updateTemplate, deleteTemplate } = useAppStore()
+  const {
+    activeBrandId,
+    templates,
+    fetchTemplates,
+    createTemplate,
+    updateTemplate,
+    deleteTemplate,
+    bootstrapDefaultTemplates,
+    generateTemplateDesign,
+  } = useAppStore()
   const [filter, setFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(INITIAL_FORM)
   const [topicInput, setTopicInput] = useState('')
   const [customDatesText, setCustomDatesText] = useState('')
+  const [bootstrapping, setBootstrapping] = useState(false)
+  const [designingId, setDesigningId] = useState(null)
+  const readyCount = (templates || []).filter((t) => t.is_active && t.is_design_ready).length
 
   useEffect(() => {
     if (activeBrandId) fetchTemplates().catch(() => {})
@@ -107,6 +119,31 @@ export default function TemplatesPage() {
     setShowModal(true)
   }
 
+  const runBootstrapDefaults = async (force = false) => {
+    if (!activeBrandId) return
+    setBootstrapping(true)
+    try {
+      await bootstrapDefaultTemplates({ force, generate_designs: true })
+      toast(force ? 'Default AI templates regenerated' : 'Default AI templates created')
+    } catch (err) {
+      toast(err.message || 'Failed to generate default templates', 'error')
+    } finally {
+      setBootstrapping(false)
+    }
+  }
+
+  const runGenerateDesign = async (templateId) => {
+    setDesigningId(templateId)
+    try {
+      await generateTemplateDesign(templateId, {})
+      toast('Template design generated')
+    } catch (err) {
+      toast(err.message || 'Failed to generate template design', 'error')
+    } finally {
+      setDesigningId(null)
+    }
+  }
+
   if (!activeBrandId) {
     return (
       <div className="p-6 lg:p-8 max-w-5xl mx-auto">
@@ -128,14 +165,24 @@ export default function TemplatesPage() {
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
             Templates
           </h1>
-          <p className="text-ink/40 text-sm">Recurring content patterns: set once, generate whenever needed.</p>
+          <p className="text-ink/40 text-sm">Recurring content patterns and AI-generated design templates used for generation.</p>
+          <p className="text-ink/30 text-xs mt-1">{readyCount} design-ready template{readyCount === 1 ? '' : 's'} available</p>
         </div>
-        <button
-          onClick={openNewTemplate}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
-        >
-          <Plus size={15} /> New template
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => runBootstrapDefaults(false)}
+            disabled={bootstrapping}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-ink hover:bg-ink/90 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
+          >
+            <Sparkles size={15} /> {bootstrapping ? 'Generating…' : 'Generate defaults'}
+          </button>
+          <button
+            onClick={openNewTemplate}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
+          >
+            <Plus size={15} /> New template
+          </button>
+        </div>
       </div>
 
       <div className="grid xl:grid-cols-[1fr_min(360px,100%)] gap-8 items-start">
@@ -219,17 +266,29 @@ export default function TemplatesPage() {
                       </span>
                     ))}
                   </div>
+                  {t.preview_image_url && (
+                    <img src={t.preview_image_url} alt="" className="w-full h-36 object-cover rounded-xl border border-fog mb-3" />
+                  )}
                   <div className="flex items-center justify-between">
                     <span
                       className={`text-xs font-bold px-2 py-1 rounded-full ${
                         t.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-fog text-ink/40'
                       }`}
                     >
-                      {t.is_active ? 'Active' : 'Paused'}
+                      {t.is_active ? (t.is_design_ready ? 'Active · Design ready' : 'Active · No design yet') : 'Paused'}
                     </span>
-                    <button className="text-xs text-brand-500 hover:text-brand-600 font-semibold flex items-center gap-1 transition-colors">
-                      <Layers size={11} /> Use this month
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => runGenerateDesign(t.id)}
+                        disabled={designingId === t.id}
+                        className="text-xs text-ink/70 hover:text-ink font-semibold flex items-center gap-1 transition-colors"
+                      >
+                        <Wand2 size={11} /> {designingId === t.id ? 'Designing…' : (t.is_design_ready ? 'Regenerate design' : 'Generate design')}
+                      </button>
+                      <button className="text-xs text-brand-500 hover:text-brand-600 font-semibold flex items-center gap-1 transition-colors">
+                        <Layers size={11} /> Use this month
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

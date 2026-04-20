@@ -107,6 +107,7 @@ const useAppStore = create(
         only_new_changes,
         use_reference_research,
         variant_count,
+        template_id,
         confirm_duplicate,
       }) => {
         const brandId = get().activeBrandId
@@ -125,6 +126,7 @@ const useAppStore = create(
             include_holidays_in_content: include_holidays_in_content !== false,
             use_reference_research: use_reference_research !== false,
             variant_count: Number(variant_count || 2),
+            template_id: template_id || null,
             generation_brief: generation_brief || null,
             use_website_intelligence: use_website_intelligence !== false,
             only_new_changes: !!only_new_changes,
@@ -223,6 +225,20 @@ const useAppStore = create(
         if (!brandId) throw new Error('No active brand')
         const tmpl = await templateApi.create({ ...data, brand_id: brandId })
         set(s => ({ templates: [tmpl, ...s.templates] }))
+        return tmpl
+      },
+
+      bootstrapDefaultTemplates: async ({ force = false, generate_designs = true } = {}) => {
+        const brandId = get().activeBrandId
+        if (!brandId) throw new Error('No active brand')
+        const rows = await templateApi.bootstrapDefaults({ brand_id: brandId, force, generate_designs })
+        set({ templates: rows })
+        return rows
+      },
+
+      generateTemplateDesign: async (id, data = {}) => {
+        const tmpl = await templateApi.generateDesign(id, data)
+        set(s => ({ templates: s.templates.map(t => t.id === id ? tmpl : t) }))
         return tmpl
       },
 

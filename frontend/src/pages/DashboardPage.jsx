@@ -33,7 +33,7 @@ function StatCard({ icon: Icon, val, lbl, loading }) {
 export default function DashboardPage() {
   const navigate  = useNavigate()
   const { user }  = useAuthStore()
-  const { activeBrandId, activeWorkspace, brands, trends, fetchTrends, fetchMonthContent, refreshTrends } = useAppStore()
+  const { activeBrandId, activeWorkspace, brands, trends, templates, fetchTemplates, fetchTrends, fetchMonthContent, refreshTrends } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
@@ -77,6 +77,11 @@ export default function DashboardPage() {
       fetchTrends().catch(() => {})
     }
   }, [activeBrandId, activeWorkspace?.plan])
+
+  useEffect(() => {
+    if (!activeBrandId) return
+    fetchTemplates().catch(() => {})
+  }, [activeBrandId])
 
   const greet = () => {
     const h = now.getHours()
@@ -173,6 +178,7 @@ export default function DashboardPage() {
         const missing = getMissingFields(activeBrand)
         const brandReady = missing.length === 0
         const hasContent = stats.total > 0
+        const readyTemplates = (templates || []).filter(t => t.is_active && t.is_design_ready)
 
         // Brand kit incomplete: show what to fill in
         if (!brandReady) return (
@@ -203,7 +209,29 @@ export default function DashboardPage() {
           </div>
         )
 
-        // Brand ready, no content yet: nudge to generate
+        // Brand ready but templates are not yet generated: enforce template onboarding
+        if (brandReady && readyTemplates.length === 0) return (
+          <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 mb-6">
+            <div className="flex items-start gap-3">
+              <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
+                <Sparkles size={15} className="text-indigo-600" />
+              </div>
+              <div className="flex-1">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-0.5">Onboarding Tip</p>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Generate your AI design templates first</h4>
+                <p className="text-ink/50 text-xs mb-3">
+                  Content generation now runs from design templates. Create defaults in Templates, review visuals, and refine before generating posts.
+                </p>
+                <button onClick={() => navigate('/dashboard/templates')}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-colors">
+                  <Zap size={12} /> Open Templates
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+
+        // Brand ready, templates ready, no content yet: nudge to generate
         if (brandReady && !hasContent) return (
           <div className="bg-brand-500/8 border border-brand-400/30 rounded-2xl p-5 mb-6">
             <div className="flex items-start gap-3">
