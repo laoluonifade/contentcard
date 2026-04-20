@@ -18,6 +18,13 @@ export default function AcceptInvite() {
   const [submitting, setSubmitting] = useState(false)
   const [showPw, setShowPw] = useState(false)
   const [form, setForm] = useState({ full_name: '', password: '', phone: '', email: '' })
+  const authLightThemeVars = {
+    '--cc-ink-rgb': '15 23 42',
+    '--cc-fog-rgb': '229 231 235',
+    '--cc-mist-rgb': '247 247 248',
+    '--cc-surface-rgb': '255 255 255',
+    '--cc-page-rgb': '255 255 255',
+  }
 
   useEffect(() => {
     if (!token) { setError('Invalid invite link.'); setLoading(false); return }
@@ -56,7 +63,7 @@ export default function AcceptInvite() {
   }
 
   return (
-    <div className="min-h-screen bg-mist flex items-center justify-center p-6">
+    <div className="min-h-screen bg-mist flex items-center justify-center p-6" style={authLightThemeVars}>
       <div className="w-full max-w-md">
         <div className="mb-8"><LogoFull size={28} /></div>
 

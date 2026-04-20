@@ -6,10 +6,17 @@ import { LogoFull } from '../components/ui/Logo'
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
   const [sent, setSent] = useState(false)
+  const authLightThemeVars = {
+    '--cc-ink-rgb': '15 23 42',
+    '--cc-fog-rgb': '229 231 235',
+    '--cc-mist-rgb': '247 247 248',
+    '--cc-surface-rgb': '255 255 255',
+    '--cc-page-rgb': '255 255 255',
+  }
 
   if (sent) {
     return (
-      <div className="min-h-screen bg-mist flex items-center justify-center px-6">
+      <div className="min-h-screen bg-mist flex items-center justify-center px-6" style={authLightThemeVars}>
         <div className="w-full max-w-sm text-center">
           <div className="w-14 h-14 rounded-full bg-brand-500/10 border border-brand-500/20 flex items-center justify-center mx-auto mb-6">
             <Mail size={24} className="text-brand-500" />
@@ -25,7 +32,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-mist flex items-center justify-center px-6">
+    <div className="min-h-screen bg-mist flex items-center justify-center px-6" style={authLightThemeVars}>
       <div className="w-full max-w-sm">
         <div className="mb-10"><LogoFull size={28} /></div>
         <h1 className="text-2xl font-bold text-ink mb-2" style={{ letterSpacing: '-0.02em' }}>Reset your password</h1>
