@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
@@ -47,6 +47,20 @@ function fmtDate(str) {
   if (!str) return ''
   const [y,m,d] = str.split('-').map(Number)
   return new Date(y,m-1,d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})
+}
+
+function isDateInCurrentWeek(isoDate) {
+  if (!isoDate) return false
+  const now = new Date()
+  const day = now.getDay()
+  const diffToMonday = (day + 6) % 7
+  const weekStart = new Date(now)
+  weekStart.setHours(0, 0, 0, 0)
+  weekStart.setDate(now.getDate() - diffToMonday)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekStart.getDate() + 7)
+  const d = new Date(`${isoDate}T00:00:00`)
+  return d >= weekStart && d < weekEnd
 }
 
 function formatArchetypeLabel(id) {
@@ -109,6 +123,31 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
       <div className="p-2.5 border-t border-fog">
         <p className="text-ink text-xs font-medium truncate">{post.content_idea || post.topic}</p>
         <p className="text-ink/35 text-[10px] mt-0.5">{fmtDate(post.scheduled_date)}</p>
+        {!selectMode && (
+          <div className="mt-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                navigator.clipboard?.writeText(fullPostCaptionText(post.caption || '', post.hashtags || []))
+                toast('Caption copied')
+              }}
+              className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/60 hover:text-ink"
+            >
+              Quick copy
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer')
+              }}
+              className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/60 hover:text-ink"
+            >
+              Open composer
+            </button>
+          </div>
+        )}
       </div>
     </>
   )
@@ -289,6 +328,8 @@ export default function CalendarPage() {
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
+  const [layoutMode, setLayoutMode] = useState('grid')
+  const [thisWeekOnly, setThisWeekOnly] = useState(false)
   const cardRef = useRef(null)
 
   useEffect(() => {
@@ -677,13 +718,20 @@ export default function CalendarPage() {
     }
   }
 
-  const filtered = filterPlat==='all' ? posts : posts.filter(p=>p.platform===filterPlat)
+  const scopedPosts = thisWeekOnly ? posts.filter((p) => isDateInCurrentWeek(p.scheduled_date)) : posts
+  const filtered = filterPlat==='all' ? scopedPosts : scopedPosts.filter(p=>p.platform===filterPlat)
   const byPlatform = {}
   filtered.forEach(p => { if (!byPlatform[p.platform]) byPlatform[p.platform]=[]; byPlatform[p.platform].push(p) })
   Object.values(byPlatform).forEach(arr=>arr.sort((a,b)=>(a.scheduled_date||'').localeCompare(b.scheduled_date||'')))
   const platformsWithPosts = PLATFORMS.filter(pl=>byPlatform[pl.id]?.length>0)
 
   const postCountLabel = loading ? 'Loading…' : `${posts.length} post${posts.length === 1 ? '' : 's'}`
+  const withVisuals = posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length
+  const pendingVisuals = Math.max(0, posts.length - withVisuals)
+  const carouselCount = posts.filter((p) => (p.slide_count || 1) > 1).length
+  const topPlatform = PLATFORMS
+    .map((pl) => ({ id: pl.id, count: posts.filter((p) => p.platform === pl.id).length }))
+    .sort((a, b) => b.count - a.count)[0]
 
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
@@ -764,6 +812,28 @@ export default function CalendarPage() {
         </div>
       )}
 
+      {!loading && posts.length > 0 && (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+          <div className="rounded-xl border border-fog bg-surface px-3 py-2.5">
+            <p className="text-[11px] text-ink/45 flex items-center gap-1.5"><BarChart3 size={12} /> Month output</p>
+            <p className="text-xl font-semibold text-ink mt-0.5">{posts.length}</p>
+          </div>
+          <div className="rounded-xl border border-fog bg-surface px-3 py-2.5">
+            <p className="text-[11px] text-ink/45 flex items-center gap-1.5"><Sparkles size={12} /> Visuals ready</p>
+            <p className="text-xl font-semibold text-ink mt-0.5">{withVisuals}<span className="text-xs text-ink/45 ml-1">/{posts.length}</span></p>
+          </div>
+          <div className="rounded-xl border border-fog bg-surface px-3 py-2.5">
+            <p className="text-[11px] text-ink/45 flex items-center gap-1.5"><Layers size={12} /> Carousel posts</p>
+            <p className="text-xl font-semibold text-ink mt-0.5">{carouselCount}</p>
+          </div>
+          <div className="rounded-xl border border-fog bg-surface px-3 py-2.5">
+            <p className="text-[11px] text-ink/45 flex items-center gap-1.5"><CalendarDays size={12} /> Top platform</p>
+            <p className="text-xl font-semibold text-ink mt-0.5 capitalize">{topPlatform?.id || '—'}</p>
+            <p className="text-[11px] text-ink/45">{pendingVisuals} pending visual{pendingVisuals === 1 ? '' : 's'}</p>
+          </div>
+        </div>
+      )}
+
       <div
         className={`lg:grid lg:gap-6 lg:items-start ${
           prepMinimized ? 'lg:grid-cols-[minmax(0,1fr)_52px]' : 'lg:grid-cols-[minmax(0,1fr)_300px]'
@@ -838,6 +908,23 @@ export default function CalendarPage() {
               {PLATFORM_LOGO[pl.id]} {pl.label} ({posts.filter(p=>p.platform===pl.id).length})
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setThisWeekOnly((v) => !v)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
+              thisWeekOnly ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+            }`}
+          >
+            This week
+          </button>
+          <button
+            type="button"
+            onClick={() => setLayoutMode((m) => (m === 'grid' ? 'swimlane' : 'grid'))}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium border border-fog text-ink/50 hover:border-ink/20 whitespace-nowrap"
+          >
+            <Wand2 size={12} className="inline mr-1" />
+            {layoutMode === 'grid' ? 'Swimlanes' : 'Grid'}
+          </button>
         </div>
       )}
 
@@ -872,18 +959,34 @@ export default function CalendarPage() {
             <span className="text-ink/30 text-xs">{byPlatform[pl.id].length} posts</span>
             <div className="flex-1 h-px bg-fog"/>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            {byPlatform[pl.id].map((post) => (
-              <PostThumb
-                key={post.id}
-                post={post}
-                brand={activeBrand}
-                selectMode={selectMode}
-                selected={selectedIds.has(post.id)}
-                onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
-              />
-            ))}
-          </div>
+          {layoutMode === 'grid' ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+              {byPlatform[pl.id].map((post) => (
+                <PostThumb
+                  key={post.id}
+                  post={post}
+                  brand={activeBrand}
+                  selectMode={selectMode}
+                  selected={selectedIds.has(post.id)}
+                  onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="flex gap-3 overflow-x-auto pb-2">
+              {byPlatform[pl.id].map((post) => (
+                <div key={post.id} className="w-[220px] flex-shrink-0">
+                  <PostThumb
+                    post={post}
+                    brand={activeBrand}
+                    selectMode={selectMode}
+                    selected={selectedIds.has(post.id)}
+                    onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
 
