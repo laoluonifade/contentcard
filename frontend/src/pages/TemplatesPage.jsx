@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Play, Pause, Trash2, Layers, Sparkles } from 'lucide-react'
 import useAppStore from '../stores/appStore'
@@ -83,6 +83,7 @@ export default function TemplatesPage() {
   const [viewingTemplate, setViewingTemplate] = useState(null)
   const [savingDirection, setSavingDirection] = useState(false)
   const [slotDrafts, setSlotDrafts] = useState([])
+  const autoBootstrapAttemptedRef = useRef({})
   const activeCount = (templates || []).filter((t) => t.is_active).length
   const activeBrand = useMemo(() => brands.find((b) => b.id === activeBrandId) || null, [brands, activeBrandId])
 
@@ -93,6 +94,16 @@ export default function TemplatesPage() {
   useEffect(() => {
     if (activeBrandId) fetchTemplatePlaybookCatalog().catch(() => {})
   }, [activeBrandId])
+
+  useEffect(() => {
+    if (!activeBrandId) return
+    if (!Array.isArray(templates)) return
+    if (templates.length > 0) return
+    if (bootstrapping) return
+    if (autoBootstrapAttemptedRef.current[activeBrandId]) return
+    autoBootstrapAttemptedRef.current[activeBrandId] = true
+    runBootstrapDefaults(false).catch(() => {})
+  }, [activeBrandId, templates, bootstrapping])
 
   useEffect(() => {
     if (!viewingTemplate?.id) return
@@ -442,6 +453,16 @@ export default function TemplatesPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openTemplate(t)
+                        }}
+                        className="h-8 px-2.5 rounded-lg bg-mist hover:bg-fog text-ink/65 hover:text-ink text-[11px] font-semibold border border-fog"
+                      >
+                        View/Edit
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => {

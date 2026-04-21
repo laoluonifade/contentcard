@@ -772,6 +772,27 @@ export default function BrandKitPage() {
                       <option key={sub} value={sub}>{sub}</option>
                     ))}
                   </select>
+                  {!!form.industry && (INDUSTRY_TAXONOMY[form.industry] || []).length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[11px] text-ink/45 mb-1.5">Quick pick</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
+                          <button
+                            key={sub}
+                            type="button"
+                            onClick={() => set('sub_industry', sub)}
+                            className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
+                              form.sub_industry === sub
+                                ? 'border-slate-900 bg-slate-900 text-white'
+                                : 'border-fog bg-mist/40 text-ink/65 hover:text-ink hover:bg-mist'
+                            }`}
+                          >
+                            {sub}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mb-4">
