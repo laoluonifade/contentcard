@@ -1,4 +1,5 @@
 import logging
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,28 +25,61 @@ from app.schemas.template import (
 from app.services.template_design_service import (
     build_default_templates,
     infer_business_type,
+    summarize_playbook_depth,
 )
 
 router = APIRouter(prefix="/templates", tags=["templates"])
 logger = logging.getLogger(__name__)
 
 
+def _canonicalize_template_design_spec(spec: dict[str, Any]) -> dict[str, Any]:
+    out = dict(spec or {})
+    existing_slots = out.get("playbook_visual_direction_slots") if isinstance(out.get("playbook_visual_direction_slots"), list) else []
+    if not existing_slots:
+        return out
+    normalized: list[dict[str, str]] = []
+    for idx, raw in enumerate(existing_slots, start=1):
+        if not isinstance(raw, dict):
+            continue
+        vd = str(raw.get("visual_direction") or "").strip()
+        if not vd:
+            continue
+        key = str(raw.get("slot_key") or f"VD{idx:02d}").strip().upper()
+        if not key.startswith("VD"):
+            key = f"VD{idx:02d}"
+        post = "carousel" if "carousel" in str(raw.get("post_type") or "").lower() else "single"
+        normalized.append({"slot_key": key, "post_type": post, "visual_direction": vd})
+    normalized = normalized[:10]
+    out["playbook_visual_direction_slots"] = normalized
+    if not normalized:
+        return out
+    selected_key = str(out.get("playbook_selected_slot_key") or "").strip().upper()
+    valid_keys = {s["slot_key"] for s in normalized}
+    if selected_key not in valid_keys:
+        out["playbook_selected_slot_key"] = normalized[0]["slot_key"]
+    selected = next((s for s in normalized if s["slot_key"] == out.get("playbook_selected_slot_key")), normalized[0])
+    out["playbook_selected_post_type"] = selected["post_type"]
+    out["playbook_selected_visual_direction"] = selected["visual_direction"]
+    out["playbook_visual_direction_count"] = len(normalized)
+    return out
+
+
 def _industry_key_from_value(value: str | None) -> str:
     raw = str(value or "").strip().lower()
     aliases = {
-        "fashion & beauty": "fashion_beauty",
-        "food & beverage": "food",
-        "technology": "tech_saas",
+        "fashion & beauty": "ecommerce_retail",
+        "food & beverage": "food_beverage",
+        "technology": "technology",
         "finance & fintech": "finance_fintech",
         "health & wellness": "health_wellness",
         "real estate": "real_estate",
         "education": "education",
-        "entertainment & media": "entertainment_media",
-        "e-commerce & retail": "ecommerce",
-        "marketing & creative agency": "marketing_agency",
-        "church & ministry": "church_ministry",
-        "events & hospitality": "events_hospitality",
-        "legal & professional services": "legal_professional_services",
+        "entertainment & media": "media_entertainment",
+        "e-commerce & retail": "ecommerce_retail",
+        "marketing & creative agency": "professional_services",
+        "church & ministry": "professional_services",
+        "events & hospitality": "travel_hospitality",
+        "legal & professional services": "professional_services",
         "professional services": "professional_services",
         "travel & hospitality": "travel_hospitality",
         "media & entertainment": "media_entertainment",
@@ -54,13 +88,13 @@ def _industry_key_from_value(value: str | None) -> str:
     if raw in aliases:
         return aliases[raw]
     if raw in ("tech", "technology", "saas", "software", "fintech", "edtech", "healthtech", "ai"):
-        return "tech_saas"
+        return "technology"
     if raw in ("ecommerce", "e-commerce", "retail", "shopify", "bumpa", "fashion", "beauty"):
-        return "ecommerce"
+        return "ecommerce_retail"
     if raw in ("food", "restaurant", "cafe", "hospitality", "bakery"):
-        return "food"
+        return "food_beverage"
     if not raw:
-        return "tech_saas"
+        return "technology"
     return raw.replace(" ", "_")
 
 
@@ -235,12 +269,18 @@ async def bootstrap_default_templates(
             source="ai_default",
             country_code=(current_user.country_code or "NG").upper(),
             business_type=infer_business_type(brand),
-            design_spec={
+            design_spec=_canonicalize_template_design_spec({
                 "playbook_content_type": spec.get("playbook_content_type"),
                 "playbook_post_type": spec.get("playbook_post_type"),
+                "playbook_visual_direction_count": int(spec.get("playbook_visual_direction_count") or 0),
+                "playbook_visual_directions": spec.get("playbook_visual_directions") or [],
+                "playbook_visual_direction_slots": spec.get("playbook_visual_direction_slots") or [],
+                "playbook_selected_slot_key": spec.get("playbook_selected_slot_key"),
+                "playbook_selected_post_type": spec.get("playbook_selected_post_type"),
+                "playbook_selected_visual_direction": spec.get("playbook_selected_visual_direction"),
                 "content_template_type": spec.get("playbook_content_type") or spec.get("name"),
                 "design_template_type": "playbook_standard",
-            },
+            }),
             is_system_default=True,
             is_design_ready=True,
         )
@@ -252,6 +292,38 @@ async def bootstrap_default_templates(
     for tmpl in created:
         await db.refresh(tmpl)
     return [TemplateOut.model_validate(t) for t in created]
+
+
+@router.post("/content-template-prefill", response_model=list[TemplateOut])
+async def content_template_prefill(
+    body: TemplateBootstrapRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await bootstrap_default_templates(body, current_user, db)
+
+
+@router.get("/playbook-catalog")
+async def playbook_catalog(
+    brand_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    brand = await _check_brand_access(brand_id, current_user.id, db, need_editor=False)
+    playbook = await _load_industry_playbook_resolved(db, brand.industry, getattr(brand, "sub_industry", None))
+    if not playbook:
+        return {"industry_key": None, "industry_name": None, "content_types": [], "depth": []}
+    return {
+        "industry_key": playbook.get("industry_key"),
+        "industry_name": playbook.get("industry_name"),
+        "content_types": playbook.get("content_types") or [],
+        "depth": summarize_playbook_depth(playbook),
+        "slot_schema": {
+            "single_slots": ["VD01", "VD02", "VD03", "VD04", "VD05"],
+            "carousel_slots": ["VD06", "VD07", "VD08", "VD09", "VD10"],
+            "required_total": 10,
+        },
+    }
 
 
 @router.get("/{template_id}", response_model=TemplateOut)
@@ -280,6 +352,8 @@ async def update_template(
         raise HTTPException(status_code=404, detail="Template not found")
     await _check_brand_access(tmpl.brand_id, current_user.id, db)
     for k, v in body.model_dump(exclude_none=True).items():
+        if k == "design_spec" and isinstance(v, dict):
+            v = _canonicalize_template_design_spec(v)
         setattr(tmpl, k, v)
     await db.commit()
     await db.refresh(tmpl)

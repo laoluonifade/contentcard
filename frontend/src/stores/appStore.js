@@ -23,6 +23,7 @@ const useAppStore = create(
       generationPollCount: 0,
       generationProgress: null,
       templates: [],
+      templatePlaybookCatalog: null,
       trends: [],
       subscription: null,
       error: null,
@@ -250,6 +251,14 @@ const useAppStore = create(
         const templates = await templateApi.list(brandId)
         set({ templates })
         return templates
+      },
+
+      fetchTemplatePlaybookCatalog: async () => {
+        const brandId = get().activeBrandId
+        if (!brandId) return null
+        const catalog = await templateApi.playbookCatalog(brandId)
+        set({ templatePlaybookCatalog: catalog })
+        return catalog
       },
 
       createTemplate: async (data) => {

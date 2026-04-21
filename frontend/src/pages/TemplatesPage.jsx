@@ -40,6 +40,24 @@ const INITIAL_FORM = () => ({
   platforms: ['instagram', 'facebook', 'twitter'],
 })
 
+const buildSlotRows = (template) => {
+  const spec = template?.design_spec && typeof template.design_spec === 'object' ? template.design_spec : {}
+  const fromSpec = Array.isArray(spec.playbook_visual_direction_slots) ? spec.playbook_visual_direction_slots : []
+  if (fromSpec.length) {
+    return fromSpec.map((row, idx) => ({
+      slot_key: row?.slot_key || `VD${String(idx + 1).padStart(2, '0')}`,
+      post_type: row?.post_type || 'single',
+      visual_direction: row?.visual_direction || '',
+    }))
+  }
+  const options = Array.isArray(spec.playbook_visual_directions) ? spec.playbook_visual_directions : []
+  return options.map((opt, idx) => ({
+    slot_key: `VD${String(idx + 1).padStart(2, '0')}`,
+    post_type: opt?.post_type || 'single',
+    visual_direction: opt?.visual_direction || '',
+  }))
+}
+
 export default function TemplatesPage() {
   const navigate = useNavigate()
   const {
@@ -51,6 +69,8 @@ export default function TemplatesPage() {
     updateTemplate,
     deleteTemplate,
     bootstrapDefaultTemplates,
+    templatePlaybookCatalog,
+    fetchTemplatePlaybookCatalog,
   } = useAppStore()
   const [filter, setFilter] = useState('all')
   const [designFilter, setDesignFilter] = useState('all')
@@ -61,6 +81,8 @@ export default function TemplatesPage() {
   const [customDatesText, setCustomDatesText] = useState('')
   const [bootstrapping, setBootstrapping] = useState(false)
   const [viewingTemplate, setViewingTemplate] = useState(null)
+  const [savingDirection, setSavingDirection] = useState(false)
+  const [slotDrafts, setSlotDrafts] = useState([])
   const activeCount = (templates || []).filter((t) => t.is_active).length
   const activeBrand = useMemo(() => brands.find((b) => b.id === activeBrandId) || null, [brands, activeBrandId])
 
@@ -69,10 +91,21 @@ export default function TemplatesPage() {
   }, [activeBrandId])
 
   useEffect(() => {
+    if (activeBrandId) fetchTemplatePlaybookCatalog().catch(() => {})
+  }, [activeBrandId])
+
+  useEffect(() => {
     if (!viewingTemplate?.id) return
     const latest = (templates || []).find((t) => t.id === viewingTemplate.id)
     if (latest) setViewingTemplate(latest)
   }, [templates, viewingTemplate?.id])
+  useEffect(() => {
+    if (!viewingTemplate?.id) {
+      setSlotDrafts([])
+      return
+    }
+    setSlotDrafts(buildSlotRows(viewingTemplate))
+  }, [viewingTemplate?.id, viewingTemplate?.design_spec])
 
   const inferDesignType = (t) =>
     t?.design_spec?.design_template_type || 'general_social'
@@ -156,6 +189,7 @@ export default function TemplatesPage() {
     setBootstrapping(true)
     try {
       await bootstrapDefaultTemplates({ force, generate_designs: false })
+      await fetchTemplatePlaybookCatalog().catch(() => {})
       toast(force ? 'Default templates regenerated' : 'Default templates created')
     } catch (err) {
       toast(err.message || 'Failed to generate default templates', 'error')
@@ -166,6 +200,62 @@ export default function TemplatesPage() {
 
   const openTemplate = (template) => setViewingTemplate(template)
   const closeTemplate = () => setViewingTemplate(null)
+  const savePreferredDirection = async (template, option, slotKey) => {
+    if (!template?.id || !option?.visual_direction) return
+    try {
+      setSavingDirection(true)
+      const spec = template?.design_spec && typeof template.design_spec === 'object' ? template.design_spec : {}
+      const slots = slotDrafts.length ? slotDrafts : buildSlotRows(template)
+      await updateTemplate(template.id, {
+        design_spec: {
+          ...spec,
+          playbook_visual_direction_slots: slots,
+          playbook_selected_slot_key: slotKey || spec.playbook_selected_slot_key || null,
+          playbook_selected_post_type: option.post_type || 'single',
+          playbook_selected_visual_direction: option.visual_direction,
+        },
+      })
+      toast(`Preferred slot saved${slotKey ? ` (${slotKey})` : ''}`)
+    } catch (err) {
+      toast(err.message || 'Failed to save direction preference', 'error')
+    } finally {
+      setSavingDirection(false)
+    }
+  }
+  const saveSlotDirections = async (template) => {
+    if (!template?.id) return
+    const cleaned = slotDrafts
+      .map((s, idx) => ({
+        slot_key: s?.slot_key || `VD${String(idx + 1).padStart(2, '0')}`,
+        post_type: s?.post_type === 'carousel' ? 'carousel' : 'single',
+        visual_direction: String(s?.visual_direction || '').trim(),
+      }))
+      .filter((s) => s.visual_direction)
+    if (!cleaned.length) {
+      toast('At least one slot direction is required', 'error')
+      return
+    }
+    try {
+      setSavingDirection(true)
+      const spec = template?.design_spec && typeof template.design_spec === 'object' ? template.design_spec : {}
+      const selectedKey = String(spec.playbook_selected_slot_key || '').trim()
+      const selected = cleaned.find((s) => s.slot_key === selectedKey) || cleaned[0]
+      await updateTemplate(template.id, {
+        design_spec: {
+          ...spec,
+          playbook_visual_direction_slots: cleaned,
+          playbook_selected_slot_key: selected.slot_key,
+          playbook_selected_post_type: selected.post_type,
+          playbook_selected_visual_direction: selected.visual_direction,
+        },
+      })
+      toast('Slot directions updated')
+    } catch (err) {
+      toast(err.message || 'Failed to update slot directions', 'error')
+    } finally {
+      setSavingDirection(false)
+    }
+  }
   const useTemplateForMonth = (templateId) => {
     navigate('/dashboard/generate', { state: { templateId } })
   }
@@ -262,6 +352,33 @@ export default function TemplatesPage() {
               </button>
             ))}
           </div>
+
+          {templatePlaybookCatalog && (
+            <div className="rounded-2xl border border-fog bg-mist/40 px-4 py-3">
+              <p className="text-xs uppercase tracking-wide text-ink/45 font-semibold">
+                Sub-industry playbook catalog
+              </p>
+              <p className="text-sm text-ink mt-1">
+                {(templatePlaybookCatalog.industry_name || 'Playbook')} · {(activeBrand?.sub_industry || 'General')}
+              </p>
+              <p className="text-xs text-ink/55 mt-0.5">
+                {(templatePlaybookCatalog.depth || []).length} content types in playbook
+              </p>
+              <div className="mt-3 grid md:grid-cols-2 gap-2">
+                {(templatePlaybookCatalog.depth || []).map((row) => (
+                  <div key={row.content_type} className="rounded-xl border border-fog bg-surface px-3 py-2">
+                    <p className="text-xs font-semibold text-ink">{row.content_type}</p>
+                    <p className="text-[11px] text-ink/55 mt-1">
+                      {row.total_directions} directions · {row.single_count} single · {row.carousel_count} carousel
+                    </p>
+                    <p className={`text-[10px] mt-1 font-semibold ${row.meets_minimum_depth ? 'text-emerald-500' : 'text-amber-500'}`}>
+                      {row.meets_minimum_depth ? 'Depth ok' : 'Needs 10 total / 5+5 split'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="flex gap-2 flex-wrap">
             {designTypeOptions.map((k) => (
               <button
@@ -521,6 +638,59 @@ export default function TemplatesPage() {
                           {bp.visualDirection || 'No visual direction found.'}
                         </p>
                       </div>
+                      {slotDrafts.length > 0 && (
+                          <div className="mt-3 rounded-lg border border-fog bg-surface px-3 py-2">
+                            <p className="text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-2">
+                              Slot contract (VD01-VD10): edit and choose preferred slot
+                            </p>
+                            <div className="mb-2">
+                              <button
+                                type="button"
+                                disabled={savingDirection}
+                                onClick={() => saveSlotDirections(viewingTemplate)}
+                                className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold disabled:opacity-60"
+                              >
+                                Save slot edits
+                              </button>
+                            </div>
+                            <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                              {slotDrafts.map((opt, idx) => {
+                                const selected = String(viewingTemplate?.design_spec?.playbook_selected_slot_key || '').trim().toUpperCase() === String(opt?.slot_key || '').trim().toUpperCase()
+                                return (
+                                  <div
+                                    key={`${opt.slot_key}-${idx}`}
+                                    className={`w-full text-left rounded-md border px-2 py-1.5 transition-colors ${
+                                      selected ? 'border-brand-400 bg-brand-500/10' : 'border-fog'
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between gap-2 mb-1">
+                                      <p className="text-[10px] font-semibold text-ink/60 uppercase">
+                                        {opt.slot_key || `VD${String(idx + 1).padStart(2, '0')}`} · {opt.post_type || 'single'}
+                                      </p>
+                                      <button
+                                        type="button"
+                                        disabled={savingDirection}
+                                        onClick={() => savePreferredDirection(viewingTemplate, opt, opt.slot_key)}
+                                        className="h-6 px-2 rounded-md border border-fog bg-mist text-[10px] font-semibold text-ink/70 hover:text-ink disabled:opacity-60"
+                                      >
+                                        Use this slot
+                                      </button>
+                                    </div>
+                                    <textarea
+                                      value={opt.visual_direction || ''}
+                                      onChange={(e) => {
+                                        const value = e.target.value
+                                        setSlotDrafts((prev) => prev.map((s, sIdx) => (sIdx === idx ? { ...s, visual_direction: value } : s)))
+                                      }}
+                                      rows={2}
+                                      className="w-full rounded-md border border-fog bg-surface px-2 py-1 text-[11px] text-ink/75 focus:outline-none focus:border-brand-400"
+                                    />
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        )}
                     </>
                   )
                 })()}

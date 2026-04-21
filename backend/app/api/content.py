@@ -515,41 +515,41 @@ def _industry_key_from_brand(brand_dict: dict) -> str:
     raw = str(brand_dict.get("industry") or "").strip().lower()
     raw_sub = str(brand_dict.get("sub_industry") or "").strip().lower()
     aliases = {
-        "fashion & beauty": "fashion_beauty",
-        "food & beverage": "food",
-        "technology": "tech_saas",
+        "fashion & beauty": "ecommerce_retail",
+        "food & beverage": "food_beverage",
+        "technology": "technology",
         "finance & fintech": "finance_fintech",
         "health & wellness": "health_wellness",
         "real estate": "real_estate",
         "education": "education",
-        "entertainment & media": "entertainment_media",
-        "e-commerce & retail": "ecommerce",
-        "marketing & creative agency": "marketing_agency",
-        "church & ministry": "church_ministry",
-        "events & hospitality": "events_hospitality",
-        "legal & professional services": "legal_professional_services",
+        "entertainment & media": "media_entertainment",
+        "e-commerce & retail": "ecommerce_retail",
+        "marketing & creative agency": "professional_services",
+        "church & ministry": "professional_services",
+        "events & hospitality": "travel_hospitality",
+        "legal & professional services": "professional_services",
         "professional services": "professional_services",
         "travel & hospitality": "travel_hospitality",
         "media & entertainment": "media_entertainment",
         "other": "other",
     }
     if not raw:
-        raw = "tech_saas"
+        raw = "technology"
     parent_key = raw
     if raw in aliases:
         parent_key = aliases[raw]
     elif raw in ("tech", "technology", "saas", "software", "tech_saas", "fintech", "edtech", "healthtech", "ai", "marketing_tech"):
-        parent_key = "tech_saas"
+        parent_key = "technology"
     elif raw in ("ecommerce", "e-commerce", "retail", "shopify", "bumpa", "fashion", "beauty", "consumer_goods", "d2c"):
-        parent_key = "ecommerce"
+        parent_key = "ecommerce_retail"
     elif raw in ("food", "restaurant", "hospitality", "food_beverage", "bakery", "cafe"):
-        parent_key = "food"
+        parent_key = "food_beverage"
     elif any(k in raw for k in ("shop", "store", "commerce", "retail", "fashion", "beauty")):
-        parent_key = "ecommerce"
+        parent_key = "ecommerce_retail"
     elif any(k in raw for k in ("food", "restaurant", "cafe", "kitchen", "meal", "drink")):
-        parent_key = "food"
+        parent_key = "food_beverage"
     elif any(k in raw for k in ("tech", "software", "saas", "cloud", "app", "platform", "fintech")):
-        parent_key = "tech_saas"
+        parent_key = "technology"
     else:
         parent_key = raw.replace(" ", "_")
     if not raw_sub:
@@ -557,6 +557,53 @@ def _industry_key_from_brand(brand_dict: dict) -> str:
     sub = raw_sub.replace("&", "and").replace("/", " ").replace("-", " ")
     sub = "_".join([p for p in sub.split() if p])
     return f"{parent_key}__{sub}" if sub else parent_key
+
+
+def _playbook_depth_index(playbook: dict | None) -> dict[str, dict[str, int]]:
+    if not isinstance(playbook, dict):
+        return {}
+    out: dict[str, dict[str, int]] = {}
+    for ct in (playbook.get("content_types") or []):
+        if not isinstance(ct, dict):
+            continue
+        name = str(ct.get("name") or "").strip().lower()
+        if not name:
+            continue
+        options = ct.get("options") if isinstance(ct.get("options"), list) else []
+        single = len([o for o in options if "carousel" not in str((o or {}).get("post_type") or "").lower()])
+        carousel = len([o for o in options if "carousel" in str((o or {}).get("post_type") or "").lower()])
+        out[name] = {
+            "total": len(options),
+            "single": single,
+            "carousel": carousel,
+        }
+    return out
+
+
+def _assert_template_depth_requirements(
+    selected_template: ContentTemplate | None,
+    playbook: dict | None,
+) -> None:
+    if not selected_template:
+        return
+    spec = selected_template.design_spec if isinstance(selected_template.design_spec, dict) else {}
+    content_type = str(spec.get("playbook_content_type") or "").strip().lower()
+    if not content_type:
+        return
+    depth = _playbook_depth_index(playbook).get(content_type)
+    if not depth:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Selected template content type '{spec.get('playbook_content_type')}' is missing from this sub-industry playbook.",
+        )
+    if int(depth.get("total", 0)) < 10 or int(depth.get("single", 0)) < 5 or int(depth.get("carousel", 0)) < 5:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Selected template content type '{spec.get('playbook_content_type')}' does not meet depth minimum "
+                "(requires 10 directions with at least 5 single and 5 carousel)."
+            ),
+        )
 
 
 async def _load_design_playbook_for_industry(db: AsyncSession, industry_key: str) -> dict | None:
@@ -1074,6 +1121,8 @@ async def generate_month(
         selected_template = (
             await db.execute(select(ContentTemplate).where(ContentTemplate.id == resolved_template_id))
         ).scalar_one_or_none()
+    playbook_for_validation = await _load_design_playbook_for_industry(db, _industry_key_from_brand(_brand_to_dict(brand)))
+    _assert_template_depth_requirements(selected_template, playbook_for_validation)
     template_context = _template_generation_context(selected_template)
 
     existing_snapshot = dict(existing_counts)
@@ -1183,6 +1232,8 @@ async def generate_month_v2(
         selected_template = (
             await db.execute(select(ContentTemplate).where(ContentTemplate.id == resolved_template_id))
         ).scalar_one_or_none()
+    playbook_for_validation = await _load_design_playbook_for_industry(db, _industry_key_from_brand(_brand_to_dict(brand)))
+    _assert_template_depth_requirements(selected_template, playbook_for_validation)
     template_context = _template_generation_context(selected_template)
 
     style_brief = None
