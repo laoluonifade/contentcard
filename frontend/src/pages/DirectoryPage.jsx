@@ -56,7 +56,7 @@ function ImageModal({ items, startIndex, onClose }) {
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl overflow-hidden max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl"
+        className="bg-surface rounded-2xl overflow-hidden max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -183,7 +183,7 @@ export default function DirectoryPage() {
         <select
           value={filterPlatform}
           onChange={e => setFilterPlatform(e.target.value)}
-          className="text-sm border border-fog rounded-xl px-3 py-2 bg-white text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+          className="text-sm border border-fog rounded-xl px-3 py-2 bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/20"
         >
           <option value="all">All platforms</option>
           {Object.entries(PLATFORM_LABELS).map(([v, l]) => (
@@ -195,7 +195,7 @@ export default function DirectoryPage() {
           <select
             value={filterBrand}
             onChange={e => setFilterBrand(e.target.value)}
-            className="text-sm border border-fog rounded-xl px-3 py-2 bg-white text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/20"
+            className="text-sm border border-fog rounded-xl px-3 py-2 bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/20"
           >
             <option value="all">All brands</option>
             {brands.map(b => (

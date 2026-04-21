@@ -396,7 +396,7 @@ def build_template_design_spec(
     image_prompt = (
         f"Create a campaign-quality social media background for {brand.name} in {brand.industry or 'business'} context, "
         f"with palette accents {', '.join(palette)} and a composition that supports template '{template.name}'. "
-        "Include the uploaded brand logo as a subtle integrated mark in the lower-right safe zone with clear breathing room. "
+        "Do not draw any logo, wordmark, or trademark; keep the lower-right visually calmer for post-production brand mark. "
         "Designed, crisp, premium, with structured props and depth suitable for overlaying social post copy and CTA modules. "
         "No text, no letters, no words, no watermark, no UI overlays."
     )

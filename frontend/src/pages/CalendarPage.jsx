@@ -172,7 +172,7 @@ function CalendarPrepBody({
                   type="button"
                   disabled={prepExecuteBusy}
                   onClick={() => onExecuteDesignIntent(m.design_intent)}
-                  className="text-[11px] px-2.5 py-1.5 rounded-lg bg-ink text-white font-semibold hover:opacity-90 disabled:opacity-40"
+                  className="text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-900 text-white font-semibold hover:bg-slate-800 disabled:opacity-40"
                 >
                   {prepExecuteBusy ? 'Running…' : 'Run design refresh'}
                 </button>
@@ -826,14 +826,14 @@ export default function CalendarPage() {
         <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
           <button onClick={()=>setFilterPlat('all')}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
-              filterPlat==='all' ? 'bg-ink text-white border-ink' : 'border-fog text-ink/40 hover:border-ink/20'
+              filterPlat==='all' ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
             }`}>
             All ({posts.length})
           </button>
           {PLATFORMS.filter(pl=>posts.some(p=>p.platform===pl.id)).map(pl=>(
             <button key={pl.id} onClick={()=>setFilterPlat(pl.id)}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
-                filterPlat===pl.id ? 'bg-ink text-white border-ink' : 'border-fog text-ink/40 hover:border-ink/20'
+                filterPlat===pl.id ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
               }`}>
               {PLATFORM_LOGO[pl.id]} {pl.label} ({posts.filter(p=>p.platform===pl.id).length})
             </button>

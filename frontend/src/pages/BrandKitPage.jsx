@@ -17,7 +17,7 @@ const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', '
 
 const inpCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 const taCls  = `${inpCls} resize-none`
-const cardCls = "bg-white border border-fog rounded-2xl p-6"
+const cardCls = "bg-surface border border-fog rounded-2xl p-6"
 const sectionTitleCls = "text-ink font-bold text-sm"
 const labelCls = "block text-xs font-bold uppercase tracking-widest text-ink/40"
 const TONE_TAGS = ['Bold','Authentic','Energetic','Playful','Luxury','Minimal','Warm','Professional','Witty','Inspirational','Confident','Friendly']
@@ -682,7 +682,7 @@ export default function BrandKitPage() {
       <div className="p-6 lg:p-8 max-w-5xl mx-auto">
         <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
         <p className="text-ink/40 text-sm mb-8">Your brand profile shapes every generated design and caption.</p>
-        <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
+        <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
           <h2 className="text-ink font-bold text-lg mb-2">No brand yet</h2>
           <p className="text-ink/40 text-sm mb-6 max-w-sm mx-auto">
             Create your brand profile so ContentCard knows your tone, audience, and voice, and generates content that sounds exactly like you.
@@ -719,7 +719,7 @@ export default function BrandKitPage() {
           : 'xl:grid-cols-[1fr_min(360px,100%)]'
       )}>
         <div className="grid lg:grid-cols-[190px_1fr] gap-6 items-start min-w-0">
-        <nav className="bg-white border border-fog rounded-2xl p-2 sticky top-6">
+        <nav className="bg-surface border border-fog rounded-2xl p-2 sticky top-6">
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={clsx('flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left mb-0.5',
@@ -792,7 +792,7 @@ export default function BrandKitPage() {
                     type="button"
                     onClick={runWebsiteSync}
                     disabled={websiteSyncing || websiteLoading || !form.website}
-                    className="px-3 py-2 rounded-lg border border-fog bg-white text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                    className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
                   >
                     {websiteSyncing ? 'Syncing…' : 'Sync now'}
                   </button>
@@ -821,41 +821,41 @@ export default function BrandKitPage() {
                   </label>
                   <div className="space-y-1">
                     <span className={labelCls}>Status</span>
-                    <div className="h-[46px] px-3 rounded-xl border border-fog bg-white text-xs flex items-center text-ink/70">
+                    <div className="h-[46px] px-3 rounded-xl border border-fog bg-surface text-xs flex items-center text-ink/70">
                       {websiteStatus?.last_status || (websiteLoading ? 'Loading…' : 'Not synced')}
                     </div>
                   </div>
                 </div>
                 <div className="grid sm:grid-cols-3 gap-3 text-xs">
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                     Entities: <span className="font-semibold text-ink">{websiteStatus?.active_entities ?? 0}</span>
                   </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                     Pending approval: <span className="font-semibold text-ink">{websiteStatus?.pending_approval_count ?? 0}</span>
                   </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                     Last crawl: <span className="font-semibold text-ink">{websiteStatus?.last_crawled_at ? new Date(websiteStatus.last_crawled_at).toLocaleString() : '—'}</span>
                   </div>
                 </div>
                 <div className="grid sm:grid-cols-3 gap-3 text-xs">
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                     Sync health: <span className="font-semibold text-ink">{websiteStatus?.sync_health || 'unknown'}</span>
                   </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                     Last latency: <span className="font-semibold text-ink">{websiteStatus?.last_sync_latency_ms ?? 0}ms</span>
                   </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                     Recent errors: <span className="font-semibold text-ink">{websiteStatus?.recent_error_count ?? 0}</span>
                   </div>
                 </div>
                 <div className="grid sm:grid-cols-3 gap-3 text-xs">
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                     Verified UI assets: <span className="font-semibold text-ink">{screenshotStatus?.verified_ui_asset_count ?? 0}</span>
                   </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                     Public UI assets: <span className="font-semibold text-ink">{screenshotStatus?.public_ui_asset_count ?? 0}</span>
                   </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                     Synthetic fallback: <span className="font-semibold text-ink">{screenshotStatus?.synthetic_ui_visual_count ?? 0}</span>
                   </div>
                 </div>
@@ -866,19 +866,19 @@ export default function BrandKitPage() {
                       type="button"
                       onClick={runReferenceSync}
                       disabled={referenceSyncing || !form.website}
-                      className="px-3 py-1.5 rounded-lg border border-fog bg-white text-[11px] font-semibold text-ink/75 disabled:opacity-50"
+                      className="px-3 py-1.5 rounded-lg border border-fog bg-surface text-[11px] font-semibold text-ink/75 disabled:opacity-50"
                     >
                       {referenceSyncing ? 'Syncing…' : 'Sync references'}
                     </button>
                   </div>
                   <div className="grid sm:grid-cols-3 gap-3 text-xs">
-                    <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                       Last ref sync: <span className="font-semibold text-ink">{referenceStatus?.last_synced_at ? new Date(referenceStatus.last_synced_at).toLocaleString() : '—'}</span>
                     </div>
-                    <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                       Ref sources: <span className="font-semibold text-ink">{referenceStatus?.source_count ?? 0}</span>
                     </div>
-                    <div className="px-3 py-2 rounded-lg border border-fog bg-white text-ink/70">
+                    <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
                       Style confidence: <span className="font-semibold text-ink">{Math.round((referenceStatus?.style_confidence || 0) * 100)}%</span>
                     </div>
                   </div>
@@ -892,7 +892,7 @@ export default function BrandKitPage() {
                     {websiteOps
                       .filter((op) => op.status === 'pending_approval')
                       .map((op) => (
-                        <div key={op.id} className="rounded-lg border border-fog bg-white p-3">
+                        <div key={op.id} className="rounded-lg border border-fog bg-surface p-3">
                           <p className="text-xs font-semibold text-ink">{op.title}</p>
                           <p className="text-[11px] text-ink/45 mt-1">{op.trigger_type}</p>
                           <div className="flex items-center gap-2 mt-2">
@@ -957,7 +957,7 @@ export default function BrandKitPage() {
                     <button type="button" onClick={saveAuthCaptureConfig} disabled={authCaptureSaving} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold disabled:opacity-60">
                       {authCaptureSaving ? 'Saving…' : 'Save auth capture config'}
                     </button>
-                    <button type="button" onClick={runAuthCaptureNow} disabled={authCaptureRunning} className="px-3 py-2 rounded-lg border border-fog bg-white text-xs font-semibold text-ink/80 disabled:opacity-60">
+                    <button type="button" onClick={runAuthCaptureNow} disabled={authCaptureRunning} className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink/80 disabled:opacity-60">
                       {authCaptureRunning ? 'Queueing…' : 'Run auth capture now'}
                     </button>
                   </div>
@@ -979,7 +979,7 @@ export default function BrandKitPage() {
                   type="button"
                   onClick={runWebsiteSync}
                   disabled={websiteSyncing || !form.website}
-                  className="px-3 py-2 rounded-lg border border-fog bg-white text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                  className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
                 >
                   {websiteSyncing ? 'Refreshing…' : 'Refresh products'}
                 </button>
@@ -999,7 +999,7 @@ export default function BrandKitPage() {
                   Showing <span className="font-semibold text-ink">{products.length}</span> product{products.length === 1 ? '' : 's'}
                 </div>
                 <select
-                  className="px-3 py-2 rounded-lg border border-fog bg-white text-xs text-ink/70"
+                  className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs text-ink/70"
                   value={productStateFilter}
                   onChange={(e) => setProductStateFilter(e.target.value)}
                 >
@@ -1028,7 +1028,7 @@ export default function BrandKitPage() {
                     const availability = String(p.availability || '').toLowerCase()
                     const inStock = availability.includes('in') || availability.includes('active')
                     return (
-                      <div key={p.id} className="rounded-xl border border-fog bg-white p-3">
+                      <div key={p.id} className="rounded-xl border border-fog bg-surface p-3">
                         <div className="flex gap-3">
                           <div className="w-16 h-16 rounded-lg border border-fog bg-mist/60 overflow-hidden flex-shrink-0">
                             {p.image_url ? (
@@ -1140,7 +1140,7 @@ export default function BrandKitPage() {
                     onChange={onBrandLogoFile}
                   />
                   {form.logo_url ? (
-                    <div className="flex items-center gap-3 rounded-lg border border-fog bg-white p-2 pr-3">
+                    <div className="flex items-center gap-3 rounded-lg border border-fog bg-surface p-2 pr-3">
                       <img
                         src={form.logo_url}
                         alt="Brand logo preview"
@@ -1148,7 +1148,7 @@ export default function BrandKitPage() {
                       />
                     </div>
                   ) : (
-                    <div className="h-14 w-28 rounded-lg border border-dashed border-fog bg-white flex items-center justify-center text-[11px] text-ink/35">
+                    <div className="h-14 w-28 rounded-lg border border-dashed border-fog bg-surface flex items-center justify-center text-[11px] text-ink/35">
                       No logo yet
                     </div>
                   )}
@@ -1156,7 +1156,7 @@ export default function BrandKitPage() {
                     type="button"
                     disabled={logoUploading}
                     onClick={() => logoFileRef.current?.click()}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-white text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-surface text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
                   >
                     <Upload size={16} />
                     {logoUploading ? 'Uploading…' : form.logo_url ? 'Replace logo' : 'Upload logo'}

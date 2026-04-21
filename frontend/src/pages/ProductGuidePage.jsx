@@ -66,7 +66,7 @@ function DocShell({ children }) {
 
 function GuideWindow({ title, subtitle, children }) {
   return (
-    <figure className="my-8 rounded-xl border border-black/[0.08] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden max-w-3xl">
+    <figure className="my-8 rounded-xl border border-black/[0.08] bg-surface shadow-[0_2px_8px_rgba(0,0,0,0.04)] overflow-hidden max-w-3xl">
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-black/[0.06] bg-[#FAFAFA]">
         <div className="flex gap-1">
           {['#FF5F57', '#FEBC2E', '#28C840'].map((c) => (
@@ -92,7 +92,7 @@ function ShotDashboard() {
           <div className="text-[10px] font-bold text-ink/35 uppercase tracking-wider">Workspace</div>
           <div className="text-xs font-semibold text-ink">Your company</div>
           <div className="h-px bg-fog my-2" />
-          <div className="text-xs text-ink/50 py-1 rounded bg-white border border-fog px-2">Dashboard</div>
+          <div className="text-xs text-ink/50 py-1 rounded bg-surface border border-fog px-2">Dashboard</div>
           <div className="text-xs text-ink/35 py-1 px-2">Calendar</div>
           <div className="text-xs text-ink/35 py-1 px-2">Brand kit</div>
         </div>
@@ -104,13 +104,13 @@ function ShotDashboard() {
               { v: '18', l: 'Ready to publish' },
               { v: '6', l: 'In draft' },
             ].map((s) => (
-              <div key={s.l} className="rounded-xl border border-fog bg-white p-3">
+              <div key={s.l} className="rounded-xl border border-fog bg-surface p-3">
                 <div className="text-xl font-semibold text-ink">{s.v}</div>
                 <div className="text-[10px] text-ink/40 mt-0.5 leading-tight">{s.l}</div>
               </div>
             ))}
           </div>
-          <div className="rounded-xl border border-fog bg-white p-3">
+          <div className="rounded-xl border border-fog bg-surface p-3">
             <div className="text-[11px] font-semibold text-ink/50 mb-2">Upcoming</div>
             <div className="flex flex-wrap gap-2 text-[11px] text-ink/60">
               <span className="px-2 py-0.5 rounded bg-mist">Product story</span>
@@ -138,7 +138,7 @@ function ShotTrends() {
         ].map((row) => (
           <div
             key={row.t}
-            className="flex items-center justify-between rounded-lg border border-fog bg-white px-3 py-2.5 gap-2"
+            className="flex items-center justify-between rounded-lg border border-fog bg-surface px-3 py-2.5 gap-2"
           >
             <p className="text-xs font-medium text-ink truncate">{row.t}</p>
             <span className="text-[10px] font-bold uppercase text-brand-600 bg-brand-50 px-2 py-0.5 rounded-full flex-shrink-0">
@@ -158,7 +158,7 @@ function ShotBrandKit() {
         {['Basics', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules'].map((t, i) => (
           <span
             key={t}
-            className={`text-[11px] px-2 py-1 rounded-md ${i === 3 ? 'bg-ink text-white font-semibold' : 'text-ink/40'}`}
+            className={`text-[11px] px-2 py-1 rounded-md ${i === 3 ? 'bg-slate-900 text-white font-semibold' : 'text-ink/40'}`}
           >
             {t}
           </span>
@@ -187,11 +187,11 @@ function ShotCalendar() {
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between mb-3">
             <span className="text-sm font-semibold text-ink">Active brand</span>
-            <span className="text-[10px] text-white bg-ink px-2 py-1 rounded-lg">Generate</span>
+            <span className="text-[10px] text-white bg-slate-900 px-2 py-1 rounded-lg">Generate</span>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {['Product spotlight', 'Behind the scenes', 'Seasonal offer'].map((t, i) => (
-              <div key={t} className="rounded-lg border border-fog overflow-hidden bg-white">
+              <div key={t} className="rounded-lg border border-fog overflow-hidden bg-surface">
                 <div className="aspect-square bg-gradient-to-br from-amber-100 to-stone-200" />
                 <div className="p-2 border-t border-fog">
                   <p className="text-[10px] font-medium text-ink truncate">{t}</p>
@@ -201,7 +201,7 @@ function ShotCalendar() {
             ))}
           </div>
         </div>
-        <div className="w-36 hidden md:block flex-shrink-0 rounded-lg border border-fog bg-white p-2">
+        <div className="w-36 hidden md:block flex-shrink-0 rounded-lg border border-fog bg-surface p-2">
           <div className="text-[9px] font-semibold text-ink/50 mb-2">Prep assistant</div>
           <div className="space-y-1.5 text-[9px] leading-snug">
             <div className="bg-mist rounded p-1.5 text-ink/70">What should we emphasise in April?</div>
@@ -233,7 +233,7 @@ function ShotGenerateModal() {
       </div>
       <div className="flex gap-2 mb-3">
         {['Instagram', 'Facebook'].map((p) => (
-          <span key={p} className="text-[10px] px-2 py-1 rounded-lg border border-ink/15 bg-ink text-white font-medium">
+          <span key={p} className="text-[10px] px-2 py-1 rounded-lg border border-ink/15 bg-slate-900 text-white font-medium">
             {p}
           </span>
         ))}
@@ -272,7 +272,7 @@ function ShotTemplates() {
           { n: 'Q2 revenue push', t: '12 topics' },
           { n: 'Founder narrative', t: '8 topics' },
         ].map((row) => (
-          <div key={row.n} className="flex items-center justify-between rounded-lg border border-fog bg-white px-3 py-2.5">
+          <div key={row.n} className="flex items-center justify-between rounded-lg border border-fog bg-surface px-3 py-2.5">
             <div>
               <p className="text-xs font-medium text-ink">{row.n}</p>
               <p className="text-[10px] text-ink/40">{row.t}</p>
@@ -292,7 +292,7 @@ function ShotPhotoCaption() {
         <Camera size={24} className="mx-auto text-ink/25 mb-2" />
         <p className="text-[11px] text-ink/50">Upload or describe your photo</p>
       </div>
-      <div className="rounded-lg border border-fog bg-white p-3 space-y-2">
+      <div className="rounded-lg border border-fog bg-surface p-3 space-y-2">
         <p className="text-[10px] font-semibold text-ink/45 uppercase">Platform output</p>
         <p className="text-xs text-ink/75 leading-relaxed">
           Hook-first caption, body, and hashtags tuned to your brand voice, ready to paste where you publish.
@@ -757,7 +757,7 @@ export default function ProductGuidePage() {
               <a
                 key={id}
                 href={`#${id}`}
-                className="text-xs px-3 py-1.5 rounded-full border border-black/[0.08] bg-white text-[#37352F]/70 hover:border-[#2383E2]/40 hover:text-[#2383E2]"
+                className="text-xs px-3 py-1.5 rounded-full border border-black/[0.08] bg-surface text-[#37352F]/70 hover:border-[#2383E2]/40 hover:text-[#2383E2]"
               >
                 {label}
               </a>

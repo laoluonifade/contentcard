@@ -192,7 +192,7 @@ export default function TemplatesPage() {
           Templates
         </h1>
         <p className="text-ink/40 text-sm mb-8">Recurring content patterns: set once, generate whenever needed.</p>
-        <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
+        <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
           <p className="text-ink/40 text-sm">Select a workspace with a brand to manage templates.</p>
         </div>
       </div>
@@ -213,7 +213,7 @@ export default function TemplatesPage() {
           <button
             onClick={() => runBootstrapDefaults(false)}
             disabled={bootstrapping}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-ink hover:bg-ink/90 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
           >
             <Sparkles size={15} /> {bootstrapping ? 'Generating…' : 'Generate industry defaults'}
           </button>
@@ -261,7 +261,7 @@ export default function TemplatesPage() {
           </div>
 
           {filtered.length === 0 ? (
-            <div className="bg-white border border-dashed border-fog rounded-2xl p-12 text-center">
+            <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
               <p className="text-ink/40 text-sm mb-4">
                 No templates yet. Create one for recurring content like weekly services, monthly sales, or product
                 launches. Use the assistant on the right to draft a pattern, then open New template to review and save.
@@ -287,7 +287,7 @@ export default function TemplatesPage() {
                       openTemplate(t)
                     }
                   }}
-                  className="text-left bg-white border border-fog hover:border-ink/20 rounded-2xl p-5 transition-colors"
+                  className="text-left bg-surface border border-fog hover:border-ink/20 rounded-2xl p-5 transition-colors"
                 >
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
@@ -361,10 +361,10 @@ export default function TemplatesPage() {
                       <img
                         src={activeBrand.logo_url}
                         alt=""
-                        className="absolute right-3 top-3 h-8 w-auto max-w-[96px] object-contain bg-white/90 rounded-md px-1.5 py-1"
+                        className="absolute right-3 top-3 h-8 w-auto max-w-[96px] object-contain bg-surface/90 rounded-md px-1.5 py-1"
                       />
                     ) : (
-                      <div className="absolute right-3 top-3 text-[10px] font-semibold bg-white/90 text-ink px-2 py-1 rounded-md">
+                      <div className="absolute right-3 top-3 text-[10px] font-semibold bg-surface/90 text-ink px-2 py-1 rounded-md">
                         {(activeBrand?.name || 'Brand').slice(0, 14)}
                       </div>
                     )}
@@ -412,8 +412,8 @@ export default function TemplatesPage() {
           className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
           onClick={(e) => e.target === e.currentTarget && closeTemplate()}
         >
-          <div className="bg-white border border-fog rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-5 border-b border-fog sticky top-0 bg-white">
+          <div className="bg-surface border border-fog rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-fog sticky top-0 bg-surface">
               <div>
                 <h2 className="text-ink font-bold">{viewingTemplate.name}</h2>
                 <p className="text-xs text-ink/40 capitalize">
@@ -434,7 +434,7 @@ export default function TemplatesPage() {
                   <p className="text-xs uppercase tracking-wide text-white/70 font-semibold">{viewingTemplate.category}</p>
                   <p className="text-2xl font-bold leading-tight">{previewTitle(viewingTemplate)}</p>
                   <p className="text-sm text-white/90 mt-1">{previewSubtitle(viewingTemplate)}</p>
-                  <button className="mt-4 h-9 px-4 rounded-lg bg-white/90 text-ink text-sm font-semibold">
+                  <button className="mt-4 h-9 px-4 rounded-lg bg-surface/90 text-ink text-sm font-semibold">
                     Learn more
                   </button>
                 </div>
@@ -442,10 +442,10 @@ export default function TemplatesPage() {
                   <img
                     src={activeBrand.logo_url}
                     alt=""
-                    className="absolute right-5 top-5 h-12 w-auto max-w-[160px] object-contain bg-white/95 rounded-lg px-2 py-1.5"
+                    className="absolute right-5 top-5 h-12 w-auto max-w-[160px] object-contain bg-surface/95 rounded-lg px-2 py-1.5"
                   />
                 ) : (
-                  <div className="absolute right-5 top-5 text-xs font-semibold bg-white/95 text-ink px-3 py-1.5 rounded-lg">
+                  <div className="absolute right-5 top-5 text-xs font-semibold bg-surface/95 text-ink px-3 py-1.5 rounded-lg">
                     {(activeBrand?.name || 'Brand').slice(0, 20)}
                   </div>
                 )}
@@ -479,8 +479,8 @@ export default function TemplatesPage() {
           className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
           onClick={(e) => e.target === e.currentTarget && setShowModal(false)}
         >
-          <div className="bg-white border border-fog rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-5 border-b border-fog sticky top-0 bg-white">
+          <div className="bg-surface border border-fog rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-fog sticky top-0 bg-surface">
               <h2 className="text-ink font-bold">New template</h2>
               <button onClick={() => setShowModal(false)} className="text-ink/40 hover:text-ink/70 text-xl">
                 ×
