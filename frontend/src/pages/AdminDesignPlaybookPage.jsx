@@ -57,6 +57,7 @@ export default function AdminDesignPlaybookPage() {
     visual_direction: '',
   })
   const [fillingDepth, setFillingDepth] = useState(false)
+  const [directoryQuery, setDirectoryQuery] = useState('')
 
   const load = async () => {
     setLoading(true)
@@ -95,6 +96,90 @@ export default function AdminDesignPlaybookPage() {
     }
     return Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0]))
   }, [data])
+
+  const industryDirectory = useMemo(() => {
+    const q = directoryQuery.trim().toLowerCase()
+    const parentMap = new Map()
+
+    for (const industry of data) {
+      const parentKey = String(industry.parent_key || industry.key || 'other')
+      const subIndustry = String(industry.sub_industry || 'General').trim() || 'General'
+      const templates = (industry.content_types || []).map((ct) => ({
+        id: ct.id,
+        name: ct.name || 'Untitled template',
+        is_active: !!ct.is_active,
+      }))
+
+      const matchText = [
+        industry.name,
+        industry.key,
+        industry.parent_key,
+        industry.sub_industry,
+        ...templates.map((t) => t.name),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      if (q && !matchText.includes(q)) continue
+
+      if (!parentMap.has(parentKey)) {
+        parentMap.set(parentKey, {
+          parentKey,
+          parentLabel: parentKey.replace(/_/g, ' '),
+          rows: [],
+        })
+      }
+      parentMap.get(parentKey).rows.push({
+        industryId: industry.id,
+        industryName: industry.name || industry.key || 'Unnamed industry',
+        industryKey: industry.key || '',
+        subIndustry,
+        templates,
+      })
+    }
+
+    const out = Array.from(parentMap.values()).map((group) => {
+      const subMap = new Map()
+      for (const row of group.rows) {
+        if (!subMap.has(row.subIndustry)) {
+          subMap.set(row.subIndustry, {
+            name: row.subIndustry,
+            industries: [],
+            templates: [],
+          })
+        }
+        const sub = subMap.get(row.subIndustry)
+        sub.industries.push(row.industryName)
+        sub.templates.push(...row.templates)
+      }
+
+      const subIndustries = Array.from(subMap.values())
+        .map((sub) => {
+          const dedupTemplates = []
+          const seen = new Set()
+          for (const t of sub.templates) {
+            const key = `${String(t.name).toLowerCase()}::${t.is_active ? '1' : '0'}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            dedupTemplates.push(t)
+          }
+          return {
+            ...sub,
+            templates: dedupTemplates.sort((a, b) => String(a.name).localeCompare(String(b.name))),
+            industries: [...new Set(sub.industries)].sort((a, b) => a.localeCompare(b)),
+          }
+        })
+        .sort((a, b) => a.name.localeCompare(b.name))
+
+      return {
+        ...group,
+        subIndustries,
+      }
+    })
+
+    return out.sort((a, b) => a.parentLabel.localeCompare(b.parentLabel))
+  }, [data, directoryQuery])
 
   const addIndustry = async () => {
     try {
@@ -292,6 +377,66 @@ export default function AdminDesignPlaybookPage() {
           {depthSummary.failing_rows > 0 ? ` ${depthSummary.failing_rows} rows still need depth fill.` : ' All rows meet depth minimum.'}
         </div>
       )}
+
+      <div className="mb-5 bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 className="text-white text-sm font-semibold">Industry & Template Directory</h2>
+            <p className="text-white/45 text-xs mt-0.5">
+              Full list: parent industry → sub-industry → content templates.
+            </p>
+          </div>
+          <input
+            className={`${inp} max-w-xs`}
+            placeholder="Filter industry, sub-industry, or template..."
+            value={directoryQuery}
+            onChange={(e) => setDirectoryQuery(e.target.value)}
+          />
+        </div>
+
+        {industryDirectory.length === 0 ? (
+          <div className="text-white/45 text-sm py-6 text-center">No matching industries or templates found.</div>
+        ) : (
+          <div className="space-y-3">
+            {industryDirectory.map((group) => (
+              <div key={group.parentKey} className="rounded-xl border border-white/10 p-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-white text-sm font-semibold capitalize">{group.parentLabel}</p>
+                  <span className="text-[11px] text-white/45">{group.subIndustries.length} sub-industries</span>
+                </div>
+                <div className="space-y-2">
+                  {group.subIndustries.map((sub) => (
+                    <div key={`${group.parentKey}-${sub.name}`} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <p className="text-white/90 text-sm font-medium">{sub.name}</p>
+                        <span className="text-[11px] text-white/45">{sub.templates.length} template{sub.templates.length === 1 ? '' : 's'}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {sub.templates.length === 0 ? (
+                          <span className="text-[11px] text-white/45">No templates yet</span>
+                        ) : (
+                          sub.templates.map((t) => (
+                            <span
+                              key={`${group.parentKey}-${sub.name}-${t.id || t.name}-${t.is_active ? 'a' : 'i'}`}
+                              className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                                t.is_active
+                                  ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
+                                  : 'border-white/20 text-white/60 bg-white/5'
+                              }`}
+                            >
+                              {t.name}
+                            </span>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-5">
         <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4 space-y-3">

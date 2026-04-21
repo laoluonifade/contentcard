@@ -778,6 +778,11 @@ export default function CalendarPage() {
   filtered.forEach(p => { if (!byPlatform[p.platform]) byPlatform[p.platform]=[]; byPlatform[p.platform].push(p) })
   Object.values(byPlatform).forEach(arr=>arr.sort((a,b)=>(a.scheduled_date||'').localeCompare(b.scheduled_date||'')))
   const platformsWithPosts = PLATFORMS.filter(pl=>byPlatform[pl.id]?.length>0)
+  const platformCounts = PLATFORMS.reduce((acc, pl) => {
+    acc[pl.id] = posts.filter((p) => p.platform === pl.id).length
+    return acc
+  }, {})
+  const hasActiveFilters = filterPlat !== 'all' || thisWeekOnly
   const calendarCells = buildMonthGrid(month, year)
 
   const postCountLabel = loading ? 'Loading…' : `${posts.length} post${posts.length === 1 ? '' : 's'}`
@@ -949,60 +954,81 @@ export default function CalendarPage() {
       )}
 
       {posts.length > 0 && (
-        <div className="mb-6 rounded-xl border border-fog bg-surface p-2">
-        <div className="flex gap-1.5 overflow-x-auto">
-          <button onClick={()=>setFilterPlat('all')}
-            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
-              filterPlat==='all' ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
-            }`}>
-            All ({posts.length})
-          </button>
-          {PLATFORMS.filter(pl=>posts.some(p=>p.platform===pl.id)).map(pl=>(
-            <button key={pl.id} onClick={()=>setFilterPlat(pl.id)}
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
-                filterPlat===pl.id ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
+        <div className="mb-6 rounded-2xl border border-fog bg-surface px-3 py-3">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/40">Filters</p>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setFilterPlat('all')
+                  setThisWeekOnly(false)
+                }}
+                className="text-[11px] px-2.5 py-1 rounded-lg border border-fog text-ink/55 hover:text-ink hover:bg-mist"
+              >
+                Reset filters
+              </button>
+            )}
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto">
+            <button onClick={()=>setFilterPlat('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border whitespace-nowrap transition-all flex-shrink-0 ${
+                filterPlat==='all' ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-mist/40 border-fog text-ink/55 hover:text-ink hover:bg-mist'
               }`}>
-              {PLATFORM_LOGO[pl.id]} {pl.label} ({posts.filter(p=>p.platform===pl.id).length})
+              All <span className="opacity-75">({posts.length})</span>
             </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => setThisWeekOnly((v) => !v)}
-            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
-              thisWeekOnly ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
-            }`}
-          >
-            This week
-          </button>
-          <button
-            type="button"
-            onClick={() => setLayoutMode('month')}
-            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap ${
-              layoutMode === 'month' ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
-            }`}
-          >
-            <CalendarDays size={12} className="inline mr-1" />
-            Month
-          </button>
-          <button
-            type="button"
-            onClick={() => setLayoutMode('grid')}
-            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap ${
-              layoutMode === 'grid' ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
-            }`}
-          >
-            Grid
-          </button>
-          <button
-            type="button"
-            onClick={() => setLayoutMode('swimlane')}
-            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap ${
-              layoutMode === 'swimlane' ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
-            }`}
-          >
-            <Wand2 size={12} className="inline mr-1" />
-            Swimlanes
-          </button>
+            {PLATFORMS.filter(pl=>platformCounts[pl.id] > 0).map(pl=>(
+              <button key={pl.id} onClick={()=>setFilterPlat(pl.id)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border whitespace-nowrap transition-all flex-shrink-0 ${
+                  filterPlat===pl.id ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-mist/40 border-fog text-ink/55 hover:text-ink hover:bg-mist'
+                }`}>
+                {PLATFORM_LOGO[pl.id]} {pl.label} <span className="opacity-75">({platformCounts[pl.id]})</span>
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setThisWeekOnly((v) => !v)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border whitespace-nowrap transition-all flex-shrink-0 ${
+                thisWeekOnly ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-mist/40 border-fog text-ink/55 hover:text-ink hover:bg-mist'
+              }`}
+            >
+              This week
+            </button>
+          </div>
+          <div className="h-px bg-fog my-0.5" />
+          <div className="flex items-center gap-1.5 overflow-x-auto">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-ink/40 mr-1 whitespace-nowrap">Layout</p>
+            <button
+              type="button"
+              onClick={() => setLayoutMode('month')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border whitespace-nowrap ${
+                layoutMode === 'month' ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-mist/40 border-fog text-ink/55 hover:text-ink hover:bg-mist'
+              }`}
+            >
+              <CalendarDays size={12} className="inline mr-1" />
+              Month
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayoutMode('grid')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border whitespace-nowrap ${
+                layoutMode === 'grid' ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-mist/40 border-fog text-ink/55 hover:text-ink hover:bg-mist'
+              }`}
+            >
+              Grid
+            </button>
+            <button
+              type="button"
+              onClick={() => setLayoutMode('swimlane')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold border whitespace-nowrap ${
+                layoutMode === 'swimlane' ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-mist/40 border-fog text-ink/55 hover:text-ink hover:bg-mist'
+              }`}
+            >
+              <Wand2 size={12} className="inline mr-1" />
+              Swimlanes
+            </button>
+          </div>
         </div>
         </div>
       )}
