@@ -89,6 +89,8 @@ class ReconcileWorkspacePaystackBody(BaseModel):
 class PlaybookIndustryIn(BaseModel):
     key: str
     name: str
+    parent_key: str | None = None
+    sub_industry: str | None = None
     is_active: bool = True
 
 
@@ -126,6 +128,8 @@ def _playbook_tree_payload(rows: list[DesignPlaybookIndustry]) -> list[dict]:
                 "id": industry.id,
                 "key": industry.key,
                 "name": industry.name,
+                "parent_key": industry.parent_key,
+                "sub_industry": industry.sub_industry,
                 "is_active": bool(industry.is_active),
                 "content_types": [
                     {
@@ -190,10 +194,19 @@ async def admin_create_playbook_industry(
     if exists:
         raise HTTPException(status_code=409, detail="Industry key already exists")
     row = DesignPlaybookIndustry(key=key, name=name, is_active=bool(body.is_active))
+    row.parent_key = str(body.parent_key or "").strip().lower().replace(" ", "_") or None
+    row.sub_industry = str(body.sub_industry or "").strip() or None
     db.add(row)
     await db.commit()
     await db.refresh(row)
-    return {"id": row.id, "key": row.key, "name": row.name, "is_active": bool(row.is_active)}
+    return {
+        "id": row.id,
+        "key": row.key,
+        "name": row.name,
+        "parent_key": row.parent_key,
+        "sub_industry": row.sub_industry,
+        "is_active": bool(row.is_active),
+    }
 
 
 @router.put("/design-playbook/industries/{industry_id}")
@@ -224,6 +237,8 @@ async def admin_update_playbook_industry(
         raise HTTPException(status_code=409, detail="Industry key already exists")
     row.key = key
     row.name = name
+    row.parent_key = str(body.parent_key or "").strip().lower().replace(" ", "_") or None
+    row.sub_industry = str(body.sub_industry or "").strip() or None
     row.is_active = bool(body.is_active)
     await db.commit()
     return {"ok": True}
@@ -821,6 +836,11 @@ async def admin_content(
                 "content_idea": i.content_idea,
                 "caption": i.caption,
                 "description": i.description,
+                "visual_direction": i.visual_direction,
+                "cta": i.cta,
+                "hashtags": i.hashtags if isinstance(i.hashtags, list) else [],
+                "image_prompt": i.image_prompt,
+                "image_prompt_explanation": i.image_prompt_explanation,
                 "platform": i.platform,
                 "status": i.status,
                 "brand_id": i.brand_id,

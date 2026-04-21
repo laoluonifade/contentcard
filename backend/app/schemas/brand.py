@@ -5,6 +5,7 @@ from datetime import datetime
 class BrandCreate(BaseModel):
     name: str
     industry: str | None = None
+    sub_industry: str | None = None
     description: str | None = None
     website: str | None = None
     location: str | None = None
@@ -32,6 +33,7 @@ class BrandCreate(BaseModel):
 class BrandUpdate(BaseModel):
     name: str | None = None
     industry: str | None = None
+    sub_industry: str | None = None
     description: str | None = None
     website: str | None = None
     location: str | None = None
@@ -61,6 +63,7 @@ class BrandOut(BaseModel):
     workspace_id: str
     name: str
     industry: str | None
+    sub_industry: str | None
     description: str | None
     website: str | None
     location: str | None

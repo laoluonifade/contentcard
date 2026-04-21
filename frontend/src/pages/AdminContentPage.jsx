@@ -36,6 +36,7 @@ export default function AdminContentPage() {
   }, [])
 
   const previewImage = selected?.image_urls?.[0] || selected?.image_url || null
+  const fullVisuals = selected ? (selected.image_urls?.length ? selected.image_urls : (selected.image_url ? [selected.image_url] : [])) : []
   const filteredItems = items.filter((item) => {
     const hay = `${item.topic || ''} ${item.content_idea || ''} ${item.caption || ''} ${item.description || ''}`.toLowerCase()
     const qOk = !query.trim() || hay.includes(query.trim().toLowerCase())
@@ -108,24 +109,36 @@ export default function AdminContentPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {['Topic / Content','Platform','Status','Scheduled','Created'].map(h => (
+                {['Preview','Topic / Caption / Direction','Platform','Status','Scheduled','Created'].map(h => (
                   <th key={h} className="text-left text-white/30 text-xs font-bold uppercase tracking-widest px-5 py-3 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {filteredItems.length === 0 ? (
-                <tr><td colSpan={5} className="px-5 py-10 text-center text-white/25 text-sm">No content found</td></tr>
+                <tr><td colSpan={6} className="px-5 py-10 text-center text-white/25 text-sm">No content found</td></tr>
               ) : filteredItems.map(item => (
                 <tr
                   key={item.id}
                   className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors cursor-pointer"
                   onClick={() => setSelected(item)}
                 >
-                  <td className="px-5 py-3 max-w-xs">
+                  <td className="px-5 py-3">
+                    <div className="w-16 h-16 rounded-lg border border-white/10 overflow-hidden bg-white/[0.02]">
+                      {(item.image_urls?.[0] || item.image_url) ? (
+                        <img src={item.image_urls?.[0] || item.image_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-[10px] text-white/30">No visual</div>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 max-w-[560px]">
                     <div className="text-white text-sm font-medium truncate">{item.content_idea || item.topic}</div>
                     <div className="text-white/45 text-xs mt-0.5 line-clamp-2">
                       {item.caption || item.description || 'No caption yet'}
+                    </div>
+                    <div className="text-white/35 text-xs mt-1 line-clamp-2">
+                      {item.visual_direction || 'No visual direction yet'}
                     </div>
                     <div className="text-white/30 text-xs font-mono">{item.brand_id?.slice(0,8)}…</div>
                   </td>
@@ -175,6 +188,30 @@ export default function AdminContentPage() {
                 <p className="text-white/80 text-sm leading-relaxed whitespace-pre-wrap">
                   {selected.caption || selected.description || 'No generated caption available.'}
                 </p>
+                {selected.hashtags?.length > 0 && (
+                  <p className="text-white/55 text-xs mt-2">
+                    {selected.hashtags.map((h) => `#${h}`).join(' ')}
+                  </p>
+                )}
+                <p className="text-[11px] uppercase tracking-widest text-white/35 mt-4 mb-1">Visual direction</p>
+                <p className="text-white/75 text-sm leading-relaxed whitespace-pre-wrap">
+                  {selected.visual_direction || 'No visual direction saved.'}
+                </p>
+                {selected.cta && (
+                  <>
+                    <p className="text-[11px] uppercase tracking-widest text-white/35 mt-4 mb-1">CTA</p>
+                    <p className="text-white/80 text-sm">{selected.cta}</p>
+                  </>
+                )}
+                {selected.image_prompt && (
+                  <details className="mt-4">
+                    <summary className="text-[11px] uppercase tracking-widest text-white/35 cursor-pointer">Image prompt</summary>
+                    <p className="text-white/60 text-xs leading-relaxed mt-2 whitespace-pre-wrap">{selected.image_prompt}</p>
+                    {selected.image_prompt_explanation && (
+                      <p className="text-white/45 text-xs leading-relaxed mt-2 italic">{selected.image_prompt_explanation}</p>
+                    )}
+                  </details>
+                )}
                 <div className="mt-4 text-xs text-white/45 space-y-1">
                   <p>Scheduled: {selected.scheduled_date || 'Not set'}</p>
                   <p>Created: {new Date(selected.created_at).toLocaleString('en-GB')}</p>
@@ -182,6 +219,18 @@ export default function AdminContentPage() {
                 </div>
               </div>
             </div>
+            {fullVisuals.length > 1 && (
+              <div className="px-5 pb-5">
+                <p className="text-[11px] uppercase tracking-widest text-white/35 mb-2">Carousel visuals</p>
+                <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+                  {fullVisuals.map((url, idx) => (
+                    <div key={`${url}-${idx}`} className="rounded-lg border border-white/10 overflow-hidden bg-white/[0.02]">
+                      <img src={url} alt={`Slide ${idx + 1}`} className="w-full h-24 object-cover" />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -3,28 +3,23 @@ import { useState, useEffect, useCallback } from 'react'
 const STORAGE_KEY = 'cc-theme'
 
 export function useTheme() {
-  const [theme, setThemeState] = useState(() => {
-    try {
-      return localStorage.getItem(STORAGE_KEY) || 'dark'
-    } catch {
-      return 'dark'
-    }
-  })
+  const [theme, setThemeState] = useState('light')
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme)
+    document.documentElement.setAttribute('data-theme', 'light')
     try {
-      localStorage.setItem(STORAGE_KEY, theme)
+      localStorage.setItem(STORAGE_KEY, 'light')
     } catch {}
-  }, [theme])
+    setThemeState('light')
+  }, [])
 
-  const setTheme = useCallback((next) => {
-    setThemeState(next === 'light' ? 'light' : 'dark')
+  const setTheme = useCallback(() => {
+    setThemeState('light')
   }, [])
 
   const toggle = useCallback(() => {
-    setThemeState((t) => (t === 'dark' ? 'light' : 'dark'))
+    setThemeState('light')
   }, [])
 
-  return { theme, setTheme, toggle, isDark: theme === 'dark' }
+  return { theme: 'light', setTheme, toggle, isDark: false }
 }

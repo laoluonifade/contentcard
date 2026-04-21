@@ -7,13 +7,7 @@ import useAppStore from '../stores/appStore'
 import { workspaceApi, templateApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
-
-const INDUSTRIES = [
-  'Fashion & Beauty','Food & Beverage','Technology','Finance & Fintech',
-  'Health & Wellness','Real Estate','Education','Entertainment & Media',
-  'E-commerce & Retail','Marketing & Creative Agency','Church & Ministry',
-  'Events & Hospitality','Legal & Professional Services','Other',
-]
+import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 
 const TONES = [
   'Bold','Authentic','Energetic','Playful','Luxury','Minimal',
@@ -31,6 +25,7 @@ export default function OnboardingPage() {
   const [form, setForm] = useState({
     name: '',
     industry: '',
+    sub_industry: '',
     description: '',
     target_audience: '',
     tone_tags: [],
@@ -143,7 +138,7 @@ export default function OnboardingPage() {
                   <label className="label">Industry <span className="text-red-400">*</span></label>
                   <div className="grid grid-cols-2 gap-2">
                     {INDUSTRIES.map(ind => (
-                      <button key={ind} type="button" onClick={() => set('industry', ind)}
+                      <button key={ind} type="button" onClick={() => setForm((f) => ({ ...f, industry: ind, sub_industry: '' }))}
                         className={`px-3 py-2.5 rounded-xl text-xs font-semibold text-left border transition-all ${
                           form.industry === ind
                             ? 'border-brand-400 bg-brand-50 text-brand-700'
@@ -153,6 +148,20 @@ export default function OnboardingPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+                <div>
+                  <label className="label">Sub-industry</label>
+                  <select
+                    value={form.sub_industry || ''}
+                    onChange={e => set('sub_industry', e.target.value)}
+                    className="input"
+                    disabled={!form.industry}
+                  >
+                    <option value="">{form.industry ? 'Select sub-industry…' : 'Choose industry first'}</option>
+                    {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
+                      <option key={sub} value={sub}>{sub}</option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="label">What your business does <span className="text-ink/30 font-normal normal-case">(optional)</span></label>

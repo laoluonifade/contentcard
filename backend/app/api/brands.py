@@ -102,6 +102,9 @@ def _industry_key_from_value(value: str | None) -> str:
         "church & ministry": "church_ministry",
         "events & hospitality": "events_hospitality",
         "legal & professional services": "legal_professional_services",
+        "professional services": "professional_services",
+        "travel & hospitality": "travel_hospitality",
+        "media & entertainment": "media_entertainment",
         "other": "other",
     }
     if raw in aliases:
@@ -117,8 +120,19 @@ def _industry_key_from_value(value: str | None) -> str:
     return raw.replace(" ", "_")
 
 
-async def _load_industry_playbook(db: AsyncSession, industry_value: str | None) -> dict | None:
-    key = _industry_key_from_value(industry_value)
+def _resolve_playbook_key(industry_value: str | None, sub_industry_value: str | None = None) -> str:
+    parent = _industry_key_from_value(industry_value)
+    sub = str(sub_industry_value or "").strip().lower().replace("&", "and").replace("/", " ").replace("-", " ")
+    sub = "_".join([p for p in sub.split() if p])
+    return f"{parent}__{sub}" if sub else parent
+
+
+async def _load_industry_playbook(
+    db: AsyncSession,
+    industry_value: str | None,
+    sub_industry_value: str | None = None,
+) -> dict | None:
+    key = _resolve_playbook_key(industry_value, sub_industry_value)
     industry = (
         await db.execute(
             select(DesignPlaybookIndustry)
@@ -129,6 +143,18 @@ async def _load_industry_playbook(db: AsyncSession, industry_value: str | None) 
             .limit(1)
         )
     ).scalar_one_or_none()
+    if not industry and "__" in key:
+        parent = key.split("__", 1)[0]
+        industry = (
+            await db.execute(
+                select(DesignPlaybookIndustry)
+                .where(
+                    DesignPlaybookIndustry.key == parent,
+                    DesignPlaybookIndustry.is_active.is_(True),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
     if not industry:
         return None
     cts = (
@@ -190,7 +216,7 @@ async def _bootstrap_brand_templates(brand_id: str, country_code: str | None) ->
             if existing:
                 return
 
-            playbook = await _load_industry_playbook(db, brand.industry)
+            playbook = await _load_industry_playbook(db, brand.industry, brand.sub_industry)
             defaults = build_default_templates(brand, country_code, playbook=playbook)
             created: list[ContentTemplate] = []
             for spec in defaults:

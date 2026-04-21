@@ -13,6 +13,7 @@ class Brand(Base):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sub_industry: Mapped[str | None] = mapped_column(String(120), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     website: Mapped[str | None] = mapped_column(String(255), nullable=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)

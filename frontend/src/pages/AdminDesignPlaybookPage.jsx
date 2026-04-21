@@ -16,7 +16,7 @@ export default function AdminDesignPlaybookPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const [industryForm, setIndustryForm] = useState({ key: '', name: '' })
+  const [industryForm, setIndustryForm] = useState({ key: '', name: '', parent_key: '', sub_industry: '' })
   const [contentTypeForm, setContentTypeForm] = useState({ industry_id: '', name: '' })
   const [visualForm, setVisualForm] = useState({
     content_type_id: '',
@@ -24,7 +24,9 @@ export default function AdminDesignPlaybookPage() {
     visual_direction: '',
   })
   const [editingIndustryId, setEditingIndustryId] = useState(null)
-  const [editingIndustryForm, setEditingIndustryForm] = useState({ key: '', name: '' })
+  const [editingIndustryForm, setEditingIndustryForm] = useState({ key: '', name: '', parent_key: '', sub_industry: '' })
+  const [expandedParents, setExpandedParents] = useState(() => new Set())
+  const [expandedIndustries, setExpandedIndustries] = useState(() => new Set())
   const [editingContentTypeId, setEditingContentTypeId] = useState(null)
   const [editingContentTypeForm, setEditingContentTypeForm] = useState({ industry_id: '', name: '' })
   const [editingVisualId, setEditingVisualId] = useState(null)
@@ -61,14 +63,26 @@ export default function AdminDesignPlaybookPage() {
     return out
   }, [data])
 
+  const groupedByParent = useMemo(() => {
+    const grouped = {}
+    for (const row of data) {
+      const parent = row.parent_key || row.key
+      if (!grouped[parent]) grouped[parent] = []
+      grouped[parent].push(row)
+    }
+    return Object.entries(grouped).sort((a, b) => a[0].localeCompare(b[0]))
+  }, [data])
+
   const addIndustry = async () => {
     try {
       await adminApi.createPlaybookIndustry({
         key: industryForm.key.trim(),
         name: industryForm.name.trim(),
+        parent_key: industryForm.parent_key.trim() || null,
+        sub_industry: industryForm.sub_industry.trim() || null,
         is_active: true,
       })
-      setIndustryForm({ key: '', name: '' })
+      setIndustryForm({ key: '', name: '', parent_key: '', sub_industry: '' })
       await load()
     } catch (e) {
       setError(formatAdminApiError(e))
@@ -108,7 +122,12 @@ export default function AdminDesignPlaybookPage() {
 
   const beginEditIndustry = (industry) => {
     setEditingIndustryId(industry.id)
-    setEditingIndustryForm({ key: industry.key || '', name: industry.name || '' })
+    setEditingIndustryForm({
+      key: industry.key || '',
+      name: industry.name || '',
+      parent_key: industry.parent_key || '',
+      sub_industry: industry.sub_industry || '',
+    })
   }
 
   const saveIndustry = async (industry) => {
@@ -116,6 +135,8 @@ export default function AdminDesignPlaybookPage() {
       await adminApi.updatePlaybookIndustry(industry.id, {
         key: editingIndustryForm.key.trim(),
         name: editingIndustryForm.name.trim(),
+        parent_key: editingIndustryForm.parent_key.trim() || null,
+        sub_industry: editingIndustryForm.sub_industry.trim() || null,
         is_active: true,
       })
       setEditingIndustryId(null)
@@ -210,6 +231,18 @@ export default function AdminDesignPlaybookPage() {
             value={industryForm.name}
             onChange={(e) => setIndustryForm((s) => ({ ...s, name: e.target.value }))}
           />
+          <input
+            className={inp}
+            placeholder="parent key (e.g. technology)"
+            value={industryForm.parent_key}
+            onChange={(e) => setIndustryForm((s) => ({ ...s, parent_key: e.target.value }))}
+          />
+          <input
+            className={inp}
+            placeholder="sub-industry label (optional)"
+            value={industryForm.sub_industry}
+            onChange={(e) => setIndustryForm((s) => ({ ...s, sub_industry: e.target.value }))}
+          />
           <button
             type="button"
             onClick={addIndustry}
@@ -290,8 +323,23 @@ export default function AdminDesignPlaybookPage() {
           <div className="text-white/50 text-sm py-8 text-center">No playbook entries found.</div>
         ) : (
           <div className="space-y-4">
-            {data.map((industry) => (
-              <div key={industry.id} className="border border-white/10 rounded-xl p-4">
+            {groupedByParent.map(([parentKey, industries]) => (
+              <div key={parentKey} className="border border-white/10 rounded-xl p-3">
+                <button
+                  type="button"
+                  onClick={() => setExpandedParents((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(parentKey)) next.delete(parentKey)
+                    else next.add(parentKey)
+                    return next
+                  })}
+                  className="w-full flex items-center justify-between px-2 py-1"
+                >
+                  <span className="text-white font-semibold text-sm">{parentKey}</span>
+                  <span className="text-white/50 text-xs">{industries.length} industries</span>
+                </button>
+                {expandedParents.has(parentKey) && industries.map((industry) => (
+              <div key={industry.id} className="border border-white/10 rounded-xl p-4 mt-3">
                 <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0">
                       {editingIndustryId === industry.id ? (
@@ -308,11 +356,26 @@ export default function AdminDesignPlaybookPage() {
                             onChange={(e) => setEditingIndustryForm((s) => ({ ...s, key: e.target.value }))}
                             placeholder="Industry key"
                           />
+                          <input
+                            className={inp}
+                            value={editingIndustryForm.parent_key}
+                            onChange={(e) => setEditingIndustryForm((s) => ({ ...s, parent_key: e.target.value }))}
+                            placeholder="Parent key"
+                          />
+                          <input
+                            className={inp}
+                            value={editingIndustryForm.sub_industry}
+                            onChange={(e) => setEditingIndustryForm((s) => ({ ...s, sub_industry: e.target.value }))}
+                            placeholder="Sub-industry"
+                          />
                         </div>
                       ) : (
                         <>
                           <div className="text-white font-semibold">{industry.name}</div>
-                          <div className="text-white/35 text-xs mt-0.5">{industry.key}</div>
+                          <div className="text-white/35 text-xs mt-0.5">
+                            {industry.key}
+                            {industry.sub_industry ? ` · ${industry.sub_industry}` : ''}
+                          </div>
                         </>
                       )}
                     </div>
@@ -364,7 +427,19 @@ export default function AdminDesignPlaybookPage() {
                     </div>
                 </div>
 
-                <div className="mt-3 space-y-3">
+                <button
+                  type="button"
+                  onClick={() => setExpandedIndustries((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(industry.id)) next.delete(industry.id)
+                    else next.add(industry.id)
+                    return next
+                  })}
+                  className="mt-3 text-xs text-white/65 hover:text-white"
+                >
+                  {expandedIndustries.has(industry.id) ? 'Hide playbook' : 'Show playbook'}
+                </button>
+                {expandedIndustries.has(industry.id) && <div className="mt-3 space-y-3">
                   {(industry.content_types || []).map((ct) => (
                     <div key={ct.id} className="border border-white/10 rounded-xl p-3">
                       <div className="flex items-center justify-between">
@@ -511,7 +586,9 @@ export default function AdminDesignPlaybookPage() {
                       </div>
                     </div>
                   ))}
-                </div>
+                </div>}
+              </div>
+                ))}
               </div>
             ))}
           </div>

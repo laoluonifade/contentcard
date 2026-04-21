@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle } from 'lucide-react'
+import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle, BarChart3 } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { trendsApi } from '../api'
@@ -8,6 +8,12 @@ import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
 const PLATFORMS = ['instagram', 'twitter', 'linkedin', 'facebook']
+const PLATFORM_LABELS = {
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  twitter: 'Twitter/X',
+  linkedin: 'LinkedIn',
+}
 
 
 function parseLocalDate(str) {
@@ -37,7 +43,7 @@ export default function DashboardPage() {
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
-  const [stats, setStats]       = useState({ total: 0, ready: 0, drafts: 0, ig: 0, fb: 0, tw: 0 })
+  const [stats, setStats]       = useState({ total: 0, ready: 0, drafts: 0, ig: 0, fb: 0, tw: 0, li: 0, scheduledWeek: 0 })
   const [upcoming, setUpcoming] = useState([])
   const [loading, setLoading]   = useState(true)
 
@@ -55,6 +61,13 @@ export default function DashboardPage() {
     setLoading(true)
     fetchMonthContent(now.getMonth() + 1, now.getFullYear())
       .then(items => {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        const weekAhead = new Date(today)
+        weekAhead.setDate(today.getDate() + 7)
+        const scheduledWeek = items.filter((i) => {
+          const d = parseLocalDate(i.scheduled_date)
+          return d && d >= today && d < weekAhead
+        }).length
         setStats({
           total:  items.length,
           ready:  items.filter(i => i.status === 'ready').length,
@@ -62,12 +75,13 @@ export default function DashboardPage() {
           ig:     items.filter(i => i.platform === 'instagram').length,
           fb:     items.filter(i => i.platform === 'facebook').length,
           tw:     items.filter(i => i.platform === 'twitter').length,
+          li:     items.filter(i => i.platform === 'linkedin').length,
+          scheduledWeek,
         })
-        const today = now.getDate()
         setUpcoming(
           items.filter(i => {
             const d = parseLocalDate(i.scheduled_date)
-            return d && d.getDate() >= today && d.getDate() <= today + 6
+            return d && d >= today && d < weekAhead
           }).slice(0, 5)
         )
         setLoading(false)
@@ -288,11 +302,12 @@ export default function DashboardPage() {
 
       {/* Stats */}
       {activeBrandId && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <StatCard icon={FileText}    val={stats.total}  lbl="Total posts"    loading={loading} />
           <StatCard icon={CheckCircle} val={stats.ready}  lbl="Ready to post"  loading={loading} />
           <StatCard icon={Clock}       val={stats.drafts} lbl="Drafts"         loading={loading} />
-          <StatCard icon={Calendar}    val={stats.ig}     lbl="Instagram"      loading={loading} />
+          <StatCard icon={Calendar}    val={stats.scheduledWeek} lbl="Due this week" loading={loading} />
+          <StatCard icon={BarChart3}   val={stats.total ? `${Math.round((stats.ready / Math.max(1, stats.total)) * 100)}%` : '0%'} lbl="Readiness" loading={loading} />
         </div>
       )}
 
@@ -310,6 +325,7 @@ export default function DashboardPage() {
                     { id: 'instagram', label: 'Instagram', count: stats.ig },
                     { id: 'facebook',  label: 'Facebook',  count: stats.fb },
                     { id: 'twitter',   label: 'Twitter/X', count: stats.tw },
+                    { id: 'linkedin',  label: 'LinkedIn',  count: stats.li },
                   ].map(({ label, count }) => (
                     <div key={label}>
                       <div className="flex justify-between mb-1.5">
@@ -324,6 +340,18 @@ export default function DashboardPage() {
                   ))}
                 </div>
               )}
+            {!loading && stats.total > 0 && (
+              <div className="mt-5 pt-4 border-t border-fog flex flex-wrap gap-2">
+                {PLATFORMS.map((p) => {
+                  const count = p === 'instagram' ? stats.ig : p === 'facebook' ? stats.fb : p === 'twitter' ? stats.tw : stats.li
+                  return (
+                    <span key={p} className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-fog bg-mist text-ink/60">
+                      {PLATFORM_LABELS[p]}: {count}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Upcoming posts */}

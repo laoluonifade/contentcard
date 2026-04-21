@@ -99,6 +99,7 @@ async def lifespan(app: FastAPI):
             "ALTER TYPE contentplatform ADD VALUE IF NOT EXISTS 'linkedin'",
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS openai_assistant_id VARCHAR(100)",
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS openai_vector_store_id VARCHAR(100)",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS sub_industry VARCHAR(120)",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS free_generations_used INTEGER DEFAULT 0",
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS brand_photos JSON",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS paystack_authorization_code VARCHAR(255)",
@@ -108,6 +109,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_exp_month VARCHAR(5)",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_exp_year VARCHAR(5)",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS next_payment_date TIMESTAMPTZ",
+            "ALTER TABLE design_playbook_industries ADD COLUMN IF NOT EXISTS parent_key VARCHAR(80)",
+            "ALTER TABLE design_playbook_industries ADD COLUMN IF NOT EXISTS sub_industry VARCHAR(120)",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))

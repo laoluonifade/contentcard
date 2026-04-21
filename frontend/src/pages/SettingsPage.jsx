@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Check, Eye, EyeOff, Sun, Moon } from 'lucide-react'
+import { Check, Eye, EyeOff, Sun } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { authApi, workspaceApi, inviteApi } from '../api'
@@ -389,21 +389,15 @@ export default function SettingsPage() {
           {tab === 'Appearance' && (
             <div className="bg-surface border border-fog rounded-2xl p-6">
               <h3 className="text-ink font-bold text-sm mb-1">Appearance</h3>
-              <p className="text-ink/40 text-xs mb-5">Theme applies across the signed-in app (saved on this device).</p>
-              <div className="flex flex-col sm:flex-row gap-3 max-w-md">
-                {[
-                  { value: 'dark',  label: 'Dark',  icon: Moon },
-                  { value: 'light', label: 'Light', icon: Sun  },
-                ].map(({ value, label, icon: Icon }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => setTheme(value)}
-                    className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl border font-medium text-sm transition-all ${theme === value ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}
-                  >
-                    <Icon size={16} /> {label}
-                  </button>
-                ))}
+              <p className="text-ink/40 text-xs mb-5">Theme is currently locked to light mode across the app.</p>
+              <div className="max-w-md">
+                <button
+                  type="button"
+                  onClick={() => setTheme('light')}
+                  className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border border-ink bg-mist text-ink font-medium text-sm"
+                >
+                  <Sun size={16} /> Light mode
+                </button>
               </div>
               <p className="text-ink/30 text-xs mt-5">
                 Email-based notification preferences are not available until outbound email is enabled.

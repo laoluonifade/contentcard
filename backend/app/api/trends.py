@@ -47,12 +47,19 @@ async def _require_trending_topics_plan(db: AsyncSession, user_id: str, workspac
 
 async def _refresh_trends(db: AsyncSession, industry: str | None, country_code: str | None):
     from app.services.ai_service import generate_fresh_trends
-    fresh = await generate_fresh_trends(industry=industry, country_code=country_code)
+    cc = (country_code or "NG").strip().upper()[:2]
+    fresh = await generate_fresh_trends(industry=industry, country_code=cc)
     if not fresh:
         return False
 
-    # Delete old AI-generated topics (keep any that are sort_order < 0 sentinel for manual)
-    await db.execute(delete(TrendingTopic).where(TrendingTopic.is_active == True))
+    # Keep cache country-scoped so users see local trends.
+    await db.execute(
+        delete(TrendingTopic).where(
+            TrendingTopic.is_active == True,
+            TrendingTopic.country_code == cc,
+            TrendingTopic.industry == industry,
+        )
+    )
 
     for i, t in enumerate(fresh):
         topic = TrendingTopic(
@@ -61,6 +68,7 @@ async def _refresh_trends(db: AsyncSession, industry: str | None, country_code: 
             volume=t.get("volume", ""),
             badge=t.get("badge", "rising"),
             industry=industry,
+            country_code=cc,
             sort_order=i,
             is_active=True,
         )
@@ -77,8 +85,9 @@ async def list_trends(
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     await _require_trending_topics_plan(db, current_user.id, workspace_id)
+    cc = (getattr(current_user, "country_code", None) or "NG").strip().upper()[:2]
 
-    conditions = [TrendingTopic.is_active == True]
+    conditions = [TrendingTopic.is_active == True, TrendingTopic.country_code == cc]
     if industry:
         from sqlalchemy import or_
         conditions.append(or_(TrendingTopic.industry == industry, TrendingTopic.industry == None))
@@ -100,12 +109,12 @@ async def list_trends(
         should_refresh = (datetime.now(timezone.utc) - oldest) > timedelta(hours=CACHE_TTL_HOURS)
 
     if should_refresh:
-        country_code = getattr(current_user, "country_code", None)
+        country_code = getattr(current_user, "country_code", None) or cc
         refreshed = await _refresh_trends(db, industry, country_code)
         if refreshed:
             result = await db.execute(
                 select(TrendingTopic)
-                .where(TrendingTopic.is_active == True)
+                .where(TrendingTopic.is_active == True, TrendingTopic.country_code == cc)
                 .order_by(TrendingTopic.sort_order)
                 .limit(20)
             )
@@ -119,6 +128,7 @@ async def list_trends(
             "volume": t.volume,
             "badge": t.badge,
             "industry": t.industry,
+            "country_code": t.country_code,
         }
         for t in topics
     ]
@@ -186,11 +196,12 @@ async def generate_post_from_trend(
     }
 
     try:
+        cc = (getattr(current_user, "country_code", None) or "NG").strip().upper()[:2]
         result = await generate_single_caption(
             brand=brand_dict,
             topic=body.trend_topic,
             platform=body.platform,
-            description=f"Trending in Nigeria right now: {body.trend_topic}. Make it timely and culturally relevant.",
+            description=f"Trending in {cc} right now: {body.trend_topic}. Make it timely and culturally relevant for that location.",
         )
         return {"caption": result.get("caption", ""), "hashtags": result.get("hashtags", [])}
     except Exception as e:

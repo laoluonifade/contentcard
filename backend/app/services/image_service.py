@@ -1,6 +1,7 @@
 import base64
 import logging
 import uuid
+import re
 import httpx
 from app.core.config import settings
 
@@ -81,6 +82,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     )
 
     platform_note = PLATFORM_FORMAT.get(platform, "social media post 1:1")
+    industry_tokens = str(brand.get("industry") or "").lower()
 
     all_colors = colors[:4] + secondary_colors[:2]
     if ab.get("dominant_colors_from_tokens"):
@@ -266,6 +268,13 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     # Brand motifs block — environment/props only, never text or graphic elements
     motif_note = f"Environment/props can subtly reference: {', '.join(brand_motifs)}." if brand_motifs else ""
     imagery_note = f"Visual style reference: {imagery_style}." if imagery_style else ""
+    industry_art_direction = ""
+    if any(k in industry_tokens for k in ("fin", "bank", "payment", "remittance")):
+        industry_art_direction = (
+            "Fintech campaign craft: communicate speed, trust, control, and transparency through scene design. "
+            "Use realistic device interactions, payment-context props, secure transaction cues, cross-border lifestyle context, "
+            "and modern geometric brand accents. Keep compositions premium, clean, and ad-grade."
+        )
 
     # Hard negative constraints — appended to every prompt regardless of input
     _no_fake_logo = "No company logos, wordmarks, trademark symbols, invented brand marks, or watermarks. "
@@ -316,7 +325,33 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             "still no readable text in-image."
         )
 
+    def _strip_logo_instructions(raw_prompt: str) -> str:
+        """
+        Remove any instructions that ask the raster model to draw a logo/wordmark.
+        The real uploaded logo is composited post-render in burn_logo_into_image_url.
+        """
+        txt = str(raw_prompt or "")
+        if not txt:
+            return ""
+        # Remove lines that explicitly mention logo/wordmark/trademark rendering.
+        lines = []
+        for line in txt.splitlines():
+            l = line.lower()
+            if any(k in l for k in ("logo", "wordmark", "trademark", "favicon", "brand mark")):
+                continue
+            lines.append(line)
+        cleaned = "\n".join(lines).strip()
+        # Fallback: remove sentence-level instructions if the prompt is paragraph style.
+        cleaned = re.sub(
+            r"(?i)\b[^.!\n]*(logo|wordmark|trademark|favicon|brand mark)[^.!\n]*[.!\n]?",
+            " ",
+            cleaned,
+        )
+        cleaned = re.sub(r"\s+", " ", cleaned).strip()
+        return cleaned
+
     if ai_image_prompt and len(ai_image_prompt) > 50:
+        ai_image_prompt = _strip_logo_instructions(ai_image_prompt)
         # AI-generated prompt is primary; append brand enforcement and negatives
         if vt == "abstract":
             style_close = "Premium abstract campaign art; colour and material-led, zero people."
@@ -339,7 +374,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"Brand context: {brand_name} ({industry}). "
             f"Color palette: {color_str}. Tone: {tone_str}. "
             f"{audience_note} {cultural_note} {motif_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} {logo_note} {carousel_richness_note}\n"
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note}\n"
             f"{cam_line} "
             f"{lighting}. {format_note} "
             f"{style_close} "
@@ -381,7 +416,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
             f"{audience_note} {cultural_note} {motif_note} {imagery_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} {logo_note} {carousel_richness_note} "
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} "
             f"{f'Strategy context: {strategy_note} ' if strategy_note else ''}"
             f"{cam_block} "
             f"{lighting}. {format_note} "

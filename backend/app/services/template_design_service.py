@@ -133,6 +133,33 @@ def build_default_templates(
                 "color": primary,
             }
         )
+    elif "fin" in str(brand.industry or "").lower() or "bank" in str(brand.industry or "").lower():
+        defaults.append(
+            {
+                "name": "Trust + Proof Campaign",
+                "category": TemplateCategory.SERVICE,
+                "description": "Fintech trust narrative using social proof, reliability cues, and confidence-led design.",
+                "design_template_type": "testimonial_proof_card",
+                "topics": ["trust signal", "proof point", "security confidence"],
+                "recurrence": TemplateRecurrence.WEEKLY,
+                "recurrence_days": [2],
+                "platforms": ["instagram", "facebook", "linkedin"],
+                "color": primary,
+            }
+        )
+        defaults.append(
+            {
+                "name": "Transfer Flow Product Hero",
+                "category": TemplateCategory.PRODUCT,
+                "description": "Product-led transfer flow stories with premium device and transaction context.",
+                "design_template_type": "feature_ui_spotlight",
+                "topics": ["send money flow", "rate benefit", "transaction speed"],
+                "recurrence": TemplateRecurrence.WEEKLY,
+                "recurrence_days": [4],
+                "platforms": ["instagram", "twitter", "facebook"],
+                "color": primary,
+            }
+        )
     else:
         defaults.append(
             {

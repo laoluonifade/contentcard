@@ -221,13 +221,14 @@ export default function GeneratePage() {
       )}
 
       {activeBrandId && usableTemplates.length === 0 && (
-        <div className="border border-amber-200 bg-amber-50 rounded-2xl p-5 mb-6">
-          <p className="text-amber-800 text-sm font-semibold mb-1">No templates yet</p>
-          <p className="text-amber-700 text-xs mb-3">
-            Create your industry templates in Templates first, then generate content from those refined content types.
+        <div className="border border-brand-200 bg-brand-50 rounded-2xl p-5 mb-6">
+          <p className="text-brand-700 text-sm font-semibold mb-1">No custom templates yet</p>
+          <p className="text-brand-700/90 text-xs mb-3">
+            Generation will use your industry default design playbook for now. Add custom templates anytime to override
+            and tailor output to your exact content pattern.
           </p>
           <button onClick={() => navigate('/dashboard/templates')} className="btn-primary text-xs">
-            Open Templates
+            Customize templates
           </button>
         </div>
       )}
@@ -242,9 +243,14 @@ export default function GeneratePage() {
               Template blueprint
             </p>
             {usableTemplates.length === 0 ? (
-              <p className="text-xs text-ink/40">
-                No templates yet. Create one from your industry playbook to generate content with it.
-              </p>
+              <div className="space-y-2">
+                <p className="text-xs text-ink/60">
+                  No customized template selected. We will generate from your default industry design playbook.
+                </p>
+                <p className="text-[11px] text-ink/40">
+                  Create custom templates to control recurring content type, cadence, and design contract.
+                </p>
+              </div>
             ) : (
               <div className="grid sm:grid-cols-2 gap-2">
                 {usableTemplates.map((t) => (
@@ -399,7 +405,7 @@ export default function GeneratePage() {
           </div>
 
           {/* Generate button */}
-          <button onClick={handleGenerate} disabled={generatingMonth || !activeBrandId || !selectedTemplateId}
+          <button onClick={handleGenerate} disabled={generatingMonth || !activeBrandId}
             className="btn-primary w-full justify-center py-4 rounded-2xl text-sm">
             {generatingMonth
               ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />{progressLabel()}</>
