@@ -71,6 +71,12 @@ router = APIRouter(prefix="/content", tags=["content"])
 MAX_POSTS_PER_PLATFORM_PER_MONTH = 15
 MAX_PREP_VISUAL_BATCH = 15
 MAX_MONTH_REGEN_BATCH = 100
+MAX_GENERATION_MONTHS_AHEAD = 3
+PLAN_MONTHLY_POST_CAPS = {
+    "starter": 30,
+    "smb": 90,  # Growth
+    "pro": 180,
+}
 
 
 def _item_has_visual_assets(item: ContentItem) -> bool:
@@ -128,6 +134,71 @@ async def _counts_by_platform_month(
         .group_by(ContentItem.platform)
     )
     return {row[0].value: int(row[1] or 0) for row in r.all()}
+
+
+def _assert_generation_horizon(month: int, year: int) -> None:
+    today = date.today()
+    months_ahead = ((year - today.year) * 12) + (month - today.month)
+    if months_ahead > MAX_GENERATION_MONTHS_AHEAD:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"You can only generate content up to {MAX_GENERATION_MONTHS_AHEAD} months ahead."
+            ),
+        )
+
+
+async def _assert_plan_monthly_generation_cap(
+    db: AsyncSession,
+    owner_id: str,
+    brand_id: str,
+    month: int,
+    year: int,
+) -> None:
+    plan = await effective_plan_for_owner(db, owner_id)
+    cap = PLAN_MONTHLY_POST_CAPS.get(plan)
+    if cap is None:
+        return
+    current_total = (
+        await db.execute(
+            select(func.count(ContentItem.id)).where(
+                ContentItem.brand_id == brand_id,
+                ContentItem.generation_month == month,
+                ContentItem.generation_year == year,
+            )
+        )
+    ).scalar() or 0
+    if int(current_total) >= cap:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"{plan.title()} plan monthly generation cap reached "
+                f"({cap} posts for {month}/{year}). Delete existing posts or upgrade your plan."
+            ),
+        )
+
+
+async def _plan_monthly_cap_snapshot(
+    db: AsyncSession,
+    owner_id: str,
+    brand_id: str,
+    month: int,
+    year: int,
+) -> tuple[int | None, int]:
+    plan = await effective_plan_for_owner(db, owner_id)
+    cap = PLAN_MONTHLY_POST_CAPS.get(plan)
+    if cap is None:
+        return None, 0
+    current_total = (
+        await db.execute(
+            select(func.count(ContentItem.id)).where(
+                ContentItem.brand_id == brand_id,
+                ContentItem.generation_month == month,
+                ContentItem.generation_year == year,
+            )
+        )
+    ).scalar() or 0
+    return int(cap), int(current_total)
 
 
 async def _resolve_generation_template(
@@ -932,16 +1003,31 @@ async def generate_month(
         raise HTTPException(status_code=400, detail="Month must be 1–12")
     if body.year < 2024 or body.year > 2030:
         raise HTTPException(status_code=400, detail="Invalid year")
+    _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
         raise HTTPException(status_code=400, detail="Select at least one platform")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
 
+    monthly_post_cap: int | None = None
+    current_month_total = 0
     # Fetch workspace to check/update generation limit (free tier is pooled across all workspaces you own)
     ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
     workspace = ws_r.scalar_one_or_none()
     if workspace:
         effective = await effective_plan_for_owner(db, workspace.owner_id)
+        monthly_post_cap, current_month_total = await _plan_monthly_cap_snapshot(
+            db=db, owner_id=workspace.owner_id, brand_id=brand.id, month=body.month, year=body.year
+        )
+        if monthly_post_cap is not None and current_month_total >= monthly_post_cap:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"{effective.title()} plan monthly generation cap reached "
+                    f"({monthly_post_cap} posts for {body.month}/{body.year}). "
+                    "Delete existing posts or upgrade your plan."
+                ),
+            )
         if effective not in ("starter", "smb", "pro"):
             total_used = await total_free_generations_used_by_owner(db, workspace.owner_id)
             if total_used >= 2:
@@ -1022,6 +1108,8 @@ async def generate_month(
         approved_website_opportunities=approved_website_opportunities,
         only_new_website_changes=body.only_new_changes,
         existing_counts=existing_snapshot,
+        monthly_post_cap=monthly_post_cap,
+        current_month_total=current_month_total,
     )
     return {"message": "Generation started", "month": body.month, "year": body.year}
 
@@ -1037,10 +1125,29 @@ async def generate_month_v2(
         raise HTTPException(status_code=400, detail="Month must be 1-12")
     if body.year < 2024 or body.year > 2032:
         raise HTTPException(status_code=400, detail="Invalid year")
+    _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
         raise HTTPException(status_code=400, detail="Select at least one platform")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+    monthly_post_cap: int | None = None
+    current_month_total = 0
+    ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
+    workspace = ws_r.scalar_one_or_none()
+    if workspace:
+        effective = await effective_plan_for_owner(db, workspace.owner_id)
+        monthly_post_cap, current_month_total = await _plan_monthly_cap_snapshot(
+            db=db, owner_id=workspace.owner_id, brand_id=brand.id, month=body.month, year=body.year
+        )
+        if monthly_post_cap is not None and current_month_total >= monthly_post_cap:
+            raise HTTPException(
+                status_code=429,
+                detail=(
+                    f"{effective.title()} plan monthly generation cap reached "
+                    f"({monthly_post_cap} posts for {body.month}/{body.year}). "
+                    "Delete existing posts or upgrade your plan."
+                ),
+            )
     missing = _validate_brand_readiness(brand)
     if missing:
         raise HTTPException(
@@ -1110,6 +1217,8 @@ async def generate_month_v2(
         campaign_plan_id=campaign_plan.id,
         variant_count=max(1, min(3, body.variant_count)),
         existing_counts=dict(existing_counts),
+        monthly_post_cap=monthly_post_cap,
+        current_month_total=current_month_total,
     )
     await db.commit()
     return {
@@ -1710,6 +1819,8 @@ async def _do_generate_month(
     campaign_plan_id: str | None = None,
     variant_count: int = 1,
     existing_counts: dict[str, int] | None = None,
+    monthly_post_cap: int | None = None,
+    current_month_total: int = 0,
 ):
     from app.db.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
@@ -1763,6 +1874,9 @@ async def _do_generate_month(
                     continue
                 filtered_posts.append(post)
                 slots[pv] -= 1
+            if monthly_post_cap is not None:
+                remaining_total = max(0, int(monthly_post_cap) - int(current_month_total))
+                filtered_posts = filtered_posts[:remaining_total]
             posts = filtered_posts
             if not posts:
                 logger.warning(
