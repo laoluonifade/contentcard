@@ -818,6 +818,9 @@ async def admin_content(
             {
                 "id": i.id,
                 "topic": i.topic,
+                "content_idea": i.content_idea,
+                "caption": i.caption,
+                "description": i.description,
                 "platform": i.platform,
                 "status": i.status,
                 "brand_id": i.brand_id,
@@ -825,6 +828,9 @@ async def admin_content(
                 "visual_archetype": (((i.theme or {}).get("cc_meta") or {}).get("visual_archetype") if isinstance(i.theme, dict) else None),
                 "scheduled_date": i.scheduled_date,
                 "created_at": i.created_at.isoformat(),
+                "updated_at": i.updated_at.isoformat() if i.updated_at else None,
+                "image_url": i.image_url,
+                "image_urls": i.image_urls if isinstance(i.image_urls, list) else [],
             }
             for i in items
         ],

@@ -350,24 +350,14 @@ export default function TemplatesPage() {
                       </span>
                     ))}
                   </div>
-                  <div className="relative w-full h-40 rounded-xl border border-fog overflow-hidden mb-3 bg-mist">
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
-                    <div className="absolute left-3 right-3 bottom-3 text-white">
-                      <p className="text-[11px] uppercase tracking-wide text-white/70 font-semibold">{t.category}</p>
-                      <p className="text-sm font-bold leading-tight">{previewTitle(t)}</p>
-                      <p className="text-[11px] text-white/90 mt-0.5">{previewSubtitle(t)}</p>
+                  <div className="w-full rounded-xl border border-fog mb-3 bg-mist/40 px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-wide text-ink/45 font-semibold">Playbook spec</p>
+                    <p className="text-sm font-bold leading-tight text-ink mt-1">{previewTitle(t)}</p>
+                    <p className="text-[11px] text-ink/55 mt-0.5">{previewSubtitle(t)}</p>
+                    <div className="mt-2 flex items-center gap-2 text-[10px] text-ink/50">
+                      <span className="px-2 py-0.5 rounded-md border border-fog bg-surface capitalize">{t.category}</span>
+                      <span className="px-2 py-0.5 rounded-md border border-fog bg-surface capitalize">{t.recurrence}</span>
                     </div>
-                    {activeBrand?.logo_url ? (
-                      <img
-                        src={activeBrand.logo_url}
-                        alt=""
-                        className="absolute right-3 top-3 h-8 w-auto max-w-[96px] object-contain bg-surface/90 rounded-md px-1.5 py-1"
-                      />
-                    ) : (
-                      <div className="absolute right-3 top-3 text-[10px] font-semibold bg-surface/90 text-ink px-2 py-1 rounded-md">
-                        {(activeBrand?.name || 'Brand').slice(0, 14)}
-                      </div>
-                    )}
                   </div>
                   <div className="flex items-center justify-between">
                     <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-fog text-ink/40'}`}>
@@ -428,27 +418,18 @@ export default function TemplatesPage() {
               </button>
             </div>
             <div className="p-5 space-y-4">
-              <div className="relative w-full aspect-square max-h-[420px] rounded-2xl border border-fog overflow-hidden bg-mist">
-                <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-transparent" />
-                <div className="absolute left-5 right-5 bottom-5 text-white">
-                  <p className="text-xs uppercase tracking-wide text-white/70 font-semibold">{viewingTemplate.category}</p>
-                  <p className="text-2xl font-bold leading-tight">{previewTitle(viewingTemplate)}</p>
-                  <p className="text-sm text-white/90 mt-1">{previewSubtitle(viewingTemplate)}</p>
-                  <button className="mt-4 h-9 px-4 rounded-lg bg-surface/90 text-ink text-sm font-semibold">
-                    Learn more
-                  </button>
-                </div>
-                {activeBrand?.logo_url ? (
-                  <img
-                    src={activeBrand.logo_url}
-                    alt=""
-                    className="absolute right-5 top-5 h-12 w-auto max-w-[160px] object-contain bg-surface/95 rounded-lg px-2 py-1.5"
-                  />
-                ) : (
-                  <div className="absolute right-5 top-5 text-xs font-semibold bg-surface/95 text-ink px-3 py-1.5 rounded-lg">
-                    {(activeBrand?.name || 'Brand').slice(0, 20)}
+              <div className="w-full rounded-2xl border border-fog bg-mist/40 px-5 py-4">
+                <p className="text-xs uppercase tracking-wide text-ink/45 font-semibold">Playbook blueprint</p>
+                <p className="text-2xl font-bold leading-tight text-ink mt-1">{previewTitle(viewingTemplate)}</p>
+                <p className="text-sm text-ink/60 mt-1">{previewSubtitle(viewingTemplate)}</p>
+                <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[11px]">
+                  <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                    <span className="font-semibold text-ink">Category:</span> <span className="capitalize">{viewingTemplate.category}</span>
                   </div>
-                )}
+                  <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                    <span className="font-semibold text-ink">Recurrence:</span> <span className="capitalize">{viewingTemplate.recurrence}</span>
+                  </div>
+                </div>
               </div>
               <div className="grid sm:grid-cols-2 gap-3 text-xs">
                 <div className="rounded-xl border border-fog bg-mist/50 px-3 py-2 text-ink/70">

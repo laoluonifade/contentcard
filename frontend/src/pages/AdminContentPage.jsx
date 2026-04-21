@@ -15,25 +15,91 @@ export default function AdminContentPage() {
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
+  const [selected, setSelected] = useState(null)
+  const [query, setQuery] = useState('')
+  const [platformFilter, setPlatformFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [rangeFilter, setRangeFilter] = useState('all')
 
   useEffect(() => {
     setLoadError(null)
     adminApi.content({ limit: 100 })
-      .then(data => { setItems(data.items || []); setTotal(data.total || 0) })
+      .then((data) => {
+        const next = [...(data.items || [])].sort(
+          (a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+        )
+        setItems(next)
+        setTotal(data.total || 0)
+      })
       .catch((e) => { setItems([]); setTotal(0); setLoadError(formatAdminApiError(e)) })
       .finally(() => setLoading(false))
   }, [])
+
+  const previewImage = selected?.image_urls?.[0] || selected?.image_url || null
+  const filteredItems = items.filter((item) => {
+    const hay = `${item.topic || ''} ${item.content_idea || ''} ${item.caption || ''} ${item.description || ''}`.toLowerCase()
+    const qOk = !query.trim() || hay.includes(query.trim().toLowerCase())
+    const pOk = platformFilter === 'all' || item.platform === platformFilter
+    const sOk = statusFilter === 'all' || item.status === statusFilter
+    let rOk = true
+    if (rangeFilter !== 'all') {
+      const created = new Date(item.created_at).getTime()
+      const days = rangeFilter === '7d' ? 7 : 30
+      const cutoff = Date.now() - days * 24 * 60 * 60 * 1000
+      rOk = created >= cutoff
+    }
+    return qOk && pOk && sOk && rOk
+  })
 
   return (
     <AdminLayout>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-white">Content</h1>
-        <p className="text-white/35 text-sm mt-0.5">{total} total posts generated</p>
+        <p className="text-white/35 text-sm mt-0.5">{total} total posts generated · newest first</p>
       </div>
 
       {loadError && (
         <div className="mb-4 rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3 text-sm text-red-200">{loadError}</div>
       )}
+
+      <div className="mb-4 grid md:grid-cols-[1fr_auto_auto_auto] gap-2">
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search topic, idea, caption…"
+          className="px-3 py-2 rounded-xl border border-white/10 bg-white/[0.03] text-white text-sm placeholder:text-white/35 focus:outline-none focus:border-white/25"
+        />
+        <select
+          value={platformFilter}
+          onChange={(e) => setPlatformFilter(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-white/10 bg-white/[0.03] text-white text-sm"
+        >
+          <option value="all">All platforms</option>
+          <option value="instagram">Instagram</option>
+          <option value="facebook">Facebook</option>
+          <option value="twitter">Twitter/X</option>
+          <option value="linkedin">LinkedIn</option>
+        </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-white/10 bg-white/[0.03] text-white text-sm"
+        >
+          <option value="all">All status</option>
+          <option value="draft">Draft</option>
+          <option value="ready">Ready</option>
+          <option value="approved">Approved</option>
+        </select>
+        <select
+          value={rangeFilter}
+          onChange={(e) => setRangeFilter(e.target.value)}
+          className="px-3 py-2 rounded-xl border border-white/10 bg-white/[0.03] text-white text-sm"
+        >
+          <option value="all">All time</option>
+          <option value="7d">Last 7 days</option>
+          <option value="30d">Last 30 days</option>
+        </select>
+      </div>
 
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl overflow-hidden overflow-x-auto">
         {loading ? (
@@ -42,18 +108,25 @@ export default function AdminContentPage() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/5">
-                {['Topic','Platform','Status','Scheduled','Created'].map(h => (
+                {['Topic / Content','Platform','Status','Scheduled','Created'].map(h => (
                   <th key={h} className="text-left text-white/30 text-xs font-bold uppercase tracking-widest px-5 py-3 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {items.length === 0 ? (
+              {filteredItems.length === 0 ? (
                 <tr><td colSpan={5} className="px-5 py-10 text-center text-white/25 text-sm">No content found</td></tr>
-              ) : items.map(item => (
-                <tr key={item.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+              ) : filteredItems.map(item => (
+                <tr
+                  key={item.id}
+                  className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors cursor-pointer"
+                  onClick={() => setSelected(item)}
+                >
                   <td className="px-5 py-3 max-w-xs">
-                    <div className="text-white text-sm font-medium truncate">{item.topic}</div>
+                    <div className="text-white text-sm font-medium truncate">{item.content_idea || item.topic}</div>
+                    <div className="text-white/45 text-xs mt-0.5 line-clamp-2">
+                      {item.caption || item.description || 'No caption yet'}
+                    </div>
                     <div className="text-white/30 text-xs font-mono">{item.brand_id?.slice(0,8)}…</div>
                   </td>
                   <td className="px-5 py-3">
@@ -68,7 +141,9 @@ export default function AdminContentPage() {
                   </td>
                   <td className="px-5 py-3 text-white/40 text-xs whitespace-nowrap">{item.scheduled_date || 'Not set'}</td>
                   <td className="px-5 py-3 text-white/30 text-xs whitespace-nowrap">
-                    {new Date(item.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    {new Date(item.created_at).toLocaleString('en-GB', {
+                      day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+                    })}
                   </td>
                 </tr>
               ))}
@@ -76,6 +151,40 @@ export default function AdminContentPage() {
           </table>
         )}
       </div>
+
+      {selected && (
+        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4" onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
+          <div className="w-full max-w-3xl bg-[#060713] border border-white/10 rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+              <div>
+                <p className="text-white text-sm font-semibold">{selected.content_idea || selected.topic}</p>
+                <p className="text-white/45 text-xs mt-0.5 capitalize">{selected.platform} · {selected.status}</p>
+              </div>
+              <button onClick={() => setSelected(null)} className="text-white/45 hover:text-white text-xl">×</button>
+            </div>
+            <div className="grid md:grid-cols-[280px_1fr] gap-4 p-5">
+              <div className="rounded-xl border border-white/10 bg-white/[0.02] overflow-hidden h-[280px]">
+                {previewImage ? (
+                  <img src={previewImage} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-white/35 text-xs">No visual</div>
+                )}
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-widest text-white/35 mb-1">Generated caption</p>
+                <p className="text-white/80 text-sm leading-relaxed whitespace-pre-wrap">
+                  {selected.caption || selected.description || 'No generated caption available.'}
+                </p>
+                <div className="mt-4 text-xs text-white/45 space-y-1">
+                  <p>Scheduled: {selected.scheduled_date || 'Not set'}</p>
+                  <p>Created: {new Date(selected.created_at).toLocaleString('en-GB')}</p>
+                  <p>Updated: {selected.updated_at ? new Date(selected.updated_at).toLocaleString('en-GB') : '—'}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AdminLayout>
   )
 }

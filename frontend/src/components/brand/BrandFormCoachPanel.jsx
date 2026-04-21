@@ -159,7 +159,7 @@ export default function BrandFormCoachPanel({
       <button
         type="button"
         onClick={() => setMin(false)}
-        className={`inline-flex items-center gap-3 rounded-2xl border border-fog bg-white shadow-sm px-3 py-3 text-left hover:bg-mist/50 transition-colors ${className}`}
+        className={`inline-flex items-center gap-3 rounded-2xl border border-fog bg-surface shadow-sm px-3 py-3 text-left hover:bg-mist/50 transition-colors ${className}`}
         aria-expanded="false"
       >
         <div className="w-8 h-8 rounded-lg bg-brand-500/15 flex items-center justify-center shrink-0">
@@ -173,7 +173,7 @@ export default function BrandFormCoachPanel({
 
   return (
     <div
-      className={`flex flex-col rounded-2xl border border-fog bg-white shadow-sm overflow-hidden ${className}`}
+      className={`flex flex-col rounded-2xl border border-fog bg-surface shadow-sm overflow-hidden ${className}`}
     >
       <div className="px-4 py-3 border-b border-fog bg-mist/60 flex items-start gap-2">
         <div className="w-8 h-8 rounded-lg bg-brand-500/15 flex items-center justify-center shrink-0 mt-0.5">
@@ -186,7 +186,7 @@ export default function BrandFormCoachPanel({
         <button
           type="button"
           onClick={() => setMin(true)}
-          className="p-2 rounded-lg text-ink/35 hover:text-ink hover:bg-white/80 transition-colors shrink-0"
+          className="p-2 rounded-lg text-ink/35 hover:text-ink hover:bg-mist transition-colors shrink-0"
           title="Minimize assistant"
           aria-label="Minimize assistant"
         >
