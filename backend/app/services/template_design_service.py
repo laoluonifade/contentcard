@@ -59,6 +59,41 @@ def _normalize_playbook(playbook: dict | None) -> list[dict[str, Any]]:
     return out
 
 
+def summarize_playbook_depth(playbook: dict | None) -> list[dict[str, Any]]:
+    rows = _normalize_playbook(playbook)
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        options = row.get("options") if isinstance(row.get("options"), list) else []
+        single = [o for o in options if str(o.get("post_type") or "") == "single"]
+        carousel = [o for o in options if str(o.get("post_type") or "") == "carousel"]
+        total = len(options)
+        out.append(
+            {
+                "content_type": row.get("name"),
+                "total_directions": total,
+                "single_count": len(single),
+                "carousel_count": len(carousel),
+                "meets_minimum_depth": total >= 10 and len(single) >= 5 and len(carousel) >= 5,
+            }
+        )
+    return out
+
+
+def _slotize_post_options(post_options: list[dict[str, str]], post_type: str) -> list[dict[str, str]]:
+    safe_type = "carousel" if "carousel" in str(post_type or "").lower() else "single"
+    limited = post_options[:10]
+    slots: list[dict[str, str]] = []
+    for idx, opt in enumerate(limited, start=1):
+        slots.append(
+            {
+                "slot_key": f"VD{idx:02d}",
+                "post_type": safe_type,
+                "visual_direction": str(opt.get("visual_direction") or "").strip(),
+            }
+        )
+    return [s for s in slots if s["visual_direction"]]
+
+
 def build_default_templates(
     brand: Brand,
     country_code: str | None = None,
@@ -192,12 +227,13 @@ def build_default_templates(
     pb = _normalize_playbook(playbook)
     if pb:
         mapped: list[dict[str, Any]] = []
-        for idx, row in enumerate(pb[:12], start=1):
+        for idx, row in enumerate(pb, start=1):
             ct_name = str(row.get("name") or "").strip()
-            name = f"{ct_name} Template"
             options = row.get("options") if isinstance(row.get("options"), list) else []
-            first = options[0] if options else {}
-            post_type = str(first.get("post_type") or "single")
+            grouped = {
+                "single": [o for o in options if str(o.get("post_type") or "") == "single"],
+                "carousel": [o for o in options if str(o.get("post_type") or "") == "carousel"],
+            }
             categories = {
                 "testimonial": TemplateCategory.EVENT,
                 "proof": TemplateCategory.EVENT,
@@ -216,21 +252,32 @@ def build_default_templates(
                     cat = v
                     break
             topics = [ct_name.lower(), f"{ct_name.lower()} example", "campaign-ready post"]
-            mapped.append(
-                {
-                    "name": name,
-                    "category": cat,
-                    "description": f"Playbook-aligned template example for {ct_name}.",
-                    "design_template_type": "general_social",
-                    "topics": topics,
-                    "recurrence": TemplateRecurrence.WEEKLY,
-                    "recurrence_days": [idx % 7],
-                    "platforms": ["instagram", "facebook", "twitter"] if post_type == "single" else ["instagram", "linkedin"],
-                    "color": primary,
-                    "playbook_content_type": ct_name,
-                    "playbook_post_type": post_type,
-                }
-            )
+            for post_type in ("single", "carousel"):
+                post_options = grouped[post_type]
+                if not post_options:
+                    continue
+                name = f"{ct_name} - {post_type.title()} Template"
+                mapped.append(
+                    {
+                        "name": name,
+                        "category": cat,
+                        "description": f"Playbook-aligned {post_type} template for {ct_name}.",
+                        "design_template_type": "general_social",
+                        "topics": topics,
+                        "recurrence": TemplateRecurrence.WEEKLY,
+                        "recurrence_days": [idx % 7],
+                        "platforms": ["instagram", "facebook", "twitter"] if post_type == "single" else ["instagram", "linkedin"],
+                        "color": primary,
+                        "playbook_content_type": ct_name,
+                        "playbook_post_type": post_type,
+                        "playbook_visual_direction_count": len(post_options),
+                        "playbook_visual_directions": post_options,
+                        "playbook_visual_direction_slots": _slotize_post_options(post_options, post_type),
+                        "playbook_selected_slot_key": "VD01",
+                        "playbook_selected_post_type": post_type,
+                        "playbook_selected_visual_direction": str((post_options[0] or {}).get("visual_direction") or ""),
+                    }
+                )
         return mapped
     return defaults
 
@@ -293,6 +340,10 @@ def _pick_playbook_direction(template: ContentTemplate, playbook: dict | None) -
     spec = template.design_spec if isinstance(template.design_spec, dict) else {}
     requested_ct = str(spec.get("playbook_content_type") or "").strip().lower()
     requested_post = str(spec.get("playbook_post_type") or "").strip().lower()
+    selected_slot_key = str(spec.get("playbook_selected_slot_key") or "").strip().upper()
+    selected_vd = str(spec.get("playbook_selected_visual_direction") or "").strip()
+    selected_post = str(spec.get("playbook_selected_post_type") or "").strip().lower()
+    slot_map = spec.get("playbook_visual_direction_slots") if isinstance(spec.get("playbook_visual_direction_slots"), list) else []
     name_bag = f"{template.name} {template.description or ''} {' '.join(template.topics or [])}".lower()
     chosen_ct = None
     if requested_ct:
@@ -311,12 +362,56 @@ def _pick_playbook_direction(template: ContentTemplate, playbook: dict | None) -
     options = chosen_ct.get("options") if isinstance(chosen_ct.get("options"), list) else []
     if not options:
         return None
+    if selected_slot_key:
+        slot_match = None
+        for slot in slot_map:
+            if not isinstance(slot, dict):
+                continue
+            if str(slot.get("slot_key") or "").strip().upper() != selected_slot_key:
+                continue
+            slot_post = str(slot.get("post_type") or "").strip().lower()
+            slot_vd = str(slot.get("visual_direction") or "").strip()
+            if not slot_vd:
+                continue
+            for opt in options:
+                if str(opt.get("visual_direction") or "").strip() != slot_vd:
+                    continue
+                if slot_post and str(opt.get("post_type") or "").strip().lower() != slot_post:
+                    continue
+                slot_match = {
+                    "content_type": chosen_ct.get("name"),
+                    "post_type": opt.get("post_type"),
+                    "visual_direction": opt.get("visual_direction"),
+                    "slot_key": selected_slot_key,
+                }
+                break
+            if slot_match:
+                break
+        if slot_match:
+            return slot_match
+    if selected_vd:
+        selected_match = None
+        for opt in options:
+            if str(opt.get("visual_direction") or "").strip() != selected_vd:
+                continue
+            if selected_post and str(opt.get("post_type") or "") != selected_post:
+                continue
+            selected_match = opt
+            break
+        if selected_match:
+            return {
+                "content_type": chosen_ct.get("name"),
+                "post_type": selected_match.get("post_type"),
+                "visual_direction": selected_match.get("visual_direction"),
+                "slot_key": selected_slot_key or None,
+            }
     filtered = [o for o in options if str(o.get("post_type") or "") == requested_post] if requested_post else []
     selected = filtered[0] if filtered else options[0]
     return {
         "content_type": chosen_ct.get("name"),
         "post_type": selected.get("post_type"),
         "visual_direction": selected.get("visual_direction"),
+        "slot_key": None,
     }
 
 
@@ -446,6 +541,7 @@ def build_template_design_spec(
         "people_style": people_style,
         "playbook_content_type": (playbook_pick or {}).get("content_type"),
         "playbook_post_type": (playbook_pick or {}).get("post_type"),
+        "playbook_slot_key": (playbook_pick or {}).get("slot_key"),
         "dummy_preview_copy": {
             "headline": topic_hint,
             "subhead": template.description or "Template preview with realistic placeholder campaign copy.",

@@ -46,6 +46,7 @@ export default function OnboardingPage() {
   const next = () => {
     if (step === 1 && !form.name.trim()) { toast('Please enter your brand name.', 'error'); return }
     if (step === 1 && !form.industry) { toast('Please select your industry.', 'error'); return }
+    if (step === 1 && !form.sub_industry) { toast('Please select your sub-industry.', 'error'); return }
     setStep(s => s + 1)
   }
 
@@ -150,7 +151,7 @@ export default function OnboardingPage() {
                   </div>
                 </div>
                 <div>
-                  <label className="label">Sub-industry</label>
+                  <label className="label">Sub-industry <span className="text-red-400">*</span></label>
                   <select
                     value={form.sub_industry || ''}
                     onChange={e => set('sub_industry', e.target.value)}

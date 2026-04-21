@@ -2,7 +2,7 @@ import asyncio
 import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc, delete, or_
+from sqlalchemy import select, func, desc, delete, or_, case
 from sqlalchemy.orm import aliased, selectinload
 from pydantic import BaseModel, Field
 from app.services.billing_service import verify_paystack_transaction, PLANS
@@ -109,11 +109,127 @@ class PlaybookVisualDirectionIn(BaseModel):
     is_active: bool = True
 
 
+INDUSTRY_TAXONOMY: dict[str, list[str]] = {
+    "Technology": [
+        "Fintech", "SaaS", "AI Platform", "Cybersecurity", "Developer Tools",
+        "Cloud Infrastructure", "EdTech", "HealthTech", "MarTech", "PropTech",
+    ],
+    "Finance & Fintech": [
+        "Digital Banking", "Cross-border Payments", "Lending", "InsuranceTech", "WealthTech",
+        "Crypto & Web3", "Payroll", "AccountingTech", "SME Finance", "Credit Scoring",
+    ],
+    "E-commerce & Retail": [
+        "D2C Fashion", "Beauty Retail", "Consumer Electronics", "Home & Living", "Grocery Commerce",
+        "Marketplace", "Luxury Retail", "Kids & Family", "Pharmacy Retail", "B2B Wholesale",
+    ],
+    "Health & Wellness": [
+        "Fitness", "Mental Health", "Nutrition", "Telemedicine", "Skincare",
+        "Supplements", "Women Health", "Men Health", "Corporate Wellness", "Rehab & Recovery",
+    ],
+    "Education": [
+        "K-12", "Higher Education", "Test Prep", "Vocational Training", "Creator Education",
+        "Language Learning", "STEM Learning", "Kids Learning", "Corporate Learning", "Study Abroad",
+    ],
+    "Real Estate": [
+        "Residential Sales", "Property Management", "Short Let", "Commercial Real Estate", "PropTech",
+        "Mortgage Advisory", "Real Estate Investment", "Interior Design", "Construction", "Land Sales",
+    ],
+    "Food & Beverage": [
+        "Quick Service Restaurant", "Fine Dining", "Cloud Kitchen", "Bakery", "Cafe",
+        "Meal Prep", "Beverages", "Snacks", "Catering", "Food Delivery",
+    ],
+    "Travel & Hospitality": [
+        "Hotels", "Resorts", "Travel Agency", "Tour Operations", "Visa Services",
+        "Airline", "Event Venues", "Luxury Travel", "Adventure Travel", "Staycation",
+    ],
+    "Professional Services": [
+        "Legal Services", "Accounting", "Consulting", "Recruitment", "Marketing Agency",
+        "Creative Studio", "Business Advisory", "Outsourcing", "Logistics Services", "Security Services",
+    ],
+    "Media & Entertainment": [
+        "Streaming", "Podcast Network", "Music Label", "Film Production", "News Media",
+        "Sports Media", "Events & Concerts", "Gaming", "Creator Brand", "Community Media",
+    ],
+}
+
+_INDUSTRY_ALIASES = {
+    "technology": "Technology",
+    "tech": "Technology",
+    "tech_saas": "Technology",
+    "finance & fintech": "Finance & Fintech",
+    "finance_fintech": "Finance & Fintech",
+    "fintech": "Finance & Fintech",
+    "e-commerce & retail": "E-commerce & Retail",
+    "ecommerce": "E-commerce & Retail",
+    "ecommerce_retail": "E-commerce & Retail",
+    "health & wellness": "Health & Wellness",
+    "health_wellness": "Health & Wellness",
+    "education": "Education",
+    "real estate": "Real Estate",
+    "real_estate": "Real Estate",
+    "food & beverage": "Food & Beverage",
+    "food": "Food & Beverage",
+    "travel & hospitality": "Travel & Hospitality",
+    "travel_hospitality": "Travel & Hospitality",
+    "professional services": "Professional Services",
+    "professional_services": "Professional Services",
+    "media & entertainment": "Media & Entertainment",
+    "media_entertainment": "Media & Entertainment",
+}
+
+
+def _canonical_brand_taxonomy_or_default(industry: str | None, sub_industry: str | None) -> tuple[str, str, bool]:
+    ind_raw = str(industry or "").strip()
+    sub_raw = str(sub_industry or "").strip()
+
+    ind_map = {k.lower(): k for k in INDUSTRY_TAXONOMY.keys()}
+    ind_key = ind_map.get(ind_raw.lower()) or _INDUSTRY_ALIASES.get(ind_raw.lower())
+    if not ind_key:
+        ind_key = "Technology"
+
+    sub_map = {s.lower(): s for s in INDUSTRY_TAXONOMY[ind_key]}
+    sub_key = sub_map.get(sub_raw.lower()) if sub_raw else None
+    if not sub_key:
+        # deterministic default to avoid null or mismatched pairs in legacy rows
+        sub_key = INDUSTRY_TAXONOMY[ind_key][0]
+
+    changed = (ind_key != ind_raw) or (sub_key != sub_raw)
+    return ind_key, sub_key, changed
+
+
 def _normalize_playbook_post_type(value: str) -> str:
     v = str(value or "").strip().lower().replace("image", "").replace("post", "").strip()
     if "carousel" in v:
         return "carousel"
     return "single"
+
+
+_DEPTH_SLOT_BLUEPRINTS: list[tuple[str, str]] = [
+    ("single", "Editorial hero composition with a strong focal hierarchy and conversion-ready CTA space."),
+    ("single", "Offer-card style composition emphasizing value clarity, urgency cue, and trust accents."),
+    ("single", "Proof snapshot composition using credibility modules, evidence framing, and concise takeaway."),
+    ("single", "People-in-context composition showing practical use moment and believable outcome."),
+    ("single", "Product or service focus composition with feature-benefit clarity and clean narrative flow."),
+    ("carousel", "4-slide Hook -> Context -> Proof -> CTA progression with one cohesive visual language."),
+    ("carousel", "4-slide Problem -> Steps -> Outcome -> CTA explainer sequence with clear pacing."),
+    ("carousel", "4-slide Myth -> Fact -> Proof -> CTA correction sequence focused on confidence and clarity."),
+    ("carousel", "4-slide Before -> Shift -> After -> CTA transformation sequence with contrast-led storytelling."),
+    ("carousel", "4-slide Checklist -> Action -> CTA sequence designed for saveable practical execution."),
+]
+
+
+def _compose_depth_direction_text(
+    industry_name: str,
+    sub_industry: str | None,
+    content_type_name: str,
+    slot_idx: int,
+    blueprint_text: str,
+) -> str:
+    scope = f"{industry_name} / {sub_industry}" if sub_industry else industry_name
+    return (
+        f"[VD{slot_idx:02d}] For {scope} using content type '{content_type_name}': "
+        f"{blueprint_text} Keep design premium, non-generic, and aligned to this sub-industry audience context."
+    )
 
 
 def _playbook_tree_payload(rows: list[DesignPlaybookIndustry]) -> list[dict]:
@@ -176,6 +292,194 @@ async def admin_design_playbook(
         )
     ).scalars().all()
     return {"industries": _playbook_tree_payload(rows)}
+
+
+@router.get("/design-playbook-depth")
+async def admin_design_playbook_depth(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = (
+        await db.execute(
+            select(DesignPlaybookIndustry)
+            .where(DesignPlaybookIndustry.is_active.is_(True))
+            .options(
+                selectinload(DesignPlaybookIndustry.content_types).selectinload(
+                    DesignPlaybookContentType.visual_directions
+                )
+            )
+            .order_by(DesignPlaybookIndustry.name.asc())
+        )
+    ).scalars().all()
+    payload = _playbook_tree_payload(rows)
+    out: list[dict] = []
+    for industry in payload:
+        for ct in industry.get("content_types") or []:
+            vds = [v for v in (ct.get("visual_directions") or []) if bool(v.get("is_active"))]
+            single_count = len([v for v in vds if str(v.get("post_type")) == "single"])
+            carousel_count = len([v for v in vds if str(v.get("post_type")) == "carousel"])
+            total = len(vds)
+            meets = total >= 10 and single_count >= 5 and carousel_count >= 5
+            out.append(
+                {
+                    "industry_id": industry.get("id"),
+                    "industry_name": industry.get("name"),
+                    "industry_key": industry.get("key"),
+                    "parent_key": industry.get("parent_key"),
+                    "sub_industry": industry.get("sub_industry"),
+                    "content_type_id": ct.get("id"),
+                    "content_type_name": ct.get("name"),
+                    "total_directions": total,
+                    "single_count": single_count,
+                    "carousel_count": carousel_count,
+                    "meets_depth_minimum": meets,
+                }
+            )
+    total_rows = len(out)
+    passing = len([r for r in out if bool(r.get("meets_depth_minimum"))])
+    failing = max(0, total_rows - passing)
+    return {
+        "rows": out,
+        "summary": {
+            "total_rows": total_rows,
+            "passing_rows": passing,
+            "failing_rows": failing,
+            "pass_rate": round((passing / total_rows), 4) if total_rows else 1.0,
+        },
+    }
+
+
+@router.get("/design-playbook-completeness")
+async def admin_design_playbook_completeness(
+    limit_failures: int = 200,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = (
+        await db.execute(
+            select(DesignPlaybookIndustry)
+            .where(DesignPlaybookIndustry.is_active.is_(True))
+            .options(
+                selectinload(DesignPlaybookIndustry.content_types).selectinload(
+                    DesignPlaybookContentType.visual_directions
+                )
+            )
+            .order_by(DesignPlaybookIndustry.name.asc())
+        )
+    ).scalars().all()
+
+    checks: list[dict] = []
+    failures: list[dict] = []
+    for industry in rows:
+        industry_name = str(industry.name or "")
+        industry_key = str(industry.key or "")
+        parent_key = str(industry.parent_key or "")
+        sub_industry = str(industry.sub_industry or "")
+        for ct in [x for x in (industry.content_types or []) if bool(x.is_active)]:
+            active_vds = [v for v in (ct.visual_directions or []) if bool(v.is_active)]
+            singles = [v for v in active_vds if _normalize_playbook_post_type(v.post_type) == "single"]
+            carousels = [v for v in active_vds if _normalize_playbook_post_type(v.post_type) == "carousel"]
+            singles_sorted = sorted(singles, key=lambda x: (int(x.sort_order or 0), x.created_at))
+            carousels_sorted = sorted(carousels, key=lambda x: (int(x.sort_order or 0), x.created_at))
+            total = len(active_vds)
+            single_count = len(singles_sorted)
+            carousel_count = len(carousels_sorted)
+            meets = total >= 10 and single_count >= 5 and carousel_count >= 5
+            missing_single_slots = [f"VD{i:02d}" for i in range(single_count + 1, 6)] if single_count < 5 else []
+            missing_carousel_slots = [f"VD{i:02d}" for i in range(carousel_count + 6, 11)] if carousel_count < 5 else []
+            row = {
+                "industry_id": industry.id,
+                "industry_name": industry_name,
+                "industry_key": industry_key,
+                "parent_key": parent_key or None,
+                "sub_industry": sub_industry or None,
+                "content_type_id": ct.id,
+                "content_type_name": str(ct.name or ""),
+                "total_directions": total,
+                "single_count": single_count,
+                "carousel_count": carousel_count,
+                "meets_depth_minimum": meets,
+                "missing_single_slots": missing_single_slots,
+                "missing_carousel_slots": missing_carousel_slots,
+            }
+            checks.append(row)
+            if not meets and len(failures) < max(1, min(int(limit_failures or 200), 1000)):
+                failures.append(row)
+
+    total_rows = len(checks)
+    passing_rows = len([r for r in checks if bool(r.get("meets_depth_minimum"))])
+    failing_rows = max(0, total_rows - passing_rows)
+    return {
+        "summary": {
+            "total_rows": total_rows,
+            "passing_rows": passing_rows,
+            "failing_rows": failing_rows,
+            "pass_rate": round((passing_rows / total_rows), 4) if total_rows else 1.0,
+            "required_single_slots": ["VD01", "VD02", "VD03", "VD04", "VD05"],
+            "required_carousel_slots": ["VD06", "VD07", "VD08", "VD09", "VD10"],
+        },
+        "failures": failures,
+        "checked_rows": checks if total_rows <= 500 else [],
+    }
+
+
+@router.post("/design-playbook/fill-depth")
+async def admin_fill_playbook_depth(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = (
+        await db.execute(
+            select(DesignPlaybookIndustry)
+            .where(DesignPlaybookIndustry.is_active.is_(True))
+            .options(
+                selectinload(DesignPlaybookIndustry.content_types).selectinload(
+                    DesignPlaybookContentType.visual_directions
+                )
+            )
+        )
+    ).scalars().all()
+
+    created = 0
+    touched_content_types = 0
+    for industry in rows:
+        industry_name = str(industry.name or "Industry")
+        sub = str(industry.sub_industry or "").strip() or None
+        for ct in [x for x in (industry.content_types or []) if bool(x.is_active)]:
+            existing = [v for v in (ct.visual_directions or []) if bool(v.is_active)]
+            existing_text = {str(v.visual_direction or "").strip().lower() for v in existing}
+            single_count = len([v for v in existing if _normalize_playbook_post_type(v.post_type) == "single"])
+            carousel_count = len([v for v in existing if _normalize_playbook_post_type(v.post_type) == "carousel"])
+            before_total = len(existing)
+            for idx, (post_type, blueprint) in enumerate(_DEPTH_SLOT_BLUEPRINTS, start=1):
+                if post_type == "single" and single_count >= 5:
+                    continue
+                if post_type == "carousel" and carousel_count >= 5:
+                    continue
+                text = _compose_depth_direction_text(industry_name, sub, str(ct.name or "Content Type"), idx, blueprint)
+                key = text.strip().lower()
+                if key in existing_text:
+                    continue
+                row = DesignPlaybookVisualDirection(
+                    content_type_id=ct.id,
+                    post_type=post_type,
+                    visual_direction=text,
+                    sort_order=idx,
+                    is_active=True,
+                )
+                db.add(row)
+                existing_text.add(key)
+                created += 1
+                if post_type == "single":
+                    single_count += 1
+                else:
+                    carousel_count += 1
+                if single_count >= 5 and carousel_count >= 5:
+                    break
+            if len(existing_text) > before_total:
+                touched_content_types += 1
+    await db.commit()
+    return {"ok": True, "created_visual_directions": created, "touched_content_types": touched_content_types}
 
 
 @router.post("/design-playbook/industries", status_code=201)
@@ -273,11 +577,17 @@ async def admin_create_playbook_content_type(
     name = str(body.name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Content type name is required")
+    requested_active = bool(body.is_active)
+    if requested_active:
+        raise HTTPException(
+            status_code=400,
+            detail="New content types must be created inactive until depth minimum is met (10 total, 5 single, 5 carousel).",
+        )
     row = DesignPlaybookContentType(
         industry_id=industry.id,
         name=name,
         sort_order=int(body.sort_order or 0),
-        is_active=bool(body.is_active),
+        is_active=False,
     )
     db.add(row)
     await db.commit()
@@ -306,9 +616,121 @@ async def admin_update_playbook_content_type(
         row.industry_id = industry.id
     row.name = str(body.name or "").strip() or row.name
     row.sort_order = int(body.sort_order or 0)
-    row.is_active = bool(body.is_active)
+    requested_active = bool(body.is_active)
+    if requested_active:
+        vds = (
+            await db.execute(
+                select(DesignPlaybookVisualDirection).where(
+                    DesignPlaybookVisualDirection.content_type_id == row.id,
+                    DesignPlaybookVisualDirection.is_active.is_(True),
+                )
+            )
+        ).scalars().all()
+        single_count = len([v for v in vds if _normalize_playbook_post_type(v.post_type) == "single"])
+        carousel_count = len([v for v in vds if _normalize_playbook_post_type(v.post_type) == "carousel"])
+        total = len(vds)
+        if total < 10 or single_count < 5 or carousel_count < 5:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot activate content type until depth minimum is met. "
+                    f"Current: total={total}, single={single_count}, carousel={carousel_count}. "
+                    "Required: total>=10, single>=5, carousel>=5."
+                ),
+            )
+    row.is_active = requested_active
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/design-playbook/content-types/{content_type_id}/fill-and-activate")
+async def admin_fill_and_activate_content_type(
+    content_type_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    row = (
+        await db.execute(select(DesignPlaybookContentType).where(DesignPlaybookContentType.id == content_type_id))
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Content type not found")
+    industry = (
+        await db.execute(select(DesignPlaybookIndustry).where(DesignPlaybookIndustry.id == row.industry_id))
+    ).scalar_one_or_none()
+    if not industry:
+        raise HTTPException(status_code=404, detail="Industry not found")
+
+    existing = (
+        await db.execute(
+            select(DesignPlaybookVisualDirection).where(
+                DesignPlaybookVisualDirection.content_type_id == row.id,
+                DesignPlaybookVisualDirection.is_active.is_(True),
+            )
+        )
+    ).scalars().all()
+    existing_text = {str(v.visual_direction or "").strip().lower() for v in existing}
+    single_count = len([v for v in existing if _normalize_playbook_post_type(v.post_type) == "single"])
+    carousel_count = len([v for v in existing if _normalize_playbook_post_type(v.post_type) == "carousel"])
+    created = 0
+    for idx, (post_type, blueprint) in enumerate(_DEPTH_SLOT_BLUEPRINTS, start=1):
+        if post_type == "single" and single_count >= 5:
+            continue
+        if post_type == "carousel" and carousel_count >= 5:
+            continue
+        text = _compose_depth_direction_text(
+            str(industry.name or "Industry"),
+            str(industry.sub_industry or "").strip() or None,
+            str(row.name or "Content Type"),
+            idx,
+            blueprint,
+        )
+        key = text.strip().lower()
+        if key in existing_text:
+            continue
+        db.add(
+            DesignPlaybookVisualDirection(
+                content_type_id=row.id,
+                post_type=post_type,
+                visual_direction=text,
+                sort_order=idx,
+                is_active=True,
+            )
+        )
+        created += 1
+        existing_text.add(key)
+        if post_type == "single":
+            single_count += 1
+        else:
+            carousel_count += 1
+    await db.flush()
+    total = len(
+        (
+            await db.execute(
+                select(DesignPlaybookVisualDirection).where(
+                    DesignPlaybookVisualDirection.content_type_id == row.id,
+                    DesignPlaybookVisualDirection.is_active.is_(True),
+                )
+            )
+        ).scalars().all()
+    )
+    if total >= 10 and single_count >= 5 and carousel_count >= 5:
+        row.is_active = True
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Depth still insufficient after fill. total={total}, single={single_count}, carousel={carousel_count}."
+            ),
+        )
+    await db.commit()
+    return {
+        "ok": True,
+        "activated": True,
+        "created_visual_directions": created,
+        "total": total,
+        "single": single_count,
+        "carousel": carousel_count,
+    }
 
 
 @router.delete("/design-playbook/content-types/{content_type_id}", status_code=204)
@@ -674,6 +1096,40 @@ async def admin_stats(
     image_avg_per_ws = (posts_with_stored_image * OPENAI_EST_COST_PER_IMAGE_USD) / max(total_ws, 1)
     avg_openai_spend_per_workspace_usd = round(chat_avg_per_ws + image_avg_per_ws, 4)
 
+    depth_rows = (
+        await db.execute(
+            select(
+                DesignPlaybookContentType.id,
+                func.count(DesignPlaybookVisualDirection.id).label("total"),
+                func.sum(
+                    case(
+                        (DesignPlaybookVisualDirection.post_type == "single", 1),
+                        else_=0,
+                    )
+                ).label("single_count"),
+                func.sum(
+                    case(
+                        (DesignPlaybookVisualDirection.post_type == "carousel", 1),
+                        else_=0,
+                    )
+                ).label("carousel_count"),
+            )
+            .join(
+                DesignPlaybookVisualDirection,
+                DesignPlaybookVisualDirection.content_type_id == DesignPlaybookContentType.id,
+                isouter=True,
+            )
+            .where(DesignPlaybookContentType.is_active.is_(True))
+            .group_by(DesignPlaybookContentType.id)
+        )
+    ).all()
+    playbook_total_rows = len(depth_rows)
+    playbook_passing_rows = 0
+    for _, total, single_count, carousel_count in depth_rows:
+        if int(total or 0) >= 10 and int(single_count or 0) >= 5 and int(carousel_count or 0) >= 5:
+            playbook_passing_rows += 1
+    playbook_failing_rows = max(0, playbook_total_rows - playbook_passing_rows)
+
     return {
         "total_users": total_users,
         "users_this_week": users_this_week,
@@ -702,6 +1158,9 @@ async def admin_stats(
         "workspaces_by_plan": workspaces_by_plan,
         "workspaces_with_paystack_subscription": workspaces_with_paystack_subscription,
         "paystack_distinct_customers": paystack_distinct_customers,
+        "playbook_depth_total_rows": playbook_total_rows,
+        "playbook_depth_passing_rows": playbook_passing_rows,
+        "playbook_depth_failing_rows": playbook_failing_rows,
     }
 
 
@@ -802,6 +1261,7 @@ async def admin_brands(
                 "id": b.id,
                 "name": b.name,
                 "industry": b.industry,
+                "sub_industry": b.sub_industry,
                 "workspace_id": b.workspace_id,
                 "brand_colors": b.brand_colors or [],
                 "tone_tags": b.tone_tags or [],
@@ -810,6 +1270,55 @@ async def admin_brands(
             }
             for b in brands
         ],
+    }
+
+
+@router.post("/brands/repair-taxonomy")
+async def admin_repair_brand_taxonomy(
+    apply_changes: bool = False,
+    limit: int = 5000,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = (
+        await db.execute(
+            select(Brand)
+            .order_by(desc(Brand.created_at))
+            .limit(max(1, min(int(limit or 5000), 20000)))
+        )
+    ).scalars().all()
+    preview: list[dict] = []
+    changed_count = 0
+    for b in rows:
+        before_industry = b.industry
+        before_sub_industry = b.sub_industry
+        fixed_industry, fixed_sub_industry, changed = _canonical_brand_taxonomy_or_default(
+            before_industry,
+            before_sub_industry,
+        )
+        if not changed:
+            continue
+        changed_count += 1
+        if apply_changes:
+            b.industry = fixed_industry
+            b.sub_industry = fixed_sub_industry
+        preview.append(
+            {
+                "brand_id": b.id,
+                "name": b.name,
+                "before_industry": before_industry,
+                "before_sub_industry": before_sub_industry,
+                "after_industry": fixed_industry,
+                "after_sub_industry": fixed_sub_industry,
+            }
+        )
+    if apply_changes and changed_count > 0:
+        await db.commit()
+    return {
+        "checked": len(rows),
+        "changed": changed_count,
+        "applied": bool(apply_changes),
+        "preview": preview[:200],
     }
 
 

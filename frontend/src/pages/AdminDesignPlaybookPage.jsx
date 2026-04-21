@@ -11,8 +11,29 @@ function postTypeLabel(v) {
   return v === 'carousel' ? 'Carousel Post' : 'Single Image Post'
 }
 
+function depthStats(contentType) {
+  const vds = Array.isArray(contentType?.visual_directions) ? contentType.visual_directions : []
+  const single = vds.filter((v) => v.post_type === 'single').length
+  const carousel = vds.filter((v) => v.post_type === 'carousel').length
+  const total = vds.length
+  return { total, single, carousel, ok: total >= 10 && single >= 5 && carousel >= 5 }
+}
+
+function depthFailReason(stats) {
+  if (stats.ok) return 'depth ok'
+  const missingTotal = Math.max(0, 10 - stats.total)
+  const missingSingle = Math.max(0, 5 - stats.single)
+  const missingCarousel = Math.max(0, 5 - stats.carousel)
+  const parts = []
+  if (missingTotal > 0) parts.push(`${missingTotal} more total`)
+  if (missingSingle > 0) parts.push(`${missingSingle} more single`)
+  if (missingCarousel > 0) parts.push(`${missingCarousel} more carousel`)
+  return `needs ${parts.join(' · ')}`
+}
+
 export default function AdminDesignPlaybookPage() {
   const [data, setData] = useState([])
+  const [depthSummary, setDepthSummary] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -28,20 +49,22 @@ export default function AdminDesignPlaybookPage() {
   const [expandedParents, setExpandedParents] = useState(() => new Set())
   const [expandedIndustries, setExpandedIndustries] = useState(() => new Set())
   const [editingContentTypeId, setEditingContentTypeId] = useState(null)
-  const [editingContentTypeForm, setEditingContentTypeForm] = useState({ industry_id: '', name: '' })
+  const [editingContentTypeForm, setEditingContentTypeForm] = useState({ industry_id: '', name: '', is_active: false })
   const [editingVisualId, setEditingVisualId] = useState(null)
   const [editingVisualForm, setEditingVisualForm] = useState({
     content_type_id: '',
     post_type: 'single',
     visual_direction: '',
   })
+  const [fillingDepth, setFillingDepth] = useState(false)
 
   const load = async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await adminApi.designPlaybook()
+      const [res, depth] = await Promise.all([adminApi.designPlaybook(), adminApi.designPlaybookDepth()])
       setData(Array.isArray(res?.industries) ? res.industries : [])
+      setDepthSummary(depth?.summary || null)
     } catch (e) {
       setError(formatAdminApiError(e))
     } finally {
@@ -95,7 +118,7 @@ export default function AdminDesignPlaybookPage() {
         industry_id: contentTypeForm.industry_id,
         name: contentTypeForm.name.trim(),
         sort_order: 0,
-        is_active: true,
+        is_active: false,
       })
       setContentTypeForm({ industry_id: '', name: '' })
       await load()
@@ -148,7 +171,7 @@ export default function AdminDesignPlaybookPage() {
 
   const beginEditContentType = (ct, industryId) => {
     setEditingContentTypeId(ct.id)
-    setEditingContentTypeForm({ industry_id: industryId, name: ct.name || '' })
+    setEditingContentTypeForm({ industry_id: industryId, name: ct.name || '', is_active: !!ct.is_active })
   }
 
   const saveContentType = async (ct) => {
@@ -157,7 +180,7 @@ export default function AdminDesignPlaybookPage() {
         industry_id: editingContentTypeForm.industry_id,
         name: editingContentTypeForm.name.trim(),
         sort_order: ct.sort_order || 0,
-        is_active: true,
+        is_active: !!editingContentTypeForm.is_active,
       })
       setEditingContentTypeId(null)
       await load()
@@ -191,6 +214,34 @@ export default function AdminDesignPlaybookPage() {
     }
   }
 
+  const toggleContentTypeActive = async (ct, nextActive) => {
+    try {
+      await adminApi.updatePlaybookContentType(ct.id, {
+        industry_id: ct.industry_id,
+        name: ct.name,
+        sort_order: ct.sort_order || 0,
+        is_active: !!nextActive,
+      })
+      await load()
+    } catch (e) {
+      setError(formatAdminApiError(e))
+    }
+  }
+
+  const fillMissingDepth = async () => {
+    setFillingDepth(true)
+    try {
+      const res = await adminApi.fillDesignPlaybookDepth()
+      await load()
+      const created = Number(res?.created_visual_directions || 0)
+      setError(created > 0 ? null : 'Depth fill completed: no new visual directions were needed.')
+    } catch (e) {
+      setError(formatAdminApiError(e))
+    } finally {
+      setFillingDepth(false)
+    }
+  }
+
   return (
     <AdminLayout>
       <div className="flex items-center justify-between mb-6">
@@ -200,19 +251,45 @@ export default function AdminDesignPlaybookPage() {
             Industry → Content Type → Post Type → Visual Direction (database source of truth)
           </p>
         </div>
-        <button
-          type="button"
-          onClick={load}
-          className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl border border-white/15 text-white/70 hover:text-white hover:border-brand-500/50"
-        >
-          <RefreshCw size={14} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={fillMissingDepth}
+            disabled={fillingDepth}
+            className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl border border-brand-500/40 text-brand-200 hover:text-white hover:border-brand-500 disabled:opacity-60"
+          >
+            <Plus size={14} />
+            {fillingDepth ? 'Filling depth…' : 'Auto-fill missing depth'}
+          </button>
+          <button
+            type="button"
+            onClick={load}
+            className="flex items-center gap-2 px-3 py-2 text-sm rounded-xl border border-white/15 text-white/70 hover:text-white hover:border-brand-500/50"
+          >
+            <RefreshCw size={14} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {error && (
         <div className="mb-4 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-red-200 text-sm">
           {error}
+        </div>
+      )}
+
+      {depthSummary && (
+        <div
+          className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
+            depthSummary.failing_rows > 0
+              ? 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+              : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+          }`}
+        >
+          <span className="font-semibold">Playbook depth health:</span>{' '}
+          {depthSummary.passing_rows}/{depthSummary.total_rows} content-type rows meet minimum depth
+          {' '}({Math.round((depthSummary.pass_rate || 0) * 100)}%).
+          {depthSummary.failing_rows > 0 ? ` ${depthSummary.failing_rows} rows still need depth fill.` : ' All rows meet depth minimum.'}
         </div>
       )}
 
@@ -460,11 +537,72 @@ export default function AdminDesignPlaybookPage() {
                                 <option key={industry.id} value={industry.id}>{industry.name}</option>
                               ))}
                             </select>
+                            <label className="inline-flex items-center gap-2 text-xs text-white/70 px-2">
+                              <input
+                                type="checkbox"
+                                checked={!!editingContentTypeForm.is_active}
+                                onChange={(e) =>
+                                  setEditingContentTypeForm((s) => ({ ...s, is_active: e.target.checked }))
+                                }
+                              />
+                              Active
+                            </label>
                           </div>
                         ) : (
-                          <div className="text-white/90 text-sm font-medium">{ct.name}</div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <div className="text-white/90 text-sm font-medium">{ct.name}</div>
+                              <span
+                                className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                                  ct.is_active
+                                    ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
+                                    : 'border-white/20 text-white/50 bg-white/5'
+                                }`}
+                              >
+                                {ct.is_active ? 'Active' : 'Inactive'}
+                              </span>
+                            </div>
+                            {(() => {
+                              const stats = depthStats(ct)
+                              return (
+                                <div className={`text-[11px] mt-1 ${stats.ok ? 'text-emerald-300' : 'text-amber-300'}`}>
+                                  {stats.total} dirs · {stats.single} single · {stats.carousel} carousel
+                                  {` · ${depthFailReason(stats)}`}
+                                </div>
+                              )
+                            })()}
+                          </div>
                         )}
                         <div className="flex items-center gap-2">
+                          {(() => {
+                            const stats = depthStats(ct)
+                            if (stats.ok) return null
+                            return (
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  try {
+                                    await adminApi.fillAndActivatePlaybookContentType(ct.id)
+                                    await load()
+                                  } catch (e) {
+                                    setError(formatAdminApiError(e))
+                                  }
+                                }}
+                                className="px-2 py-1.5 rounded-lg border border-brand-500/40 text-brand-200 hover:bg-brand-500/10 text-xs"
+                                title="Auto-fill missing directions and activate"
+                              >
+                                Fill + Activate
+                              </button>
+                            )
+                          })()}
+                          <button
+                            type="button"
+                            onClick={() => toggleContentTypeActive(ct, !ct.is_active)}
+                            className="px-2 py-1.5 rounded-lg border border-white/20 text-white/70 hover:bg-white/10 text-xs"
+                            title={ct.is_active ? 'Deactivate content type' : 'Activate content type'}
+                          >
+                            {ct.is_active ? 'Deactivate' : 'Activate'}
+                          </button>
                           {editingContentTypeId === ct.id ? (
                             <>
                               <button

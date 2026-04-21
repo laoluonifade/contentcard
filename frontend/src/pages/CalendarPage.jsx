@@ -338,9 +338,11 @@ export default function CalendarPage() {
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
   const [prepMinimized, setPrepMinimized] = useState(() => {
     try {
-      return localStorage.getItem(PREP_ASSISTANT_MIN_KEY) === '1'
+      const persisted = localStorage.getItem(PREP_ASSISTANT_MIN_KEY)
+      // Keep the side assistant collapsed by default to reduce visual noise.
+      return persisted == null ? true : persisted === '1'
     } catch {
-      return false
+      return true
     }
   })
   const setPrepMinimizedPersist = (v) => {
@@ -367,7 +369,7 @@ export default function CalendarPage() {
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
-  const [layoutMode, setLayoutMode] = useState('grid')
+  const [layoutMode, setLayoutMode] = useState('month')
   const [thisWeekOnly, setThisWeekOnly] = useState(false)
   const [selectedDate, setSelectedDate] = useState('')
   const cardRef = useRef(null)
@@ -781,21 +783,12 @@ export default function CalendarPage() {
   const postCountLabel = loading ? 'Loading…' : `${posts.length} post${posts.length === 1 ? '' : 's'}`
   const withVisuals = posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length
   const pendingVisuals = Math.max(0, posts.length - withVisuals)
-  const carouselCount = posts.filter((p) => (p.slide_count || 1) > 1).length
-  const selectedPlatformForGuidance = filterPlat === 'all' ? 'instagram' : filterPlat
-  const guidance = recommendationForPlatform(selectedPlatformForGuidance)
-  const upcoming = [...filtered]
-    .filter((p) => p.scheduled_date && new Date(`${p.scheduled_date}T00:00:00`) >= new Date(new Date().toDateString()))
-    .sort((a, b) => String(a.scheduled_date || '').localeCompare(String(b.scheduled_date || '')))[0]
-  const topPlatform = PLATFORMS
-    .map((pl) => ({ id: pl.id, count: posts.filter((p) => p.platform === pl.id).length }))
-    .sort((a, b) => b.count - a.count)[0]
 
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
 
       {/* Header */}
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-ink mb-0.5" style={{letterSpacing:'-0.02em'}}>Content Calendar</h1>
           <p className="text-ink/40 text-sm">
@@ -875,47 +868,20 @@ export default function CalendarPage() {
       )}
 
       {!loading && posts.length > 0 && (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-          <div className="rounded-xl border border-fog bg-surface px-3 py-2.5">
-            <p className="text-[11px] text-ink/45 flex items-center gap-1.5"><BarChart3 size={12} /> Month output</p>
-            <p className="text-xl font-semibold text-ink mt-0.5">{posts.length}</p>
-          </div>
-          <div className="rounded-xl border border-fog bg-surface px-3 py-2.5">
-            <p className="text-[11px] text-ink/45 flex items-center gap-1.5"><Sparkles size={12} /> Visuals ready</p>
-            <p className="text-xl font-semibold text-ink mt-0.5">{withVisuals}<span className="text-xs text-ink/45 ml-1">/{posts.length}</span></p>
-          </div>
-          <div className="rounded-xl border border-fog bg-surface px-3 py-2.5">
-            <p className="text-[11px] text-ink/45 flex items-center gap-1.5"><Layers size={12} /> Carousel posts</p>
-            <p className="text-xl font-semibold text-ink mt-0.5">{carouselCount}</p>
-          </div>
-          <div className="rounded-xl border border-fog bg-surface px-3 py-2.5">
-            <p className="text-[11px] text-ink/45 flex items-center gap-1.5"><CalendarDays size={12} /> Top platform</p>
-            <p className="text-xl font-semibold text-ink mt-0.5 capitalize">{topPlatform?.id || '—'}</p>
-            <p className="text-[11px] text-ink/45">{pendingVisuals} pending visual{pendingVisuals === 1 ? '' : 's'}</p>
-          </div>
-        </div>
-      )}
-
-      {!loading && posts.length > 0 && (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
-          <div className="rounded-xl border border-fog bg-mist/40 px-3.5 py-3">
-            <p className="text-[11px] font-semibold text-ink/55">Best posting window ({selectedPlatformForGuidance})</p>
-            <p className="text-sm font-semibold text-ink mt-1">{guidance.best}</p>
-            <p className="text-[11px] text-ink/45 mt-0.5">Backup: {guidance.backup} · {guidance.tz}</p>
-          </div>
-          <div className="rounded-xl border border-fog bg-mist/40 px-3.5 py-3">
-            <p className="text-[11px] font-semibold text-ink/55">Next recommended slot</p>
-            <p className="text-sm font-semibold text-ink mt-1">
-              {upcoming ? `${fmtDate(upcoming.scheduled_date)} · ${guidance.best.split(',')[1]?.trim() || guidance.best}` : 'No upcoming date in view'}
-            </p>
-            <p className="text-[11px] text-ink/45 mt-0.5">{upcoming ? (upcoming.content_idea || upcoming.topic) : 'Select month with scheduled posts'}</p>
-          </div>
-          <div className="rounded-xl border border-fog bg-mist/40 px-3.5 py-3">
-            <p className="text-[11px] font-semibold text-ink/55">At-a-glance checklist</p>
-            <p className="text-[11px] text-ink/70 mt-1">- Keep 3-5 posts/week cadence per platform</p>
-            <p className="text-[11px] text-ink/70">- Mix 1 educational + 1 conversion + 1 social proof weekly</p>
-            <p className="text-[11px] text-ink/70">- Refresh visuals for posts missing assets before publish</p>
-          </div>
+        <div className="mb-3 rounded-xl border border-fog bg-mist/30 px-3 py-2 flex flex-wrap items-center gap-2 text-[11px] text-ink/60">
+          <span className="inline-flex items-center gap-1.5">
+            <BarChart3 size={12} /> {posts.length} post{posts.length === 1 ? '' : 's'} this month
+          </span>
+          <span className="text-ink/30">•</span>
+          <span className="inline-flex items-center gap-1.5">
+            <Sparkles size={12} /> {withVisuals}/{posts.length} visuals ready
+          </span>
+          {pendingVisuals > 0 && (
+            <>
+              <span className="text-ink/30">•</span>
+              <span>{pendingVisuals} pending</span>
+            </>
+          )}
         </div>
       )}
 
@@ -959,36 +925,42 @@ export default function CalendarPage() {
 
       {/* Platform filter */}
       {posts.length > 0 && !selectMode && (
-        <div className="flex flex-wrap gap-2 mb-4">
-          <button
-            type="button"
-            onClick={bulkRedraftCaptions}
-            className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
-          >
-            Redraft captions ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
-          </button>
-          <button
-            type="button"
-            onClick={bulkRegenerateVisuals}
-            className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
-          >
-            Regenerate visuals ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
-          </button>
-        </div>
+        <details className="mb-2">
+          <summary className="list-none inline-flex cursor-pointer text-xs px-3 py-1.5 rounded-lg border border-fog text-ink/50 hover:border-ink/20 hover:text-ink transition-colors">
+            Advanced actions
+          </summary>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <button
+              type="button"
+              onClick={bulkRedraftCaptions}
+              className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
+            >
+              Redraft captions ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
+            </button>
+            <button
+              type="button"
+              onClick={bulkRegenerateVisuals}
+              className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
+            >
+              Regenerate visuals ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
+            </button>
+          </div>
+        </details>
       )}
 
       {posts.length > 0 && (
-        <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
+        <div className="mb-6 rounded-xl border border-fog bg-surface p-2">
+        <div className="flex gap-1.5 overflow-x-auto">
           <button onClick={()=>setFilterPlat('all')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
-              filterPlat==='all' ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
+              filterPlat==='all' ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
             }`}>
             All ({posts.length})
           </button>
           {PLATFORMS.filter(pl=>posts.some(p=>p.platform===pl.id)).map(pl=>(
             <button key={pl.id} onClick={()=>setFilterPlat(pl.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
-                filterPlat===pl.id ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
+                filterPlat===pl.id ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
               }`}>
               {PLATFORM_LOGO[pl.id]} {pl.label} ({posts.filter(p=>p.platform===pl.id).length})
             </button>
@@ -996,8 +968,8 @@ export default function CalendarPage() {
           <button
             type="button"
             onClick={() => setThisWeekOnly((v) => !v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
-              thisWeekOnly ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap transition-all flex-shrink-0 ${
+              thisWeekOnly ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
             }`}
           >
             This week
@@ -1005,8 +977,8 @@ export default function CalendarPage() {
           <button
             type="button"
             onClick={() => setLayoutMode('month')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap ${
-              layoutMode === 'month' ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap ${
+              layoutMode === 'month' ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
             }`}
           >
             <CalendarDays size={12} className="inline mr-1" />
@@ -1015,8 +987,8 @@ export default function CalendarPage() {
           <button
             type="button"
             onClick={() => setLayoutMode('grid')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap ${
-              layoutMode === 'grid' ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap ${
+              layoutMode === 'grid' ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
             }`}
           >
             Grid
@@ -1024,13 +996,14 @@ export default function CalendarPage() {
           <button
             type="button"
             onClick={() => setLayoutMode('swimlane')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap ${
-              layoutMode === 'swimlane' ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+            className={`px-2.5 py-1.5 rounded-md text-xs font-medium border whitespace-nowrap ${
+              layoutMode === 'swimlane' ? 'bg-slate-900 text-white border-slate-900' : 'border-transparent text-ink/45 hover:border-fog hover:text-ink/70'
             }`}
           >
             <Wand2 size={12} className="inline mr-1" />
             Swimlanes
           </button>
+        </div>
         </div>
       )}
 
@@ -1151,7 +1124,7 @@ export default function CalendarPage() {
             <div className="flex-1 h-px bg-fog"/>
           </div>
           {layoutMode === 'grid' ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2.5">
               {byPlatform[pl.id].map((post) => (
                 <PostThumb
                   key={post.id}

@@ -147,6 +147,7 @@ export const contentApi = {
 // ─── Templates ──────────────────────────────────────────────────
 export const templateApi = {
   list:   (brandId) => api.get('/templates', { params: { brand_id: brandId } }).then(r => r.data),
+  playbookCatalog: (brandId) => api.get('/templates/playbook-catalog', { params: { brand_id: brandId } }).then(r => r.data),
   create: (data)    => api.post('/templates', data).then(r => r.data),
   bootstrapDefaults: (data) => api.post('/templates/bootstrap-defaults', data).then(r => r.data),
   get:    (id)      => api.get(`/templates/${id}`).then(r => r.data),
@@ -232,16 +233,22 @@ export const adminApi = {
       .post(`/admin/workspaces/${encodeURIComponent(workspaceId)}/billing/reconcile-paystack`, data)
       .then((r) => r.data),
   designPlaybook:     ()        => adminAxios.get('/admin/design-playbook').then(r => r.data),
+  designPlaybookDepth: ()       => adminAxios.get('/admin/design-playbook-depth').then(r => r.data),
+  designPlaybookCompleteness: (params) => adminAxios.get('/admin/design-playbook-completeness', { params }).then(r => r.data),
+  fillDesignPlaybookDepth: ()   => adminAxios.post('/admin/design-playbook/fill-depth').then(r => r.data),
   createPlaybookIndustry: (data) => adminAxios.post('/admin/design-playbook/industries', data).then(r => r.data),
   updatePlaybookIndustry: (industryId, data) => adminAxios.put(`/admin/design-playbook/industries/${industryId}`, data).then(r => r.data),
   deletePlaybookIndustry: (industryId) => adminAxios.delete(`/admin/design-playbook/industries/${industryId}`).then(r => r.data),
   createPlaybookContentType: (data) => adminAxios.post('/admin/design-playbook/content-types', data).then(r => r.data),
   updatePlaybookContentType: (contentTypeId, data) => adminAxios.put(`/admin/design-playbook/content-types/${contentTypeId}`, data).then(r => r.data),
+  fillAndActivatePlaybookContentType: (contentTypeId) =>
+    adminAxios.post(`/admin/design-playbook/content-types/${contentTypeId}/fill-and-activate`).then(r => r.data),
   deletePlaybookContentType: (contentTypeId) => adminAxios.delete(`/admin/design-playbook/content-types/${contentTypeId}`).then(r => r.data),
   createPlaybookVisualDirection: (data) => adminAxios.post('/admin/design-playbook/visual-directions', data).then(r => r.data),
   updatePlaybookVisualDirection: (visualDirectionId, data) => adminAxios.put(`/admin/design-playbook/visual-directions/${visualDirectionId}`, data).then(r => r.data),
   deletePlaybookVisualDirection: (visualDirectionId) => adminAxios.delete(`/admin/design-playbook/visual-directions/${visualDirectionId}`).then(r => r.data),
   brands:             (params)  => adminAxios.get('/admin/brands', { params }).then(r => r.data),
+  repairBrandTaxonomy: (params) => adminAxios.post('/admin/brands/repair-taxonomy', null, { params }).then(r => r.data),
   content:            (params)  => adminAxios.get('/admin/content', { params }).then(r => r.data),
   deleteContentByUser:(email)   => adminAxios.delete(`/admin/content/by-user/${encodeURIComponent(email)}`).then(r => r.data),
   seedNairaVault:     (email)   => adminAxios.post(`/admin/seed-nairavault/${encodeURIComponent(email)}`).then(r => r.data),
