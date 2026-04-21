@@ -86,26 +86,31 @@ VISUAL_DIRECTION_DESIGN_TOKENS = (
 
 
 def _image_prompt_ending_for_style(ips: str) -> str:
+    _logo_reserve = (
+        "Reserve logo_safe_zone as calm negative space only — do not draw any logo, wordmark, or trademark "
+        "(the real logo is composited after generation). "
+    )
     if ips == "real_people":
         return (
             'Must end with: "No large text overlays, no watermarks, no typography blocks, no UI elements, no illustration. '
-            'Integrate the uploaded brand logo naturally in the assigned logo_safe_zone at subtle ad-grade scale. '
-            'Photorealistic photograph; subjects must match the post topic (people only when the idea truly needs faces)."'
+            + _logo_reserve
+            + 'Photorealistic photograph; subjects must match the post topic (people only when the idea truly needs faces)."'
         )
     if ips == "illustration":
         return (
             'Must end with: "No large text overlays, no watermarks, no typography blocks, no UI elements. '
-            'Integrate the uploaded brand logo naturally in the assigned logo_safe_zone at subtle ad-grade scale. '
-            'Premium brand illustration or modern flat graphic only; no photorealistic humans."'
+            + _logo_reserve
+            + 'Premium brand illustration or modern flat graphic only; no photorealistic humans."'
         )
     if ips == "cartoon":
         return (
             'Must end with: "No large text overlays, no watermarks, no typography blocks, no UI elements. '
-            'Integrate the uploaded brand logo naturally in the assigned logo_safe_zone at subtle ad-grade scale. '
-            'Cartoon/comic illustration style only; bold linework and expressive shapes; no photorealistic humans."'
+            + _logo_reserve
+            + 'Cartoon/comic illustration style only; bold linework and expressive shapes; no photorealistic humans."'
         )
     return (
-        "End by forbidding readable text in-image while requiring a subtle integrated brand logo in logo_safe_zone. "
+        "End by forbidding readable text in-image and forbidding any drawn logo or wordmark in-frame; "
+        "reserve logo_safe_zone for post-production brand mark only. "
         "visual_type per post must be one of real_people, illustration, abstract, or product — pick the best fit; "
         "prefer abstract or product when the content is not about people; do not default every post to humans."
     )
@@ -353,7 +358,7 @@ def _enforce_designer_visual_direction(post: dict) -> None:
         f"{style_line} "
         "Use controlled lighting, real material texture, and clean colour hierarchy so it feels art-directed, not a random lifestyle snapshot. "
         "Vary typography structure from previous posts by changing alignment, scale contrast, and block arrangement; avoid recurring centered lockups. "
-        f"Lock the uploaded brand logo into the {zone} zone with deliberate breathing room, visual balance, and clear contrast so the final mark looks intentionally designed, not pasted. "
+        f"Reserve the {zone} quadrant for the final brand mark (added after generation): keep that area calmer and less busy so the real logo composites cleanly — never describe painting a logo into the raster image. "
         "Avoid generic portrait-only composition."
         f"{carousel_graphic_rule}"
     )
@@ -398,8 +403,7 @@ def _visual_system_prompt_block(brand: dict) -> str:
         f"Allowed visual_archetype values: {', '.join(str(a) for a in arch)}. "
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
         f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; cartoon = comic illustration; mixed = vary by post). "
-        f"Design visual_direction around the uploaded brand logo lockup and choose logo_safe_zone where the final mark should sit. "
-        f"Require the generated visual to include the uploaded brand logo in the chosen safe zone at subtle, premium scale. "
+        f"Choose logo_safe_zone where the final composited brand mark should sit; keep that quadrant visually calm in the generated art — the raster model must not draw the logo. "
         f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
     )
 
@@ -792,7 +796,7 @@ async def _generate_for_platform(
     if ips == "real_people":
         img_style_rules = (
             "• ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
-            "• ALWAYS include the uploaded brand logo in image_prompt as a subtle mark placed in logo_safe_zone with clear breathing room\n"
+            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
             "• ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
             "• People are the default subject style: photoreal campaign/documentary humans with authentic local casting, natural skin texture, realistic hands, true facial anatomy, and candid expressions\n"
             "• Avoid plastic AI faces, duplicated faces, malformed hands, and generic smiling stock-pose crowds\n"
@@ -803,7 +807,7 @@ async def _generate_for_platform(
         img_style_rules = (
             f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
             "• image_prompt may use premium 2D illustration, flat brand graphics, or tasteful vector-adjacent art; keep it on-brand, not childish\n"
-            "• ALWAYS include the uploaded brand logo in image_prompt as a subtle mark placed in logo_safe_zone with clear breathing room\n"
+            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
             "• People may be illustrated (stylised but professional), not photoreal stock\n"
             "• NEVER use generic AI-art clichés"
         )
@@ -811,7 +815,7 @@ async def _generate_for_platform(
         img_style_rules = (
             f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
             "• image_prompt should use premium cartoon/comic illustration: strong shape language, clean linework, modern editorial composition\n"
-            "• ALWAYS include the uploaded brand logo in image_prompt as a subtle mark placed in logo_safe_zone with clear breathing room\n"
+            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
             "• Characters, if used, should be stylised and expressive, but not childish clip-art\n"
             "• NEVER use generic low-quality sticker-pack aesthetics"
         )
@@ -820,7 +824,7 @@ async def _generate_for_platform(
             f"• ALWAYS name the brand ({brand_name}) and honour VISUAL IDENTITY colours and motifs\n"
             "• Vary the month: mix photoreal (with or without people), premium illustration, abstract texture, and product or still-life heroes\n"
             "• Pick visual_type per post; do not default to crowds or smiling models — lean abstract/product when the topic is not human-centric\n"
-            "• ALWAYS include the uploaded brand logo in image_prompt as a subtle mark placed in logo_safe_zone with clear breathing room\n"
+            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
             "• NEVER generic stock or clichéd \"AI slop\""
         )
 
@@ -860,8 +864,8 @@ For EACH post return ALL these fields:
 4. caption: full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
 5. cta: standalone call to action, max 12 words
 6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) planned logo lockup behavior in one quadrant using the uploaded brand logo and clear breathing room. Do NOT describe caption text overlaid on the image. Copy lives only in the caption field.
-8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and subtle placement of uploaded brand logo in logo_safe_zone. Must NOT ask for readable text blocks.
+7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster. Do NOT describe caption text overlaid on the image. Copy lives only in the caption field.
+8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable text blocks and must NOT ask the raster model to paint any logo, wordmark, or trademark.
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
 10. visual_type: {_visual_type_rule_for_style(ips)}
@@ -884,8 +888,8 @@ HARD RULES:
 • Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely
 • topic must equal content_idea exactly
 {_hard_visual_type_rule(ips)}
-• image_prompt must never ask for text, titles, or captions; logo inclusion is required but should be subtle and premium
-• visual_direction should explicitly design around final logo lockup placement, spacing, and balance
+• image_prompt must never ask for text, titles, or captions, or for any drawn logo or wordmark; reserve logo_safe_zone only
+• visual_direction should plan final logo lockup placement and breathing room for compositing after generation, not an in-model logo
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
 • If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning
 

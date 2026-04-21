@@ -236,7 +236,7 @@ export default function GeneratePage() {
         <div className="space-y-3">
 
           {/* Step 1: Template */}
-          <div className="bg-white border border-fog rounded-2xl p-5">
+          <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">1</span>
               Template blueprint
@@ -266,7 +266,7 @@ export default function GeneratePage() {
           </div>
 
           {/* Step 2: Platform */}
-          <div className="bg-white border border-fog rounded-2xl p-5">
+          <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">2</span>
               Platform
@@ -287,7 +287,7 @@ export default function GeneratePage() {
           </div>
 
           {/* Step 3: Month */}
-          <div className="bg-white border border-fog rounded-2xl p-5">
+          <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">3</span>
               Month
@@ -305,7 +305,7 @@ export default function GeneratePage() {
           </div>
 
           {/* Step 4: Posting frequency */}
-          <div className="bg-white border border-fog rounded-2xl p-5">
+          <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">4</span>
               Posting frequency
@@ -330,7 +330,7 @@ export default function GeneratePage() {
           </div>
 
           {/* Step 5: Website intelligence */}
-          <div className="bg-white border border-fog rounded-2xl p-5">
+          <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-3 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">5</span>
               Website intelligence
@@ -367,7 +367,7 @@ export default function GeneratePage() {
               <label className="flex items-center gap-2 text-xs text-ink/70">
                 Variant count:
                 <select
-                  className="border border-fog rounded px-2 py-1 bg-white text-xs"
+                  className="border border-fog rounded px-2 py-1 bg-surface text-xs"
                   value={variantCount}
                   onChange={(e) => setVariantCount(Number(e.target.value))}
                 >
@@ -380,7 +380,7 @@ export default function GeneratePage() {
           </div>
 
           {/* Step 4: Topic */}
-          <div className="bg-white border border-fog rounded-2xl p-5">
+          <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/30 text-[9px] font-bold flex items-center justify-center">6</span>
               Focus topic <span className="text-ink/25 font-normal ml-1">(optional)</span>
@@ -434,7 +434,7 @@ export default function GeneratePage() {
         </div>
 
         {/* Trends sidebar: Growth + Pro only (matches Billing) */}
-        <div className="bg-white border border-fog rounded-2xl p-4 sticky top-6">
+        <div className="bg-surface border border-fog rounded-2xl p-4 sticky top-6">
           <div className="flex items-center gap-2 mb-3">
             <Zap size={12} className="text-ink/30" />
             <span className="text-xs font-medium text-ink/40">Trending now</span>

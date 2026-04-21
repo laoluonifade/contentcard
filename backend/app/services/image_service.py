@@ -145,10 +145,19 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         or ""
     ).strip()
     website_source_note = f"Website source context: {website_source_url}." if website_source_url else ""
-    logo_note = (
-        f"Include the uploaded {brand_name} logo as a subtle integrated mark in the {logo_safe_zone} zone, "
-        "with clear breathing room and strong contrast. Keep logo scale premium and non-dominant."
-    )
+    # Text-only image APIs cannot receive the real logo file; asking for "the logo" makes models hallucinate marks.
+    # The true logo is composited in post via burn_logo_into_image_url — only reserve calm space here.
+    zone_words = logo_safe_zone.replace("_", " ")
+    if has_brand_logo(brand):
+        logo_note = (
+            f"Do not draw any logo, wordmark, trademark, app icon, favicon, or watermarks for {brand_name} or any other brand. "
+            f"Keep the {zone_words} corner visually calmer (open negative space, simpler background) so the real brand mark "
+            "can be added in post-production only. Never invent a fake logo or stylised brand symbol."
+        )
+    else:
+        logo_note = (
+            "Do not draw logos, wordmarks, trademarks, or watermarks; leave corners uncluttered."
+        )
     brand_photos = brand.get("brand_photos") or []
     brand_photo_note = ""
     if isinstance(brand_photos, list) and brand_photos:
@@ -259,23 +268,27 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     imagery_note = f"Visual style reference: {imagery_style}." if imagery_style else ""
 
     # Hard negative constraints — appended to every prompt regardless of input
+    _no_fake_logo = "No company logos, wordmarks, trademark symbols, invented brand marks, or watermarks. "
     if vt == "abstract":
         negative = (
-            "No text, no words, no letters, no watermarks, no UI elements, "
+            _no_fake_logo
+            + "No text, no words, no letters, no watermarks, no UI elements, "
             "no human figures, no faces, no hands as subject, no typography, no captions, "
             "no stock office crowds, no illustrated characters. "
             "Abstract colour, light, texture, pattern, or materials only."
         )
     elif vt == "product":
         negative = (
-            "No text, no words, no letters, no watermarks, no UI elements, "
+            _no_fake_logo
+            + "No text, no words, no letters, no watermarks, no UI elements, "
             "no readable packaging claims, no subtitles, no typography, no captions, "
             "no cartoon, no illustration, no CGI toy look. "
             "Photoreal product, food, ingredients, or objects only; if hands appear they are secondary to the product."
         )
     elif vt == "illustration":
         negative = (
-            "No text, no words, no letters, no watermarks, no UI elements, "
+            _no_fake_logo
+            + "No text, no words, no letters, no watermarks, no UI elements, "
             "no photorealistic humans, no synthetic photo faces, no stock portrait photography, "
             "no 3D renders pretending to be photos, no typography, no captions, "
             "no childish clip-art, no meme aesthetics. "
@@ -283,7 +296,8 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         )
     else:
         negative = (
-            "No text, no words, no letters, no watermarks, no UI elements, "
+            _no_fake_logo
+            + "No text, no words, no letters, no watermarks, no UI elements, "
             "no overlays, no graphic design elements, no illustration, no 3D render, "
             "no CGI, no cartoon, no anime, no vector art, no stylised characters, no claymation, "
             "no synthetic faces, no typography, no captions, "

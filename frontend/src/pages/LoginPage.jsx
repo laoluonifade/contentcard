@@ -94,7 +94,7 @@ export default function LoginPage() {
         </div>
 
         <h1 className="text-3xl font-bold text-ink mb-2" style={{ letterSpacing: '-0.02em' }}>Welcome back</h1>
-        <p className="text-ink/50 mb-8 text-sm">Sign in to your ContentCard account.</p>
+        <p className="text-ink/60 mb-8 text-sm">Sign in to your ContentCard account.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -113,7 +113,7 @@ export default function LoginPage() {
                 onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 placeholder="••••••••" className="input pr-12" />
               <button type="button" onClick={() => setShowPw(v => !v)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/30 hover:text-ink/60 transition-colors">
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/45 hover:text-ink transition-colors">
                 {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
@@ -128,11 +128,11 @@ export default function LoginPage() {
         </form>
 
         <button onClick={fillDemo}
-          className="w-full mt-3 py-3 rounded-xl border border-fog bg-white text-ink/50 hover:text-ink hover:border-fog/80 text-sm font-semibold transition-all">
+          className="w-full mt-3 py-3 rounded-xl border border-fog bg-surface text-ink/75 hover:text-ink hover:border-ink/25 text-sm font-semibold transition-all">
           Try demo account
         </button>
 
-        <p className="text-center text-ink/40 text-sm mt-6">
+        <p className="text-center text-ink/55 text-sm mt-6">
           Don't have an account?{' '}
           <Link to="/signup" className="text-brand-500 hover:text-brand-600 font-semibold transition-colors">Start free trial</Link>
         </p>
