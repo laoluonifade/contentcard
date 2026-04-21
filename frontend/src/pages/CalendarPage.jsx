@@ -1053,11 +1053,18 @@ export default function CalendarPage() {
               const isActive = selectedDate === cell.iso
               const topPreview = dayPosts.slice(0, 2)
               return (
-                <button
+                <div
                   key={cell.iso}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => setSelectedDate((cur) => (cur === cell.iso ? '' : cell.iso))}
-                  className={`min-h-[108px] rounded-xl border p-2 text-left transition-colors ${
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setSelectedDate((cur) => (cur === cell.iso ? '' : cell.iso))
+                    }
+                  }}
+                  className={`min-h-[108px] rounded-xl border p-2 text-left transition-colors cursor-pointer ${
                     isActive ? 'border-slate-900 bg-mist' : 'border-fog hover:border-ink/20 bg-surface'
                   }`}
                 >
@@ -1071,14 +1078,23 @@ export default function CalendarPage() {
                   </div>
                   <div className="mt-2 space-y-1">
                     {topPreview.map((post) => (
-                      <div key={post.id} className="text-[10px] leading-snug rounded-md px-1.5 py-1 bg-mist border border-fog text-ink/70 truncate">
+                      <button
+                        key={post.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (selectMode) togglePostSelect(post.id)
+                          else setModal(post)
+                        }}
+                        className="w-full text-[10px] leading-snug rounded-md px-1.5 py-1 bg-mist border border-fog text-ink/70 truncate text-left hover:border-ink/20"
+                      >
                         {PLATFORM_LOGO[post.platform]} <span className="ml-1">{post.content_idea || post.topic}</span>
-                      </div>
+                      </button>
                     ))}
                     {dayPosts.length > 2 && <p className="text-[10px] text-ink/40">+{dayPosts.length - 2} more</p>}
                     {!dayPosts.length && <p className="text-[10px] text-ink/25">No posts</p>}
                   </div>
-                </button>
+                </div>
               )
             })}
           </div>
