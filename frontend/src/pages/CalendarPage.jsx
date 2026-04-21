@@ -11,6 +11,7 @@ import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const MAX_GENERATION_MONTHS_AHEAD = 3
 const PLATFORMS = [
   { id: 'instagram', label: 'Instagram', color: '#E1306C' },
   { id: 'facebook',  label: 'Facebook',  color: '#1877F2' },
@@ -370,6 +371,8 @@ export default function CalendarPage() {
   const [thisWeekOnly, setThisWeekOnly] = useState(false)
   const [selectedDate, setSelectedDate] = useState('')
   const cardRef = useRef(null)
+  const monthsAhead = ((year - now.getFullYear()) * 12) + (month - (now.getMonth() + 1))
+  const generationLockedForMonth = monthsAhead > MAX_GENERATION_MONTHS_AHEAD
 
   useEffect(() => {
     if (!activeBrandId) {
@@ -819,7 +822,11 @@ export default function CalendarPage() {
               Select
             </button>
           )}
-          <button onClick={() => !generatingMonth && setShowGenPanel(true)} className="btn-primary text-sm px-4 py-2">
+          <button
+            onClick={() => !generatingMonth && !generationLockedForMonth && setShowGenPanel(true)}
+            disabled={generatingMonth || generationLockedForMonth}
+            className="btn-primary text-sm px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Plus size={14}/><span className="hidden sm:inline">Generate</span>
           </button>
         </div>
@@ -1043,9 +1050,16 @@ export default function CalendarPage() {
         <div className="border border-dashed border-fog rounded-2xl p-16 text-center">
           <p className="text-ink/50 font-medium mb-1.5">No content for {MONTHS[month-1]} {year}</p>
           <p className="text-ink/30 text-sm mb-6">Generate a full month of posts in under a minute.</p>
-          <button onClick={()=>!generatingMonth && setShowGenPanel(true)} className="btn-primary text-sm">
+          <button
+            onClick={()=>!generatingMonth && !generationLockedForMonth && setShowGenPanel(true)}
+            disabled={generatingMonth || generationLockedForMonth}
+            className="btn-primary text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Plus size={14}/> Generate content
           </button>
+          {generationLockedForMonth && (
+            <p className="text-ink/30 text-xs mt-2">Generation opens up to 3 months ahead only.</p>
+          )}
         </div>
       )}
 
@@ -1235,6 +1249,9 @@ export default function CalendarPage() {
               <div>
                 <h3 className="text-ink font-semibold">Generate {MONTHS[month-1]} {year}</h3>
                 <p className="text-ink/40 text-xs mt-0.5">This will create a full month of on-brand content</p>
+                {generationLockedForMonth && (
+                  <p className="text-ink/35 text-[11px] mt-1">This month is not available yet. You can generate up to 3 months ahead.</p>
+                )}
               </div>
               <button onClick={()=>setShowGenPanel(false)} className="text-ink/30 hover:text-ink p-1.5 -mr-1 transition-colors"><X size={18}/></button>
             </div>
@@ -1330,7 +1347,7 @@ export default function CalendarPage() {
               )}
             </div>
 
-            <button onClick={handleGenerate} disabled={generatingMonth || (activeBrand && !isBrandReady(activeBrand))}
+            <button onClick={handleGenerate} disabled={generatingMonth || generationLockedForMonth || (activeBrand && !isBrandReady(activeBrand))}
               className="btn-primary w-full justify-center py-3 disabled:opacity-50 disabled:cursor-not-allowed">
               {generatingMonth
                 ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>

@@ -8,6 +8,7 @@ import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
 const MONTHS_LIST = ['January','February','March','April','May','June',
                      'July','August','September','October','November','December']
+const MAX_GENERATION_MONTHS_AHEAD = 3
 
 const PLATFORMS = [
   { id: 'instagram', label: 'Instagram' },
@@ -131,7 +132,12 @@ export default function GeneratePage() {
   const monthOptions = Array.from({ length: 8 }, (_, i) => {
     const mi = (now.getMonth() + i) % 12 + 1
     const yi = now.getFullYear() + Math.floor((now.getMonth() + i) / 12)
-    return { mi, yi, label: `${MONTHS_LIST[mi - 1].slice(0, 3)} ${yi}` }
+    return {
+      mi,
+      yi,
+      label: `${MONTHS_LIST[mi - 1].slice(0, 3)} ${yi}`,
+      disabled: i > MAX_GENERATION_MONTHS_AHEAD,
+    }
   })
 
   const totalPosts = Math.round(postsPerWeek * 4.3)
@@ -299,15 +305,23 @@ export default function GeneratePage() {
               Month
             </p>
             <div className="flex flex-wrap gap-2">
-              {monthOptions.map(({ mi, yi, label }) => (
-                <button key={`${yi}-${mi}`} onClick={() => { setSelMonth(mi); setSelYear(yi) }}
+              {monthOptions.map(({ mi, yi, label, disabled }) => (
+                <button
+                  key={`${yi}-${mi}`}
+                  disabled={disabled}
+                  onClick={() => { if (!disabled) { setSelMonth(mi); setSelYear(yi) } }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
-                    selMonth === mi && selYear === yi ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'
+                    disabled
+                      ? 'border-fog text-ink/20 bg-mist/40 cursor-not-allowed'
+                      : selMonth === mi && selYear === yi
+                        ? 'border-ink bg-mist text-ink'
+                        : 'border-fog text-ink/40 hover:border-ink/20'
                   }`}>
                   {label}
                 </button>
               ))}
             </div>
+            <p className="text-ink/25 text-[11px] mt-2">You can generate up to 3 months ahead.</p>
           </div>
 
           {/* Step 4: Posting frequency */}
