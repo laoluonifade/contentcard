@@ -70,6 +70,8 @@ class DesignPlaybookIndustry(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     key: Mapped[str] = mapped_column(String(80), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    parent_key: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    sub_industry: Mapped[str | None] = mapped_column(String(120), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(

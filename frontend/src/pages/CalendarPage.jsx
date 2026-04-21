@@ -43,6 +43,13 @@ const PLATFORM_LOGO = {
   ),
 }
 
+const PLATFORM_POST_WINDOWS = {
+  instagram: { best: 'Mon-Thu, 11:00-13:00', backup: '18:30-20:00', tz: 'Local time' },
+  facebook: { best: 'Tue-Thu, 09:00-11:00', backup: '13:00-15:00', tz: 'Local time' },
+  twitter: { best: 'Mon-Fri, 08:00-10:00', backup: '17:00-19:00', tz: 'Local time' },
+  linkedin: { best: 'Tue-Thu, 08:00-10:00', backup: '12:00-14:00', tz: 'Local time' },
+}
+
 function fmtDate(str) {
   if (!str) return ''
   const [y,m,d] = str.split('-').map(Number)
@@ -68,6 +75,33 @@ function formatArchetypeLabel(id) {
   return String(id).replace(/_/g, ' ')
 }
 
+function weekdayFromIso(isoDate) {
+  if (!isoDate) return ''
+  const d = new Date(`${isoDate}T00:00:00`)
+  return d.toLocaleDateString('en-GB', { weekday: 'short' })
+}
+
+function recommendationForPlatform(platform) {
+  return PLATFORM_POST_WINDOWS[platform] || { best: 'Weekdays, midday', backup: 'Early evening', tz: 'Local time' }
+}
+
+function toIsoDate(y, m, d) {
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+function buildMonthGrid(month, year) {
+  const first = new Date(year, month - 1, 1)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const mondayIndex = (first.getDay() + 6) % 7
+  const cells = []
+  for (let i = 0; i < mondayIndex; i++) cells.push(null)
+  for (let day = 1; day <= daysInMonth; day++) {
+    cells.push({ day, iso: toIsoDate(year, month, day) })
+  }
+  while (cells.length % 7 !== 0) cells.push(null)
+  return cells
+}
+
 function PostThumb({ post, brand, onClick, selectMode, selected }) {
   const isCarousel = (post?.slide_count||1) > 1
   const imageUrl = (post?.image_urls?.[0]) || post?.image_url
@@ -75,6 +109,7 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
   const websiteGrounding = post?.theme?.cc_meta?.website_grounding
   const websiteSourceLabel = websiteGrounding?.trigger_type ? String(websiteGrounding.trigger_type).replace('.', ' ') : ''
   const isSel = !!selected
+  const rec = recommendationForPlatform(post?.platform)
 
   const cls = "group relative bg-surface border border-fog rounded-xl overflow-hidden hover:border-ink/20 transition-colors text-left w-full"
   const body = (
@@ -123,6 +158,9 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
       <div className="p-2.5 border-t border-fog">
         <p className="text-ink text-xs font-medium truncate">{post.content_idea || post.topic}</p>
         <p className="text-ink/35 text-[10px] mt-0.5">{fmtDate(post.scheduled_date)}</p>
+        <p className="text-ink/35 text-[10px] mt-1 truncate" title={`Recommended window: ${rec.best}`}>
+          Recommended: {weekdayFromIso(post.scheduled_date)} {rec.best.split(',')[1]?.trim() || rec.best}
+        </p>
         {!selectMode && (
           <div className="mt-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <button
@@ -330,12 +368,14 @@ export default function CalendarPage() {
   const [genTopic, setGenTopic]         = useState('')
   const [layoutMode, setLayoutMode] = useState('grid')
   const [thisWeekOnly, setThisWeekOnly] = useState(false)
+  const [selectedDate, setSelectedDate] = useState('')
   const cardRef = useRef(null)
 
   useEffect(() => {
     if (!activeBrandId) {
       setPosts([])
       setLoading(false)
+      setSelectedDate('')
       return
     }
     let cancelled = false
@@ -359,6 +399,7 @@ export default function CalendarPage() {
     setPrepMessages([])
     setSelectedIds(new Set())
     setSelectMode(false)
+    setSelectedDate('')
   }, [month, year, activeBrandId])
 
   useEffect(() => {
@@ -720,15 +761,29 @@ export default function CalendarPage() {
 
   const scopedPosts = thisWeekOnly ? posts.filter((p) => isDateInCurrentWeek(p.scheduled_date)) : posts
   const filtered = filterPlat==='all' ? scopedPosts : scopedPosts.filter(p=>p.platform===filterPlat)
+  const postsByDate = filtered.reduce((acc, post) => {
+    const iso = post?.scheduled_date
+    if (!iso) return acc
+    if (!acc[iso]) acc[iso] = []
+    acc[iso].push(post)
+    return acc
+  }, {})
+  Object.values(postsByDate).forEach((arr) => arr.sort((a, b) => String(a.platform || '').localeCompare(String(b.platform || ''))))
   const byPlatform = {}
   filtered.forEach(p => { if (!byPlatform[p.platform]) byPlatform[p.platform]=[]; byPlatform[p.platform].push(p) })
   Object.values(byPlatform).forEach(arr=>arr.sort((a,b)=>(a.scheduled_date||'').localeCompare(b.scheduled_date||'')))
   const platformsWithPosts = PLATFORMS.filter(pl=>byPlatform[pl.id]?.length>0)
+  const calendarCells = buildMonthGrid(month, year)
 
   const postCountLabel = loading ? 'Loading…' : `${posts.length} post${posts.length === 1 ? '' : 's'}`
   const withVisuals = posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length
   const pendingVisuals = Math.max(0, posts.length - withVisuals)
   const carouselCount = posts.filter((p) => (p.slide_count || 1) > 1).length
+  const selectedPlatformForGuidance = filterPlat === 'all' ? 'instagram' : filterPlat
+  const guidance = recommendationForPlatform(selectedPlatformForGuidance)
+  const upcoming = [...filtered]
+    .filter((p) => p.scheduled_date && new Date(`${p.scheduled_date}T00:00:00`) >= new Date(new Date().toDateString()))
+    .sort((a, b) => String(a.scheduled_date || '').localeCompare(String(b.scheduled_date || '')))[0]
   const topPlatform = PLATFORMS
     .map((pl) => ({ id: pl.id, count: posts.filter((p) => p.platform === pl.id).length }))
     .sort((a, b) => b.count - a.count)[0]
@@ -834,6 +889,29 @@ export default function CalendarPage() {
         </div>
       )}
 
+      {!loading && posts.length > 0 && (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-5">
+          <div className="rounded-xl border border-fog bg-mist/40 px-3.5 py-3">
+            <p className="text-[11px] font-semibold text-ink/55">Best posting window ({selectedPlatformForGuidance})</p>
+            <p className="text-sm font-semibold text-ink mt-1">{guidance.best}</p>
+            <p className="text-[11px] text-ink/45 mt-0.5">Backup: {guidance.backup} · {guidance.tz}</p>
+          </div>
+          <div className="rounded-xl border border-fog bg-mist/40 px-3.5 py-3">
+            <p className="text-[11px] font-semibold text-ink/55">Next recommended slot</p>
+            <p className="text-sm font-semibold text-ink mt-1">
+              {upcoming ? `${fmtDate(upcoming.scheduled_date)} · ${guidance.best.split(',')[1]?.trim() || guidance.best}` : 'No upcoming date in view'}
+            </p>
+            <p className="text-[11px] text-ink/45 mt-0.5">{upcoming ? (upcoming.content_idea || upcoming.topic) : 'Select month with scheduled posts'}</p>
+          </div>
+          <div className="rounded-xl border border-fog bg-mist/40 px-3.5 py-3">
+            <p className="text-[11px] font-semibold text-ink/55">At-a-glance checklist</p>
+            <p className="text-[11px] text-ink/70 mt-1">- Keep 3-5 posts/week cadence per platform</p>
+            <p className="text-[11px] text-ink/70">- Mix 1 educational + 1 conversion + 1 social proof weekly</p>
+            <p className="text-[11px] text-ink/70">- Refresh visuals for posts missing assets before publish</p>
+          </div>
+        </div>
+      )}
+
       <div
         className={`lg:grid lg:gap-6 lg:items-start ${
           prepMinimized ? 'lg:grid-cols-[minmax(0,1fr)_52px]' : 'lg:grid-cols-[minmax(0,1fr)_300px]'
@@ -919,11 +997,32 @@ export default function CalendarPage() {
           </button>
           <button
             type="button"
-            onClick={() => setLayoutMode((m) => (m === 'grid' ? 'swimlane' : 'grid'))}
-            className="px-3 py-1.5 rounded-lg text-xs font-medium border border-fog text-ink/50 hover:border-ink/20 whitespace-nowrap"
+            onClick={() => setLayoutMode('month')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap ${
+              layoutMode === 'month' ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+            }`}
+          >
+            <CalendarDays size={12} className="inline mr-1" />
+            Month
+          </button>
+          <button
+            type="button"
+            onClick={() => setLayoutMode('grid')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap ${
+              layoutMode === 'grid' ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+            }`}
+          >
+            Grid
+          </button>
+          <button
+            type="button"
+            onClick={() => setLayoutMode('swimlane')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border whitespace-nowrap ${
+              layoutMode === 'swimlane' ? 'bg-slate-900 text-white border-slate-900' : 'border-fog text-ink/40 hover:border-ink/20'
+            }`}
           >
             <Wand2 size={12} className="inline mr-1" />
-            {layoutMode === 'grid' ? 'Swimlanes' : 'Grid'}
+            Swimlanes
           </button>
         </div>
       )}
@@ -950,8 +1049,86 @@ export default function CalendarPage() {
         </div>
       )}
 
+      {!loading && posts.length > 0 && layoutMode === 'month' && (
+        <div className="mb-8 rounded-2xl border border-fog bg-surface p-3 lg:p-4">
+          <div className="grid grid-cols-7 gap-2 mb-2">
+            {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label) => (
+              <div key={label} className="px-2 py-1 text-[11px] font-semibold text-ink/40 uppercase tracking-wide">
+                {label}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-2">
+            {calendarCells.map((cell, idx) => {
+              if (!cell) return <div key={`empty-${idx}`} className="min-h-[108px] rounded-xl border border-transparent bg-transparent" />
+              const dayPosts = postsByDate[cell.iso] || []
+              const isToday = cell.iso === toIsoDate(now.getFullYear(), now.getMonth() + 1, now.getDate())
+              const isActive = selectedDate === cell.iso
+              const topPreview = dayPosts.slice(0, 2)
+              return (
+                <button
+                  key={cell.iso}
+                  type="button"
+                  onClick={() => setSelectedDate((cur) => (cur === cell.iso ? '' : cell.iso))}
+                  className={`min-h-[108px] rounded-xl border p-2 text-left transition-colors ${
+                    isActive ? 'border-slate-900 bg-mist' : 'border-fog hover:border-ink/20 bg-surface'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className={`text-xs font-semibold ${isToday ? 'text-brand-600' : 'text-ink/65'}`}>{cell.day}</span>
+                    {!!dayPosts.length && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-900 text-white">
+                        {dayPosts.length}
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2 space-y-1">
+                    {topPreview.map((post) => (
+                      <div key={post.id} className="text-[10px] leading-snug rounded-md px-1.5 py-1 bg-mist border border-fog text-ink/70 truncate">
+                        {PLATFORM_LOGO[post.platform]} <span className="ml-1">{post.content_idea || post.topic}</span>
+                      </div>
+                    ))}
+                    {dayPosts.length > 2 && <p className="text-[10px] text-ink/40">+{dayPosts.length - 2} more</p>}
+                    {!dayPosts.length && <p className="text-[10px] text-ink/25">No posts</p>}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+          {selectedDate && (
+            <div className="mt-4 rounded-xl border border-fog bg-mist/40 p-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-sm font-semibold text-ink">
+                  Plan for {fmtDate(selectedDate)}
+                </p>
+                <span className="text-[11px] text-ink/45">
+                  {(postsByDate[selectedDate] || []).length} post{(postsByDate[selectedDate] || []).length === 1 ? '' : 's'}
+                </span>
+              </div>
+              {(postsByDate[selectedDate] || []).length === 0 ? (
+                <p className="text-xs text-ink/45">No scheduled posts on this day yet.</p>
+              ) : (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {(postsByDate[selectedDate] || []).map((post) => (
+                    <button
+                      type="button"
+                      key={post.id}
+                      onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
+                      className="rounded-lg border border-fog bg-surface px-2.5 py-2 text-left hover:border-ink/20"
+                    >
+                      <p className="text-[11px] text-ink/45 capitalize">{post.platform}</p>
+                      <p className="text-xs text-ink font-medium truncate mt-0.5">{post.content_idea || post.topic}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Platform sections */}
-      {!loading && platformsWithPosts.map(pl=>(
+      {!loading && layoutMode !== 'month' && platformsWithPosts.map(pl=>(
         <div key={pl.id} className="mb-10">
           <div className="flex items-center gap-3 mb-4">
             <span className="text-ink/40 flex-shrink-0">{PLATFORM_LOGO[pl.id]}</span>

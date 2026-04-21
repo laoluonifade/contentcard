@@ -157,17 +157,16 @@ async def _resolve_generation_template(
                 ContentTemplate.is_active.is_(True),
             )
             .order_by(
-                ContentTemplate.is_system_default.desc(),
+                # Prefer user-customized templates over system defaults.
+                ContentTemplate.is_system_default.asc(),
                 ContentTemplate.created_at.asc(),
             )
             .limit(1)
         )
     ).scalar_one_or_none()
     if not tmpl:
-        raise HTTPException(
-            status_code=422,
-            detail="No active templates found. Create templates from your industry playbook before generating content.",
-        )
+        # No template found: generation should still proceed using industry design playbook defaults.
+        return None, []
     return str(tmpl.id), list(tmpl.topics or [])
 
 
@@ -443,6 +442,7 @@ async def _get_website_grounding_inputs(
 
 def _industry_key_from_brand(brand_dict: dict) -> str:
     raw = str(brand_dict.get("industry") or "").strip().lower()
+    raw_sub = str(brand_dict.get("sub_industry") or "").strip().lower()
     aliases = {
         "fashion & beauty": "fashion_beauty",
         "food & beverage": "food",
@@ -457,25 +457,35 @@ def _industry_key_from_brand(brand_dict: dict) -> str:
         "church & ministry": "church_ministry",
         "events & hospitality": "events_hospitality",
         "legal & professional services": "legal_professional_services",
+        "professional services": "professional_services",
+        "travel & hospitality": "travel_hospitality",
+        "media & entertainment": "media_entertainment",
         "other": "other",
     }
     if not raw:
-        return "tech_saas"
+        raw = "tech_saas"
+    parent_key = raw
     if raw in aliases:
-        return aliases[raw]
-    if raw in ("tech", "technology", "saas", "software", "tech_saas", "fintech", "edtech", "healthtech", "ai", "marketing_tech"):
-        return "tech_saas"
-    if raw in ("ecommerce", "e-commerce", "retail", "shopify", "bumpa", "fashion", "beauty", "consumer_goods", "d2c"):
-        return "ecommerce"
-    if raw in ("food", "restaurant", "hospitality", "food_beverage", "bakery", "cafe"):
-        return "food"
-    if any(k in raw for k in ("shop", "store", "commerce", "retail", "fashion", "beauty")):
-        return "ecommerce"
-    if any(k in raw for k in ("food", "restaurant", "cafe", "kitchen", "meal", "drink")):
-        return "food"
-    if any(k in raw for k in ("tech", "software", "saas", "cloud", "app", "platform", "fintech")):
-        return "tech_saas"
-    return raw.replace(" ", "_")
+        parent_key = aliases[raw]
+    elif raw in ("tech", "technology", "saas", "software", "tech_saas", "fintech", "edtech", "healthtech", "ai", "marketing_tech"):
+        parent_key = "tech_saas"
+    elif raw in ("ecommerce", "e-commerce", "retail", "shopify", "bumpa", "fashion", "beauty", "consumer_goods", "d2c"):
+        parent_key = "ecommerce"
+    elif raw in ("food", "restaurant", "hospitality", "food_beverage", "bakery", "cafe"):
+        parent_key = "food"
+    elif any(k in raw for k in ("shop", "store", "commerce", "retail", "fashion", "beauty")):
+        parent_key = "ecommerce"
+    elif any(k in raw for k in ("food", "restaurant", "cafe", "kitchen", "meal", "drink")):
+        parent_key = "food"
+    elif any(k in raw for k in ("tech", "software", "saas", "cloud", "app", "platform", "fintech")):
+        parent_key = "tech_saas"
+    else:
+        parent_key = raw.replace(" ", "_")
+    if not raw_sub:
+        return parent_key
+    sub = raw_sub.replace("&", "and").replace("/", " ").replace("-", " ")
+    sub = "_".join([p for p in sub.split() if p])
+    return f"{parent_key}__{sub}" if sub else parent_key
 
 
 async def _load_design_playbook_for_industry(db: AsyncSession, industry_key: str) -> dict | None:
@@ -489,6 +499,18 @@ async def _load_design_playbook_for_industry(db: AsyncSession, industry_key: str
             .limit(1)
         )
     ).scalar_one_or_none()
+    if not industry and "__" in industry_key:
+        parent_key = industry_key.split("__", 1)[0]
+        industry = (
+            await db.execute(
+                select(DesignPlaybookIndustry)
+                .where(
+                    DesignPlaybookIndustry.key == parent_key,
+                    DesignPlaybookIndustry.is_active.is_(True),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
     if not industry:
         return None
     content_types = (
@@ -1975,6 +1997,7 @@ def _brand_to_dict(brand: Brand) -> dict:
         # ── Core identity ──────────────────────────────────────────────
         "name": brand.name or "My Brand",
         "industry": brand.industry or "General",
+        "sub_industry": getattr(brand, "sub_industry", None),
         "description": brand.description or "",
         "website": brand.website or "",
         "location": brand.location or "",

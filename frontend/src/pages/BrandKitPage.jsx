@@ -10,6 +10,7 @@ import { normalizeHex } from '../lib/brandVisualValidate'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 import LogoCropModal from '../components/brand/LogoCropModal'
 import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
+import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 
 const TABS = ['Basics', 'Products', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
 
@@ -701,7 +702,10 @@ export default function BrandKitPage() {
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
-          <p className="text-ink/40 text-sm">{brand.name} · {brand.industry || 'No industry set'}</p>
+          <p className="text-ink/40 text-sm">
+            {brand.name} · {brand.industry || 'No industry set'}
+            {brand.sub_industry ? ` · ${brand.sub_industry}` : ''}
+          </p>
         </div>
         <button onClick={save} disabled={saving}
           className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
@@ -745,12 +749,27 @@ export default function BrandKitPage() {
                 <div>
                   <label className={`${labelCls} mb-2`}>Industry</label>
                   <ScoreBadge score={S.industry} />
-                  <select value={form.industry || ''} onChange={e => set('industry', e.target.value)}
+                  <select value={form.industry || ''} onChange={e => setForm((f) => ({ ...f, industry: e.target.value, sub_industry: '' }))}
                     className={clsx(inpCls, 'cursor-pointer mt-2')}>
                     <option value="">Select industry…</option>
-                    {['Marketing & Creative','E-commerce','Fashion & Beauty','Tech & SaaS','Health & Wellness',
-                      'Finance','Real Estate','Education','Entertainment','Church & Ministry','Other'].map(i => (
+                    {INDUSTRIES.map(i => (
                       <option key={i}>{i}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className={`${labelCls} mb-2`}>Sub-industry</label>
+                  <select
+                    value={form.sub_industry || ''}
+                    onChange={e => set('sub_industry', e.target.value)}
+                    className={clsx(inpCls, 'cursor-pointer')}
+                    disabled={!form.industry}
+                  >
+                    <option value="">{form.industry ? 'Select sub-industry…' : 'Choose industry first'}</option>
+                    {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
+                      <option key={sub} value={sub}>{sub}</option>
                     ))}
                   </select>
                 </div>

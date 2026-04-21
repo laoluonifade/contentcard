@@ -184,6 +184,24 @@ export default function TemplatesPage() {
     return DESIGN_TYPE_LABELS[key] || key.replace(/_/g, ' ')
   }
   const contentTemplateType = (t) => t?.design_spec?.content_template_type || t.category
+  const blueprintFields = (t) => {
+    const spec = t?.design_spec && typeof t.design_spec === 'object' ? t.design_spec : {}
+    const slot = spec.slot_contract && typeof spec.slot_contract === 'object' ? spec.slot_contract : {}
+    const palette = Array.isArray(spec.palette_lock) ? spec.palette_lock.filter(Boolean).slice(0, 4) : []
+    const peopleStyle = spec.people_style || activeBrand?.brand_kit?.visual_system?.image_people_style || 'mixed'
+    return {
+      playbookContentType: spec.playbook_content_type || contentTemplateType(t),
+      contentTemplateType: spec.content_template_type || contentTemplateType(t),
+      designTemplateType: spec.design_template_type || inferDesignType(t),
+      visualType: spec.visual_type || 'mixed',
+      visualArchetype: spec.visual_archetype || 'general_social',
+      peopleStyle,
+      logoZone: spec.logo_zone || spec.logo_safe_zone || 'lower_right',
+      palette,
+      slot,
+      visualDirection: spec.visual_direction || t.generated_visual_direction || t.description || '',
+    }
+  }
 
   if (!activeBrandId) {
     return (
@@ -358,6 +376,27 @@ export default function TemplatesPage() {
                       <span className="px-2 py-0.5 rounded-md border border-fog bg-surface capitalize">{t.category}</span>
                       <span className="px-2 py-0.5 rounded-md border border-fog bg-surface capitalize">{t.recurrence}</span>
                     </div>
+                    <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
+                      {(() => {
+                        const bp = blueprintFields(t)
+                        return (
+                          <>
+                            <span className="px-2 py-1 rounded-md border border-fog bg-surface text-ink/60">
+                              Content: {String(bp.contentTemplateType).replace(/_/g, ' ')}
+                            </span>
+                            <span className="px-2 py-1 rounded-md border border-fog bg-surface text-ink/60">
+                              Design: {String(bp.designTemplateType).replace(/_/g, ' ')}
+                            </span>
+                            <span className="px-2 py-1 rounded-md border border-fog bg-surface text-ink/60 capitalize">
+                              Visual: {bp.visualType.replace(/_/g, ' ')}
+                            </span>
+                            <span className="px-2 py-1 rounded-md border border-fog bg-surface text-ink/60 capitalize">
+                              Archetype: {bp.visualArchetype.replace(/_/g, ' ')}
+                            </span>
+                          </>
+                        )
+                      })()}
+                    </div>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-fog text-ink/40'}`}>
@@ -430,6 +469,61 @@ export default function TemplatesPage() {
                     <span className="font-semibold text-ink">Recurrence:</span> <span className="capitalize">{viewingTemplate.recurrence}</span>
                   </div>
                 </div>
+                {(() => {
+                  const bp = blueprintFields(viewingTemplate)
+                  return (
+                    <>
+                      <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[11px]">
+                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                          <span className="font-semibold text-ink">Playbook content type:</span>{' '}
+                          <span className="capitalize">{String(bp.playbookContentType || 'general').replace(/_/g, ' ')}</span>
+                        </div>
+                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                          <span className="font-semibold text-ink">Content template type:</span>{' '}
+                          <span className="capitalize">{String(bp.contentTemplateType || 'general').replace(/_/g, ' ')}</span>
+                        </div>
+                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                          <span className="font-semibold text-ink">Design template type:</span>{' '}
+                          <span className="capitalize">{String(bp.designTemplateType || 'general_social').replace(/_/g, ' ')}</span>
+                        </div>
+                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                          <span className="font-semibold text-ink">Logo zone:</span>{' '}
+                          <span className="capitalize">{String(bp.logoZone).replace(/_/g, ' ')}</span>
+                        </div>
+                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                          <span className="font-semibold text-ink">Visual type:</span>{' '}
+                          <span className="capitalize">{String(bp.visualType).replace(/_/g, ' ')}</span>
+                        </div>
+                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                          <span className="font-semibold text-ink">Visual archetype:</span>{' '}
+                          <span className="capitalize">{String(bp.visualArchetype).replace(/_/g, ' ')}</span>
+                        </div>
+                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                          <span className="font-semibold text-ink">People style:</span>{' '}
+                          <span className="capitalize">{String(bp.peopleStyle).replace(/_/g, ' ')}</span>
+                        </div>
+                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
+                          <span className="font-semibold text-ink">Slot contract:</span>{' '}
+                          h{bp.slot.headline_max_words || '—'} / s{bp.slot.support_max_words || '—'} / e{bp.slot.evidence_max_words || '—'} / c{bp.slot.cta_max_words || '—'}
+                        </div>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {(bp.palette.length ? bp.palette : ['#7c3aed']).map((c) => (
+                          <span key={c} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-fog bg-surface text-[10px] text-ink/60 font-mono">
+                            <span className="w-2.5 h-2.5 rounded-full border border-fog" style={{ background: c }} />
+                            {c}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="mt-2 rounded-lg border border-fog bg-surface px-3 py-2">
+                        <p className="text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-1">Visual direction from playbook</p>
+                        <p className="text-[11px] text-ink/70 leading-relaxed">
+                          {bp.visualDirection || 'No visual direction found.'}
+                        </p>
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
               <div className="grid sm:grid-cols-2 gap-3 text-xs">
                 <div className="rounded-xl border border-fog bg-mist/50 px-3 py-2 text-ink/70">

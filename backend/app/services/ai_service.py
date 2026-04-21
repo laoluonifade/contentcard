@@ -85,6 +85,24 @@ VISUAL_DIRECTION_DESIGN_TOKENS = (
 )
 
 
+def _industry_quality_playbook_block(industry: str | None) -> str:
+    bag = str(industry or "").lower()
+    if "fin" in bag or "bank" in bag or "payment" in bag or "remittance" in bag:
+        return (
+            "Benchmark quality target (fintech social campaigns):\n"
+            "• Build a recognisable visual system across the month: repeated brand geometry, disciplined palette rhythm, and consistent card craftsmanship.\n"
+            "• Keep outputs premium and strategic, not generic stock. Use product UI metaphors, payment objects, currency motion cues, trust symbols, and diaspora transfer context where relevant.\n"
+            "• Vary composition families intentionally across posts: hero portrait, product/device hero, infographic metaphor, split-scene comparison, and seasonal/cultural campaign cards.\n"
+            "• Every concept should look like an ad campaign frame, with clear focal hierarchy, supporting context props, and intentional negative space.\n"
+            "• Never return low-effort text-poster lookalikes. Even text-led ideas must be grounded in visual storytelling objects and designed scenes."
+        )
+    return (
+        "Benchmark quality target:\n"
+        "• Produce campaign-grade social visuals with clear system consistency and deliberate variety.\n"
+        "• Avoid generic stock outputs; every post should have a specific art-directed scene and composition logic."
+    )
+
+
 def _image_prompt_ending_for_style(ips: str) -> str:
     _logo_reserve = (
         "Reserve logo_safe_zone as calm negative space only — do not draw any logo, wordmark, or trademark "
@@ -847,6 +865,8 @@ When writing captions:
 • Honour all guardrails and regulatory constraints
 • First line must be a strong hook; never start with the brand name"""
 
+    quality_playbook = _industry_quality_playbook_block(industry)
+
     creative_brief = f"""Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
 
 Platform: {platform} ({platform_format})
@@ -892,12 +912,15 @@ HARD RULES:
 • visual_direction should plan final logo lockup placement and breathing room for compositing after generation, not an in-model logo
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
 • If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning
+• Ensure monthly composition variety: include at least one product/device hero, one lifestyle context scene, one abstract/graphic metaphor, and one trust-proof frame where batch size allows
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""
 
     if planner_addon.strip():
         creative_brief += f"\n\n=== USER / STRATEGIST ADD-ONS ===\n{planner_addon.strip()}\n"
+    if quality_playbook.strip():
+        creative_brief += f"\n\n=== BENCHMARK QUALITY PLAYBOOK ===\n{quality_playbook}\n"
 
     last_error = None
     for attempt in range(3):
@@ -997,6 +1020,7 @@ async def generate_monthly_plan(
 === BRAND IDENTITY ===
 Brand: {brand_name}
 Industry: {industry}
+Sub-industry: {_fmt(brand.get('sub_industry'))}
 Description: {_fmt(brand.get('description'))}
 Mission: {_fmt(brand.get('mission_statement'))}
 Value proposition: {_fmt(brand.get('value_proposition'))}
@@ -1197,6 +1221,7 @@ _ONBOARDING_PATCH_KEYS = frozenset(
     {
         "name",
         "industry",
+        "sub_industry",
         "description",
         "target_audience",
         "tone_tags",
@@ -1212,6 +1237,7 @@ _BRAND_KIT_TOP_PATCH_KEYS = frozenset(
     {
         "name",
         "industry",
+        "sub_industry",
         "description",
         "website",
         "location",
@@ -1529,7 +1555,7 @@ _BRAND_FORM_COACH_ONBOARDING = (
 MODE: onboarding (first-time brand profile).
 
 Allowed patch keys ONLY (omit any other key):
-name, industry, description, target_audience, tone_tags, language_style, personality_score,
+name, industry, sub_industry, description, target_audience, tone_tags, language_style, personality_score,
 instagram_handle, facebook_handle, twitter_handle.
 
 Industry MUST be exactly one of:
@@ -1555,7 +1581,7 @@ _BRAND_FORM_COACH_BRAND_KIT = (
 MODE: brand_kit (full brand profile in the app).
 
 Top-level patch keys allowed (omit others):
-name, industry, description, website, location, target_audience, audience_age_range, audience_location,
+name, industry, sub_industry, description, website, location, target_audience, audience_age_range, audience_location,
 pain_point, language_style, personality_score, brand_colors, design_style, brand_font, words_to_avoid,
 competitors, guidelines, instagram_handle, facebook_handle, twitter_handle, linkedin_handle.
 
@@ -1797,10 +1823,25 @@ async def generate_fresh_trends(industry: str | None = None, country_code: str |
     from datetime import date
     today = date.today().isoformat()
     industry_ctx = f" within the {industry} industry" if industry else ""
+    cc = (country_code or "NG").strip().upper()[:2]
+    cc_name = {
+        "NG": "Nigeria",
+        "GH": "Ghana",
+        "KE": "Kenya",
+        "ZA": "South Africa",
+        "US": "United States",
+        "GB": "United Kingdom",
+        "CA": "Canada",
+        "AU": "Australia",
+        "IN": "India",
+    }.get(cc, cc)
 
-    prompt = f"""Today is {today}. Generate 12 trending social media topics Nigerian brands should post about RIGHT NOW{industry_ctx}.
+    prompt = f"""Today is {today}. Generate 12 trending social media topics brands in {cc_name} should post about RIGHT NOW{industry_ctx}.
 
-Mix of Nigerian entertainment, fintech, lifestyle, relatable everyday experiences, pan-African pride, and global trends through a Nigerian lens.
+Source grounding requirement:
+- Prioritize developments from the last 7 days in {cc_name}: local headlines, policy shifts, business news, creator/consumer behavior, culture, and sports/entertainment.
+- Keep trends location-aware for {cc_name}, then blend in global topics only when they are actively discussed in {cc_name}.
+- Avoid stale evergreen themes unless they are currently re-surfacing in recent local news cycles.
 
 Return a JSON object with a single key "trends" containing an array of exactly 12 objects:
 {{"trends": [{{"topic": "...", "description": "...", "volume": "...", "badge": "viral|rising|steady"}}]}}
@@ -1809,7 +1850,7 @@ Rules: topic 2-5 words titlecase, description one sentence, volume e.g. "4.2M po
 
     raw = await _openai_chat(
         messages=[
-            {"role": "system", "content": f"You are a senior Nigerian digital strategist tracking real-time trends. Today is {today}. Return ONLY valid JSON."},
+            {"role": "system", "content": f"You are a senior social strategist tracking real-time trends in {cc_name}. Today is {today}. Return ONLY valid JSON."},
             {"role": "user", "content": prompt},
         ],
         max_tokens=2000,

@@ -415,6 +415,8 @@ async def generate_post_images(
         return [cover_url]
 
     # ── Carousel — cover + body slides + CTA with explicit copy hierarchy
+    # Keep the same AI background reference across every slide so each carousel
+    # preserves one cohesive theme/style/vibe from the first generated visual.
     urls = [cover_url]
     copy_plan = _carousel_copy_plan(post_data, slide_count)
 
@@ -431,6 +433,7 @@ async def generate_post_images(
                     cp.get("headline", f"Point {i + 1}"),
                     cp.get("body", ""),
                     brand_dict,
+                    background_image_url=cover_bg_url,
                     art_brief=ab,
                     family=fam,
                 ),
@@ -444,6 +447,7 @@ async def generate_post_images(
                 cta.get("headline", "Take action today"),
                 cta.get("body", ""),
                 brand_dict,
+                background_image_url=cover_bg_url,
                 art_brief=ab,
                 family=fam,
             ),

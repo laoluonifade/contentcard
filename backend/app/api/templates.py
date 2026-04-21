@@ -46,6 +46,9 @@ def _industry_key_from_value(value: str | None) -> str:
         "church & ministry": "church_ministry",
         "events & hospitality": "events_hospitality",
         "legal & professional services": "legal_professional_services",
+        "professional services": "professional_services",
+        "travel & hospitality": "travel_hospitality",
+        "media & entertainment": "media_entertainment",
         "other": "other",
     }
     if raw in aliases:
@@ -112,6 +115,27 @@ async def _load_industry_playbook(db: AsyncSession, industry_value: str | None) 
         if options:
             payload["content_types"].append({"name": ct.name, "options": options})
     return payload if payload["content_types"] else None
+
+
+def _resolve_playbook_key(industry_value: str | None, sub_industry_value: str | None = None) -> str:
+    parent = _industry_key_from_value(industry_value)
+    sub = str(sub_industry_value or "").strip().lower().replace("&", "and").replace("/", " ").replace("-", " ")
+    sub = "_".join([p for p in sub.split() if p])
+    return f"{parent}__{sub}" if sub else parent
+
+
+async def _load_industry_playbook_resolved(
+    db: AsyncSession,
+    industry_value: str | None,
+    sub_industry_value: str | None = None,
+) -> dict | None:
+    key = _resolve_playbook_key(industry_value, sub_industry_value)
+    playbook = await _load_industry_playbook(db, key)
+    if playbook:
+        return playbook
+    if "__" in key:
+        return await _load_industry_playbook(db, key.split("__", 1)[0])
+    return None
 
 
 async def _check_brand_access(brand_id: str, user_id: str, db: AsyncSession, need_editor=True) -> Brand:
@@ -191,7 +215,7 @@ async def bootstrap_default_templates(
     if existing and not body.force:
         return [TemplateOut.model_validate(t) for t in existing]
 
-    playbook = await _load_industry_playbook(db, brand.industry)
+    playbook = await _load_industry_playbook_resolved(db, brand.industry, getattr(brand, "sub_industry", None))
     defaults = build_default_templates(brand, current_user.country_code, playbook=playbook)
     created: list[ContentTemplate] = []
     for spec in defaults:
