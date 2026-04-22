@@ -900,17 +900,24 @@ async def _render_with_quality_gate(
         grounding_entity_type = str(
             grounding.get("entity_type") or grounding_payload.get("entity_type") or ""
         ).lower()
-        should_use_product_bg = bool(product_bg_url) and (
+        # Never use raw website product photos as the final slide background.
+        # They can be low-res or poorly framed. Instead, always generate a designed
+        # hero visual grounded by product context and references.
+        if bool(product_bg_url) and (
             fam in ("product_hero", "promo", "announcement")
             or str(render_post.get("visual_type") or "").lower() == "product"
             or grounding_entity_type == "product"
-        )
-        if should_use_product_bg:
-            item.image_url = product_bg_url
-        else:
-            bg_urls = await generate_post_image(render_post, brand_dict)
-            if bg_urls:
-                item.image_url = bg_urls[0]
+        ):
+            render_post["quality_gate_notes"] = " ".join(
+                x for x in [
+                    str(render_post.get("quality_gate_notes") or "").strip(),
+                    "Use product references as creative grounding only. Build a fresh ad-grade composition; do not reuse raw product photo pixels.",
+                ] if x
+            ).strip()
+
+        bg_urls = await generate_post_image(render_post, brand_dict)
+        if bg_urls:
+            item.image_url = bg_urls[0]
 
         bb_urls = await generate_post_images(render_post, brand_dict, background_image_url=item.image_url or None)
         if bb_urls:
@@ -951,8 +958,10 @@ async def _render_with_quality_gate(
         "Fallback mode: clean layout, strong hierarchy, low clutter, ad-style readability."
     )
     try:
-        fallback_bg = str(fallback_post.get("product_image_url") or "").strip() or None
-        item.image_url = fallback_bg
+        # Fallback should still prefer designed output. Avoid passing raw website
+        # product image directly as final background.
+        fallback_bg = None
+        item.image_url = None
         bb_urls = await generate_post_images(fallback_post, brand_dict, background_image_url=fallback_bg)
         if bb_urls:
             item.image_urls = bb_urls
