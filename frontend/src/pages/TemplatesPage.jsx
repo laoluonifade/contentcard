@@ -630,36 +630,6 @@ export default function TemplatesPage() {
                       </span>
                     ))}
                   </div>
-                  <div className="w-full rounded-xl border border-fog mb-3 bg-mist/40 px-3 py-3">
-                    <p className="text-[10px] uppercase tracking-wide text-ink/45 font-semibold">Playbook spec</p>
-                    <p className="text-sm font-bold leading-tight text-ink mt-1">{previewTitle(t)}</p>
-                    <p className="text-[11px] text-ink/55 mt-0.5">{previewSubtitle(t)}</p>
-                    <div className="mt-2 flex items-center gap-2 text-[10px] text-ink/50">
-                      <span className="px-2 py-0.5 rounded-md border border-fog bg-surface capitalize">{t.category}</span>
-                      <span className="px-2 py-0.5 rounded-md border border-fog bg-surface capitalize">{t.recurrence}</span>
-                    </div>
-                    <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px]">
-                      {(() => {
-                        const bp = blueprintFields(t)
-                        return (
-                          <>
-                            <span className="px-2 py-1 rounded-md border border-fog bg-surface text-ink/60">
-                              Content: {String(bp.contentTemplateType).replace(/_/g, ' ')}
-                            </span>
-                            <span className="px-2 py-1 rounded-md border border-fog bg-surface text-ink/60">
-                              Design: {String(bp.designTemplateType).replace(/_/g, ' ')}
-                            </span>
-                            <span className="px-2 py-1 rounded-md border border-fog bg-surface text-ink/60 capitalize">
-                              Visual: {bp.visualType.replace(/_/g, ' ')}
-                            </span>
-                            <span className="px-2 py-1 rounded-md border border-fog bg-surface text-ink/60 capitalize">
-                              Archetype: {bp.visualArchetype.replace(/_/g, ' ')}
-                            </span>
-                          </>
-                        )
-                      })()}
-                    </div>
-                  </div>
                   <div className="flex items-center justify-between">
                     <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-fog text-ink/40'}`}>
                       {t.is_active ? 'Active' : 'Paused'}
