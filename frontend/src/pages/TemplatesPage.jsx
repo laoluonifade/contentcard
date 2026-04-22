@@ -489,7 +489,7 @@ export default function TemplatesPage() {
               </div>
             </div>
           )}
-          {filtered.length === 0 ? (
+          {filtered.length === 0 && !templatePlaybookCatalog ? (
             <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
               <p className="text-ink/40 text-sm mb-4">
                 No playbook items yet. Add one for recurring content like weekly services, monthly sales, or product
@@ -502,7 +502,7 @@ export default function TemplatesPage() {
                 <Plus size={15} /> Create first playbook item
               </button>
             </div>
-          ) : (
+          ) : filtered.length > 0 ? (
             <div className="grid md:grid-cols-2 gap-4">
               {filtered.map((t) => (
                 <div
@@ -606,7 +606,7 @@ export default function TemplatesPage() {
                 </div>
               ))}
             </div>
-          )}
+          ) : null}
         </div>
 
         <aside className="space-y-2 xl:sticky xl:top-24 order-first xl:order-none">
