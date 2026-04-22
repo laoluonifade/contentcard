@@ -328,6 +328,7 @@ def _cover_mods(
     art_brief: dict | None = None,
     family: str = "default",
     post_data: dict | None = None,
+    prefer_explicit_copy: bool = False,
 ) -> list[dict]:
     fam = family or "default"
     bg_hex = _primary_color(brand_dict)
@@ -335,8 +336,12 @@ def _cover_mods(
         bg_hex = art_brief["dominant_colors_from_tokens"][0]
     brand_name = _clean_inline(brand_dict.get("name") or "", 40)
     ma = (post_data or {}).get("message_architecture") if isinstance((post_data or {}).get("message_architecture"), dict) else {}
-    headline = _clean_inline(ma.get("hook") or topic, _copy_limit(fam, "headline", 68))
-    subtitle = _clean_inline(ma.get("support") or (_split_caption_sentences(caption) or [""])[0], _copy_limit(fam, "subtitle", 96))
+    if prefer_explicit_copy:
+        headline = _clean_inline(topic, _copy_limit(fam, "headline", 68))
+        subtitle = _clean_inline(caption, _copy_limit(fam, "subtitle", 96))
+    else:
+        headline = _clean_inline(ma.get("hook") or topic, _copy_limit(fam, "headline", 68))
+        subtitle = _clean_inline(ma.get("support") or (_split_caption_sentences(caption) or [""])[0], _copy_limit(fam, "subtitle", 96))
     if not subtitle:
         subtitle = "Swipe for details"
     mods = [
@@ -487,6 +492,7 @@ async def generate_post_images(
                         ab,
                         family=fam,
                         post_data=post_data,
+                        prefer_explicit_copy=True,
                     ),
                 )
             )
@@ -506,6 +512,7 @@ async def generate_post_images(
                     ab,
                     family=fam,
                     post_data=post_data,
+                    prefer_explicit_copy=True,
                 ),
             )
         )
