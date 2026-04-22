@@ -587,6 +587,87 @@ async def _upload_to_cloudinary(
         return None
 
 
+async def _upload_gif_to_cloudinary(gif_bytes: bytes, post_topic: str, *, public_suffix: str | None = None) -> str | None:
+    if not all([settings.CLOUDINARY_CLOUD_NAME, settings.CLOUDINARY_API_KEY, settings.CLOUDINARY_API_SECRET]):
+        logger.warning("Cloudinary not configured; GIF URL will not be persisted")
+        return None
+    try:
+        import cloudinary
+        import cloudinary.uploader
+
+        cloudinary.config(
+            cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+            api_key=settings.CLOUDINARY_API_KEY,
+            api_secret=settings.CLOUDINARY_API_SECRET,
+        )
+        safe_topic = "".join(c if c.isalnum() or c in "-_" else "-" for c in (post_topic or "gif-post"))[:40]
+        suffix = public_suffix or "anim"
+        public_id = f"{safe_topic}-{suffix}"
+        public_id = "".join(c if c.isalnum() or c in "-_" else "-" for c in public_id)[:120]
+        result = cloudinary.uploader.upload(
+            gif_bytes,
+            folder="contentcard/generated-gifs",
+            public_id=public_id,
+            resource_type="image",
+            format="gif",
+            overwrite=False,
+        )
+        return result.get("secure_url")
+    except Exception as e:
+        logger.error("Cloudinary GIF upload failed: %s", e)
+        return None
+
+
+async def create_loop_gif_from_image_url(image_url: str, topic: str) -> str | None:
+    """
+    Create a lightweight looping GIF from a still render.
+    This is intentionally subtle (small zoom + pan) to avoid noisy motion.
+    """
+    if not image_url:
+        return None
+    try:
+        import httpx
+        from PIL import Image
+
+        async with httpx.AsyncClient(timeout=90) as client:
+            r = await client.get(image_url, follow_redirects=True)
+            if r.status_code != 200:
+                return None
+        src = Image.open(io.BytesIO(r.content)).convert("RGB")
+        w, h = src.size
+        if w < 10 or h < 10:
+            return None
+
+        frames = []
+        frame_count = 10
+        for i in range(frame_count):
+            t = i / max(1, frame_count - 1)
+            zoom = 1.0 + (0.06 * t)
+            crop_w = int(w / zoom)
+            crop_h = int(h / zoom)
+            dx = int((w - crop_w) * (0.15 + 0.7 * t))
+            dy = int((h - crop_h) * (0.12 + 0.6 * t))
+            dx = max(0, min(dx, w - crop_w))
+            dy = max(0, min(dy, h - crop_h))
+            frame = src.crop((dx, dy, dx + crop_w, dy + crop_h)).resize((w, h), Image.LANCZOS)
+            frames.append(frame.convert("P", palette=Image.ADAPTIVE, colors=128))
+        out = io.BytesIO()
+        frames[0].save(
+            out,
+            format="GIF",
+            save_all=True,
+            append_images=frames[1:] + list(reversed(frames[1:-1])),
+            duration=90,
+            loop=0,
+            optimize=True,
+        )
+        uid = uuid.uuid4().hex[:12]
+        return await _upload_gif_to_cloudinary(out.getvalue(), topic or "gif-post", public_suffix=uid)
+    except Exception as e:
+        logger.warning("create_loop_gif_from_image_url failed: %s", e)
+        return None
+
+
 async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | None = None) -> str | None:
     """
     Download a rendered image (e.g. Bannerbear PNG), composite the brand logo from

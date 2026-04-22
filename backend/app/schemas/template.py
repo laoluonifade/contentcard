@@ -21,6 +21,7 @@ class TemplateCreate(BaseModel):
     country_code: str | None = None
     business_type: str | None = None
     is_system_default: bool = False
+    design_spec: dict | None = None
 
 
 class TemplateUpdate(TemplateCreate):

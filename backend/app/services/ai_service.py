@@ -65,7 +65,7 @@ HARD CONSTRAINTS (violating any of these is a failure):
 # ── Output validation ──────────────────────────────────────────────────────────
 
 REQUIRED_POST_FIELDS = {"caption", "date", "format"}
-VALID_FORMATS = {"single", "carousel", "quote"}
+VALID_FORMATS = {"single", "carousel", "quote", "gif"}
 VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
 VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
 VALID_LOGO_SAFE_ZONES = frozenset({"upper_left", "upper_right", "lower_left", "lower_right"})
@@ -459,7 +459,12 @@ def _validate_posts(
 
         # Coerce format (playbook assignment takes priority)
         if assigned:
-            fmt = "carousel" if str(assigned.get("post_type") or "") == "carousel" else "single"
+            assigned_post_type = "carousel" if str(assigned.get("post_type") or "") == "carousel" else "single"
+            requested_fmt = str(post.get("format", "single")).lower()
+            if assigned_post_type == "single" and requested_fmt == "gif":
+                fmt = "gif"
+            else:
+                fmt = assigned_post_type
         else:
             fmt = str(post.get("format", "single")).lower()
         if fmt not in VALID_FORMATS:
@@ -531,7 +536,7 @@ def _validate_posts(
         if not post.get("topic"):
             post["topic"] = post.get("content_idea", "")
         topic_lc = str(post.get("topic") or "").lower()
-        if post["format"] in ("single", "quote") and any(t in topic_lc for t in TEASER_STYLE_WORDS):
+        if post["format"] in ("single", "gif", "quote") and any(t in topic_lc for t in TEASER_STYLE_WORDS):
             post["format"] = "carousel"
             post["slide_count"] = max(3, int(post.get("slide_count", 3)))
 
@@ -890,8 +895,8 @@ For EACH post return ALL these fields:
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
 10. visual_type: {_visual_type_rule_for_style(ips)}
 11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story"; must align with content_type and visual_type (for abstract prefer pattern_headline or flat_edu; for product prefer photo_hero)
-12. format: must match post_type assignment (single->"single", carousel->"carousel")
-13. slide_count: 1 for single, 2-5 for carousel
+12. format: must match post_type assignment (single->"single" or "gif", carousel->"carousel")
+13. slide_count: 1 for single or gif, 2-5 for carousel
 14. date: posting date in YYYY-MM-DD format exactly as listed above
 15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
 
@@ -904,8 +909,9 @@ HARD RULES:
 • If a draft visual direction resembles a previous pattern in this batch, rewrite it to be clearly different before returning
 • NEVER use words from the words_to_avoid list
 • NEVER produce generic AI-sounding captions
-• If format is "single" or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next"
+• If format is "single", "gif", or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next"
 • Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely
+• Use "gif" for selected high-energy moments (product reveal, testimonial proof pulse, quick before/after) when motion would improve scroll-stopping impact, without requiring full video
 • topic must equal content_idea exactly
 {_hard_visual_type_rule(ips)}
 • image_prompt must never ask for text, titles, or captions, or for any drawn logo or wordmark; reserve logo_safe_zone only
@@ -1726,7 +1732,9 @@ async def run_brand_form_coach_chat(
 
 _PREP_CHAT_SYSTEM = """You are a friendly strategist helping prepare one calendar month of social posts.
 Ask one or two short, concrete questions at a time (product updates, launches, promos, screenshots, events, partnerships, seasonal angles).
-When you have enough to brief a copywriter, reply with 3 to 6 bullet lines summarising what to emphasise, then say the user can open Generate when ready.
+Ask for clarification screenshots or short screen recordings (under 1 minute) whenever visual context is missing.
+When a plan is ready, present 3 to 6 concise bullet points and include a clear CTA to approve or modify.
+Use playbook context from the user's templates as the source of truth for what content types to prepare.
 Stay under the brand's industry; never invent product facts.
 Do not use long dash, en dash, or two hyphens in a row as punctuation in your replies. Use commas or periods instead."""
 
@@ -1735,11 +1743,32 @@ Respond ONLY with valid JSON (no markdown fences) using exactly this shape:
 {
   "message": "your reply to the user as plain text",
   "choices": [{"id": "short_snake_id", "label": "short button label"}],
+  "questions": [
+    {
+      "id": "short_snake_id",
+      "prompt": "question text",
+      "field_key": "launch_date",
+      "input_type": "select",
+      "options": ["This week", "Next week", "Not sure"],
+      "accept": null,
+      "required": true
+    }
+  ],
+  "cta": {"label": "Approve and generate now", "action": "start_generation"},
   "design_intent": {"action": "none", "scope": "none", "reason": "optional short note"}
 }
 
 Rules for choices: 0 to 4 objects. Each id must be a short snake_case token; each label under 60 characters.
 Use choices for quick follow-ups (yes/no, pick a focus, confirm a date range).
+Rules for questions:
+- 0 to 3 question objects per response.
+- Prefer input_type "select" with 2-6 options so users can answer quickly.
+- Use input_type "upload" when screenshot or screen recording is needed for clarity.
+- For upload questions, set accept to image, recording, or either, and keep options empty.
+- Keep field_key short snake_case and stable per topic (e.g. cta_offer, product_screen, proof_asset).
+Rules for cta:
+- Use action "start_generation" only when enough context exists to generate high-quality posts.
+- Otherwise set cta null or action "none".
 Rules for design_intent:
 - action is "none" unless the user clearly wants new graphics or a visual refresh for existing posts.
 - If they want refreshed designs for posts they will select on the calendar, set action to "regenerate_visuals" and scope to "selected".
@@ -1748,7 +1777,14 @@ Rules for design_intent:
 """
 
 
-async def run_generation_prep_chat(brand: dict, month: int, year: int, messages: list[dict]) -> dict:
+async def run_generation_prep_chat(
+    brand: dict,
+    month: int,
+    year: int,
+    messages: list[dict],
+    *,
+    playbook_summary: str | None = None,
+) -> dict:
     import calendar
 
     mn = calendar.month_name[month]
@@ -1758,6 +1794,8 @@ async def run_generation_prep_chat(brand: dict, month: int, year: int, messages:
         f"Calendar month: {mn} {year}.\n"
         f"Brand: {bn}. Industry: {brand.get('industry', 'General')}."
     )
+    if playbook_summary and str(playbook_summary).strip():
+        intro += f"\n\nBrand playbook templates:\n{str(playbook_summary).strip()}"
     msgs: list[dict] = [
         {"role": "system", "content": intro},
         {"role": "system", "content": _visual_system_prompt_block(brand)},
@@ -1814,7 +1852,51 @@ async def run_generation_prep_chat(brand: dict, month: int, year: int, messages:
             "reason": reason.strip()[:500] if isinstance(reason, str) and reason.strip() else None,
         }
 
-    return {"message": message, "choices": choices_out, "design_intent": design_intent}
+    questions_out: list[dict] = []
+    for q in (data.get("questions") or [])[:3]:
+        if not isinstance(q, dict):
+            continue
+        qid = str(q.get("id") or "").strip()
+        prompt = str(q.get("prompt") or "").strip()
+        if not qid or not prompt:
+            continue
+        it = str(q.get("input_type") or "select").strip().lower()
+        if it not in ("select", "upload"):
+            it = "select"
+        options = []
+        if it == "select":
+            options = [str(o).strip() for o in (q.get("options") or []) if str(o).strip()][:6]
+        acc = q.get("accept")
+        acc = str(acc).strip().lower() if isinstance(acc, str) and str(acc).strip() else None
+        if acc not in (None, "image", "recording", "either"):
+            acc = None
+        questions_out.append(
+            {
+                "id": qid[:64],
+                "prompt": prompt[:220],
+                "field_key": str(q.get("field_key") or "").strip()[:64] or None,
+                "input_type": it,
+                "options": options,
+                "accept": acc,
+                "required": bool(q.get("required")),
+            }
+        )
+
+    cta_out = None
+    cta = data.get("cta")
+    if isinstance(cta, dict):
+        lbl = str(cta.get("label") or "").strip()
+        act = str(cta.get("action") or "none").strip().lower()
+        if lbl and act in ("none", "start_generation"):
+            cta_out = {"label": lbl[:80], "action": act}
+
+    return {
+        "message": message,
+        "choices": choices_out,
+        "questions": questions_out,
+        "cta": cta_out,
+        "design_intent": design_intent,
+    }
 
 
 # ── Trends ─────────────────────────────────────────────────────────────────────

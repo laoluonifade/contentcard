@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Play, Pause, Trash2, Layers, Sparkles } from 'lucide-react'
+import { Plus, Play, Pause, Trash2, Layers, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
 import BrandFormCoachPanel, { mergeTemplateFormPatch } from '../components/brand/BrandFormCoachPanel'
@@ -26,6 +26,20 @@ const DESIGN_TYPE_LABELS = {
   general_social: 'General Social',
 }
 
+const TEMPLATE_ASSISTANT_MIN_KEY = 'contentcard.ui.templateAssistantMinimized'
+const DEFAULT_PLAYBOOK_SLOTS = [
+  { slot_key: 'VD01', post_type: 'single', visual_direction: '' },
+  { slot_key: 'VD02', post_type: 'single', visual_direction: '' },
+  { slot_key: 'VD03', post_type: 'single', visual_direction: '' },
+  { slot_key: 'VD04', post_type: 'single', visual_direction: '' },
+  { slot_key: 'VD05', post_type: 'single', visual_direction: '' },
+  { slot_key: 'VD06', post_type: 'carousel', visual_direction: '' },
+  { slot_key: 'VD07', post_type: 'carousel', visual_direction: '' },
+  { slot_key: 'VD08', post_type: 'carousel', visual_direction: '' },
+  { slot_key: 'VD09', post_type: 'carousel', visual_direction: '' },
+  { slot_key: 'VD10', post_type: 'carousel', visual_direction: '' },
+]
+
 const INITIAL_FORM = () => ({
   name: '',
   description: '',
@@ -38,6 +52,8 @@ const INITIAL_FORM = () => ({
   color: '#7c3aed',
   tone_tags: [],
   platforms: ['instagram', 'facebook', 'twitter'],
+  playbook_content_type: '',
+  visual_direction_slots: DEFAULT_PLAYBOOK_SLOTS.map((s) => ({ ...s })),
 })
 
 const buildSlotRows = (template) => {
@@ -68,7 +84,6 @@ export default function TemplatesPage() {
     createTemplate,
     updateTemplate,
     deleteTemplate,
-    bootstrapDefaultTemplates,
     templatePlaybookCatalog,
     fetchTemplatePlaybookCatalog,
   } = useAppStore()
@@ -79,11 +94,17 @@ export default function TemplatesPage() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [topicInput, setTopicInput] = useState('')
   const [customDatesText, setCustomDatesText] = useState('')
-  const [bootstrapping, setBootstrapping] = useState(false)
   const [viewingTemplate, setViewingTemplate] = useState(null)
+  const [templateDraft, setTemplateDraft] = useState(null)
   const [savingDirection, setSavingDirection] = useState(false)
   const [slotDrafts, setSlotDrafts] = useState([])
-  const autoBootstrapAttemptedRef = useRef({})
+  const [assistantMinimized, setAssistantMinimized] = useState(() => {
+    try {
+      return localStorage.getItem(TEMPLATE_ASSISTANT_MIN_KEY) === '1'
+    } catch {
+      return false
+    }
+  })
   const activeCount = (templates || []).filter((t) => t.is_active).length
   const activeBrand = useMemo(() => brands.find((b) => b.id === activeBrandId) || null, [brands, activeBrandId])
 
@@ -96,20 +117,23 @@ export default function TemplatesPage() {
   }, [activeBrandId])
 
   useEffect(() => {
-    if (!activeBrandId) return
-    if (!Array.isArray(templates)) return
-    if (templates.length > 0) return
-    if (bootstrapping) return
-    if (autoBootstrapAttemptedRef.current[activeBrandId]) return
-    autoBootstrapAttemptedRef.current[activeBrandId] = true
-    runBootstrapDefaults(false).catch(() => {})
-  }, [activeBrandId, templates, bootstrapping])
-
-  useEffect(() => {
     if (!viewingTemplate?.id) return
     const latest = (templates || []).find((t) => t.id === viewingTemplate.id)
     if (latest) setViewingTemplate(latest)
   }, [templates, viewingTemplate?.id])
+  useEffect(() => {
+    if (!viewingTemplate?.id) {
+      setTemplateDraft(null)
+      return
+    }
+    setTemplateDraft({
+      name: viewingTemplate.name || '',
+      description: viewingTemplate.description || '',
+      category: viewingTemplate.category || 'service',
+      recurrence: viewingTemplate.recurrence || 'weekly',
+      playbook_content_type: viewingTemplate?.design_spec?.playbook_content_type || '',
+    })
+  }, [viewingTemplate?.id])
   useEffect(() => {
     if (!viewingTemplate?.id) {
       setSlotDrafts([])
@@ -117,6 +141,15 @@ export default function TemplatesPage() {
     }
     setSlotDrafts(buildSlotRows(viewingTemplate))
   }, [viewingTemplate?.id, viewingTemplate?.design_spec])
+
+  const setAssistantMinimizedPersist = (next) => {
+    setAssistantMinimized(next)
+    try {
+      localStorage.setItem(TEMPLATE_ASSISTANT_MIN_KEY, next ? '1' : '0')
+    } catch {
+      /* ignore */
+    }
+  }
 
   const inferDesignType = (t) =>
     t?.design_spec?.design_template_type || 'general_social'
@@ -137,8 +170,18 @@ export default function TemplatesPage() {
     }
     setLoading(true)
     try {
+      const cleanedSlots = (form.visual_direction_slots || [])
+        .map((s, idx) => ({
+          slot_key: s?.slot_key || `VD${String(idx + 1).padStart(2, '0')}`,
+          post_type: s?.post_type === 'carousel' ? 'carousel' : 'single',
+          visual_direction: String(s?.visual_direction || '').trim(),
+        }))
+        .filter((s) => s.visual_direction)
+      const selected = cleanedSlots[0] || null
       const payload = {
         ...form,
+        playbook_content_type: undefined,
+        visual_direction_slots: undefined,
         recurrence_day_of_month:
           form.recurrence === 'monthly' && form.recurrence_day_of_month != null
             ? Math.min(31, Math.max(1, parseInt(form.recurrence_day_of_month, 10) || 1))
@@ -150,6 +193,16 @@ export default function TemplatesPage() {
                 .map((s) => s.trim())
                 .filter(Boolean)
             : [],
+        design_spec: {
+          playbook_content_type: form.playbook_content_type || form.name,
+          content_template_type: form.playbook_content_type || form.name,
+          design_template_type: 'playbook_standard',
+          playbook_visual_direction_slots: cleanedSlots,
+          playbook_visual_direction_count: cleanedSlots.length,
+          playbook_selected_slot_key: selected?.slot_key || null,
+          playbook_selected_post_type: selected?.post_type || null,
+          playbook_selected_visual_direction: selected?.visual_direction || null,
+        },
       }
       await createTemplate(payload)
       toast('Template created!')
@@ -191,26 +244,36 @@ export default function TemplatesPage() {
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
   const openNewTemplate = () => {
-    setCustomDatesText((form.custom_dates || []).join('\n'))
+    setForm(INITIAL_FORM())
+    setCustomDatesText('')
     setShowModal(true)
-  }
-
-  const runBootstrapDefaults = async (force = false) => {
-    if (!activeBrandId) return
-    setBootstrapping(true)
-    try {
-      await bootstrapDefaultTemplates({ force, generate_designs: false })
-      await fetchTemplatePlaybookCatalog().catch(() => {})
-      toast(force ? 'Default templates regenerated' : 'Default templates created')
-    } catch (err) {
-      toast(err.message || 'Failed to generate default templates', 'error')
-    } finally {
-      setBootstrapping(false)
-    }
   }
 
   const openTemplate = (template) => setViewingTemplate(template)
   const closeTemplate = () => setViewingTemplate(null)
+  const saveTemplateMeta = async (template) => {
+    if (!template?.id || !templateDraft) return
+    try {
+      setSavingDirection(true)
+      const spec = template?.design_spec && typeof template.design_spec === 'object' ? template.design_spec : {}
+      await updateTemplate(template.id, {
+        name: templateDraft.name || template.name,
+        description: templateDraft.description || '',
+        category: templateDraft.category || template.category,
+        recurrence: templateDraft.recurrence || template.recurrence,
+        design_spec: {
+          ...spec,
+          playbook_content_type: templateDraft.playbook_content_type || templateDraft.name || template.name,
+          content_template_type: templateDraft.playbook_content_type || templateDraft.name || template.name,
+        },
+      })
+      toast('Template playbook details updated')
+    } catch (err) {
+      toast(err.message || 'Failed to update template details', 'error')
+    } finally {
+      setSavingDirection(false)
+    }
+  }
   const savePreferredDirection = async (template, option, slotKey) => {
     if (!template?.id || !option?.visual_direction) return
     try {
@@ -266,6 +329,69 @@ export default function TemplatesPage() {
     } finally {
       setSavingDirection(false)
     }
+  }
+  const addSlotDraftRow = () => {
+    setSlotDrafts((prev) => {
+      if (prev.length >= 20) return prev
+      const idx = prev.length + 1
+      return [
+        ...prev,
+        {
+          slot_key: `VD${String(idx).padStart(2, '0')}`,
+          post_type: idx > 5 ? 'carousel' : 'single',
+          visual_direction: '',
+        },
+      ]
+    })
+  }
+  const addFormVisualDirectionSlot = () => {
+    setForm((f) => {
+      const slots = Array.isArray(f.visual_direction_slots) ? f.visual_direction_slots : []
+      if (slots.length >= 20) return f
+      const idx = slots.length + 1
+      return {
+        ...f,
+        visual_direction_slots: [
+          ...slots,
+          {
+            slot_key: `VD${String(idx).padStart(2, '0')}`,
+            post_type: idx > 5 ? 'carousel' : 'single',
+            visual_direction: '',
+          },
+        ],
+      }
+    })
+  }
+  const openNewTemplateFromCatalog = (contentType) => {
+    const name = String(contentType || '').trim()
+    if (!name) return openNewTemplate()
+    const existing = (templates || []).find(
+      (t) =>
+        String(t?.design_spec?.playbook_content_type || '').trim().toLowerCase() === name.toLowerCase() ||
+        String(t?.name || '').trim().toLowerCase() === name.toLowerCase()
+    )
+    if (existing) {
+      openTemplate(existing)
+      return
+    }
+    const fromCatalog = (templatePlaybookCatalog?.content_types || []).find(
+      (ct) => String(ct?.name || '').trim().toLowerCase() === name.toLowerCase()
+    )
+    const slots = (fromCatalog?.options || []).map((opt, idx) => ({
+      slot_key: `VD${String(idx + 1).padStart(2, '0')}`,
+      post_type: opt?.post_type === 'carousel' ? 'carousel' : 'single',
+      visual_direction: String(opt?.visual_direction || '').trim(),
+    }))
+    setForm((f) => ({
+      ...f,
+      name,
+      category: 'service',
+      description: `Playbook template for ${name}`,
+      playbook_content_type: name,
+      visual_direction_slots: slots.length ? slots : DEFAULT_PLAYBOOK_SLOTS.map((s) => ({ ...s })),
+    }))
+    setCustomDatesText('')
+    setShowModal(true)
   }
   const useTemplateForMonth = (templateId) => {
     navigate('/dashboard/generate', { state: { templateId } })
@@ -323,19 +449,12 @@ export default function TemplatesPage() {
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
-            Templates
+            Brand Playbook Templates
           </h1>
-          <p className="text-ink/40 text-sm">Editable content templates generated from your industry design playbook.</p>
+          <p className="text-ink/40 text-sm">Templates are your editable playbook for what content gets generated for this brand.</p>
           <p className="text-ink/30 text-xs mt-1">{activeCount} active template{activeCount === 1 ? '' : 's'} available</p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => runBootstrapDefaults(false)}
-            disabled={bootstrapping}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
-          >
-            <Sparkles size={15} /> {bootstrapping ? 'Generating…' : 'Generate industry defaults'}
-          </button>
           <button
             onClick={openNewTemplate}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
@@ -345,7 +464,7 @@ export default function TemplatesPage() {
         </div>
       </div>
 
-      <div className="grid xl:grid-cols-[1fr_min(360px,100%)] gap-8 items-start">
+      <div className={`grid gap-8 items-start ${assistantMinimized ? 'xl:grid-cols-[1fr_52px]' : 'xl:grid-cols-[1fr_min(360px,100%)]'}`}>
         <div className="min-w-0 space-y-6">
           {/* Category filter */}
           <div className="flex gap-2 flex-wrap">
@@ -373,11 +492,16 @@ export default function TemplatesPage() {
                 {(templatePlaybookCatalog.industry_name || 'Playbook')} · {(activeBrand?.sub_industry || 'General')}
               </p>
               <p className="text-xs text-ink/55 mt-0.5">
-                {(templatePlaybookCatalog.depth || []).length} content types in playbook
+                {(templatePlaybookCatalog.depth || []).length} content types in playbook (click one to view/edit or add to your brand playbook)
               </p>
               <div className="mt-3 grid md:grid-cols-2 gap-2">
                 {(templatePlaybookCatalog.depth || []).map((row) => (
-                  <div key={row.content_type} className="rounded-xl border border-fog bg-surface px-3 py-2">
+                  <button
+                    type="button"
+                    key={row.content_type}
+                    onClick={() => openNewTemplateFromCatalog(row.content_type)}
+                    className="rounded-xl border border-fog bg-surface px-3 py-2 text-left hover:border-brand-300 hover:bg-brand-500/5 transition-colors"
+                  >
                     <p className="text-xs font-semibold text-ink">{row.content_type}</p>
                     <p className="text-[11px] text-ink/55 mt-1">
                       {row.total_directions} directions · {row.single_count} single · {row.carousel_count} carousel
@@ -385,7 +509,7 @@ export default function TemplatesPage() {
                     <p className={`text-[10px] mt-1 font-semibold ${row.meets_minimum_depth ? 'text-emerald-500' : 'text-amber-500'}`}>
                       {row.meets_minimum_depth ? 'Depth ok' : 'Needs 10 total / 5+5 split'}
                     </p>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>
@@ -560,16 +684,42 @@ export default function TemplatesPage() {
         </div>
 
         <aside className="space-y-2 xl:sticky xl:top-24 order-first xl:order-none">
-          <BrandFormCoachPanel
-            mode="template"
-            brandId={activeBrandId}
-            formSnapshot={form}
-            onApplyPatch={(patch) => setForm((f) => mergeTemplateFormPatch(f, patch))}
-            className="min-h-[300px]"
-          />
-          <p className="text-[11px] text-ink/45 px-1">
-            Suggestions merge into the new-template form. Open <strong>New template</strong> to review fields, then save.
-          </p>
+          {assistantMinimized ? (
+            <button
+              type="button"
+              onClick={() => setAssistantMinimizedPersist(false)}
+              title="Expand template assistant"
+              aria-label="Expand template assistant"
+              className="w-[52px] h-[52px] rounded-xl border border-fog bg-surface hover:bg-mist flex items-center justify-center text-ink/55 hover:text-ink"
+            >
+              <PanelRightOpen size={18} />
+            </button>
+          ) : (
+            <div className="rounded-2xl border border-fog bg-surface p-2">
+              <div className="flex items-center justify-between px-1 pb-2">
+                <p className="text-sm font-semibold text-ink">Template assistant</p>
+                <button
+                  type="button"
+                  onClick={() => setAssistantMinimizedPersist(true)}
+                  title="Minimize template assistant"
+                  aria-label="Minimize template assistant"
+                  className="w-7 h-7 rounded-md border border-fog bg-mist hover:bg-fog flex items-center justify-center text-ink/55 hover:text-ink"
+                >
+                  <PanelRightClose size={14} />
+                </button>
+              </div>
+              <BrandFormCoachPanel
+                mode="template"
+                brandId={activeBrandId}
+                formSnapshot={form}
+                onApplyPatch={(patch) => setForm((f) => mergeTemplateFormPatch(f, patch))}
+                className="min-h-[300px]"
+              />
+              <p className="text-[11px] text-ink/45 px-1 pt-2">
+                Suggestions merge into the new-template form. Open <strong>New template</strong> to review fields, then save.
+              </p>
+            </div>
+          )}
         </aside>
       </div>
 
@@ -595,6 +745,33 @@ export default function TemplatesPage() {
               </button>
             </div>
             <div className="p-5 space-y-4">
+              <div className="grid sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-1">Template name</label>
+                  <input
+                    value={templateDraft?.name || ''}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), name: e.target.value }))}
+                    className="w-full h-9 rounded-lg border border-fog bg-surface px-2.5 text-xs text-ink focus:outline-none focus:border-brand-400"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-1">Playbook content type</label>
+                  <input
+                    value={templateDraft?.playbook_content_type || ''}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), playbook_content_type: e.target.value }))}
+                    className="w-full h-9 rounded-lg border border-fog bg-surface px-2.5 text-xs text-ink focus:outline-none focus:border-brand-400"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-1">Description</label>
+                  <textarea
+                    rows={2}
+                    value={templateDraft?.description || ''}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), description: e.target.value }))}
+                    className="w-full rounded-lg border border-fog bg-surface px-2.5 py-2 text-xs text-ink focus:outline-none focus:border-brand-400"
+                  />
+                </div>
+              </div>
               <div className="w-full rounded-2xl border border-fog bg-mist/40 px-5 py-4">
                 <p className="text-xs uppercase tracking-wide text-ink/45 font-semibold">Playbook blueprint</p>
                 <p className="text-2xl font-bold leading-tight text-ink mt-1">{previewTitle(viewingTemplate)}</p>
@@ -665,14 +842,24 @@ export default function TemplatesPage() {
                               Slot contract (VD01-VD10): edit and choose preferred slot
                             </p>
                             <div className="mb-2">
-                              <button
-                                type="button"
-                                disabled={savingDirection}
-                                onClick={() => saveSlotDirections(viewingTemplate)}
-                                className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold disabled:opacity-60"
-                              >
-                                Save slot edits
-                              </button>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  disabled={savingDirection}
+                                  onClick={() => saveSlotDirections(viewingTemplate)}
+                                  className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold disabled:opacity-60"
+                                >
+                                  Save slot edits
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={savingDirection}
+                                  onClick={addSlotDraftRow}
+                                  className="h-8 px-3 rounded-lg border border-fog bg-mist text-[11px] font-semibold text-ink/70 hover:text-ink disabled:opacity-60"
+                                >
+                                  Add visual direction
+                                </button>
+                              </div>
                             </div>
                             <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
                               {slotDrafts.map((opt, idx) => {
@@ -686,8 +873,19 @@ export default function TemplatesPage() {
                                   >
                                     <div className="flex items-center justify-between gap-2 mb-1">
                                       <p className="text-[10px] font-semibold text-ink/60 uppercase">
-                                        {opt.slot_key || `VD${String(idx + 1).padStart(2, '0')}`} · {opt.post_type || 'single'}
+                                        {opt.slot_key || `VD${String(idx + 1).padStart(2, '0')}`}
                                       </p>
+                                      <select
+                                        value={opt.post_type || 'single'}
+                                        onChange={(e) => {
+                                          const value = e.target.value === 'carousel' ? 'carousel' : 'single'
+                                          setSlotDrafts((prev) => prev.map((s, sIdx) => (sIdx === idx ? { ...s, post_type: value } : s)))
+                                        }}
+                                        className="h-6 rounded-md border border-fog bg-surface px-1.5 text-[10px] text-ink/70"
+                                      >
+                                        <option value="single">single</option>
+                                        <option value="carousel">carousel</option>
+                                      </select>
                                       <button
                                         type="button"
                                         disabled={savingDirection}
@@ -728,6 +926,14 @@ export default function TemplatesPage() {
               </div>
             </div>
             <div className="flex justify-end gap-3 px-5 py-4 border-t border-fog">
+              <button
+                type="button"
+                disabled={savingDirection}
+                onClick={() => saveTemplateMeta(viewingTemplate)}
+                className="h-10 px-4 rounded-xl border border-fog bg-mist hover:bg-fog text-ink text-sm font-semibold disabled:opacity-60"
+              >
+                Save playbook changes
+              </button>
               <button
                 type="button"
                 onClick={() => useTemplateForMonth(viewingTemplate.id)}
@@ -771,6 +977,67 @@ export default function TemplatesPage() {
                   placeholder="What this recurring pattern is for…"
                   className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-sm focus:outline-none focus:border-brand-400 transition-colors resize-none"
                 />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Playbook content type</label>
+                <input
+                  value={form.playbook_content_type || ''}
+                  onChange={(e) => setForm((f) => ({ ...f, playbook_content_type: e.target.value }))}
+                  placeholder="e.g. Testimonial, Product Update, Myth vs Fact"
+                  className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-sm focus:outline-none focus:border-brand-400 transition-colors"
+                />
+              </div>
+              <div className="rounded-xl border border-fog bg-mist/30 px-3 py-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40">
+                    Visual directions (your playbook slots)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={addFormVisualDirectionSlot}
+                    className="h-7 px-2.5 rounded-lg border border-fog bg-surface text-[11px] font-semibold text-ink/70 hover:text-ink"
+                  >
+                    Add direction
+                  </button>
+                </div>
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                  {(form.visual_direction_slots || []).map((slot, idx) => (
+                    <div key={`${slot.slot_key}-${idx}`} className="rounded-lg border border-fog bg-surface px-2 py-2">
+                      <div className="flex items-center justify-between gap-2 mb-1.5">
+                        <p className="text-[10px] font-semibold text-ink/60 uppercase">{slot.slot_key || `VD${String(idx + 1).padStart(2, '0')}`}</p>
+                        <select
+                          value={slot.post_type || 'single'}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              visual_direction_slots: (f.visual_direction_slots || []).map((s, sIdx) =>
+                                sIdx === idx ? { ...s, post_type: e.target.value === 'carousel' ? 'carousel' : 'single' } : s
+                              ),
+                            }))
+                          }
+                          className="h-6 rounded-md border border-fog bg-surface px-1.5 text-[10px] text-ink/70"
+                        >
+                          <option value="single">single</option>
+                          <option value="carousel">carousel</option>
+                        </select>
+                      </div>
+                      <textarea
+                        rows={2}
+                        value={slot.visual_direction || ''}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            visual_direction_slots: (f.visual_direction_slots || []).map((s, sIdx) =>
+                              sIdx === idx ? { ...s, visual_direction: e.target.value } : s
+                            ),
+                          }))
+                        }
+                        className="w-full rounded-md border border-fog bg-surface px-2 py-1 text-[11px] text-ink/75 focus:outline-none focus:border-brand-400"
+                        placeholder="Describe the visual direction for this slot..."
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Category</label>
@@ -964,7 +1231,7 @@ export default function TemplatesPage() {
                 disabled={loading}
                 className="px-5 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors"
               >
-                {loading ? 'Saving…' : 'Save template'}
+                {loading ? 'Saving…' : 'Save to playbook'}
               </button>
             </div>
           </div>

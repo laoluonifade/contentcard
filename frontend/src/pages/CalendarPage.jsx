@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check,
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
-import { contentApi, holidaysApi } from '../api'
+import { contentApi, holidaysApi, uploadApi } from '../api'
 import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
@@ -209,6 +209,12 @@ function CalendarPrepBody({
   onExecuteDesignIntent,
   prepExecuteBusy,
   activeBrandId,
+  onUploadAsset,
+  prepUploadingAsset,
+  prepQuestionAnswers,
+  onQuestionPick,
+  onQuestionUpload,
+  onRunCta,
 }) {
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -244,6 +250,88 @@ function CalendarPrepBody({
                 ))}
               </div>
             )}
+            {m.role === 'assistant' && Array.isArray(m.questions) && m.questions.length > 0 && (
+              <div className="mt-2 pt-2 border-t border-fog/70 space-y-2">
+                {m.questions.map((q) => {
+                  const answer = prepQuestionAnswers?.[q.id] || {}
+                  const keyLabel = q.field_key ? ` (${q.field_key})` : ''
+                  if (q.input_type === 'upload') {
+                    const accept =
+                      q.accept === 'image'
+                        ? 'image/*'
+                        : q.accept === 'recording'
+                          ? 'video/mp4,video/webm,video/quicktime'
+                          : 'image/*,video/mp4,video/webm,video/quicktime'
+                    return (
+                      <div key={q.id} className="rounded-lg border border-fog bg-surface px-2 py-2">
+                        <p className="text-[11px] font-semibold text-ink/70 mb-1">
+                          {q.prompt}
+                          {keyLabel}
+                        </p>
+                        <div className="flex gap-1.5 mb-1.5">
+                          <select
+                            value={answer.asset_type || ''}
+                            onChange={(e) => onQuestionPick(q, e.target.value, true)}
+                            className="h-7 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
+                          >
+                            <option value="">Choose upload type…</option>
+                            {(q.accept === 'image' ? ['Screenshot'] : q.accept === 'recording' ? ['Screen recording'] : ['Screenshot', 'Screen recording']).map((opt) => (
+                              <option key={opt} value={opt}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <input
+                          type="file"
+                          accept={accept}
+                          disabled={prepUploadingAsset || !answer.asset_type}
+                          onChange={(e) => onQuestionUpload(q, e.target.files?.[0] || null, answer.asset_type)}
+                          className="block w-full text-[11px] text-ink/60 file:mr-2 file:rounded-md file:border file:border-fog file:bg-surface file:px-2.5 file:py-1 file:text-[11px] file:font-semibold file:text-ink/70"
+                        />
+                      </div>
+                    )
+                  }
+                  return (
+                    <div key={q.id} className="rounded-lg border border-fog bg-surface px-2 py-2">
+                      <p className="text-[11px] font-semibold text-ink/70 mb-1">
+                        {q.prompt}
+                        {keyLabel}
+                      </p>
+                      <select
+                        value={answer.value || ''}
+                        onChange={(e) => onQuestionPick(q, e.target.value)}
+                        className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
+                      >
+                        <option value="">Select answer…</option>
+                        {(q.options || []).map((opt) => (
+                          <option key={opt} value={opt}>
+                            {opt}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {m.role === 'assistant' &&
+              (m.cta?.action === 'start_generation' || i === messages.length - 1) && (
+              <div className="mt-2 pt-2 border-t border-fog/70">
+                <select
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value === 'generate') onRunCta(m.cta || { action: 'start_generation', label: 'Generate posts now' })
+                    e.target.value = ''
+                  }}
+                  className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
+                >
+                  <option value="">{m.cta?.label || 'Choose next action…'}</option>
+                  <option value="generate">Generate posts now</option>
+                  <option value="modify">Modify context first</option>
+                </select>
+              </div>
+            )}
             {m.role === 'assistant' && m.design_intent?.action === 'regenerate_visuals' && (
               <div className="mt-2 pt-2 border-t border-fog/70 space-y-1.5">
                 <button
@@ -274,6 +362,17 @@ function CalendarPrepBody({
         )}
       </div>
       <div className="p-3 border-t border-fog bg-mist/50">
+        <div className="mb-2">
+          <label className="text-[11px] text-ink/45 font-semibold block mb-1">Attach screenshot or screen recording (max 1 min)</label>
+          <input
+            type="file"
+            accept="image/*,video/mp4,video/webm,video/quicktime"
+            disabled={!activeBrandId || prepSending || prepUploadingAsset}
+            onChange={(e) => onUploadAsset(e.target.files?.[0] || null)}
+            className="block w-full text-[11px] text-ink/60 file:mr-2 file:rounded-md file:border file:border-fog file:bg-surface file:px-2.5 file:py-1 file:text-[11px] file:font-semibold file:text-ink/70"
+          />
+          {prepUploadingAsset && <p className="text-[10px] text-ink/40 mt-1">Uploading asset…</p>}
+        </div>
         <textarea
           value={prepInput}
           onChange={(e) => setPrepInput(e.target.value)}
@@ -335,6 +434,8 @@ export default function CalendarPage() {
   const [prepInput, setPrepInput] = useState('')
   const [prepSending, setPrepSending] = useState(false)
   const [prepExecuteBusy, setPrepExecuteBusy] = useState(false)
+  const [prepUploadingAsset, setPrepUploadingAsset] = useState(false)
+  const [prepQuestionAnswers, setPrepQuestionAnswers] = useState({})
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
   const [prepMinimized, setPrepMinimized] = useState(() => {
     try {
@@ -404,6 +505,7 @@ export default function CalendarPage() {
 
   useEffect(() => {
     setPrepMessages([])
+    setPrepQuestionAnswers({})
     setSelectedIds(new Set())
     setSelectMode(false)
     setSelectedDate('')
@@ -645,6 +747,8 @@ export default function CalendarPage() {
           role: 'assistant',
           content: data.message || '',
           choices: data.choices || [],
+          questions: data.questions || [],
+          cta: data.cta || null,
           design_intent: data.design_intent || null,
         },
       ])
@@ -657,6 +761,88 @@ export default function CalendarPage() {
   }
 
   const sendPrep = () => sendPrepWithText(prepInput)
+
+  const uploadPrepAsset = async (file) => {
+    if (!file || !activeBrandId || prepUploadingAsset) return
+    const isVideo = String(file.type || '').startsWith('video/')
+    if (isVideo) {
+      const durationOk = await new Promise((resolve) => {
+        try {
+          const v = document.createElement('video')
+          v.preload = 'metadata'
+          v.onloadedmetadata = () => {
+            URL.revokeObjectURL(v.src)
+            resolve((v.duration || 0) <= 60)
+          }
+          v.onerror = () => resolve(true)
+          v.src = URL.createObjectURL(file)
+        } catch {
+          resolve(true)
+        }
+      })
+      if (!durationOk) {
+        toast('Screen recording must be 60 seconds or less.', 'error')
+        return
+      }
+    }
+    setPrepUploadingAsset(true)
+    try {
+      const res = await uploadApi.prepAsset(file, isVideo ? 'recording' : 'screenshot')
+      const kind = res?.kind || (isVideo ? 'recording' : 'screenshot')
+      const url = String(res?.url || '').trim()
+      if (!url) throw new Error('No uploaded URL returned')
+      const msg = `Attached ${kind}: ${url}`
+      await sendPrepWithText(msg)
+    } catch (e) {
+      toast(e.response?.data?.detail || e.message || 'Upload failed', 'error')
+    } finally {
+      setPrepUploadingAsset(false)
+    }
+  }
+
+  const answerPrepQuestion = async (question, value, isAssetType = false) => {
+    if (!question?.id || !value) return
+    const qid = String(question.id)
+    if (isAssetType) {
+      setPrepQuestionAnswers((prev) => ({
+        ...prev,
+        [qid]: { ...(prev[qid] || {}), asset_type: value },
+      }))
+      return
+    }
+    setPrepQuestionAnswers((prev) => ({
+      ...prev,
+      [qid]: { ...(prev[qid] || {}), value },
+    }))
+    const key = question.field_key ? ` (${question.field_key})` : ''
+    await sendPrepWithText(`Answer${key}: ${value}`)
+  }
+
+  const uploadPrepAssetForQuestion = async (question, file, assetType) => {
+    if (!question || !file || !assetType || prepUploadingAsset || !activeBrandId) return
+    const normalizedType = String(assetType).toLowerCase().includes('record') ? 'recording' : 'screenshot'
+    setPrepUploadingAsset(true)
+    try {
+      const res = await uploadApi.prepAsset(file, normalizedType)
+      const url = String(res?.url || '').trim()
+      if (!url) throw new Error('No uploaded URL returned')
+      const key = question.field_key ? ` (${question.field_key})` : ''
+      await sendPrepWithText(`Upload${key} ${normalizedType}: ${url}`)
+      setPrepQuestionAnswers((prev) => ({
+        ...prev,
+        [question.id]: { ...(prev[question.id] || {}), uploaded_url: url, asset_type: assetType },
+      }))
+    } catch (e) {
+      toast(e.response?.data?.detail || e.message || 'Upload failed', 'error')
+    } finally {
+      setPrepUploadingAsset(false)
+    }
+  }
+
+  const runPrepCtaAction = async (cta) => {
+    if (!cta || cta.action !== 'start_generation') return
+    await handleGenerate()
+  }
 
   const requestPrepGenerationUpdate = async (kind, extra = {}) => {
     if (!activeBrandId || prepGenUpdateBusyRef.current) return
@@ -692,6 +878,8 @@ export default function CalendarPage() {
           role: 'assistant',
           content: data.message || '',
           choices: data.choices || [],
+          questions: data.questions || [],
+          cta: data.cta || null,
           design_intent: data.design_intent || null,
           meta: { kind: 'generation_status' },
           extra,
@@ -1012,6 +1200,12 @@ export default function CalendarPage() {
             onExecuteDesignIntent={executePrepDesignIntent}
             prepExecuteBusy={prepExecuteBusy}
             activeBrandId={activeBrandId}
+            onUploadAsset={uploadPrepAsset}
+            prepUploadingAsset={prepUploadingAsset}
+            prepQuestionAnswers={prepQuestionAnswers}
+            onQuestionPick={answerPrepQuestion}
+            onQuestionUpload={uploadPrepAssetForQuestion}
+            onRunCta={runPrepCtaAction}
           />
         </div>
       </details>
@@ -1335,6 +1529,12 @@ export default function CalendarPage() {
                 onExecuteDesignIntent={executePrepDesignIntent}
                 prepExecuteBusy={prepExecuteBusy}
                 activeBrandId={activeBrandId}
+                onUploadAsset={uploadPrepAsset}
+                prepUploadingAsset={prepUploadingAsset}
+                prepQuestionAnswers={prepQuestionAnswers}
+                onQuestionPick={answerPrepQuestion}
+                onQuestionUpload={uploadPrepAssetForQuestion}
+                onRunCta={runPrepCtaAction}
               />
             </div>
           </>

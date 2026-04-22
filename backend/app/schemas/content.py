@@ -41,6 +41,21 @@ class PrepChatChoice(BaseModel):
     label: str
 
 
+class PrepChatQuestion(BaseModel):
+    id: str
+    prompt: str
+    field_key: str | None = None
+    input_type: str = "select"  # select | upload
+    options: list[str] = Field(default_factory=list)
+    accept: str | None = None  # image | recording | either
+    required: bool = False
+
+
+class PrepChatCta(BaseModel):
+    label: str
+    action: str = "none"  # none | start_generation
+
+
 class PrepChatDesignIntent(BaseModel):
     """Structured hint from the prep model so the UI can offer a one-click visual refresh."""
 
@@ -52,6 +67,8 @@ class PrepChatDesignIntent(BaseModel):
 class GenerationPrepChatResponse(BaseModel):
     message: str
     choices: list[PrepChatChoice] = Field(default_factory=list)
+    questions: list[PrepChatQuestion] = Field(default_factory=list)
+    cta: PrepChatCta | None = None
     design_intent: PrepChatDesignIntent | None = None
 
 
