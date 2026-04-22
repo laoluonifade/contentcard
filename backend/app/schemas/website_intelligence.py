@@ -62,11 +62,26 @@ class WebsiteProductOut(BaseModel):
     product_type: str | None = None
     vendor: str | None = None
     tags: list[str] = []
-    sync_state: str = "unchanged"  # new | updated | unchanged
+    sync_state: str = "unchanged"  # new | updated | unchanged | manual
+    source_kind: str = "website"   # website | manual
     last_change_type: str | None = None
     last_change_at: datetime | None = None
     first_seen_at: datetime
     last_seen_at: datetime
+
+
+class WebsiteProductCreateRequest(BaseModel):
+    title: str
+    summary: str | None = None
+    source_url: str | None = None
+    image_url: str | None = None
+    price: str | None = None
+    compare_at_price: str | None = None
+    currency: str | None = None
+    availability: str | None = None
+    product_type: str | None = None
+    vendor: str | None = None
+    tags: list[str] = []
 
 
 class WebsiteChangeEventOut(BaseModel):

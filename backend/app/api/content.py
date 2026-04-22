@@ -835,6 +835,40 @@ async def _brand_product_image_pool(db: AsyncSession, brand_id: str, limit: int 
     return dedup[:60]
 
 
+async def _brand_product_grounding_pool(db: AsyncSession, brand_id: str, limit: int = 200) -> list[dict]:
+    rows = (
+        await db.execute(
+            select(WebsiteEntity)
+            .where(
+                WebsiteEntity.brand_id == brand_id,
+                WebsiteEntity.entity_type == "product",
+                WebsiteEntity.is_active.is_(True),
+            )
+            .order_by(WebsiteEntity.last_seen_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    out: list[dict] = []
+    for row in rows:
+        attrs = row.attributes if isinstance(row.attributes, dict) else {}
+        urls = _collect_product_image_urls(attrs)
+        if not urls:
+            continue
+        out.append(
+            {
+                "entity_id": row.id,
+                "entity_type": "product",
+                "entity_title": row.title,
+                "source_url": row.source_url,
+                "product_image_url": urls[0],
+                "product_image_urls": urls[:8],
+                "product_price": attrs.get("price"),
+                "product_availability": attrs.get("availability") or attrs.get("status"),
+            }
+        )
+    return out[:60]
+
+
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
     """Burn logo onto final cover (Bannerbear) or raster-only hero — never rely on the image model for logos."""
     logo_required = has_brand_logo(brand_dict)
@@ -2079,6 +2113,7 @@ async def _do_generate_month(
                         approved_map[key] = op
             used_approved_ids: set[str] = set()
             brand_product_images = await _brand_product_image_pool(db, brand_id)
+            brand_product_grounding_pool = await _brand_product_grounding_pool(db, brand_id)
             enforce_product_imagery = _is_product_based_brand(brand_dict)
             product_img_idx = 0
 
@@ -2113,15 +2148,43 @@ async def _do_generate_month(
                     brand_id,
                     matched_op if isinstance(matched_op, dict) else None,
                 )
-                if enforce_product_imagery and (not product_ctx or not product_ctx.get("product_image_url")) and brand_product_images:
-                    fallback_img = brand_product_images[product_img_idx % len(brand_product_images)]
-                    product_img_idx += 1
-                    fallback_urls = [fallback_img]
-                    product_ctx = {
-                        **(product_ctx or {}),
-                        "product_image_url": fallback_img,
-                        "product_image_urls": fallback_urls,
-                    }
+                if enforce_product_imagery and (not product_ctx or not product_ctx.get("product_image_url")):
+                    if brand_product_grounding_pool:
+                        fallback_ground = brand_product_grounding_pool[product_img_idx % len(brand_product_grounding_pool)]
+                        product_img_idx += 1
+                        product_ctx = {
+                            **(product_ctx or {}),
+                            "product_image_url": fallback_ground.get("product_image_url"),
+                            "product_image_urls": fallback_ground.get("product_image_urls") or [],
+                            "product_price": fallback_ground.get("product_price"),
+                            "product_availability": fallback_ground.get("product_availability"),
+                        }
+                        # Ensure prompt grounding has a concrete product identity even
+                        # when no approved opportunity was mapped.
+                        if not matched_op:
+                            matched_op = {
+                                "entity_id": fallback_ground.get("entity_id"),
+                                "entity_type": "product",
+                                "entity_title": fallback_ground.get("entity_title"),
+                                "source_url": fallback_ground.get("source_url"),
+                                "payload": {
+                                    "entity_id": fallback_ground.get("entity_id"),
+                                    "entity_type": "product",
+                                    "entity_title": fallback_ground.get("entity_title"),
+                                    "source_url": fallback_ground.get("source_url"),
+                                    "price": fallback_ground.get("product_price"),
+                                    "availability": fallback_ground.get("product_availability"),
+                                },
+                            }
+                    elif brand_product_images:
+                        fallback_img = brand_product_images[product_img_idx % len(brand_product_images)]
+                        product_img_idx += 1
+                        fallback_urls = [fallback_img]
+                        product_ctx = {
+                            **(product_ctx or {}),
+                            "product_image_url": fallback_img,
+                            "product_image_urls": fallback_urls,
+                        }
                 if product_ctx:
                     enriched.update(product_ctx)
                 if isinstance(matched_op, dict):

@@ -104,6 +104,10 @@ export const brandApi = {
     api.get(`/workspaces/${wsId}/brands/${brandId}/website/entities`, { params }).then(r => r.data),
   websiteProducts: (wsId, brandId, params = {}) =>
     api.get(`/workspaces/${wsId}/brands/${brandId}/website/products`, { params }).then(r => r.data),
+  createWebsiteProduct: (wsId, brandId, data) =>
+    api.post(`/workspaces/${wsId}/brands/${brandId}/website/products`, data).then(r => r.data),
+  deleteWebsiteProduct: (wsId, brandId, productId) =>
+    api.delete(`/workspaces/${wsId}/brands/${brandId}/website/products/${productId}`).then(r => r.data),
   websiteChanges: (wsId, brandId, params = {}) =>
     api.get(`/workspaces/${wsId}/brands/${brandId}/website/changes`, { params }).then(r => r.data),
   websiteOpportunities: (wsId, brandId, params = {}) =>

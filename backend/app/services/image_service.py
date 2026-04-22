@@ -123,6 +123,9 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     product_grounding_bits = []
     if grounded_product_title:
         product_grounding_bits.append(f"Grounded product: {grounded_product_title}.")
+        product_grounding_bits.append(
+            f"Depict this exact menu/product line ({grounded_product_title}) as the hero, not a generic substitute."
+        )
     if product_price:
         product_grounding_bits.append(f"Product price context: {product_price}.")
     if product_availability:

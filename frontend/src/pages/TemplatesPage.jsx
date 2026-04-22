@@ -1,20 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Play, Pause, Trash2, Layers, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { Plus, Play, Pause, Trash2, Layers } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
-import BrandFormCoachPanel, { mergeTemplateFormPatch } from '../components/brand/BrandFormCoachPanel'
-
-const CATEGORIES = ['all', 'product', 'event', 'service', 'seasonal']
-const CAT_LABELS = {
-  all: 'All',
-  product: 'Products & Sales',
-  event: 'Events',
-  service: 'Weekly Services',
-  seasonal: 'Seasonal',
-}
-
-const TEMPLATE_ASSISTANT_MIN_KEY = 'contentcard.ui.templateAssistantMinimized'
 const DEFAULT_PLAYBOOK_SLOTS = [
   { slot_key: 'VD01', post_type: 'single', visual_direction: '' },
   { slot_key: 'VD02', post_type: 'single', visual_direction: '' },
@@ -75,7 +63,6 @@ export default function TemplatesPage() {
     templatePlaybookCatalog,
     fetchTemplatePlaybookCatalog,
   } = useAppStore()
-  const [filter, setFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(INITIAL_FORM)
@@ -85,13 +72,6 @@ export default function TemplatesPage() {
   const [templateDraft, setTemplateDraft] = useState(null)
   const [savingDirection, setSavingDirection] = useState(false)
   const [slotDrafts, setSlotDrafts] = useState([])
-  const [assistantMinimized, setAssistantMinimized] = useState(() => {
-    try {
-      return localStorage.getItem(TEMPLATE_ASSISTANT_MIN_KEY) === '1'
-    } catch {
-      return false
-    }
-  })
   const activeCount = (templates || []).filter((t) => t.is_active).length
   const activeBrand = useMemo(() => brands.find((b) => b.id === activeBrandId) || null, [brands, activeBrandId])
 
@@ -129,19 +109,7 @@ export default function TemplatesPage() {
     setSlotDrafts(buildSlotRows(viewingTemplate))
   }, [viewingTemplate?.id, viewingTemplate?.design_spec])
 
-  const setAssistantMinimizedPersist = (next) => {
-    setAssistantMinimized(next)
-    try {
-      localStorage.setItem(TEMPLATE_ASSISTANT_MIN_KEY, next ? '1' : '0')
-    } catch {
-      /* ignore */
-    }
-  }
-
-  const filtered = (templates || []).filter((t) => {
-    const categoryMatch = filter === 'all' ? true : t.category === filter
-    return categoryMatch
-  })
+  const filtered = templates || []
 
   const save = async () => {
     if (!form.name.trim()) {
@@ -439,25 +407,280 @@ export default function TemplatesPage() {
         </div>
       </div>
 
-      <div className={`grid gap-8 items-start ${assistantMinimized ? 'xl:grid-cols-[1fr_52px]' : 'xl:grid-cols-[1fr_min(360px,100%)]'}`}>
-        <div className="min-w-0 space-y-6">
-          {/* Category filter */}
-          <div className="flex gap-2 flex-wrap">
-            {CATEGORIES.map((c) => (
-              <button
-                key={c}
-                onClick={() => setFilter(c)}
-                className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-all ${
-                  filter === c
-                    ? 'border-brand-400 bg-brand-500/10 text-brand-600'
-                    : 'border-fog text-ink/40 hover:border-zinc-600 hover:text-ink/70'
-                }`}
-              >
-                {CAT_LABELS[c]}
-              </button>
-            ))}
+      {showModal && (
+        <div className="mb-8 bg-surface border border-fog rounded-2xl overflow-hidden">
+          <div className="flex items-center justify-between p-5 border-b border-fog">
+            <div>
+              <h2 className="text-ink font-bold">Add playbook item</h2>
+              <p className="text-xs text-ink/45 mt-1">Create and tune a full playbook item with all slots in one page.</p>
+            </div>
+            <button
+              onClick={() => setShowModal(false)}
+              className="px-3 py-2 rounded-lg border border-fog bg-mist text-ink/70 hover:text-ink text-sm font-semibold"
+            >
+              Back to playbook
+            </button>
           </div>
+          <div className="p-5 space-y-4">
+            <div className="grid lg:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Name</label>
+                <input
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Sunday Service, Monthly Sale…"
+                  className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-sm focus:outline-none focus:border-brand-400 transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Playbook content type</label>
+                <input
+                  value={form.playbook_content_type || ''}
+                  onChange={(e) => setForm((f) => ({ ...f, playbook_content_type: e.target.value }))}
+                  placeholder="e.g. Testimonial, Product Update, Myth vs Fact"
+                  className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-sm focus:outline-none focus:border-brand-400 transition-colors"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Description</label>
+              <textarea
+                value={form.description || ''}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                rows={2}
+                placeholder="What this recurring pattern is for…"
+                className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-sm focus:outline-none focus:border-brand-400 transition-colors resize-none"
+              />
+            </div>
+            <div className="rounded-xl border border-fog bg-mist/30 px-3 py-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40">Visual directions (your playbook slots)</label>
+                <button
+                  type="button"
+                  onClick={addFormVisualDirectionSlot}
+                  className="h-7 px-2.5 rounded-lg border border-fog bg-surface text-[11px] font-semibold text-ink/70 hover:text-ink"
+                >
+                  Add direction
+                </button>
+              </div>
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                {(form.visual_direction_slots || []).map((slot, idx) => (
+                  <div key={`${slot.slot_key}-${idx}`} className="rounded-lg border border-fog bg-surface px-2 py-2">
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <p className="text-[10px] font-semibold text-ink/60 uppercase">{slot.slot_key || `VD${String(idx + 1).padStart(2, '0')}`}</p>
+                      <select
+                        value={slot.post_type || 'single'}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            visual_direction_slots: (f.visual_direction_slots || []).map((s, sIdx) =>
+                              sIdx === idx ? { ...s, post_type: e.target.value === 'carousel' ? 'carousel' : 'single' } : s
+                            ),
+                          }))
+                        }
+                        className="h-6 rounded-md border border-fog bg-surface px-1.5 text-[10px] text-ink/70"
+                      >
+                        <option value="single">single</option>
+                        <option value="carousel">carousel</option>
+                      </select>
+                    </div>
+                    <textarea
+                      rows={2}
+                      value={slot.visual_direction || ''}
+                      onChange={(e) =>
+                        setForm((f) => ({
+                          ...f,
+                          visual_direction_slots: (f.visual_direction_slots || []).map((s, sIdx) =>
+                            sIdx === idx ? { ...s, visual_direction: e.target.value } : s
+                          ),
+                        }))
+                      }
+                      className="w-full rounded-md border border-fog bg-surface px-2 py-1 text-[11px] text-ink/75 focus:outline-none focus:border-brand-400"
+                      placeholder="Describe the visual direction for this slot..."
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="grid lg:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Category</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {['product', 'event', 'service', 'seasonal'].map((c) => (
+                    <button
+                      key={c}
+                      onClick={() => setForm((f) => ({ ...f, category: c }))}
+                      className={`py-2 rounded-xl text-xs font-semibold border capitalize transition-all ${
+                        form.category === c ? 'border-brand-400 bg-brand-500/10 text-brand-600' : 'border-fog text-ink/40 hover:border-zinc-600'
+                      }`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Recurrence</label>
+                <div className="flex gap-2 flex-wrap">
+                  {['daily', 'weekly', 'monthly', 'yearly', 'custom'].map((r) => (
+                    <button
+                      key={r}
+                      onClick={() => setForm((f) => ({ ...f, recurrence: r }))}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize transition-all ${
+                        form.recurrence === r ? 'border-brand-400 bg-brand-500/10 text-brand-600' : 'border-fog text-ink/40 hover:border-zinc-600'
+                      }`}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {form.recurrence === 'weekly' && (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Days of week</label>
+                <div className="flex gap-2 flex-wrap">
+                  {DAYS.map((d, i) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() =>
+                        setForm((f) => ({
+                          ...f,
+                          recurrence_days: f.recurrence_days.includes(i)
+                            ? f.recurrence_days.filter((x) => x !== i)
+                            : [...f.recurrence_days, i],
+                        }))
+                      }
+                      className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${
+                        form.recurrence_days.includes(i) ? 'bg-brand-500 text-white' : 'bg-fog text-ink/40 hover:bg-mist'
+                      }`}
+                    >
+                      {d[0]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {form.recurrence === 'monthly' && (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Day of month (1-31)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={form.recurrence_day_of_month ?? ''}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      recurrence_day_of_month: e.target.value === '' ? null : parseInt(e.target.value, 10) || 1,
+                    }))
+                  }
+                  className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink text-sm focus:outline-none focus:border-brand-400"
+                />
+              </div>
+            )}
+            {form.recurrence === 'custom' && (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Custom dates (one YYYY-MM-DD per line)</label>
+                <textarea
+                  value={customDatesText}
+                  onChange={(e) => setCustomDatesText(e.target.value)}
+                  rows={3}
+                  placeholder={'2026-05-01\n2026-05-15'}
+                  className="w-full px-3 py-2 bg-mist border border-fog rounded-xl text-ink text-xs font-mono focus:outline-none focus:border-brand-400"
+                />
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Platforms</label>
+              <div className="flex gap-2 flex-wrap">
+                {['instagram', 'facebook', 'twitter', 'linkedin'].map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() =>
+                      setForm((f) => ({
+                        ...f,
+                        platforms: f.platforms.includes(p) ? f.platforms.filter((x) => x !== p) : [...f.platforms, p],
+                      }))
+                    }
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize transition-all ${
+                      form.platforms.includes(p) ? 'border-brand-400 bg-brand-500/10 text-brand-600' : 'border-fog text-ink/40 hover:border-zinc-600'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Topics in rotation</label>
+              <div className="flex gap-2 mb-2">
+                <input
+                  value={topicInput}
+                  onChange={(e) => setTopicInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addTopic()}
+                  placeholder="Type a topic and press Enter"
+                  className="flex-1 px-3 py-2 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-xs focus:outline-none focus:border-brand-400 transition-colors"
+                />
+                <button onClick={addTopic} className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold rounded-xl">
+                  Add
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {form.topics.map((tp) => (
+                  <span key={tp} className="flex items-center gap-1 text-xs px-2 py-1 bg-brand-500/10 text-brand-600 rounded-lg">
+                    {tp}
+                    <button
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, topics: f.topics.filter((t) => t !== tp) }))}
+                      className="text-brand-500 hover:text-brand-600"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Color label</label>
+              <div className="flex gap-2 flex-wrap">
+                {['#7c3aed', '#E1306C', '#10b981', '#1877F2', '#f59e0b', '#e879f9', '#14b8a6'].map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, color: c }))}
+                    className={`w-7 h-7 rounded-lg transition-all ${
+                      form.color === c ? 'ring-2 ring-white ring-offset-1 ring-offset-zinc-900' : ''
+                    }`}
+                    style={{ background: c }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                onClick={() => setShowModal(false)}
+                className="px-4 py-2.5 bg-fog hover:bg-mist text-ink/70 text-sm font-semibold rounded-xl transition-colors border border-fog"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={loading}
+                className="px-5 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors"
+              >
+                {loading ? 'Saving…' : 'Save to playbook'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
+      {!showModal && (
+      <div className="space-y-6">
+        <div className="min-w-0 space-y-6">
           {templatePlaybookCatalog && (
             <div className="rounded-2xl border border-fog bg-mist/40 px-4 py-3">
               <p className="text-xs uppercase tracking-wide text-ink/45 font-semibold">
@@ -493,7 +716,7 @@ export default function TemplatesPage() {
             <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
               <p className="text-ink/40 text-sm mb-4">
                 No playbook items yet. Add one for recurring content like weekly services, monthly sales, or product
-                launches. Use the assistant on the right to draft a pattern, then open Add playbook item to review and save.
+                launches. Open Add playbook item to draft and save your first pattern.
               </p>
               <button
                 onClick={openNewTemplate}
@@ -609,45 +832,8 @@ export default function TemplatesPage() {
           ) : null}
         </div>
 
-        <aside className="space-y-2 xl:sticky xl:top-24 order-first xl:order-none">
-          {assistantMinimized ? (
-            <button
-              type="button"
-              onClick={() => setAssistantMinimizedPersist(false)}
-              title="Expand template assistant"
-              aria-label="Expand template assistant"
-              className="w-[52px] h-[52px] rounded-xl border border-fog bg-surface hover:bg-mist flex items-center justify-center text-ink/55 hover:text-ink"
-            >
-              <PanelRightOpen size={18} />
-            </button>
-          ) : (
-            <div className="rounded-2xl border border-fog bg-surface p-2">
-              <div className="flex items-center justify-between px-1 pb-2">
-                <p className="text-sm font-semibold text-ink">Template assistant</p>
-                <button
-                  type="button"
-                  onClick={() => setAssistantMinimizedPersist(true)}
-                  title="Minimize template assistant"
-                  aria-label="Minimize template assistant"
-                  className="w-7 h-7 rounded-md border border-fog bg-mist hover:bg-fog flex items-center justify-center text-ink/55 hover:text-ink"
-                >
-                  <PanelRightClose size={14} />
-                </button>
-              </div>
-              <BrandFormCoachPanel
-                mode="template"
-                brandId={activeBrandId}
-                formSnapshot={form}
-                onApplyPatch={(patch) => setForm((f) => mergeTemplateFormPatch(f, patch))}
-                className="min-h-[300px]"
-              />
-              <p className="text-[11px] text-ink/45 px-1 pt-2">
-                Suggestions merge into the add-item form. Open <strong>Add playbook item</strong> to review fields, then save.
-              </p>
-            </div>
-          )}
-        </aside>
       </div>
+      )}
 
       {/* Add playbook item modal */}
       {viewingTemplate && (
@@ -868,297 +1054,6 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      {showModal && (
-        <div
-          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
-          onClick={(e) => e.target === e.currentTarget && setShowModal(false)}
-        >
-          <div className="bg-surface border border-fog rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-5 border-b border-fog sticky top-0 bg-surface">
-              <h2 className="text-ink font-bold">Add playbook item</h2>
-              <button onClick={() => setShowModal(false)} className="text-ink/40 hover:text-ink/70 text-xl">
-                ×
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Name</label>
-                <input
-                  value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                  placeholder="e.g. Sunday Service, Monthly Sale…"
-                  className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-sm focus:outline-none focus:border-brand-400 transition-colors"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Description</label>
-                <textarea
-                  value={form.description || ''}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  rows={2}
-                  placeholder="What this recurring pattern is for…"
-                  className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-sm focus:outline-none focus:border-brand-400 transition-colors resize-none"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Playbook content type</label>
-                <input
-                  value={form.playbook_content_type || ''}
-                  onChange={(e) => setForm((f) => ({ ...f, playbook_content_type: e.target.value }))}
-                  placeholder="e.g. Testimonial, Product Update, Myth vs Fact"
-                  className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-sm focus:outline-none focus:border-brand-400 transition-colors"
-                />
-              </div>
-              <div className="rounded-xl border border-fog bg-mist/30 px-3 py-3">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40">
-                    Visual directions (your playbook slots)
-                  </label>
-                  <button
-                    type="button"
-                    onClick={addFormVisualDirectionSlot}
-                    className="h-7 px-2.5 rounded-lg border border-fog bg-surface text-[11px] font-semibold text-ink/70 hover:text-ink"
-                  >
-                    Add direction
-                  </button>
-                </div>
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {(form.visual_direction_slots || []).map((slot, idx) => (
-                    <div key={`${slot.slot_key}-${idx}`} className="rounded-lg border border-fog bg-surface px-2 py-2">
-                      <div className="flex items-center justify-between gap-2 mb-1.5">
-                        <p className="text-[10px] font-semibold text-ink/60 uppercase">{slot.slot_key || `VD${String(idx + 1).padStart(2, '0')}`}</p>
-                        <select
-                          value={slot.post_type || 'single'}
-                          onChange={(e) =>
-                            setForm((f) => ({
-                              ...f,
-                              visual_direction_slots: (f.visual_direction_slots || []).map((s, sIdx) =>
-                                sIdx === idx ? { ...s, post_type: e.target.value === 'carousel' ? 'carousel' : 'single' } : s
-                              ),
-                            }))
-                          }
-                          className="h-6 rounded-md border border-fog bg-surface px-1.5 text-[10px] text-ink/70"
-                        >
-                          <option value="single">single</option>
-                          <option value="carousel">carousel</option>
-                        </select>
-                      </div>
-                      <textarea
-                        rows={2}
-                        value={slot.visual_direction || ''}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            visual_direction_slots: (f.visual_direction_slots || []).map((s, sIdx) =>
-                              sIdx === idx ? { ...s, visual_direction: e.target.value } : s
-                            ),
-                          }))
-                        }
-                        className="w-full rounded-md border border-fog bg-surface px-2 py-1 text-[11px] text-ink/75 focus:outline-none focus:border-brand-400"
-                        placeholder="Describe the visual direction for this slot..."
-                      />
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Category</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {['product', 'event', 'service', 'seasonal'].map((c) => (
-                    <button
-                      key={c}
-                      onClick={() => setForm((f) => ({ ...f, category: c }))}
-                      className={`py-2 rounded-xl text-xs font-semibold border capitalize transition-all ${
-                        form.category === c
-                          ? 'border-brand-400 bg-brand-500/10 text-brand-600'
-                          : 'border-fog text-ink/40 hover:border-zinc-600'
-                      }`}
-                    >
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Recurrence</label>
-                <div className="flex gap-2 flex-wrap">
-                  {['daily', 'weekly', 'monthly', 'yearly', 'custom'].map((r) => (
-                    <button
-                      key={r}
-                      onClick={() => setForm((f) => ({ ...f, recurrence: r }))}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize transition-all ${
-                        form.recurrence === r
-                          ? 'border-brand-400 bg-brand-500/10 text-brand-600'
-                          : 'border-fog text-ink/40 hover:border-zinc-600'
-                      }`}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              {form.recurrence === 'weekly' && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">
-                    Days of week
-                  </label>
-                  <div className="flex gap-2 flex-wrap">
-                    {DAYS.map((d, i) => (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() =>
-                          setForm((f) => ({
-                            ...f,
-                            recurrence_days: f.recurrence_days.includes(i)
-                              ? f.recurrence_days.filter((x) => x !== i)
-                              : [...f.recurrence_days, i],
-                          }))
-                        }
-                        className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${
-                          form.recurrence_days.includes(i)
-                            ? 'bg-brand-500 text-white'
-                            : 'bg-fog text-ink/40 hover:bg-mist'
-                        }`}
-                      >
-                        {d[0]}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {form.recurrence === 'monthly' && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">
-                    Day of month (1–31)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={31}
-                    value={form.recurrence_day_of_month ?? ''}
-                    onChange={(e) =>
-                      setForm((f) => ({
-                        ...f,
-                        recurrence_day_of_month: e.target.value === '' ? null : parseInt(e.target.value, 10) || 1,
-                      }))
-                    }
-                    className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink text-sm focus:outline-none focus:border-brand-400"
-                  />
-                </div>
-              )}
-              {form.recurrence === 'custom' && (
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">
-                    Custom dates (one YYYY-MM-DD per line)
-                  </label>
-                  <textarea
-                    value={customDatesText}
-                    onChange={(e) => setCustomDatesText(e.target.value)}
-                    rows={3}
-                    placeholder={'2026-05-01\n2026-05-15'}
-                    className="w-full px-3 py-2 bg-mist border border-fog rounded-xl text-ink text-xs font-mono focus:outline-none focus:border-brand-400"
-                  />
-                </div>
-              )}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Platforms</label>
-                <div className="flex gap-2 flex-wrap">
-                  {['instagram', 'facebook', 'twitter', 'linkedin'].map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() =>
-                        setForm((f) => ({
-                          ...f,
-                          platforms: f.platforms.includes(p)
-                            ? f.platforms.filter((x) => x !== p)
-                            : [...f.platforms, p],
-                        }))
-                      }
-                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border capitalize transition-all ${
-                        form.platforms.includes(p)
-                          ? 'border-brand-400 bg-brand-500/10 text-brand-600'
-                          : 'border-fog text-ink/40 hover:border-zinc-600'
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">
-                  Topics in rotation
-                </label>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    value={topicInput}
-                    onChange={(e) => setTopicInput(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && addTopic()}
-                    placeholder="Type a topic and press Enter"
-                    className="flex-1 px-3 py-2 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 text-xs focus:outline-none focus:border-brand-400 transition-colors"
-                  />
-                  <button
-                    onClick={addTopic}
-                    className="px-3 py-2 bg-brand-500 hover:bg-brand-600 text-white text-xs font-bold rounded-xl"
-                  >
-                    Add
-                  </button>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {form.topics.map((tp) => (
-                    <span
-                      key={tp}
-                      className="flex items-center gap-1 text-xs px-2 py-1 bg-brand-500/10 text-brand-600 rounded-lg"
-                    >
-                      {tp}
-                      <button
-                        type="button"
-                        onClick={() => setForm((f) => ({ ...f, topics: f.topics.filter((t) => t !== tp) }))}
-                        className="text-brand-500 hover:text-brand-600"
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Color label</label>
-                <div className="flex gap-2 flex-wrap">
-                  {['#7c3aed', '#E1306C', '#10b981', '#1877F2', '#f59e0b', '#e879f9', '#14b8a6'].map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setForm((f) => ({ ...f, color: c }))}
-                      className={`w-7 h-7 rounded-lg transition-all ${
-                        form.color === c ? 'ring-2 ring-white ring-offset-1 ring-offset-zinc-900' : ''
-                      }`}
-                      style={{ background: c }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 px-5 py-4 border-t border-fog">
-              <button
-                onClick={() => setShowModal(false)}
-                className="px-4 py-2.5 bg-fog hover:bg-mist text-ink/70 text-sm font-semibold rounded-xl transition-colors border border-fog"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={save}
-                disabled={loading}
-                className="px-5 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors"
-              >
-                {loading ? 'Saving…' : 'Save to playbook'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
