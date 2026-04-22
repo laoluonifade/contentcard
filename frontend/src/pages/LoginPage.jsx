@@ -83,8 +83,6 @@ export default function LoginPage() {
     }
   }
 
-  const fillDemo = () => setForm({ email: 'hellovoya@gmail.com', password: 'demo1234' })
-
   return (
     <div className="min-h-screen flex" style={authLightThemeVars}>
       {/* Left: form */}
@@ -126,11 +124,6 @@ export default function LoginPage() {
               : <>Sign in <ArrowRight size={15} /></>}
           </button>
         </form>
-
-        <button onClick={fillDemo}
-          className="w-full mt-3 py-3 rounded-xl border border-fog bg-surface text-ink/75 hover:text-ink hover:border-ink/25 text-sm font-semibold transition-all">
-          Try demo account
-        </button>
 
         <p className="text-center text-ink/55 text-sm mt-6">
           Don't have an account?{' '}

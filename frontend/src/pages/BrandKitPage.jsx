@@ -15,6 +15,12 @@ import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 const TABS = ['Basics', 'Products', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
 
 const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
+const CAMPAIGN_ART_STYLE_PROFILES = [
+  { id: 'balanced_social_ad', label: 'Balanced social ad (recommended)' },
+  { id: 'bold_illustration_offer', label: 'Bold illustration + offer-first' },
+  { id: 'minimal_premium_editorial', label: 'Minimal premium editorial' },
+  { id: 'product_cutout_collage', label: 'Product cutout collage' },
+]
 
 const inpCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 const taCls  = `${inpCls} resize-none`
@@ -74,6 +80,9 @@ function mergeVisualSystem(kit, brandColors, brandFont) {
     )
       ? String(cur.default_visual_type || 'auto').toLowerCase()
       : 'auto',
+    campaign_art_style_profile: CAMPAIGN_ART_STYLE_PROFILES.some((x) => x.id === String(cur.campaign_art_style_profile || ''))
+      ? String(cur.campaign_art_style_profile)
+      : 'balanced_social_ad',
   }
   const merged = {
     ...def,
@@ -82,6 +91,9 @@ function mergeVisualSystem(kit, brandColors, brandFont) {
   }
   const ips = String(merged.image_people_style || 'real_people').toLowerCase()
   merged.image_people_style = ['real_people', 'illustration', 'cartoon', 'mixed'].includes(ips) ? ips : 'real_people'
+  if (!CAMPAIGN_ART_STYLE_PROFILES.some((x) => x.id === String(merged.campaign_art_style_profile || ''))) {
+    merged.campaign_art_style_profile = 'balanced_social_ad'
+  }
   return merged
 }
 
@@ -1588,6 +1600,23 @@ export default function BrandKitPage() {
                   </select>
                   <p className="text-ink/35 text-[11px] mt-1.5">
                     Templates and preview design generation start from this mode, then adapt to each template category.
+                  </p>
+                </label>
+                <label className="space-y-1 sm:col-span-2">
+                  <span className={labelCls}>Campaign art style profile</span>
+                  <select
+                    className={inpCls}
+                    value={vs().campaign_art_style_profile || 'balanced_social_ad'}
+                    onChange={(e) => setVs({ campaign_art_style_profile: e.target.value })}
+                  >
+                    {CAMPAIGN_ART_STYLE_PROFILES.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Enforces a monthly design language so generated posts look like one campaign system instead of random styles.
                   </p>
                 </label>
                 <label className="space-y-1">

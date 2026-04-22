@@ -148,7 +148,7 @@ def detect_template_family(post_data: dict) -> str:
         return "promo"
     if any(k in bag for k in ("launch", "announcement", "event", "webinar", "live session", "speaker")):
         return "announcement"
-    if any(k in bag for k in ("product spotlight", "feature", "tool", "app", "dashboard", "integration")):
+    if any(k in bag for k in ("product spotlight", "feature", "tool", "app", "dashboard", "integration", "update", "workflow", "process", "payroll", "solution")):
         return "product_hero"
     if any(k in bag for k in ("education", "tip", "how to", "guide", "explainer", "myth", "mistake")):
         return "edu"
@@ -221,20 +221,26 @@ def _carousel_copy_plan(post_data: dict, slide_count: int, brand_dict: dict | No
     body_parts = sents[1:] if len(sents) > 1 else sents[:]
     per_slide = max(1, (len(body_parts) + max(body_slides, 1) - 1) // max(body_slides, 1))
     module_cycle = {
-        "data_card": ("Stat card", "Insight", "Breakdown", "Comparison"),
-        "edu": ("Checklist", "Key lesson", "Example", "Action step"),
-        "text_poster": ("Point", "Thought", "Takeaway", "Prompt"),
-        "story_carousel": ("Scene", "Moment", "Turning point", "Result"),
-        "product_hero": ("Feature", "Benefit", "Use case", "Proof"),
-        "announcement": ("Update", "Detail", "Timeline", "Next step"),
+        "data_card": ("Hook", "Insight", "Proof", "Action"),
+        "edu": ("Hook", "Lesson", "Example", "Action"),
+        "text_poster": ("Hook", "Point", "Takeaway", "Action"),
+        "story_carousel": ("Hook", "Context", "Turning point", "Resolution"),
+        "product_hero": ("Hook", "Benefit", "Use case", "Proof"),
+        "announcement": ("Hook", "What changed", "Why it matters", "Action"),
     }
     bodies: list[dict] = []
+    fallback_story_bits = [
+        _clean_inline(ma.get("support") or "", 96),
+        _clean_inline(ma.get("evidence") or "", 96),
+        _clean_inline(ma.get("cta") or "", 96),
+    ]
+    fallback_story_bits = [x for x in fallback_story_bits if x]
     for i in range(body_slides):
         chunk = body_parts[i * per_slide : (i + 1) * per_slide]
         # Keep carousel bodies punchy so visual design can breathe.
         body_text = _clean_inline(". ".join(chunk), 96)
         if not body_text:
-            body_text = "Practical action point for this step."
+            body_text = fallback_story_bits[i % len(fallback_story_bits)] if fallback_story_bits else "Practical action point for this step."
         prefix = module_cycle.get(fam, ("Point", "Detail", "Proof", "CTA"))[i % 4]
         if fam in ("data_card", "edu", "text_poster"):
             h = _clean_inline(f"{prefix} {i + 1}", 40)
@@ -244,7 +250,9 @@ def _carousel_copy_plan(post_data: dict, slide_count: int, brand_dict: dict | No
             h = _clean_inline(f"{prefix} {i + 1}", 40)
         else:
             h = _clean_inline(f"{tokens['chip']} {i + 1}", 40)
-        bodies.append({"headline": h, "body": body_text})
+        # Prefix each slide with an explicit story beat so the design tells a clear narrative.
+        story_headline = _clean_inline(f"{prefix}: {h}", 42)
+        bodies.append({"headline": story_headline, "body": body_text})
 
     is_food = _is_food_brand(brand_dict or {}, post_data)
     if is_food:
