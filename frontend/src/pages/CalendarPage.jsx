@@ -424,6 +424,19 @@ function CalendarPrepBody({
   )
 }
 
+function splitPrepAssistantMessage(content) {
+  const text = String(content || '').trim()
+  if (!text) return []
+  const numbered = text.match(/(?:^|\n)\s*\d+\.\s+[^\n]+/g)
+  if (numbered && numbered.length >= 2) {
+    return numbered
+      .map((row) => row.replace(/^\s+/, '').trim())
+      .filter(Boolean)
+      .slice(0, 6)
+  }
+  return [text]
+}
+
 export default function CalendarPage() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
@@ -830,17 +843,16 @@ export default function CalendarPage() {
         year,
         messages: next,
       })
-      setPrepMessages([
-        ...next,
-        {
-          role: 'assistant',
-          content: data.message || '',
-          choices: data.choices || [],
-          questions: data.questions || [],
-          cta: data.cta || null,
-          design_intent: data.design_intent || null,
-        },
-      ])
+      const chunks = splitPrepAssistantMessage(data.message || '')
+      const assistantRows = chunks.map((content, idx) => ({
+        role: 'assistant',
+        content,
+        choices: idx === chunks.length - 1 ? (data.choices || []) : [],
+        questions: idx === chunks.length - 1 ? (data.questions || []) : [],
+        cta: idx === chunks.length - 1 ? (data.cta || null) : null,
+        design_intent: idx === chunks.length - 1 ? (data.design_intent || null) : null,
+      }))
+      setPrepMessages([...next, ...assistantRows])
     } catch (e) {
       setPrepMessages((pm) => pm.slice(0, -1))
       toast(e.response?.data?.detail || 'Prep chat failed', 'error')
@@ -984,19 +996,18 @@ export default function CalendarPage() {
         year,
         messages: next,
       })
-      setPrepMessages((pm) => [
-        ...pm,
-        {
-          role: 'assistant',
-          content: data.message || '',
-          choices: data.choices || [],
-          questions: data.questions || [],
-          cta: data.cta || null,
-          design_intent: data.design_intent || null,
-          meta: { kind: 'generation_status' },
-          extra,
-        },
-      ])
+      const chunks = splitPrepAssistantMessage(data.message || '')
+      const assistantRows = chunks.map((content, idx) => ({
+        role: 'assistant',
+        content,
+        choices: idx === chunks.length - 1 ? (data.choices || []) : [],
+        questions: idx === chunks.length - 1 ? (data.questions || []) : [],
+        cta: idx === chunks.length - 1 ? (data.cta || null) : null,
+        design_intent: idx === chunks.length - 1 ? (data.design_intent || null) : null,
+        meta: { kind: 'generation_status' },
+        extra,
+      }))
+      setPrepMessages((pm) => [...pm, ...assistantRows])
     } catch {
       // Non-blocking: generation should continue even if prep status update fails.
     } finally {

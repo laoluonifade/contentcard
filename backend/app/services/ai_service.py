@@ -1450,18 +1450,54 @@ def _filter_brand_form_patch(mode: str, patch: dict | None) -> dict | None:
         return out or None
 
     # brand_kit mode
+    def _coerce_brand_kit_nested(nk: str, nv):
+        list_like_keys = {
+            "key_messages",
+            "value_pillars",
+            "brand_narratives",
+            "good_examples",
+            "bad_examples",
+            "regulatory_constraints",
+            "forbidden_claims",
+            "required_keywords",
+            "tone_restrictions",
+            "brand_safety_rules",
+            "income_level",
+            "psychographics",
+            "aspirations",
+            "objections",
+            "content_goals",
+            "funnel_stages",
+            "brand_motifs",
+        }
+        if nk in list_like_keys:
+            if isinstance(nv, list):
+                vals = [str(x).strip() for x in nv if str(x).strip()][:40]
+                return vals if vals else None
+            if isinstance(nv, str):
+                parts = [p.strip() for p in re.split(r"[\n,;]+", nv) if p.strip()]
+                vals = parts[:40]
+                return vals if vals else None
+            return None
+        if isinstance(nv, str):
+            return _truncate_str(nv, 8000)
+        return None
+
+    nested_acc: dict = {}
     for k, v in patch.items():
         if k == "brand_kit" and isinstance(v, dict):
-            nested: dict = {}
             for nk, nv in v.items():
                 if nk not in _BRAND_KIT_NESTED_KEYS:
                     continue
-                if isinstance(nv, list):
-                    nested[nk] = [str(x).strip() for x in nv if str(x).strip()][:40]
-                elif isinstance(nv, str):
-                    nested[nk] = _truncate_str(nv, 8000)
-            if nested:
-                out["brand_kit"] = nested
+                coerced = _coerce_brand_kit_nested(nk, nv)
+                if coerced is not None:
+                    nested_acc[nk] = coerced
+            continue
+        if k in _BRAND_KIT_NESTED_KEYS:
+            # Be tolerant when model returns brand_kit nested keys at top-level.
+            coerced = _coerce_brand_kit_nested(k, v)
+            if coerced is not None:
+                nested_acc[k] = coerced
             continue
         if k not in _BRAND_KIT_TOP_PATCH_KEYS:
             continue
@@ -1494,6 +1530,8 @@ def _filter_brand_form_patch(mode: str, patch: dict | None) -> dict | None:
         if isinstance(v, str):
             lim = 8000 if k in ("description", "target_audience", "guidelines", "pain_point", "competitors") else 500
             out[k] = _truncate_str(v, lim)
+    if nested_acc:
+        out["brand_kit"] = nested_acc
     return out or None
 
 

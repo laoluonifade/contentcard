@@ -519,13 +519,12 @@ def _composite_logo(
             cleaned.append((r, g, b, a))
     logo.putdata(cleaned)
 
-    # Resize with strict caps so marks stay present but never dominate the creative.
-    # Keep width roughly in the 8-12% band and cap by height as well.
-    logo_target_w = max(64, int(w * 0.12))
-    logo_max_w = max(84, int(w * 0.14))
-    logo_max_h = max(72, int(h * 0.12))
-    # Treat configured minimum as a soft floor, but never exceed sensible frame share.
-    logo_min_w = max(64, min(int(min_width_px or 96), int(w * 0.12)))
+    # Keep a consistent, clearly visible lockup across carousel frames.
+    # Widen the target band and avoid over-shrinking by height.
+    logo_target_w = max(92, int(w * 0.16))
+    logo_max_w = max(120, int(w * 0.20))
+    logo_max_h = max(104, int(h * 0.18))
+    logo_min_w = max(88, int(min_width_px or 96))
     lw, lh = logo.size
     desired_w = max(logo_min_w, min(logo_target_w, logo_max_w))
     scale = desired_w / max(1, lw)
@@ -568,12 +567,8 @@ def _composite_logo(
         return float(stat.stddev[0] if stat.stddev else 999.0)
 
     requested = _norm_zone(placement)
-    requested_score = _corner_busyness(requested)
-    best_zone = min(corners.keys(), key=_corner_busyness)
-    best_score = _corner_busyness(best_zone)
-
-    # Respect requested zone unless it's materially busier than a better corner.
-    final_zone = best_zone if (requested_score - best_score) > 6.0 else requested
+    # Keep placement stable frame-to-frame for stronger branding consistency.
+    final_zone = requested
     x, y = corners[final_zone]
     x = max(0, min(x, w - logo.width))
     y = max(0, min(y, h - logo.height))
@@ -783,6 +778,37 @@ async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | Non
         return None
 
 
+async def _burn_logo_with_cached_bytes(
+    image_url: str,
+    *,
+    logo_bytes: bytes,
+    brand: dict,
+    post: dict | None = None,
+) -> str | None:
+    if not image_url or not logo_bytes:
+        return None
+    vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
+    ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
+    placement = str(vs.get("logo_placement") or ab.get("logo_placement") or "bottom_right")
+    try:
+        min_w = int(ab.get("logo_min_width_px") or vs.get("logo_min_width_px") or 80)
+    except (TypeError, ValueError):
+        min_w = 80
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            img_r = await client.get(image_url, follow_redirects=True)
+            if img_r.status_code != 200:
+                return None
+            out_bytes = _composite_logo(
+                img_r.content, logo_bytes, placement=placement, min_width_px=min_w
+            )
+            uid = uuid.uuid4().hex[:14]
+            return await _upload_to_cloudinary(out_bytes, "cover-logo", 0, public_suffix=uid)
+    except Exception as e:
+        logger.warning("_burn_logo_with_cached_bytes: %s", e)
+        return None
+
+
 async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: dict | None) -> tuple[list[str], bool]:
     """Apply burn-in logo to every rendered slide URL when possible."""
     if not urls:
@@ -791,8 +817,25 @@ async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: d
         return urls, True
     out: list[str] = []
     all_applied = True
+    logo_url = _resolve_logo_url(brand)
+    cached_logo_bytes: bytes | None = None
+    if logo_url:
+        try:
+            async with httpx.AsyncClient(timeout=60) as client:
+                cached_logo_bytes = await _fetch_logo_bytes(logo_url, client)
+        except Exception:
+            cached_logo_bytes = None
     for u in urls:
-        burned = await burn_logo_into_image_url(u, brand, post)
+        burned = None
+        if cached_logo_bytes:
+            burned = await _burn_logo_with_cached_bytes(
+                u,
+                logo_bytes=cached_logo_bytes,
+                brand=brand,
+                post=post,
+            )
+        if not burned:
+            burned = await burn_logo_into_image_url(u, brand, post)
         if burned:
             out.append(burned)
         else:

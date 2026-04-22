@@ -107,6 +107,15 @@ export default function BrandFormCoachPanel({
   const [activeUrlFetch, setActiveUrlFetch] = useState(false)
   const bottomRef = useRef(null)
 
+  const normalizeAssistantMessage = (text) => {
+    let out = String(text || '')
+    // Remove markdown emphasis markers for cleaner in-app readability.
+    out = out.replace(/\*\*(.*?)\*\*/g, '$1')
+    // Ensure numbered points break onto new lines.
+    out = out.replace(/\s+(\d+\.)\s+/g, '\n$1 ')
+    return out.trim()
+  }
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, sending])
@@ -216,7 +225,9 @@ export default function BrandFormCoachPanel({
                 : 'mr-auto bg-mist text-ink border border-fog'
             }`}
           >
-            {m.content}
+            <div className="whitespace-pre-wrap break-words leading-6 text-[13px]">
+              {m.role === 'assistant' ? normalizeAssistantMessage(m.content) : m.content}
+            </div>
           </div>
         ))}
         {sending && (
