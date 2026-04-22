@@ -46,6 +46,21 @@ FAMILY_COPY_LIMITS = {
 }
 
 
+def _is_food_brand(brand_dict: dict, post_data: dict | None = None) -> bool:
+    post_data = post_data or {}
+    bag = " ".join(
+        str(x or "").lower()
+        for x in (
+            brand_dict.get("industry"),
+            brand_dict.get("sub_industry"),
+            post_data.get("content_type"),
+            post_data.get("topic"),
+            post_data.get("content_idea"),
+        )
+    )
+    return any(k in bag for k in ("food", "restaurant", "diner", "menu", "meal", "burger", "chicken", "pizza", "kitchen"))
+
+
 def _clean_inline(text: str | None, max_len: int) -> str:
     t = " ".join(str(text or "").strip().split())
     return t[:max_len].strip()
@@ -152,7 +167,15 @@ def detect_template_family(post_data: dict) -> str:
     return "default"
 
 
-def _family_tokens(post_data: dict) -> dict:
+def _family_tokens(post_data: dict, brand_dict: dict | None = None) -> dict:
+    brand_dict = brand_dict or {}
+    is_food = _is_food_brand(brand_dict, post_data)
+    if is_food:
+        return {
+            "badge": "ORDER READY",
+            "cta": "Order now",
+            "chip": "Menu",
+        }
     fam = detect_template_family(post_data)
     if fam == "promo":
         return {"badge": "LIMITED OFFER", "cta": "Claim offer now", "chip": "Deal"}
@@ -177,7 +200,7 @@ def _family_tokens(post_data: dict) -> dict:
     return {"badge": "CONTENTCARD", "cta": "Follow for more", "chip": "Update"}
 
 
-def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
+def _carousel_copy_plan(post_data: dict, slide_count: int, brand_dict: dict | None = None) -> list[dict]:
     """
     Build per-slide copy plan: cover + body slides + CTA.
     The copy is concise so templates remain readable on mobile feeds.
@@ -185,7 +208,7 @@ def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
     topic = post_data.get("topic") or ""
     caption = post_data.get("caption") or ""
     ma = post_data.get("message_architecture") if isinstance(post_data.get("message_architecture"), dict) else {}
-    tokens = _family_tokens(post_data)
+    tokens = _family_tokens(post_data, brand_dict=brand_dict)
     fam = detect_template_family(post_data)
     cover_headline = _clean_inline(ma.get("hook") or topic, 68)
     sents = _split_caption_sentences(caption)
@@ -223,8 +246,18 @@ def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
             h = _clean_inline(f"{tokens['chip']} {i + 1}", 40)
         bodies.append({"headline": h, "body": body_text})
 
-    cta = _clean_inline(ma.get("cta") or (" ".join(sents[-1:]) if sents else tokens["cta"]), 84)
-    return [{"headline": cover_headline, "subtitle": subtitle}, *bodies, {"headline": tokens["cta"], "body": cta}]
+    is_food = _is_food_brand(brand_dict or {}, post_data)
+    if is_food:
+        cta = _clean_inline(
+            ma.get("cta")
+            or "Order now for fast delivery or pickup. Tap to place your order before this sells out.",
+            84,
+        )
+        cta_headline = "Order now"
+    else:
+        cta = _clean_inline(ma.get("cta") or (" ".join(sents[-1:]) if sents else tokens["cta"]), 84)
+        cta_headline = tokens["cta"]
+    return [{"headline": cover_headline, "subtitle": subtitle}, *bodies, {"headline": cta_headline, "body": cta}]
 
 
 async def _create_image(template_uid: str, modifications: list[dict]) -> str | None:
@@ -386,6 +419,13 @@ async def generate_post_images(
     slide_count = max(1, int(post_data.get("slide_count") or 1))
     ab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else None
     fam = detect_template_family(post_data)
+    # Restaurants are conversion-led: keep food carousels in sales-focused visual
+    # families instead of education/save/follow endings.
+    if fmt == "carousel" and _is_food_brand(brand_dict, post_data):
+        if fam in ("edu", "data_card", "text_poster", "story_carousel", "illustration_editorial", "default"):
+            fam = "product_hero"
+        elif fam == "testimonial":
+            fam = "promo"
     # For carousel quality, always keep one shared visual background thread
     # from the AI-generated hero across every slide.
     use_photo_bg = (fmt == "carousel") or fam in ("promo", "product_hero", "testimonial", "hiring", "default")
@@ -421,40 +461,54 @@ async def generate_post_images(
     # Keep the same AI background reference across every slide so each carousel
     # preserves one cohesive theme/style/vibe from the first generated visual.
     urls = [cover_url]
-    copy_plan = _carousel_copy_plan(post_data, slide_count)
+    copy_plan = _carousel_copy_plan(post_data, slide_count, brand_dict=brand_dict)
 
     if settings.BANNERBEAR_TEMPLATE_CONTENT and slide_count > 2:
         body_slides = slide_count - 2
 
         tasks = []
+        # Force one aesthetic system across carousel: same template primitive + same
+        # AI background thread as slide 1. This prevents style drift on slides 2+.
+        carousel_template = cover_template
         for i in range(body_slides):
-            tmpl = _route_template_family(post_data, body_index=i)
             cp = copy_plan[i + 1] if (i + 1) < len(copy_plan) else {}
-            tasks.append(_create_image(
-                tmpl,
-                _content_mods(
-                    cp.get("headline", f"Point {i + 1}"),
-                    cp.get("body", ""),
-                    brand_dict,
-                    background_image_url=cover_bg_url,
-                    art_brief=ab,
-                    family=fam,
-                ),
-            ))
+            # Reuse cover-style layer structure for body slides so palette/typography/
+            # spacing and composition remain cohesive with slide 1.
+            body_topic = _clean_inline(cp.get("headline", f"Point {i + 1}"), _copy_limit(fam, "headline", 64))
+            body_caption = _clean_inline(cp.get("body", ""), _copy_limit(fam, "subtitle", 96))
+            tasks.append(
+                _create_image(
+                    carousel_template,
+                    _cover_mods(
+                        body_topic,
+                        body_caption,
+                        brand_dict,
+                        cover_bg_url,
+                        ab,
+                        family=fam,
+                        post_data=post_data,
+                    ),
+                )
+            )
 
         # CTA slide
         cta = copy_plan[-1] if copy_plan else {"headline": "Take action today", "body": ""}
-        tasks.append(_create_image(
-            _route_template_family(post_data, body_index=max(0, body_slides)),
-            _content_mods(
-                cta.get("headline", "Take action today"),
-                cta.get("body", ""),
-                brand_dict,
-                background_image_url=cover_bg_url,
-                art_brief=ab,
-                family=fam,
-            ),
-        ))
+        cta_topic = _clean_inline(cta.get("headline", "Take action today"), _copy_limit(fam, "headline", 64))
+        cta_caption = _clean_inline(cta.get("body", ""), _copy_limit(fam, "subtitle", 96))
+        tasks.append(
+            _create_image(
+                carousel_template,
+                _cover_mods(
+                    cta_topic,
+                    cta_caption,
+                    brand_dict,
+                    cover_bg_url,
+                    ab,
+                    family=fam,
+                    post_data=post_data,
+                ),
+            )
+        )
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for r in results:

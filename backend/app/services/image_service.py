@@ -140,6 +140,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         product_grounding_bits.append(
             "Do not invent unrelated products, categories, or SKU families outside these references."
         )
+        product_grounding_bits.append(
+            "Do not paste or directly upscale source product photos. Recreate a new campaign-grade composition "
+            "in the same product family using studio-quality lighting, cleaner framing, and premium ad styling."
+        )
     product_grounding_note = " ".join(product_grounding_bits)
     website_source_url = str(
         grounding_payload.get("source_url")
@@ -490,11 +494,11 @@ def _composite_logo(
 
     # Resize with strict caps so marks stay present but never dominate the creative.
     # Keep width roughly in the 8-12% band and cap by height as well.
-    logo_target_w = max(56, int(w * 0.095))
-    logo_max_w = max(72, int(w * 0.12))
+    logo_target_w = max(64, int(w * 0.12))
+    logo_max_w = max(84, int(w * 0.14))
     logo_max_h = max(72, int(h * 0.12))
     # Treat configured minimum as a soft floor, but never exceed sensible frame share.
-    logo_min_w = max(56, min(int(min_width_px or 80), int(w * 0.1)))
+    logo_min_w = max(64, min(int(min_width_px or 96), int(w * 0.12)))
     lw, lh = logo.size
     desired_w = max(logo_min_w, min(logo_target_w, logo_max_w))
     scale = desired_w / max(1, lw)

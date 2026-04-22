@@ -163,7 +163,7 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
           Recommended: {weekdayFromIso(post.scheduled_date)} {rec.best.split(',')[1]?.trim() || rec.best}
         </p>
         {!selectMode && (
-          <div className="mt-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="mt-2 flex flex-wrap gap-1.5">
             <button
               type="button"
               onClick={(e) => {
@@ -171,7 +171,7 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
                 navigator.clipboard?.writeText(fullPostCaptionText(post.caption || '', post.hashtags || []))
                 toast('Caption copied')
               }}
-              className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/60 hover:text-ink"
+              className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/70 hover:text-ink"
             >
               Quick copy
             </button>
@@ -181,7 +181,7 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
                 e.stopPropagation()
                 window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer')
               }}
-              className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/60 hover:text-ink"
+              className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/70 hover:text-ink"
             >
               Open composer
             </button>
