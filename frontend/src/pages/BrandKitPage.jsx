@@ -331,6 +331,7 @@ export default function BrandKitPage() {
   const [tab, setTab]       = useState('Basics')
   const [saving, setSaving] = useState(false)
   const [logoUploading, setLogoUploading] = useState(false)
+  const [brandImagesUploading, setBrandImagesUploading] = useState(false)
   const [logoCropOpen, setLogoCropOpen] = useState(false)
   const [logoCropSrc, setLogoCropSrc] = useState(null)
   const [logoCropFile, setLogoCropFile] = useState(null)
@@ -351,6 +352,7 @@ export default function BrandKitPage() {
   const [authCaptureRunning, setAuthCaptureRunning] = useState(false)
   const [websiteLoading, setWebsiteLoading] = useState(false)
   const logoFileRef = useRef(null)
+  const brandImagesFileRef = useRef(null)
 
   useEffect(() => {
     if (!brand) return
@@ -673,6 +675,51 @@ export default function BrandKitPage() {
     setLogoCropSrc(url)
     setLogoCropFile(file)
     setLogoCropOpen(true)
+  }
+
+  const onBrandImagesFiles = async (e) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!files.length || !activeBrandId || !activeWorkspaceId) return
+    const imageFiles = files.filter((f) => String(f.type || '').startsWith('image/'))
+    if (!imageFiles.length) {
+      toast('Please choose image files (PNG, JPG, or WEBP).', 'error')
+      return
+    }
+    setBrandImagesUploading(true)
+    let uploaded = 0
+    try {
+      let latestPhotos = Array.isArray(form.brand_photos) ? [...form.brand_photos] : []
+      for (const file of imageFiles) {
+        const res = await brandApi.uploadPhoto(activeWorkspaceId, activeBrandId, file)
+        latestPhotos = Array.isArray(res?.brand_photos) ? res.brand_photos : latestPhotos
+        uploaded += 1
+      }
+      setForm((f) => ({ ...f, brand_photos: latestPhotos }))
+      useAppStore.setState((s) => ({
+        brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, brand_photos: latestPhotos } : b)),
+      }))
+      toast(uploaded === 1 ? 'Brand image uploaded.' : `${uploaded} brand images uploaded.`)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Brand image upload failed', 'error')
+    } finally {
+      setBrandImagesUploading(false)
+    }
+  }
+
+  const removeBrandImage = async (idx) => {
+    if (!activeBrandId || !activeWorkspaceId) return
+    try {
+      const res = await brandApi.deletePhoto(activeWorkspaceId, activeBrandId, idx)
+      const latestPhotos = Array.isArray(res?.brand_photos) ? res.brand_photos : []
+      setForm((f) => ({ ...f, brand_photos: latestPhotos }))
+      useAppStore.setState((s) => ({
+        brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, brand_photos: latestPhotos } : b)),
+      }))
+      toast('Brand image removed.')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to remove brand image', 'error')
+    }
   }
 
   // Live scores: recomputed on every keystroke
@@ -1202,6 +1249,67 @@ export default function BrandKitPage() {
                     {logoUploading ? 'Uploading…' : form.logo_url ? 'Replace logo' : 'Upload logo'}
                   </button>
                 </div>
+              </div>
+              <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
+                <div>
+                  <span className={labelCls}>Brand images (approved for AI use)</span>
+                  <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
+                    Upload product or brand photos you have rights to use. Generation can reference these as source images
+                    to keep designs aligned with your real brand.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <input
+                    ref={brandImagesFileRef}
+                    type="file"
+                    multiple
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    className="sr-only"
+                    onChange={onBrandImagesFiles}
+                  />
+                  <button
+                    type="button"
+                    disabled={brandImagesUploading}
+                    onClick={() => brandImagesFileRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-surface text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                  >
+                    <Upload size={16} />
+                    {brandImagesUploading ? 'Uploading…' : 'Upload brand images'}
+                  </button>
+                  <label className="inline-flex items-center gap-2 text-[11px] text-ink/55">
+                    <input
+                      type="checkbox"
+                      className="rounded border-fog text-brand-600 focus:ring-brand-500/40"
+                      checked={!!((form.brand_kit || {}).brand_images_rights_attested)}
+                      onChange={(e) =>
+                        set('brand_kit', {
+                          ...(form.brand_kit || {}),
+                          brand_images_rights_attested: e.target.checked,
+                        })
+                      }
+                    />
+                    I confirm I have rights to use these uploaded brand images.
+                  </label>
+                </div>
+                {(form.brand_photos || []).length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(form.brand_photos || []).map((url, idx) => (
+                      <div key={`${url}-${idx}`} className="relative rounded-lg overflow-hidden border border-fog bg-surface group">
+                        <img src={url} alt={`Brand asset ${idx + 1}`} className="w-full h-24 object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removeBrandImage(idx)}
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/55 text-white text-xs hidden group-hover:flex items-center justify-center"
+                          title="Remove image"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-ink/35">No brand images uploaded yet.</div>
+                )}
               </div>
               <div className="grid sm:grid-cols-3 gap-4">
                 <label className="space-y-1">
