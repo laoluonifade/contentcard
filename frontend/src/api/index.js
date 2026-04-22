@@ -20,6 +20,12 @@ const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
+/** Unauthenticated marketing endpoints (no user Bearer token, no 401 redirect). */
+const publicApi = axios.create({
+  baseURL: API_BASE,
+  headers: { 'Content-Type': 'application/json' },
+})
+
 api.interceptors.request.use((config) => {
   try {
     const stored = localStorage.getItem('contentcard-auth')
@@ -42,6 +48,10 @@ api.interceptors.response.use(
 )
 
 // ─── Auth ──────────────────────────────────────────────────────
+export const marketingApi = {
+  submitDemoRequest: (data) => publicApi.post('/public/demo-request', data).then((r) => r.data),
+}
+
 export const authApi = {
   signup:         (data) => api.post('/auth/signup', data).then(r => r.data),
   login:          (data) => api.post('/auth/login', data).then(r => r.data),
@@ -141,6 +151,9 @@ export const contentApi = {
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
   directory:  (workspaceId)   => api.get('/content/directory', { params: { workspace_id: workspaceId } }).then(r => r.data),
+  memes:      ()              => api.get('/content/memes').then(r => r.data),
+  addMeme:    (data)          => api.post('/content/memes', data).then(r => r.data),
+  deleteMeme: (id)            => api.delete(`/content/memes/${id}`).then(r => r.data),
   get:        (id)             => api.get(`/content/${id}`).then(r => r.data),
   update:     (id, data)       => api.put(`/content/${id}`, data).then(r => r.data),
   regenerate: (id, data)       => api.post(`/content/${id}/regenerate`, data).then(r => r.data),
@@ -239,7 +252,10 @@ export const adminApi = {
   login:              (data)    => axios.create({ baseURL: API_BASE }).post('/auth/login', data).then(r => r.data),
   stats:              ()        => adminAxios.get('/admin/stats').then(r => r.data),
   users:              (params)  => adminAxios.get('/admin/users', { params }).then(r => r.data),
+  bootstrapSalesSandbox: (data) => adminAxios.post('/admin/sales-sandbox/bootstrap', data).then(r => r.data),
   workspaces:         (params)  => adminAxios.get('/admin/workspaces', { params }).then(r => r.data),
+  adoptWorkspaceOwner: (workspaceId, data) =>
+    adminAxios.post(`/admin/workspaces/${encodeURIComponent(workspaceId)}/adopt-owner`, data).then(r => r.data),
   reconcileWorkspacePaystack: (workspaceId, data) =>
     adminAxios
       .post(`/admin/workspaces/${encodeURIComponent(workspaceId)}/billing/reconcile-paystack`, data)
@@ -261,7 +277,13 @@ export const adminApi = {
   deletePlaybookVisualDirection: (visualDirectionId) => adminAxios.delete(`/admin/design-playbook/visual-directions/${visualDirectionId}`).then(r => r.data),
   brands:             (params)  => adminAxios.get('/admin/brands', { params }).then(r => r.data),
   repairBrandTaxonomy: (params) => adminAxios.post('/admin/brands/repair-taxonomy', null, { params }).then(r => r.data),
+  generateBrandMonth: (brandId, data) =>
+    adminAxios.post(`/admin/brands/${encodeURIComponent(brandId)}/generate-month`, data).then(r => r.data),
   content:            (params)  => adminAxios.get('/admin/content', { params }).then(r => r.data),
+  memes:              ()        => adminAxios.get('/admin/memes').then(r => r.data),
+  demoRequests:       (params)  => adminAxios.get('/admin/demo-requests', { params }).then(r => r.data),
+  addMeme:            (data)    => adminAxios.post('/admin/memes', data).then(r => r.data),
+  deleteMeme:         (id)      => adminAxios.delete(`/admin/memes/${encodeURIComponent(id)}`).then(r => r.data),
   deleteContentByUser:(email)   => adminAxios.delete(`/admin/content/by-user/${encodeURIComponent(email)}`).then(r => r.data),
   seedNairaVault:     (email)   => adminAxios.post(`/admin/seed-nairavault/${encodeURIComponent(email)}`).then(r => r.data),
   syncAllAssistants:  ()        => adminAxios.post('/admin/sync-all-assistants').then(r => r.data),

@@ -1,9 +1,25 @@
+import asyncio
 import json
 import re
 import logging
+import time
 import httpx
 from app.core.config import settings
 from app.services.art_brief_service import ARCHETYPE_IDS, infer_default_archetype
+from app.services.ai_cost_service import (
+    build_fingerprint,
+    cache_get,
+    cache_set,
+    cache_ttl_for_endpoint,
+    enforce_message_limits,
+    estimate_cost_usd,
+    input_token_estimate_for_messages,
+    resolve_max_output_tokens,
+    route_model,
+    singleflight_run,
+    telemetry_record,
+    CallTelemetry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +60,7 @@ def _sanitize_post_copy_fields(post: dict) -> dict:
 
 
 OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
-TEXT_MODEL = "gpt-4o"
+TEXT_MODEL = settings.OPENAI_HIGH_QUALITY_MODEL
 
 # ── System prompt ──────────────────────────────────────────────────────────────
 # This is an enforcement layer, not a suggestion list.
@@ -59,7 +75,8 @@ HARD CONSTRAINTS (violating any of these is a failure):
 • NEVER hallucinate brand details. Use only what is provided in the brand context.
 • For Nigerian English or Pidgin, use authentic local expressions, not stereotypes.
 • Captions must be platform-native: short/punchy for Instagram/Twitter, longer/professional for LinkedIn.
-• In caption, cta, description, content_idea, topic, and visual_direction: never use the long dash character, the en dash, or two hyphens in a row as punctuation. Use commas, periods, semicolons, or parentheses. Hyphens inside ordinary compound words are fine."""
+• In caption, cta, description, content_idea, topic, and visual_direction: never use the long dash character, the en dash, or two hyphens in a row as punctuation. Use commas, periods, semicolons, or parentheses. Hyphens inside ordinary compound words are fine.
+• Every post MUST include a non-empty string field "cta": one short imperative line (max 12 words) that drives a concrete next step: order or book, visit the website or link in bio, or meaningful engagement (comment, DM, save, share). Never leave cta blank, null, or placeholder text like "TBC" or "N/A"."""
 
 
 # ── Output validation ──────────────────────────────────────────────────────────
@@ -70,6 +87,77 @@ VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
 VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
 VALID_LOGO_SAFE_ZONES = frozenset({"upper_left", "upper_right", "lower_left", "lower_right"})
 TEASER_STYLE_WORDS = ("inside", "part 1", "part one", "swipe", "thread", "behind the scenes", "step-by-step")
+
+_FOOD_INDUSTRY_HINTS = (
+    "food",
+    "restaurant",
+    "cafe",
+    "coffee",
+    "kitchen",
+    "meal",
+    "dining",
+    "beverage",
+    "chef",
+    "menu",
+    "delivery",
+    "eatery",
+    "bistro",
+    "bakery",
+    "catering",
+    "grill",
+    "pizzeria",
+    "pub",
+)
+
+
+def _normalize_cta_raw(raw) -> str:
+    """Coerce model output (string or {label:...}) into a plain CTA line."""
+    if raw is None:
+        return ""
+    if isinstance(raw, dict):
+        lbl = str(raw.get("label") or raw.get("text") or "").strip()
+        return lbl[:300] if lbl else ""
+    return str(raw).strip()[:300]
+
+
+def _default_cta_from_brand(brand: dict | None, post: dict | None = None) -> str:
+    """
+    Deterministic fallback when the model omits a CTA. Prefer website visit, then food order,
+    then engagement, using brand kit signals only.
+    """
+    _ = post
+    b = brand or {}
+    industry = f"{b.get('industry') or ''} {b.get('sub_industry') or ''}".lower()
+    website = str(b.get("website") or "").strip()
+    cta_style = str(b.get("cta_style") or "").strip()
+    if 6 <= len(cta_style) <= 300:
+        return cta_style[:300]
+    is_food = any(k in industry for k in _FOOD_INDUSTRY_HINTS)
+    host = ""
+    if website:
+        try:
+            from urllib.parse import urlparse
+
+            p = urlparse(website if "://" in website else f"https://{website}")
+            host = (p.netloc or p.path or website).replace("www.", "")[:48]
+        except Exception:
+            host = website[:48]
+    if website and host:
+        if is_food:
+            return f"Order or book now, tap the link in our bio ({host})."[:300]
+        return f"Visit {host} via the link in our bio to learn more."[:300]
+    if is_food:
+        return "Order or book today: check our bio for menu, hours, and pickup or delivery."[:300]
+    return "Tell us what you think in the comments, save this post, or DM us to chat."[:300]
+
+
+def _ensure_post_cta(post: dict, brand: dict | None) -> None:
+    """Guarantee a non-empty cta string on every validated post dict."""
+    text = _normalize_cta_raw(post.get("cta"))
+    if len(text) < 3:
+        text = _default_cta_from_brand(brand, post)
+    text = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(text)) or _default_cta_from_brand(brand, post)
+    post["cta"] = str(text).strip()[:300]
 VISUAL_DIRECTION_DESIGN_TOKENS = (
     "foreground",
     "midground",
@@ -595,6 +683,7 @@ def _validate_posts(
                     f"Post {i} ('{post.get('topic')}') contains forbidden words: {violations}"
                 )
 
+        _ensure_post_cta(post, brand)
         valid.append(_sanitize_post_copy_fields(post))
 
     valid = _apply_style_mix_targets(valid, brand)
@@ -609,12 +698,44 @@ async def _openai_chat(
     max_tokens: int = 8000,
     temperature: float = 0.4,
     json_mode: bool = False,
+    endpoint_name: str = "generic",
+    high_quality_required: bool = False,
 ) -> str:
     if not settings.OPENAI_API_KEY:
         raise ValueError("OPENAI_API_KEY not configured")
 
+    messages = enforce_message_limits(messages, endpoint_name)
+    max_tokens = resolve_max_output_tokens(endpoint_name, max_tokens)
+    model = route_model(endpoint_name, high_quality_required=high_quality_required)
+    fingerprint = build_fingerprint(
+        endpoint_name=endpoint_name,
+        model=model,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        json_mode=json_mode,
+    )
+    cached = cache_get("openai_chat", fingerprint)
+    if isinstance(cached, str):
+        in_tok = input_token_estimate_for_messages(messages)
+        out_tok = max(1, len(cached) // 4)
+        telemetry_record(
+            CallTelemetry(
+                endpoint_name=endpoint_name,
+                model=model,
+                input_tokens=in_tok,
+                output_tokens=out_tok,
+                estimated_cost_usd=0.0,
+                latency_ms=0.0,
+                cache_hit=True,
+                retries=0,
+                success=True,
+            )
+        )
+        return cached
+
     payload: dict = {
-        "model": TEXT_MODEL,
+        "model": model,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
@@ -622,37 +743,92 @@ async def _openai_chat(
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
 
-    async with httpx.AsyncClient(timeout=120) as client:
-        resp = await client.post(
-            OPENAI_CHAT_URL,
-            headers={
-                "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-        try:
-            resp.raise_for_status()
-        except httpx.HTTPStatusError as e:
-            status_code = e.response.status_code
-            logger.error(f"OpenAI API error {status_code}: {e.response.text[:200]}")
-            if status_code == 429:
-                raise RuntimeError(
-                    "Our AI service is currently at capacity. Please try again in a few minutes."
+    async def _do_request() -> str:
+        timeout = httpx.Timeout(120.0)
+        retries = 0
+        begin = time.perf_counter()
+        while True:
+            try:
+                async with httpx.AsyncClient(timeout=timeout) as client:
+                    resp = await client.post(
+                        OPENAI_CHAT_URL,
+                        headers={
+                            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                            "Content-Type": "application/json",
+                        },
+                        json=payload,
+                    )
+                    resp.raise_for_status()
+                    content = resp.json()["choices"][0]["message"]["content"]
+                    cache_set("openai_chat", fingerprint, content, ttl_sec=cache_ttl_for_endpoint(endpoint_name))
+                    in_tok = input_token_estimate_for_messages(messages)
+                    out_tok = max(1, len(str(content)) // 4)
+                    telemetry_record(
+                        CallTelemetry(
+                            endpoint_name=endpoint_name,
+                            model=model,
+                            input_tokens=in_tok,
+                            output_tokens=out_tok,
+                            estimated_cost_usd=estimate_cost_usd(model, in_tok, out_tok),
+                            latency_ms=(time.perf_counter() - begin) * 1000.0,
+                            cache_hit=False,
+                            retries=retries,
+                            success=True,
+                        )
+                    )
+                    return content
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code
+                txt = (e.response.text or "")[:200]
+                logger.error("OpenAI API error endpoint=%s model=%s status=%s body=%s", endpoint_name, model, status_code, txt)
+                transient = status_code in (408, 409, 429, 500, 502, 503, 504)
+                if transient and retries < max(0, int(settings.AI_TRANSIENT_RETRY_MAX)):
+                    retries += 1
+                    await asyncio.sleep(0.4 * retries)
+                    continue
+                telemetry_record(
+                    CallTelemetry(
+                        endpoint_name=endpoint_name,
+                        model=model,
+                        input_tokens=input_token_estimate_for_messages(messages),
+                        output_tokens=0,
+                        estimated_cost_usd=0.0,
+                        latency_ms=(time.perf_counter() - begin) * 1000.0,
+                        cache_hit=False,
+                        retries=retries,
+                        success=False,
+                        failure_reason=f"http_{status_code}",
+                    )
                 )
-            elif status_code in (401, 403):
-                raise RuntimeError(
-                    "AI service is temporarily unavailable. Please contact support."
+                if status_code == 429:
+                    raise RuntimeError("Our AI service is currently at capacity. Please try again in a few minutes.")
+                if status_code in (401, 403):
+                    raise RuntimeError("AI service is temporarily unavailable. Please contact support.")
+                if status_code >= 500:
+                    raise RuntimeError("AI service is temporarily unavailable. Please try again shortly.")
+                raise RuntimeError("An error occurred while generating content. Please try again.")
+            except Exception as e:
+                if retries < max(0, int(settings.AI_TRANSIENT_RETRY_MAX)):
+                    retries += 1
+                    await asyncio.sleep(0.4 * retries)
+                    continue
+                telemetry_record(
+                    CallTelemetry(
+                        endpoint_name=endpoint_name,
+                        model=model,
+                        input_tokens=input_token_estimate_for_messages(messages),
+                        output_tokens=0,
+                        estimated_cost_usd=0.0,
+                        latency_ms=(time.perf_counter() - begin) * 1000.0,
+                        cache_hit=False,
+                        retries=retries,
+                        success=False,
+                        failure_reason=type(e).__name__,
+                    )
                 )
-            elif status_code >= 500:
-                raise RuntimeError(
-                    "AI service is temporarily unavailable. Please try again shortly."
-                )
-            else:
-                raise RuntimeError(
-                    "An error occurred while generating content. Please try again."
-                )
-        return resp.json()["choices"][0]["message"]["content"]
+                raise
+
+    return await singleflight_run(f"openai_chat:{fingerprint}", _do_request)
 
 
 # ── JSON parse ─────────────────────────────────────────────────────────────────
@@ -926,7 +1102,7 @@ For EACH post return ALL these fields:
 2. content_idea: punchy post title, max 8 words
 3. description: 2-3 sentences: what this post achieves, why this angle, who it speaks to
 4. caption: full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
-5. cta: standalone call to action, max 12 words
+5. cta: REQUIRED non-empty string, standalone imperative, max 12 words. Must ask for ONE clear action: order food or book a table, visit the website or tap link in bio, or engage (comment, DM, save, share). Never omit, never use placeholders.
 6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
 7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster. Do NOT describe caption text overlaid on the image. Copy lives only in the caption field.
 8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable text blocks and must NOT ask the raster model to paint any logo, wordmark, or trademark.
@@ -940,6 +1116,7 @@ For EACH post return ALL these fields:
 15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
 
 HARD RULES:
+• Every post MUST have a non-empty "cta" string (see field 5); if unsure, default to "Visit our site via the link in bio." adapted to brand voice and website if known
 • Each post must feel distinctly different; vary tone, angle, format, and style
 • Fix prior system weaknesses: avoid repeating the same centered-text layout, avoid repeating gradient-heavy backgrounds, avoid overusing flat illustration style, and avoid template-looking sameness
 • Rotate design mode across posts and do not repeat consecutively: editorial, product hero, lifestyle, abstract, ui_saas
@@ -967,8 +1144,9 @@ Return a JSON object with a single key "posts" containing the array:
     if quality_playbook.strip():
         creative_brief += f"\n\n=== BENCHMARK QUALITY PLAYBOOK ===\n{quality_playbook}\n"
 
+    max_attempts = 2 if settings.AI_COST_OPTIMIZATION_ENABLED else 3
     last_error = None
-    for attempt in range(3):
+    for attempt in range(max_attempts):
         try:
             raw = None
 
@@ -1000,6 +1178,8 @@ Return a JSON object with a single key "posts" containing the array:
                     max_tokens=12000,
                     temperature=0.4,
                     json_mode=True,
+                    endpoint_name="monthly_generation_plan",
+                    high_quality_required=True,
                 )
 
             parsed = _parse_json_safe(raw)
@@ -1030,11 +1210,11 @@ Return a JSON object with a single key "posts" containing the array:
 
         except Exception as e:
             last_error = e
-            logger.warning(f"Generation attempt {attempt + 1}/3 failed for {platform}: {e}")
+            logger.warning(f"Generation attempt {attempt + 1}/{max_attempts} failed for {platform}: {e}")
             if raw:
                 logger.debug(f"Raw output that failed (first 500): {raw[:500]}")
 
-    raise ValueError(f"All 3 generation attempts failed for {platform}: {last_error}")
+    raise ValueError(f"All {max_attempts} generation attempts failed for {platform}: {last_error}")
 
 
 # ── Monthly plan ───────────────────────────────────────────────────────────────
@@ -1060,6 +1240,22 @@ async def generate_monthly_plan(
 
     def _fmt(v): return v if v else "N/A"
     def _lst(v): return ', '.join(v) if isinstance(v, list) and v else (v if v else "N/A")
+    def _reviews(v):
+        rows = v if isinstance(v, list) else []
+        picks = []
+        for row in rows[:5]:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("customer_name") or "Customer").strip()
+            quote = str(row.get("quote") or row.get("summary") or "").strip()
+            rating = str(row.get("rating") or "").strip()
+            if not quote:
+                continue
+            snippet = f"{name}: \"{quote[:140]}\""
+            if rating:
+                snippet += f" ({rating}/5)"
+            picks.append(snippet)
+        return " | ".join(picks) if picks else "N/A"
 
     brand_ctx = f"""
 === BRAND IDENTITY ===
@@ -1108,6 +1304,7 @@ Logo description: {_fmt(brand.get('logo_description'))}
 
 === MESSAGING ===
 Key messages: {_lst(brand.get('key_messages'))}
+Customer reviews / social proof: {_reviews(brand.get('reviews'))}
 Value pillars: {_lst(brand.get('value_pillars'))}
 CTA style: {_fmt(brand.get('cta_style'))}
 Brand narratives: {_lst(brand.get('brand_narratives'))}
@@ -1184,14 +1381,32 @@ async def generate_single_caption(
     description: str | None = None,
     existing_caption: str | None = None,
 ) -> dict:
+    review_rows = brand.get('reviews') if isinstance(brand.get('reviews'), list) else []
+    review_snippets = []
+    for row in review_rows[:3]:
+        if not isinstance(row, dict):
+            continue
+        quote = str(row.get('quote') or row.get('summary') or '').strip()
+        if not quote:
+            continue
+        name = str(row.get('customer_name') or 'Customer').strip()
+        rating = str(row.get('rating') or '').strip()
+        snippet = f'{name}: "{quote[:110]}"'
+        if rating:
+            snippet += f' ({rating}/5)'
+        review_snippets.append(snippet)
+    social_proof_line = ' | '.join(review_snippets) if review_snippets else 'N/A'
+
     avoid = ', '.join(brand.get('words_to_avoid') or []) or 'none'
     brand_ctx = f"""Brand: {brand.get('name', 'My Brand')}
 Industry: {brand.get('industry', '')}
+Website: {brand.get('website') or 'N/A'}
 Tone: {', '.join(brand.get('tone_tags') or [])}
 Language: {brand.get('language_style', 'english')}
 Personality: {brand.get('personality_score', 50)}/100
 Audience: {brand.get('target_audience', '')}
 Key messages: {', '.join(brand.get('key_messages') or []) or 'N/A'}
+Customer reviews/social proof: {social_proof_line}
 CTA style: {brand.get('cta_style') or 'N/A'}
 Words to avoid (NEVER use): {avoid}
 Guidelines: {brand.get('guidelines', '')}""".strip()
@@ -1204,8 +1419,9 @@ Topic: {topic}
 Mood: {mood or 'same as original'}
 Original caption: {existing_caption}
 
-Return JSON object: {{"caption": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: max 100 words, platform-native, no generic phrases, no forbidden words. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption."""
+Return JSON object: {{"caption": "...", "cta": "...", "hashtags": ["tag1", "tag2"]}}
+Rules: max 100 words in caption, platform-native, no generic phrases, no forbidden words. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption.
+Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, visit website or link in bio, or engagement (comment, DM, save, share). Never leave cta empty."""
     else:
         prompt = f"""Write one {platform} caption for {brand.get('name', 'the brand')}.
 Brand profile:
@@ -1214,8 +1430,9 @@ Topic: {topic}
 {f'Mood: {mood}' if mood else ''}
 {f'Context: {description}' if description else ''}
 
-Return JSON object: {{"caption": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: max 100 words, platform-native, strong hook on first line, no generic phrases, no forbidden words, max 2 hashtags. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption."""
+Return JSON object: {{"caption": "...", "cta": "...", "hashtags": ["tag1", "tag2"]}}
+Rules: max 100 words in caption, platform-native, strong hook on first line, no generic phrases, no forbidden words, max 2 hashtags. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption.
+Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, visit website or link in bio, or engagement (comment, DM, save, share). Never leave cta empty."""
 
     raw = await _openai_chat(
         messages=[
@@ -1225,6 +1442,8 @@ Rules: max 100 words, platform-native, strong hook on first line, no generic phr
         max_tokens=1000,
         temperature=0.6,
         json_mode=True,
+        endpoint_name="caption_generation",
+        high_quality_required=True,
     )
     result = _parse_json_safe(raw)
     if not isinstance(result, dict):
@@ -1237,6 +1456,12 @@ Rules: max 100 words, platform-native, strong hook on first line, no generic phr
 
     if isinstance(result.get("caption"), str):
         result["caption"] = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(result["caption"])) or ""
+
+    cta_text = _normalize_cta_raw(result.get("cta"))
+    if len(cta_text) < 3:
+        cta_text = _default_cta_from_brand(brand, None)
+    cta_text = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(cta_text)) or _default_cta_from_brand(brand, None)
+    result["cta"] = str(cta_text).strip()[:300]
 
     return result
 
@@ -1777,7 +2002,14 @@ async def run_brand_form_coach_chat(
     else:
         max_tokens = 1400
     temp = 0.35 if bulk else 0.4
-    raw = await _openai_chat(msgs, max_tokens=max_tokens, temperature=temp, json_mode=True)
+    raw = await _openai_chat(
+        msgs,
+        max_tokens=max_tokens,
+        temperature=temp,
+        json_mode=True,
+        endpoint_name="brand_form_coach",
+        high_quality_required=not settings.AI_LOW_COST_PREP_MODE,
+    )
     try:
         data = _parse_json_safe(raw)
     except Exception:
@@ -1887,7 +2119,14 @@ async def run_generation_prep_chat(
         if r not in ("user", "assistant"):
             r = "user"
         msgs.append({"role": r, "content": str(m.get("content", ""))[:8000]})
-    raw = await _openai_chat(msgs, max_tokens=1100, temperature=0.5, json_mode=True)
+    raw = await _openai_chat(
+        msgs,
+        max_tokens=1100,
+        temperature=0.5,
+        json_mode=True,
+        endpoint_name="prep_chat",
+        high_quality_required=not settings.AI_LOW_COST_PREP_MODE,
+    )
     try:
         data = _parse_json_safe(raw)
     except Exception:
@@ -2044,6 +2283,8 @@ Rules: topic 2-5 words titlecase, description one sentence, volume e.g. "4.2M po
         max_tokens=2000,
         temperature=0.7,
         json_mode=True,
+        endpoint_name="trends_generation",
+        high_quality_required=False,
     )
 
     parsed = _parse_json_safe(raw)
@@ -2080,12 +2321,28 @@ async def generate_photo_caption(
     description: str,
     mood: str | None = None,
 ) -> dict:
+    review_rows = brand.get('reviews') if isinstance(brand.get('reviews'), list) else []
+    review_snippets = []
+    for row in review_rows[:2]:
+        if not isinstance(row, dict):
+            continue
+        quote = str(row.get('quote') or row.get('summary') or '').strip()
+        if not quote:
+            continue
+        name = str(row.get('customer_name') or 'Customer').strip()
+        review_snippets.append(f'{name}: "{quote[:100]}"')
+    social_proof_line = ' | '.join(review_snippets) if review_snippets else 'N/A'
+
     avoid = ', '.join(brand.get('words_to_avoid') or []) or 'none'
     brand_ctx = f"""Brand: {brand.get('name', 'My Brand')}
+Website: {brand.get('website') or 'N/A'}
+Industry: {brand.get('industry', '')}
 Tone: {', '.join(brand.get('tone_tags') or [])}
 Language: {brand.get('language_style', 'english')}
 Audience: {brand.get('target_audience', '')}
 Key messages: {', '.join(brand.get('key_messages') or []) or 'N/A'}
+Customer reviews/social proof: {social_proof_line}
+CTA style: {brand.get('cta_style') or 'N/A'}
 Words to avoid (NEVER use): {avoid}""".strip()
 
     prompt = f"""Write a {platform} caption for a photo.
@@ -2094,8 +2351,9 @@ Brand:
 Photo description: {description}
 {f'Mood: {mood}' if mood else ''}
 
-Return JSON object: {{"caption": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: platform-native, strong hook, no generic phrases, no forbidden words, max 2 hashtags. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption."""
+Return JSON object: {{"caption": "...", "cta": "...", "hashtags": ["tag1", "tag2"]}}
+Rules: platform-native, strong hook, no generic phrases, no forbidden words, max 2 hashtags. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption.
+Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, visit website or link in bio, or engagement (comment, DM, save, share). Never leave cta empty."""
 
     raw = await _openai_chat(
         messages=[
@@ -2105,6 +2363,8 @@ Rules: platform-native, strong hook, no generic phrases, no forbidden words, max
         max_tokens=800,
         temperature=0.6,
         json_mode=True,
+        endpoint_name="photo_caption",
+        high_quality_required=True,
     )
     result = _parse_json_safe(raw)
     if not isinstance(result, dict):
@@ -2116,5 +2376,11 @@ Rules: platform-native, strong hook, no generic phrases, no forbidden words, max
 
     if isinstance(result.get("caption"), str):
         result["caption"] = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(result["caption"])) or ""
+
+    cta_text = _normalize_cta_raw(result.get("cta"))
+    if len(cta_text) < 3:
+        cta_text = _default_cta_from_brand(brand, None)
+    cta_text = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(cta_text)) or _default_cta_from_brand(brand, None)
+    result["cta"] = str(cta_text).strip()[:300]
 
     return result

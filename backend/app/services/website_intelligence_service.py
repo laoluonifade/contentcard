@@ -20,6 +20,17 @@ from app.models.website_intelligence import (
     WebsiteSnapshot,
 )
 
+_CHOWDECK_STOP_WORDS = {
+    "login",
+    "delivery",
+    "your cart",
+    "clear cart",
+    "continue to checkout",
+    "subtotal",
+    "home",
+    "restaurants",
+}
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -234,6 +245,11 @@ def _extract_generic_entities_from_html(base_url: str, html: str) -> list[dict]:
     entities: list[dict] = []
     title_match = re.search(r"<title>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
     page_title = title_match.group(1).strip() if title_match else None
+    host = (urlparse(base_url).hostname or "").lower()
+    if host.endswith("chowdeck.com") and "/restaurants/" in base_url.lower():
+        store_name = _extract_chowdeck_store_name(base_url, html)
+        if store_name:
+            page_title = f"{store_name} Menu"
     if page_title:
         entities.append(
             {
@@ -248,6 +264,83 @@ def _extract_generic_entities_from_html(base_url: str, html: str) -> list[dict]:
             }
         )
     return entities
+
+
+def _extract_reviews_from_html(page_url: str, html: str) -> list[dict]:
+    """
+    Extract social-proof signals (rating/review count and lightweight quotes)
+    from marketplace or direct storefront pages.
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+    text = re.sub(r"<[^>]+>", " ", html or "")
+    text = re.sub(r"\s+", " ", text).strip()
+
+    # Common rating + count patterns (e.g. "5.0(4)", "4.8 stars from 132 reviews")
+    score_match = re.search(
+        r"([1-5](?:\.\d)?)\s*(?:/5|stars?)?\s*(?:\(|from\s+)?\s*([0-9]{1,5})\s*(?:\)|reviews?)",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if score_match:
+        score = score_match.group(1)
+        count = score_match.group(2)
+        review_title = f"Customer rating {score}/5 from {count} reviews"
+        out.append(
+            {
+                "entity_type": "review",
+                "external_id": f"{page_url}#rating-summary",
+                "title": review_title,
+                "summary": None,
+                "attributes": {
+                    "rating": score,
+                    "review_count": count,
+                    "source": "rating_summary",
+                    "images": [],
+                },
+                "source_url": page_url,
+                "confidence_score": 0.82,
+                "freshness_score": 0.8,
+            }
+        )
+        seen.add(review_title.lower())
+
+    # Lightweight quote extraction when a line has quote-like wording.
+    quote_candidates = re.findall(
+        r"(?:“([^”]{20,220})”|\"([^\"]{20,220})\")",
+        html or "",
+        flags=re.IGNORECASE,
+    )
+    for a, b in quote_candidates[:12]:
+        quote = (a or b or "").strip()
+        if not quote:
+            continue
+        ql = quote.lower()
+        if any(tok in ql for tok in ("cookie", "privacy", "terms", "login", "checkout", "cart")):
+            continue
+        key = quote[:120].lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "entity_type": "review",
+                "external_id": f"{page_url}#quote-{_slugify(quote[:48])}",
+                "title": "Customer review",
+                "summary": quote[:500],
+                "attributes": {
+                    "rating": None,
+                    "review_count": None,
+                    "source": "quoted_text",
+                    "images": [],
+                },
+                "source_url": page_url,
+                "confidence_score": 0.68,
+                "freshness_score": 0.7,
+            }
+        )
+
+    return out[:40]
 
 
 def _extract_urls_from_sitemap_xml(xml_bytes: bytes) -> list[str]:
@@ -417,6 +510,158 @@ def _extract_products_from_woocommerce_meta(page_url: str, html: str) -> list[di
     ]
 
 
+def _extract_chowdeck_store_name(page_url: str, html: str) -> str | None:
+    og_title = re.search(
+        r"<meta[^>]+property=[\"']og:title[\"'][^>]+content=[\"']([^\"']+)[\"']",
+        html or "",
+        flags=re.IGNORECASE,
+    )
+    if og_title:
+        title = re.sub(r"\s+", " ", og_title.group(1)).strip()
+        m = re.match(r"^(.*?)\s+Menu\s*&?\s*Delivery", title, flags=re.IGNORECASE)
+        if m and m.group(1).strip():
+            return m.group(1).strip()
+        title = re.sub(r"\s*\|\s*Chowdeck\s*$", "", title, flags=re.IGNORECASE).strip()
+        if title and title.lower() != "chowdeck":
+            return title
+    path = urlparse(page_url).path
+    slug_m = re.search(r"/restaurants/([a-z0-9-]+)", path, flags=re.IGNORECASE)
+    if slug_m:
+        slug = slug_m.group(1).strip("- ")
+        if slug:
+            words = [w for w in slug.split("-") if w and not re.fullmatch(r"[a-z0-9]{6,}", w)]
+            if words:
+                return " ".join(w.capitalize() for w in words[:6])
+    return None
+
+
+def _extract_chowdeck_products_from_html(page_url: str, html: str) -> list[dict]:
+    """
+    Chowdeck storefront pages are often JS-rendered. Parse JSON blobs and fallback
+    to menu heuristics so storefront links still yield usable products.
+    """
+    out: list[dict] = []
+    seen: set[str] = set()
+    page_images = _extract_image_candidates_from_html(page_url, html)
+    scripts = re.findall(
+        r"<script[^>]*>(.*?)</script>",
+        html or "",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    def _is_bad_name(name: str) -> bool:
+        n = re.sub(r"\s+", " ", str(name or "").strip()).lower()
+        if not n or len(n) < 2 or len(n) > 90:
+            return True
+        if n in _CHOWDECK_STOP_WORDS:
+            return True
+        return any(tok in n for tok in ("checkout", "subtotal", "leave a note", "your order"))
+
+    def _norm_price(value: object) -> tuple[str | None, str | None]:
+        if value is None:
+            return (None, None)
+        if isinstance(value, (int, float)):
+            amount = float(value)
+            if amount <= 0:
+                return (None, None)
+            if amount > 10000:
+                amount = amount / 100.0
+            return (f"₦{int(round(amount)):,}", "NGN")
+        s = str(value).strip()
+        digits = re.sub(r"[^0-9]", "", s)
+        if not digits:
+            return (None, None)
+        if int(digits) <= 0:
+            return (None, None)
+        return (f"₦{int(digits):,}", "NGN")
+
+    def _best_images(candidate: dict) -> list[str]:
+        imgs: list[str] = []
+        for key in ("image", "image_url", "imageUrl", "thumbnail", "photo"):
+            val = candidate.get(key)
+            if isinstance(val, str) and val.strip():
+                imgs.append(urljoin(f"{page_url}/", val.strip()))
+            elif isinstance(val, list):
+                for x in val:
+                    if isinstance(x, str) and x.strip():
+                        imgs.append(urljoin(f"{page_url}/", x.strip()))
+        if not imgs:
+            name_tokens = [w.lower() for w in re.findall(r"[a-zA-Z]{4,}", str(candidate.get("name") or candidate.get("title") or ""))]
+            for img in page_images:
+                il = img.lower()
+                if any(tok in il for tok in name_tokens):
+                    imgs.append(img)
+        if not imgs:
+            imgs = [
+                img for img in page_images
+                if any(k in img.lower() for k in ("files.chowdeck.com", "menu", "food", "meal", "dish"))
+            ][:4]
+        uniq: list[str] = []
+        used: set[str] = set()
+        for i in imgs:
+            if i and i not in used:
+                used.add(i)
+                uniq.append(i)
+        return uniq[:4]
+
+    def _walk(node: object) -> None:
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+        name = str(node.get("name") or node.get("title") or "").strip()
+        if name and not _is_bad_name(name):
+            price_val = node.get("price")
+            if price_val is None:
+                for pk in ("amount", "displayPrice", "price_display", "basePrice"):
+                    if node.get(pk) is not None:
+                        price_val = node.get(pk)
+                        break
+            price, currency = _norm_price(price_val)
+            images = _best_images(node)
+            if price and images:
+                key = f"{name.lower()}::{price}"
+                if key not in seen:
+                    seen.add(key)
+                    out.append(
+                        {
+                            "entity_type": "product",
+                            "external_id": str(node.get("id") or node.get("slug") or f"{_slugify(name)}-{len(out)+1}"),
+                            "title": name[:300],
+                            "summary": str(node.get("description") or node.get("summary") or "")[:600] or None,
+                            "attributes": {
+                                "price": price,
+                                "currency": currency or "NGN",
+                                "availability": "unknown",
+                                "images": images,
+                                "source": "chowdeck_storefront",
+                            },
+                            "source_url": page_url,
+                            "confidence_score": 0.86,
+                            "freshness_score": 0.85,
+                        }
+                    )
+        for v in node.values():
+            if isinstance(v, (dict, list)):
+                _walk(v)
+
+    for script_body in scripts:
+        payload = (script_body or "").strip()
+        if not payload or len(payload) < 2:
+            continue
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            continue
+        _walk(parsed)
+
+    if not out:
+        out.extend(_extract_food_menu_products_from_html(page_url, html))
+    return out[:120]
+
+
 def _extract_product_from_page_fallback(page_url: str, html: str) -> list[dict]:
     """
     Last-resort extractor for Woo/WordPress shops that do not expose JSON-LD Product
@@ -580,12 +825,19 @@ def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict
 async def _fetch_products_from_non_shopify(base_url: str, food_menu_hint: bool = False) -> tuple[list[dict], int]:
     product_urls = await _discover_product_urls(base_url)
     homepage_html = ""
+    is_chowdeck_store = ("chowdeck.com" in (urlparse(base_url).hostname or "").lower()) and ("/restaurants/" in base_url.lower())
     if food_menu_hint:
         try:
             homepage_html = await _fetch_text(base_url)
         except Exception:
             homepage_html = ""
         if homepage_html:
+            if is_chowdeck_store:
+                chowdeck_products = _extract_chowdeck_products_from_html(base_url, homepage_html)
+                if chowdeck_products:
+                    with_images = [e for e in chowdeck_products if _has_product_images(e)]
+                    if with_images:
+                        return with_images[:80], 1
             for u in _discover_menu_like_urls_from_html(base_url, homepage_html):
                 if u not in product_urls:
                     product_urls.append(u)
@@ -608,6 +860,11 @@ async def _fetch_products_from_non_shopify(base_url: str, food_menu_hint: bool =
             entities.extend(via_wc)
             continue
         if food_menu_hint:
+            if is_chowdeck_store and "chowdeck.com" in (urlparse(u).hostname or "").lower():
+                via_chowdeck = _extract_chowdeck_products_from_html(u, html)
+                if via_chowdeck:
+                    entities.extend(via_chowdeck)
+                    continue
             via_menu = _extract_food_menu_products_from_html(u, html)
             if via_menu:
                 entities.extend(via_menu)
@@ -808,6 +1065,7 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
                 raw_payload["non_shopify_products_count"] = len(non_shopify_products)
         html, page_attempts = await _fetch_text_with_retry(source_url, max_attempts=3)
         entities.extend(_extract_generic_entities_from_html(source_url, html))
+        entities.extend(_extract_reviews_from_html(source_url, html))
     except Exception as exc:
         crawl_status = "error"
         error_message = str(exc)[:500]

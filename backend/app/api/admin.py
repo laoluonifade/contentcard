@@ -1,6 +1,8 @@
 import asyncio
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+import re
+import secrets
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, delete, or_, case
 from sqlalchemy.orm import aliased, selectinload
@@ -14,6 +16,8 @@ from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.models.brand import Brand
 from app.models.content import ContentItem
 from app.models.website_intelligence import WebsiteEntity, WebsiteSnapshot, WebsiteChangeEvent, WebsiteOpportunity
+from app.models.meme_asset import MemeAsset
+from app.models.demo_request import DemoRequest
 from app.models.creative_engine import (
     CampaignPlan,
     RenderVariant,
@@ -22,7 +26,12 @@ from app.models.creative_engine import (
     DesignPlaybookContentType,
     DesignPlaybookVisualDirection,
 )
+from app.services.ai_cost_service import cost_audit_snapshot
 from datetime import datetime, timezone, timedelta
+from app.core.security import hash_password
+from app.services.website_intelligence_service import sync_brand_website_intelligence
+from app.api.content import _do_generate_month, _brand_to_dict
+from app.api.brands import _canonical_taxonomy, _bootstrap_brand_templates
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +66,58 @@ def require_admin(current_user: User = Depends(get_current_user)):
     return current_user
 
 
+def _slugify(value: str) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", str(value or "").lower()).strip("-")
+    return slug or "workspace"
+
+
+async def _ensure_unique_workspace_slug(db: AsyncSession, base: str) -> str:
+    candidate = _slugify(base)
+    idx = 1
+    while True:
+        exists = (
+            await db.execute(select(Workspace.id).where(Workspace.slug == candidate).limit(1))
+        ).scalar_one_or_none()
+        if not exists:
+            return candidate
+        candidate = f"{_slugify(base)}-{idx}"
+        idx += 1
+
+
+async def _build_quickfill_copy(db: AsyncSession, brand_id: str, brand_name: str, industry: str | None, sub_industry: str | None) -> dict:
+    entities = (
+        await db.execute(
+            select(WebsiteEntity).where(
+                WebsiteEntity.brand_id == brand_id,
+                WebsiteEntity.entity_type == "product",
+            ).order_by(desc(WebsiteEntity.last_seen_at))
+        )
+    ).scalars().all()
+    product_titles = [str(e.title or "").strip() for e in entities if str(e.title or "").strip()]
+    lead_products = product_titles[:3]
+    offer_line = ", ".join(lead_products) if lead_products else "its core offers"
+    ind = (industry or "Business").strip()
+    sub = (sub_industry or "General").strip()
+    description = (
+        f"{brand_name} is a {sub.lower()} brand in the {ind.lower()} space, focused on helping customers "
+        f"move faster with {offer_line}."
+    )
+    audience = f"Growth-focused buyers looking for trusted {sub.lower()} solutions with clear value."
+    pain = f"Customers need confidence before choosing a {sub.lower()} provider."
+    key_messages = [
+        f"{brand_name} offers practical, high-quality {sub.lower()} solutions.",
+        "Proof-driven posts should make outcomes obvious at a glance.",
+        "Every post should reinforce trust, clarity, and conversion intent.",
+    ]
+    return {
+        "description": description[:800],
+        "target_audience": audience[:600],
+        "pain_point": pain[:600],
+        "key_messages": key_messages,
+        "writing_style": "clear, confident, benefit-first",
+    }
+
+
 def _apply_paystack_authorization_to_workspace(ws: Workspace, auth: dict) -> None:
     """Persist Paystack authorization fields when workspace model has billing columns."""
     if not auth:
@@ -84,6 +145,42 @@ class ReconcilePaystackBody(BaseModel):
 class ReconcileWorkspacePaystackBody(BaseModel):
     reference: str = Field(..., description="Paystack transaction reference from receipt/dashboard")
     plan: str | None = Field(None, description="Override plan if metadata is missing: starter | smb | pro")
+
+
+class AdminSalesSandboxBootstrapBody(BaseModel):
+    business_name: str = Field(..., min_length=2, max_length=120)
+    brand_name: str = Field(..., min_length=2, max_length=120)
+    website: str = Field(..., min_length=5, max_length=300)
+    industry: str | None = None
+    sub_industry: str | None = None
+    location: str | None = None
+    owner_email: str | None = None
+    owner_name: str | None = None
+    country_code: str | None = None
+    run_initial_generation: bool = False
+    generation_platforms: list[str] = Field(default_factory=lambda: ["instagram"])
+    generation_posts_per_week: int = Field(default=3, ge=1, le=7)
+
+
+class AdminWorkspaceAdoptOwnerBody(BaseModel):
+    email: str = Field(..., min_length=5, max_length=255)
+    full_name: str | None = None
+    country_code: str | None = None
+
+
+class AdminGenerateMonthBody(BaseModel):
+    month: int = Field(..., ge=1, le=12)
+    year: int = Field(..., ge=2024, le=2100)
+    platforms: list[str] = Field(default_factory=lambda: ["instagram"])
+    posts_per_week: int = Field(default=3, ge=1, le=7)
+    format_mix: str = "mix"
+
+
+class AdminMemeAssetIn(BaseModel):
+    title: str = Field(..., min_length=2, max_length=255)
+    media_url: str = Field(..., min_length=8, max_length=1000)
+    media_type: str = "image"
+    tags: list[str] = Field(default_factory=list)
 
 
 class PlaybookIndustryIn(BaseModel):
@@ -1164,6 +1261,11 @@ async def admin_stats(
     }
 
 
+@router.get("/ai-cost-audit")
+async def ai_cost_audit(_: User = Depends(require_admin)) -> dict:
+    return {"by_endpoint": cost_audit_snapshot()}
+
+
 @router.get("/users")
 async def admin_users(
     page: int = 1,
@@ -1198,6 +1300,215 @@ async def admin_users(
     }
 
 
+@router.post("/sales-sandbox/bootstrap", status_code=201)
+async def admin_sales_sandbox_bootstrap(
+    body: AdminSalesSandboxBootstrapBody,
+    background_tasks: BackgroundTasks,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    owner_email = (body.owner_email or "").strip().lower()
+    owner_name = (body.owner_name or "").strip()
+    country_code = ((body.country_code or "NG").strip().upper() or "NG")[:10]
+    owner = None
+    created_user = False
+
+    if owner_email:
+        owner = (
+            await db.execute(select(User).where(User.email == owner_email).limit(1))
+        ).scalar_one_or_none()
+    if not owner:
+        if not owner_email:
+            owner_email = f"sales-{secrets.token_hex(4)}@contentcard.local"
+        owner = User(
+            full_name=owner_name or body.business_name.strip(),
+            email=owner_email,
+            hashed_password=hash_password(secrets.token_urlsafe(16)),
+            country_code=country_code,
+            is_active=True,
+        )
+        db.add(owner)
+        await db.flush()
+        created_user = True
+
+    workspace_slug = await _ensure_unique_workspace_slug(db, f"{body.business_name} workspace")
+    ws = Workspace(
+        name=body.business_name.strip(),
+        slug=workspace_slug,
+        owner_id=owner.id,
+        plan="trial",
+        payment_provider="paystack" if (country_code or "").upper() == "NG" else "stripe",
+    )
+    db.add(ws)
+    await db.flush()
+
+    db.add(
+        WorkspaceMember(
+            workspace_id=ws.id,
+            user_id=owner.id,
+            role=WorkspaceRole.OWNER,
+        )
+    )
+
+    canonical_industry, canonical_sub = _canonical_taxonomy(body.industry, body.sub_industry)
+    brand = Brand(
+        workspace_id=ws.id,
+        name=body.brand_name.strip(),
+        website=body.website.strip(),
+        location=(body.location or "").strip() or None,
+        industry=canonical_industry,
+        sub_industry=canonical_sub,
+        language_style="english",
+        design_style="bold",
+        brand_kit={},
+    )
+    db.add(brand)
+    await db.flush()
+    await db.commit()
+    await db.refresh(brand)
+
+    sync_summary = {"status": "skipped"}
+    try:
+        sync_summary = await sync_brand_website_intelligence(db, brand, force=True)
+        quickfill = await _build_quickfill_copy(db, brand.id, brand.name, brand.industry, brand.sub_industry)
+        brand.description = quickfill["description"]
+        brand.target_audience = quickfill["target_audience"]
+        brand.pain_point = quickfill["pain_point"]
+        kit = brand.brand_kit if isinstance(brand.brand_kit, dict) else {}
+        kit["writing_style"] = quickfill["writing_style"]
+        kit["key_messages"] = quickfill["key_messages"]
+        brand.brand_kit = kit
+        await db.commit()
+    except Exception as exc:
+        logger.warning("Admin sandbox quick-fill failed for brand %s: %s", brand.id, exc)
+        await db.rollback()
+
+    try:
+        await _bootstrap_brand_templates(brand.id, owner.country_code or country_code)
+    except Exception as exc:
+        logger.warning("Admin sandbox template bootstrap failed for brand %s: %s", brand.id, exc)
+
+    generation_started = False
+    if body.run_initial_generation:
+        now = datetime.now(timezone.utc)
+        platforms = [p.strip().lower() for p in (body.generation_platforms or ["instagram"]) if p and p.strip()]
+        if not platforms:
+            platforms = ["instagram"]
+        background_tasks.add_task(
+            _do_generate_month,
+            brand.id,
+            _brand_to_dict(brand),
+            now.month,
+            now.year,
+            platforms,
+            "mix",
+            int(body.generation_posts_per_week or 3),
+            None,
+            None,
+            None,
+            owner.id,
+            owner.country_code,
+            True,
+            None,
+            None,
+            None,
+            False,
+            None,
+            1,
+            None,
+            None,
+            0,
+        )
+        generation_started = True
+
+    return {
+        "created_user": created_user,
+        "user": {"id": owner.id, "email": owner.email, "full_name": owner.full_name},
+        "workspace": {"id": ws.id, "name": ws.name, "slug": ws.slug},
+        "brand": {"id": brand.id, "name": brand.name, "industry": brand.industry, "sub_industry": brand.sub_industry},
+        "quick_fill_sync": {
+            "crawl_status": sync_summary.get("crawl_status"),
+            "entity_count": int(sync_summary.get("entity_count") or 0),
+            "opportunity_count": int(sync_summary.get("opportunity_count") or 0),
+        },
+        "initial_generation_started": generation_started,
+    }
+
+
+@router.post("/workspaces/{workspace_id}/adopt-owner")
+async def admin_adopt_workspace_owner(
+    workspace_id: str,
+    body: AdminWorkspaceAdoptOwnerBody,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    ws = (
+        await db.execute(select(Workspace).where(Workspace.id == workspace_id).limit(1))
+    ).scalar_one_or_none()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    email = body.email.strip().lower()
+    if not email:
+        raise HTTPException(status_code=422, detail="Email is required")
+
+    user = (
+        await db.execute(select(User).where(User.email == email).limit(1))
+    ).scalar_one_or_none()
+    created_user = False
+    if not user:
+        user = User(
+            full_name=(body.full_name or email.split("@")[0]).strip()[:255] or "New User",
+            email=email,
+            hashed_password=hash_password(secrets.token_urlsafe(16)),
+            country_code=((body.country_code or "NG").strip().upper() or None),
+            is_active=True,
+        )
+        db.add(user)
+        await db.flush()
+        created_user = True
+
+    previous_owner_id = ws.owner_id
+    ws.owner_id = user.id
+
+    existing_new_owner_member = (
+        await db.execute(
+            select(WorkspaceMember)
+            .where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.user_id == user.id,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if existing_new_owner_member:
+        existing_new_owner_member.role = WorkspaceRole.OWNER
+    else:
+        db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role=WorkspaceRole.OWNER))
+
+    prev_owner_member = (
+        await db.execute(
+            select(WorkspaceMember)
+            .where(
+                WorkspaceMember.workspace_id == ws.id,
+                WorkspaceMember.user_id == previous_owner_id,
+                WorkspaceMember.role == WorkspaceRole.OWNER,
+            )
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if prev_owner_member:
+        prev_owner_member.role = WorkspaceRole.ADMIN
+
+    await db.commit()
+    return {
+        "workspace_id": ws.id,
+        "workspace_name": ws.name,
+        "new_owner": {"id": user.id, "email": user.email, "full_name": user.full_name},
+        "created_user": created_user,
+    }
+
+
 @router.get("/workspaces")
 async def admin_workspaces(
     page: int = 1,
@@ -1215,6 +1526,19 @@ async def admin_workspaces(
         .limit(limit)
     )
     rows = result.all()
+    ws_ids = [ws.id for ws, _ in rows]
+    brand_rows = []
+    if ws_ids:
+        brand_rows = (
+            await db.execute(
+                select(Brand)
+                .where(Brand.workspace_id.in_(ws_ids))
+                .order_by(desc(Brand.created_at))
+            )
+        ).scalars().all()
+    brand_map: dict[str, list[Brand]] = {}
+    for b in brand_rows:
+        brand_map.setdefault(b.workspace_id, []).append(b)
     return {
         "total": total,
         "page": page,
@@ -1222,10 +1546,20 @@ async def admin_workspaces(
             {
                 "id": ws.id,
                 "name": ws.name,
+                "owner_id": ws.owner_id,
                 "plan": ws.plan,
                 "created_at": ws.created_at.isoformat(),
                 "updated_at": ws.updated_at.isoformat() if ws.updated_at else None,
                 "owner_email": owner_email,
+                "brand_count": len(brand_map.get(ws.id, [])),
+                "latest_brand": (
+                    {
+                        "id": brand_map[ws.id][0].id,
+                        "name": brand_map[ws.id][0].name,
+                    }
+                    if brand_map.get(ws.id)
+                    else None
+                ),
                 "subscription_id": ws.subscription_id,
                 "customer_id": ws.customer_id,
                 "payment_provider": ws.payment_provider,
@@ -1236,6 +1570,177 @@ async def admin_workspaces(
             }
             for ws, owner_email in rows
         ],
+    }
+
+
+@router.get("/memes")
+async def admin_list_memes(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    rows = (
+        await db.execute(
+            select(MemeAsset)
+            .where(MemeAsset.is_active.is_(True))
+            .order_by(desc(MemeAsset.created_at))
+            .limit(1000)
+        )
+    ).scalars().all()
+    return {
+        "items": [
+            {
+                "id": m.id,
+                "title": m.title,
+                "media_url": m.media_url,
+                "media_type": m.media_type,
+                "tags": m.tags or [],
+                "source": m.source,
+                "created_by_user_id": m.created_by_user_id,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in rows
+        ]
+    }
+
+
+@router.post("/memes", status_code=201)
+async def admin_create_meme(
+    body: AdminMemeAssetIn,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    media_type = str(body.media_type or "image").strip().lower()
+    if media_type not in ("image", "gif"):
+        raise HTTPException(status_code=400, detail="media_type must be image or gif")
+    row = MemeAsset(
+        title=body.title.strip(),
+        media_url=body.media_url.strip(),
+        media_type=media_type,
+        tags=[str(t).strip().lower() for t in (body.tags or []) if str(t).strip()][:20],
+        source="admin",
+        created_by_user_id=current_user.id,
+        is_active=True,
+    )
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {
+        "id": row.id,
+        "title": row.title,
+        "media_url": row.media_url,
+        "media_type": row.media_type,
+        "tags": row.tags or [],
+        "source": row.source,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.delete("/memes/{meme_id}", status_code=204)
+async def admin_delete_meme(
+    meme_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    row = (
+        await db.execute(select(MemeAsset).where(MemeAsset.id == meme_id).limit(1))
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Meme not found")
+    row.is_active = False
+    await db.commit()
+
+
+@router.get("/demo-requests")
+async def admin_list_demo_requests(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+    limit: int = 200,
+) -> dict:
+    """Submissions from the public Book a demo form (/demo)."""
+    lim = max(1, min(int(limit or 200), 500))
+    rows = (
+        await db.execute(select(DemoRequest).order_by(desc(DemoRequest.created_at)).limit(lim))
+    ).scalars().all()
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "full_name": r.full_name,
+                "email": r.email,
+                "company": r.company,
+                "role": r.role,
+                "team_size": r.team_size,
+                "message": r.message,
+                "source": r.source,
+                "ip_address": r.ip_address,
+                "user_agent": r.user_agent,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            }
+            for r in rows
+        ]
+    }
+
+
+@router.post("/brands/{brand_id}/generate-month", status_code=202)
+async def admin_generate_month_for_brand(
+    brand_id: str,
+    body: AdminGenerateMonthBody,
+    background_tasks: BackgroundTasks,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    brand = (
+        await db.execute(select(Brand).where(Brand.id == brand_id).limit(1))
+    ).scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    workspace = (
+        await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id).limit(1))
+    ).scalar_one_or_none()
+    if not workspace:
+        raise HTTPException(status_code=404, detail="Workspace not found for brand")
+    owner = (
+        await db.execute(select(User).where(User.id == workspace.owner_id).limit(1))
+    ).scalar_one_or_none()
+    if not owner:
+        raise HTTPException(status_code=404, detail="Workspace owner not found")
+
+    platforms = [p.strip().lower() for p in (body.platforms or ["instagram"]) if p and p.strip()]
+    if not platforms:
+        platforms = ["instagram"]
+
+    background_tasks.add_task(
+        _do_generate_month,
+        brand.id,
+        _brand_to_dict(brand),
+        int(body.month),
+        int(body.year),
+        platforms,
+        body.format_mix or "mix",
+        int(body.posts_per_week or 3),
+        None,
+        None,
+        None,
+        owner.id,
+        owner.country_code,
+        True,
+        None,
+        None,
+        None,
+        False,
+        None,
+        1,
+        None,
+        None,
+        0,
+    )
+    return {
+        "status": "started",
+        "brand_id": brand.id,
+        "brand_name": brand.name,
+        "month": int(body.month),
+        "year": int(body.year),
+        "platforms": platforms,
     }
 
 

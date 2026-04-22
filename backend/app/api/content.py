@@ -11,6 +11,7 @@ from app.models.workspace import WorkspaceMember, WorkspaceRole, Workspace
 from app.models.template import ContentTemplate
 from app.models.user import User
 from app.models.website_intelligence import WebsiteEntity, WebsiteOpportunity
+from app.models.meme_asset import MemeAsset
 from app.models.creative_engine import (
     CampaignPlan,
     RenderVariant,
@@ -48,6 +49,7 @@ from app.services.ai_service import (
     generate_photo_caption,
     run_generation_prep_chat,
     run_brand_form_coach_chat,
+    _default_cta_from_brand,
 )
 from app.services.month_holiday_context import build_month_holiday_context
 from app.services.visual_tokens import apply_visual_system_defaults
@@ -71,6 +73,7 @@ from app.services.billing_service import PLANS, charge_saved_authorization
 from datetime import date
 import logging
 import re
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +90,41 @@ PLAN_MONTHLY_POST_CAPS = {
     "smb": 90,  # Growth
     "pro": 180,
 }
+
+
+class MemeAssetCreate(BaseModel):
+    title: str = Field(..., min_length=2, max_length=255)
+    media_url: str = Field(..., min_length=8, max_length=1000)
+    media_type: str = Field(default="image")
+    tags: list[str] = Field(default_factory=list)
+
+
+async def _meme_catalog_brief_addon(db: AsyncSession, limit: int = 55) -> str | None:
+    """Compact meme/GIF index for monthly generation — guides tone and gif slots without new JSON fields."""
+    rows = (
+        await db.execute(
+            select(MemeAsset)
+            .where(MemeAsset.is_active.is_(True))
+            .order_by(MemeAsset.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    if not rows:
+        return None
+    lines: list[str] = []
+    for m in rows:
+        tagstr = ", ".join((m.tags or [])[:12])
+        url = (m.media_url or "").strip()
+        if len(url) > 220:
+            url = url[:217] + "..."
+        lines.append(f"- {m.title} | {m.media_type} | tags: {tagstr} | ref_url: {url}")
+    return (
+        "ContentCard meme/GIF library (internal). When the topic, day-of-week, or brief clearly matches tags on a line, "
+        "prefer format \"gif\" for that post and align caption + visual_direction with that energy. "
+        "image_prompt must describe an original scene with the same vibe—do not instruct copying trademarked meme templates, "
+        "characters, or watermarked stock. ref_url is for product/compositing only; do not paste URLs into captions.\n"
+        + "\n".join(lines)
+    )
 
 
 def _item_has_visual_assets(item: ContentItem) -> bool:
@@ -1533,6 +1571,84 @@ async def list_directory(
     return [ContentOut.model_validate(c) for c in rows]
 
 
+@router.get("/memes")
+async def list_memes(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _ = current_user
+    rows = (
+        await db.execute(
+            select(MemeAsset)
+            .where(MemeAsset.is_active.is_(True))
+            .order_by(MemeAsset.created_at.desc())
+            .limit(500)
+        )
+    ).scalars().all()
+    return [
+        {
+            "id": m.id,
+            "title": m.title,
+            "media_url": m.media_url,
+            "media_type": m.media_type,
+            "tags": m.tags or [],
+            "source": m.source,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+        }
+        for m in rows
+    ]
+
+
+@router.post("/memes", status_code=201)
+async def create_meme_asset(
+    body: MemeAssetCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    media_type = str(body.media_type or "image").strip().lower()
+    if media_type not in ("image", "gif"):
+        raise HTTPException(status_code=400, detail="media_type must be image or gif")
+    m = MemeAsset(
+        title=body.title.strip(),
+        media_url=body.media_url.strip(),
+        media_type=media_type,
+        tags=[str(t).strip().lower() for t in (body.tags or []) if str(t).strip()][:20],
+        source="user",
+        created_by_user_id=current_user.id,
+        is_active=True,
+    )
+    db.add(m)
+    await db.commit()
+    await db.refresh(m)
+    return {
+        "id": m.id,
+        "title": m.title,
+        "media_url": m.media_url,
+        "media_type": m.media_type,
+        "tags": m.tags or [],
+        "source": m.source,
+        "created_at": m.created_at.isoformat() if m.created_at else None,
+    }
+
+
+@router.delete("/memes/{meme_id}", status_code=204)
+async def delete_meme_asset(
+    meme_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    row = (
+        await db.execute(select(MemeAsset).where(MemeAsset.id == meme_id).limit(1))
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Meme not found")
+    # creator can delete own memes; admins (listed in admin route) can delete any
+    if row.created_by_user_id and row.created_by_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only remove memes you added.")
+    row.is_active = False
+    await db.commit()
+
+
 # ── List content ────────────────────────────────────────────────────
 
 @router.get("", response_model=list[ContentOut])
@@ -1995,6 +2111,8 @@ async def regenerate_caption(
         )
         item.caption = result.get("caption", item.caption)
         item.hashtags = result.get("hashtags", item.hashtags)
+        new_cta = str(result.get("cta") or "").strip()[:300]
+        item.cta = new_cta or item.cta or _default_cta_from_brand(_brand_to_dict(brand), None)[:300]
         item.caption_edited = False
     except Exception as e:
         logger.error(f"Regenerate error for {content_id}: {e}")
@@ -2135,6 +2253,12 @@ async def _do_generate_month(
                 brief_parts.append(contract_text)
             if website_grounding_text and website_grounding_text.strip():
                 brief_parts.append(website_grounding_text.strip())
+            try:
+                meme_addon = await _meme_catalog_brief_addon(db)
+            except Exception:
+                meme_addon = None
+            if meme_addon:
+                brief_parts.append(meme_addon)
             combined_generation_brief = "\n\n".join(brief_parts) if brief_parts else None
 
             posts = await generate_monthly_plan(
@@ -2188,6 +2312,10 @@ async def _do_generate_month(
                 except ValueError:
                     fmt = ContentFormat.SINGLE
 
+                cta_text = str(post.get("cta") or "").strip()[:300]
+                if not cta_text:
+                    cta_text = _default_cta_from_brand(brand_for_planner, post)[:300]
+
                 item = ContentItem(
                     brand_id=brand_id,
                     template_id=template_id,
@@ -2195,7 +2323,7 @@ async def _do_generate_month(
                     content_type=str(post.get("content_type", ""))[:100] or None,
                     content_idea=(str(post.get("content_idea", ""))[:300] or None),
                     description=post.get("description") or None,
-                    cta=(str(post.get("cta", ""))[:300] or None),
+                    cta=cta_text or None,
                     visual_direction=post.get("visual_direction") or None,
                     image_prompt=post.get("image_prompt") or None,
                     image_prompt_explanation=post.get("image_prompt_explanation") or None,
@@ -2491,6 +2619,7 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
     return {
         "topic": item.topic,
         "caption": item.caption or "",
+        "cta": (item.cta or "").strip(),
         "platform": item.platform.value if item.platform else "instagram",
         "format": item.format.value if item.format else "single",
         "slide_count": item.slide_count,

@@ -1,9 +1,15 @@
 import base64
 import logging
+import math
 import uuid
 import re
+import hashlib
+import time
+import io
+from collections import deque
 import httpx
 from app.core.config import settings
+from app.services.ai_cost_service import cache_get, cache_set, telemetry_record, CallTelemetry, estimate_cost_usd
 
 logger = logging.getLogger(__name__)
 
@@ -466,6 +472,205 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     return prompt.strip()
 
 
+def _is_svg_bytes(data: bytes, filename_hint: str = "") -> bool:
+    h = (filename_hint or "").lower()
+    if h.endswith(".svg"):
+        return True
+    s = data.lstrip()[:800]
+    return s.startswith(b"<svg") or s.startswith(b"<?xml")
+
+
+def _rasterize_svg_to_png_bytes(data: bytes) -> bytes | None:
+    try:
+        import cairosvg  # type: ignore
+
+        png = cairosvg.svg2png(bytestring=data)
+        return png if png else None
+    except Exception as e:
+        logger.warning("SVG rasterize failed: %s", e)
+        return None
+
+
+def _median_edge_rgb(px, w: int, h: int) -> tuple[int, int, int] | None:
+    """Sample border pixels; return per-channel medians if image is large enough."""
+    if w < 2 or h < 2:
+        return None
+    samples: list[tuple[int, int, int]] = []
+    for x in range(w):
+        samples.append(px[x, 0][:3])
+        samples.append(px[x, h - 1][:3])
+    for y in range(1, h - 1):
+        samples.append(px[0, y][:3])
+        samples.append(px[w - 1, y][:3])
+    if not samples:
+        return None
+    mr = sorted(c[0] for c in samples)[len(samples) // 2]
+    mg = sorted(c[1] for c in samples)[len(samples) // 2]
+    mb = sorted(c[2] for c in samples)[len(samples) // 2]
+    return mr, mg, mb
+
+
+def _edge_color_variance(samples: list[tuple[int, int, int]], mr: int, mg: int, mb: int) -> float:
+    if not samples:
+        return 9999.0
+    acc = 0.0
+    for r, g, b in samples:
+        acc += (r - mr) ** 2 + (g - mg) ** 2 + (b - mb) ** 2
+    return acc / len(samples)
+
+
+def _strip_edge_connected_similar_color(im, tol: float = 36.0) -> None:
+    """
+    Remove border-connected pixels similar to median edge RGB (flat plate backgrounds).
+    Mutates RGBA image in place.
+    """
+    w, h = im.size
+    if w < 3 or h < 3:
+        return
+    px = im.load()
+    med = _median_edge_rgb(px, w, h)
+    if not med:
+        return
+    mr, mg, mb = med
+    samples: list[tuple[int, int, int]] = []
+    for x in range(w):
+        samples.append(px[x, 0][:3])
+        samples.append(px[x, h - 1][:3])
+    for y in range(1, h - 1):
+        samples.append(px[0, y][:3])
+        samples.append(px[w - 1, y][:3])
+    if _edge_color_variance(samples, mr, mg, mb) > 2200.0:
+        # Border colors disagree (full-bleed artwork, noisy edges): skip flood.
+        return
+
+    def close(r: int, g: int, b: int) -> bool:
+        return math.sqrt((r - mr) ** 2 + (g - mg) ** 2 + (b - mb) ** 2) <= tol
+
+    seen = bytearray(w * h)
+    q: deque[tuple[int, int]] = deque()
+
+    def idx(x: int, y: int) -> int:
+        return y * w + x
+
+    for x in range(w):
+        for y in (0, h - 1):
+            if close(*px[x, y][:3]):
+                i = idx(x, y)
+                if not seen[i]:
+                    seen[i] = 1
+                    q.append((x, y))
+    for y in range(h):
+        for x in (0, w - 1):
+            if close(*px[x, y][:3]):
+                i = idx(x, y)
+                if not seen[i]:
+                    seen[i] = 1
+                    q.append((x, y))
+
+    while q:
+        x, y = q.popleft()
+        r, g, b, _a = px[x, y]
+        px[x, y] = (r, g, b, 0)
+        for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+            if nx < 0 or ny < 0 or nx >= w or ny >= h:
+                continue
+            j = idx(nx, ny)
+            if seen[j]:
+                continue
+            nr, ng, nb, na = px[nx, ny]
+            if na < 12:
+                continue
+            if close(nr, ng, nb):
+                seen[j] = 1
+                q.append((nx, ny))
+
+
+def _defringe_light_halos(im) -> None:
+    """Remove residual light pixels touching transparency (anti-aliased box backgrounds)."""
+    w, h = im.size
+    px = im.load()
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            if a < 40:
+                continue
+            if r < 232 or g < 232 or b < 232:
+                continue
+            touch = False
+            for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                if nx < 0 or ny < 0 or nx >= w or ny >= h:
+                    touch = True
+                    break
+                if px[nx, ny][3] < 35:
+                    touch = True
+                    break
+            if touch:
+                px[x, y] = (r, g, b, 0)
+
+
+def _expand_transparency_through_soft_white(im, passes: int = 2) -> None:
+    """Grow transparency into very light pixels adjacent to alpha holes (JPEG fringe on plates)."""
+    w, h = im.size
+    px = im.load()
+    for _ in range(passes):
+        to_clear: list[tuple[int, int]] = []
+        for y in range(h):
+            for x in range(w):
+                r, g, b, a = px[x, y]
+                if a < 28:
+                    continue
+                if r < 236 or g < 236 or b < 236:
+                    continue
+                hit = False
+                for nx, ny in ((x - 1, y), (x + 1, y), (x, y - 1), (x, y + 1)):
+                    if nx < 0 or ny < 0 or nx >= w or ny >= h:
+                        hit = True
+                        break
+                    if px[nx, ny][3] < 22:
+                        hit = True
+                        break
+                if hit:
+                    to_clear.append((x, y))
+        for x, y in to_clear:
+            r, g, b, _ = px[x, y]
+            px[x, y] = (r, g, b, 0)
+
+
+def _prepare_logo_rgba_for_design(logo):
+    """
+    Normalize logo to RGBA with flat / plate backgrounds removed so it composites on any cover.
+    """
+    from PIL import Image
+
+    im = logo.convert("RGBA")
+    mw, mh = 2400, 2400
+    if im.width > mw or im.height > mh:
+        im.thumbnail((mw, mh), Image.Resampling.LANCZOS)
+    _strip_edge_connected_similar_color(im, tol=36.0)
+    _defringe_light_halos(im)
+    _expand_transparency_through_soft_white(im, passes=2)
+    return im
+
+
+def logo_bytes_to_storage_png(raw: bytes, filename_hint: str = "") -> bytes:
+    """
+    Decode uploaded logo bytes, strip solid plate backgrounds, return PNG with alpha for Cloudinary.
+    Used on brand logo upload so stored assets composite cleanly on generated designs.
+    """
+    from PIL import Image
+
+    data = raw
+    if _is_svg_bytes(data, filename_hint):
+        png = _rasterize_svg_to_png_bytes(data)
+        if png:
+            data = png
+    im = Image.open(io.BytesIO(data))
+    im = _prepare_logo_rgba_for_design(im)
+    out = io.BytesIO()
+    im.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
 async def _fetch_logo_bytes(logo_url: str, client: httpx.AsyncClient) -> bytes | None:
     try:
         resp = await client.get(logo_url, timeout=15, follow_redirects=True)
@@ -483,11 +688,17 @@ async def _fetch_logo_bytes(logo_url: str, client: httpx.AsyncClient) -> bytes |
 
                     png_bytes = cairosvg.svg2png(bytestring=data)
                     if png_bytes:
-                        return png_bytes
+                        data = png_bytes
+                    else:
+                        return None
                 except Exception as e:
                     logger.warning(f"Could not rasterize SVG logo from {logo_url}: {e}")
                     return None
-            return data
+            try:
+                return logo_bytes_to_storage_png(data, "")
+            except Exception as e:
+                logger.warning("Logo prep on fetch failed, using raw bytes: %s", e)
+                return data
     except Exception as e:
         logger.warning(f"Could not fetch logo from {logo_url}: {e}")
     return None
@@ -501,26 +712,16 @@ def _composite_logo(
     min_width_px: int = 80,
 ) -> bytes:
     from PIL import Image, ImageStat
-    import io
 
     base = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
     w, h = base.size
 
     try:
-        logo = Image.open(io.BytesIO(logo_bytes)).convert("RGBA")
+        logo = Image.open(io.BytesIO(logo_bytes))
+        logo = _prepare_logo_rgba_for_design(logo)
     except Exception as e:
         logger.warning(f"Could not open logo image: {e}")
         return image_bytes
-
-    # Remove near-white background for logos without transparency
-    pixels = logo.getdata()
-    cleaned = []
-    for r, g, b, a in pixels:
-        if a > 10 and r > 230 and g > 230 and b > 230:
-            cleaned.append((r, g, b, 0))
-        else:
-            cleaned.append((r, g, b, a))
-    logo.putdata(cleaned)
 
     # Keep a consistent, clearly visible lockup across carousel frames.
     # Widen the target band and avoid over-shrinking by height.
@@ -864,9 +1065,34 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
     topic = post.get("topic", "")
     prompt = _build_image_prompt(post, brand)
     n = max(1, min(10, settings.IMAGE_COUNT))
+    if settings.AI_IMAGE_VARIANT_MIN_MODE:
+        n = 1
     model = settings.IMAGE_MODEL
+    cache_key = hashlib.sha256(
+        (
+            f"{model}|{n}|{prompt}|{post.get('platform','')}|{post.get('format','')}|"
+            f"{post.get('content_type','')}|{post.get('date','')}|{brand.get('id','')}|{brand.get('name','')}"
+        ).encode("utf-8")
+    ).hexdigest()
+    cached_urls = cache_get("openai_image", cache_key)
+    if isinstance(cached_urls, list) and cached_urls:
+        telemetry_record(
+            CallTelemetry(
+                endpoint_name="image_generation",
+                model=model,
+                input_tokens=max(1, len(prompt) // 4),
+                output_tokens=0,
+                estimated_cost_usd=0.0,
+                latency_ms=0.0,
+                cache_hit=True,
+                retries=0,
+                success=True,
+            )
+        )
+        return [str(u) for u in cached_urls if str(u).strip()]
 
     try:
+        start = time.perf_counter()
         async with httpx.AsyncClient(timeout=120) as client:
             payload: dict = {
                 "model": model,
@@ -920,8 +1146,38 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                     logger.warning(f"Cloudinary unavailable for image {idx}; dropping")
 
             logger.info(f"{model}: {len(urls)}/{n} images generated for '{topic}'")
+            if urls:
+                cache_set("openai_image", cache_key, urls, ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
+            telemetry_record(
+                CallTelemetry(
+                    endpoint_name="image_generation",
+                    model=model,
+                    input_tokens=max(1, len(prompt) // 4),
+                    output_tokens=0,
+                    estimated_cost_usd=estimate_cost_usd(model, max(1, len(prompt) // 4), 0),
+                    latency_ms=(time.perf_counter() - start) * 1000.0,
+                    cache_hit=False,
+                    retries=0,
+                    success=bool(urls),
+                    failure_reason=None if urls else "no_urls",
+                )
+            )
             return urls
 
     except Exception as e:
         logger.error(f"Image generation failed for '{topic}' ({model}): {e}")
+        telemetry_record(
+            CallTelemetry(
+                endpoint_name="image_generation",
+                model=model,
+                input_tokens=max(1, len(prompt) // 4),
+                output_tokens=0,
+                estimated_cost_usd=0.0,
+                latency_ms=0.0,
+                cache_hit=False,
+                retries=0,
+                success=False,
+                failure_reason=type(e).__name__,
+            )
+        )
         return []

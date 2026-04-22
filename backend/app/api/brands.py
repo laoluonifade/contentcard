@@ -53,6 +53,7 @@ from app.services.template_design_service import (
 import cloudinary
 import cloudinary.uploader
 from app.core.config import settings
+from app.services.image_service import logo_bytes_to_storage_png
 
 logger = logging.getLogger(__name__)
 
@@ -620,14 +621,50 @@ async def upload_logo(
         raise HTTPException(status_code=404, detail="Brand not found")
 
     contents = await file.read()
-    result = cloudinary.uploader.upload(
-        contents,
-        folder=f"contentcard/brands/{brand_id}",
-        public_id="logo",
-        overwrite=True,
-        resource_type="image",
-    )
-    brand.logo_url = result["secure_url"]
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
+    processed = contents
+    stored_as_png = False
+    try:
+        processed = logo_bytes_to_storage_png(contents, file.filename or "")
+        stored_as_png = True
+    except Exception as e:
+        logger.warning("Logo transparency prep failed, uploading original: %s", e)
+
+    upload_kwargs: dict = {
+        "folder": f"contentcard/brands/{brand_id}",
+        "public_id": "logo",
+        "overwrite": True,
+        "resource_type": "image",
+    }
+    if stored_as_png:
+        upload_kwargs["format"] = "png"
+    if settings.CLOUDINARY_LOGO_AI_BG_REMOVAL:
+        upload_kwargs["eager"] = [{"effect": "background_removal"}]
+        upload_kwargs["eager_async"] = False
+
+    try:
+        result = cloudinary.uploader.upload(processed, **upload_kwargs)
+    except Exception as e:
+        if settings.CLOUDINARY_LOGO_AI_BG_REMOVAL:
+            logger.warning("Logo upload with AI background removal failed, retrying without: %s", e)
+            upload_kwargs.pop("eager", None)
+            upload_kwargs.pop("eager_async", None)
+            result = cloudinary.uploader.upload(processed, **upload_kwargs)
+        else:
+            logger.error(f"Logo upload failed: {e}")
+            raise HTTPException(status_code=502, detail="Image upload failed. Please try again.")
+
+    eager = result.get("eager") or []
+    if (
+        settings.CLOUDINARY_LOGO_AI_BG_REMOVAL
+        and eager
+        and isinstance(eager[0], dict)
+        and eager[0].get("secure_url")
+    ):
+        brand.logo_url = eager[0]["secure_url"]
+    else:
+        brand.logo_url = result["secure_url"]
     await db.commit()
     return {"logo_url": brand.logo_url}
 

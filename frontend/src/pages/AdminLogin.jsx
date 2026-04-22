@@ -4,7 +4,7 @@ import { ArrowRight } from 'lucide-react'
 import { adminApi } from '../api'
 import { LogoMark } from '../components/ui/Logo'
 
-const ADMIN_EMAILS = ['laoluonifade@gmail.com', 'hellovoya@gmail.com']
+const ADMIN_EMAILS = ['laoluonifade@gmail.com', 'hellovoya@gmail.com', 'admin@contentcard.io']
 
 export default function AdminLogin() {
   const navigate = useNavigate()

@@ -46,12 +46,12 @@ const FEATURES = [
 ]
 
 const PRODUCT_UPDATES = [
-  'Quick Fill onboarding from website link with auto-populated brand profile',
-  'Content Playbook system as single source of truth for generation',
-  'Your social media manager prep assistant with persistent chat context',
-  'Brand images + manual products in Brand Kit for grounded visual output',
-  'Campaign art style profiles for month-long visual consistency',
-  'Stronger logo compositing and carousel aesthetic consistency controls',
+  'Website Quick Fill now sets up your brand profile faster, so your team can start generating sooner.',
+  'Content Playbook now drives every generation, helping campaigns stay on-message and conversion-focused.',
+  'Your social media manager assistant now plans with you before generation, so posts match real business goals.',
+  'Brand images and product uploads now make generated creatives feel more authentic and sales-ready.',
+  'Campaign art style profiles help your month look consistent, polished, and instantly recognizable.',
+  'Calendar generation and progress updates are clearer, so teams can plan publishing with confidence.',
 ]
 
 const FAQS = [
