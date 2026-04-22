@@ -9,7 +9,7 @@ import useAppStore from '../../stores/appStore'
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
-  { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Templates'  },
+  { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Playbook'  },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand Kit'  },
   { to: '/dashboard/directory',  icon: Images,           label: 'Directory'  },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'   },

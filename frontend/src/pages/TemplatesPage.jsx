@@ -14,18 +14,6 @@ const CAT_LABELS = {
   seasonal: 'Seasonal',
 }
 
-const DESIGN_TYPE_LABELS = {
-  all: 'All designs',
-  feature_ui_spotlight: 'Feature UI Spotlight',
-  promo_cta_banner: 'Promo + CTA Banner',
-  testimonial_proof_card: 'Testimonial Proof Card',
-  product_showcase_grid: 'Product Showcase Grid',
-  educational_explainer: 'Educational Explainer',
-  editorial_story: 'Editorial Story',
-  culture_campaign: 'Culture Campaign',
-  general_social: 'General Social',
-}
-
 const TEMPLATE_ASSISTANT_MIN_KEY = 'contentcard.ui.templateAssistantMinimized'
 const DEFAULT_PLAYBOOK_SLOTS = [
   { slot_key: 'VD01', post_type: 'single', visual_direction: '' },
@@ -88,7 +76,6 @@ export default function TemplatesPage() {
     fetchTemplatePlaybookCatalog,
   } = useAppStore()
   const [filter, setFilter] = useState('all')
-  const [designFilter, setDesignFilter] = useState('all')
   const [showModal, setShowModal] = useState(false)
   const [loading, setLoading] = useState(false)
   const [form, setForm] = useState(INITIAL_FORM)
@@ -151,17 +138,10 @@ export default function TemplatesPage() {
     }
   }
 
-  const inferDesignType = (t) =>
-    t?.design_spec?.design_template_type || 'general_social'
   const filtered = (templates || []).filter((t) => {
     const categoryMatch = filter === 'all' ? true : t.category === filter
-    const designMatch = designFilter === 'all' ? true : inferDesignType(t) === designFilter
-    return categoryMatch && designMatch
+    return categoryMatch
   })
-  const designTypeOptions = useMemo(() => {
-    const fromTemplates = Array.from(new Set((templates || []).map((t) => inferDesignType(t))))
-    return ['all', ...fromTemplates.filter(Boolean)]
-  }, [templates])
 
   const save = async () => {
     if (!form.name.trim()) {
@@ -406,10 +386,6 @@ export default function TemplatesPage() {
         : t.category === 'seasonal'
           ? 'Fresh monthly campaign direction'
           : 'Designed for consistent weekly posting'
-  const prettyDesignType = (t) => {
-    const key = inferDesignType(t)
-    return DESIGN_TYPE_LABELS[key] || key.replace(/_/g, ' ')
-  }
   const contentTemplateType = (t) => t?.design_spec?.content_template_type || t.category
   const blueprintFields = (t) => {
     const spec = t?.design_spec && typeof t.design_spec === 'object' ? t.design_spec : {}
@@ -419,7 +395,6 @@ export default function TemplatesPage() {
     return {
       playbookContentType: spec.playbook_content_type || contentTemplateType(t),
       contentTemplateType: spec.content_template_type || contentTemplateType(t),
-      designTemplateType: spec.design_template_type || inferDesignType(t),
       visualType: spec.visual_type || 'mixed',
       visualArchetype: spec.visual_archetype || 'general_social',
       peopleStyle,
@@ -434,9 +409,9 @@ export default function TemplatesPage() {
     return (
       <div className="p-6 lg:p-8 max-w-5xl mx-auto">
         <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
-          Templates
+          Content Playbook
         </h1>
-        <p className="text-ink/40 text-sm mb-8">Recurring content patterns: set once, generate whenever needed.</p>
+        <p className="text-ink/40 text-sm mb-8">Define and manage recurring playbook items for this brand.</p>
         <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
           <p className="text-ink/40 text-sm">Select a workspace with a brand to manage templates.</p>
         </div>
@@ -449,17 +424,17 @@ export default function TemplatesPage() {
       <div className="flex items-start justify-between gap-4 mb-8">
         <div>
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
-            Brand Playbook Templates
+            Content Playbook
           </h1>
-          <p className="text-ink/40 text-sm">Templates are your editable playbook for what content gets generated for this brand.</p>
-          <p className="text-ink/30 text-xs mt-1">{activeCount} active template{activeCount === 1 ? '' : 's'} available</p>
+          <p className="text-ink/40 text-sm">Your playbook items control what content gets generated for this brand.</p>
+          <p className="text-ink/30 text-xs mt-1">{activeCount} active playbook item{activeCount === 1 ? '' : 's'} available</p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={openNewTemplate}
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
           >
-            <Plus size={15} /> New template
+            <Plus size={15} /> Add playbook item
           </button>
         </div>
       </div>
@@ -514,33 +489,17 @@ export default function TemplatesPage() {
               </div>
             </div>
           )}
-          <div className="flex gap-2 flex-wrap">
-            {designTypeOptions.map((k) => (
-              <button
-                key={k}
-                onClick={() => setDesignFilter(k)}
-                className={`px-3 py-1.5 rounded-xl text-[11px] font-semibold border transition-all ${
-                  designFilter === k
-                    ? 'border-ink bg-mist text-ink'
-                    : 'border-fog text-ink/40 hover:border-zinc-600 hover:text-ink/70'
-                }`}
-              >
-                {DESIGN_TYPE_LABELS[k] || k.replace(/_/g, ' ')}
-              </button>
-            ))}
-          </div>
-
           {filtered.length === 0 ? (
             <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
               <p className="text-ink/40 text-sm mb-4">
-                No templates yet. Create one for recurring content like weekly services, monthly sales, or product
-                launches. Use the assistant on the right to draft a pattern, then open New template to review and save.
+                No playbook items yet. Add one for recurring content like weekly services, monthly sales, or product
+                launches. Use the assistant on the right to draft a pattern, then open Add playbook item to review and save.
               </p>
               <button
                 onClick={openNewTemplate}
                 className="inline-flex items-center gap-2 px-5 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors"
               >
-                <Plus size={15} /> Create first template
+                <Plus size={15} /> Create first playbook item
               </button>
             </div>
           ) : (
@@ -615,9 +574,6 @@ export default function TemplatesPage() {
                     <span className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-fog bg-mist text-ink/60">
                       Content: {String(contentTemplateType(t)).replace(/_/g, ' ')}
                     </span>
-                    <span className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-fog bg-mist text-ink/60">
-                      Design: {prettyDesignType(t)}
-                    </span>
                   </div>
                   <div className="flex flex-wrap gap-1.5 mb-4">
                     {(t.topics || []).slice(0, 4).map((tp) => (
@@ -686,14 +642,14 @@ export default function TemplatesPage() {
                 className="min-h-[300px]"
               />
               <p className="text-[11px] text-ink/45 px-1 pt-2">
-                Suggestions merge into the new-template form. Open <strong>New template</strong> to review fields, then save.
+                Suggestions merge into the add-item form. Open <strong>Add playbook item</strong> to review fields, then save.
               </p>
             </div>
           )}
         </aside>
       </div>
 
-      {/* New template modal */}
+      {/* Add playbook item modal */}
       {viewingTemplate && (
         <div
           className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
@@ -707,7 +663,7 @@ export default function TemplatesPage() {
                   {viewingTemplate.category} · {viewingTemplate.recurrence} · {(viewingTemplate.source || 'manual').replace('_', ' ')}
                 </p>
                 <p className="text-[11px] text-ink/45 mt-1">
-                  Content template: {String(contentTemplateType(viewingTemplate)).replace(/_/g, ' ')} · Design template: {prettyDesignType(viewingTemplate)}
+                  Playbook content type: {String(contentTemplateType(viewingTemplate)).replace(/_/g, ' ')}
                 </p>
               </div>
               <button onClick={closeTemplate} className="text-ink/40 hover:text-ink/70 text-xl">
@@ -766,10 +722,6 @@ export default function TemplatesPage() {
                         <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
                           <span className="font-semibold text-ink">Content template type:</span>{' '}
                           <span className="capitalize">{String(bp.contentTemplateType || 'general').replace(/_/g, ' ')}</span>
-                        </div>
-                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                          <span className="font-semibold text-ink">Design template type:</span>{' '}
-                          <span className="capitalize">{String(bp.designTemplateType || 'general_social').replace(/_/g, ' ')}</span>
                         </div>
                         <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
                           <span className="font-semibold text-ink">Logo zone:</span>{' '}
@@ -923,7 +875,7 @@ export default function TemplatesPage() {
         >
           <div className="bg-surface border border-fog rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-fog sticky top-0 bg-surface">
-              <h2 className="text-ink font-bold">New template</h2>
+              <h2 className="text-ink font-bold">Add playbook item</h2>
               <button onClick={() => setShowModal(false)} className="text-ink/40 hover:text-ink/70 text-xl">
                 ×
               </button>
