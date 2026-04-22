@@ -208,7 +208,8 @@ def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
     bodies: list[dict] = []
     for i in range(body_slides):
         chunk = body_parts[i * per_slide : (i + 1) * per_slide]
-        body_text = _clean_inline(". ".join(chunk), 170)
+        # Keep carousel bodies punchy so visual design can breathe.
+        body_text = _clean_inline(". ".join(chunk), 96)
         if not body_text:
             body_text = "Practical action point for this step."
         prefix = module_cycle.get(fam, ("Point", "Detail", "Proof", "CTA"))[i % 4]
@@ -222,7 +223,7 @@ def _carousel_copy_plan(post_data: dict, slide_count: int) -> list[dict]:
             h = _clean_inline(f"{tokens['chip']} {i + 1}", 40)
         bodies.append({"headline": h, "body": body_text})
 
-    cta = _clean_inline(ma.get("cta") or (" ".join(sents[-1:]) if sents else tokens["cta"]), 120)
+    cta = _clean_inline(ma.get("cta") or (" ".join(sents[-1:]) if sents else tokens["cta"]), 84)
     return [{"headline": cover_headline, "subtitle": subtitle}, *bodies, {"headline": tokens["cta"], "body": cta}]
 
 
@@ -385,7 +386,9 @@ async def generate_post_images(
     slide_count = max(1, int(post_data.get("slide_count") or 1))
     ab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else None
     fam = detect_template_family(post_data)
-    use_photo_bg = fam in ("promo", "product_hero", "testimonial", "hiring", "default")
+    # For carousel quality, always keep one shared visual background thread
+    # from the AI-generated hero across every slide.
+    use_photo_bg = (fmt == "carousel") or fam in ("promo", "product_hero", "testimonial", "hiring", "default")
     cover_bg_url = background_image_url if use_photo_bg else None
 
     # ── Quote post — single slide

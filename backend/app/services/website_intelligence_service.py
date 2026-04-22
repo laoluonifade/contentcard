@@ -166,6 +166,24 @@ def _extract_products_from_shopify_payload(base_url: str, products: list[dict]) 
 
 
 def _extract_image_candidates_from_html(page_url: str, html: str) -> list[str]:
+    def _is_branding_image(url: str, meta: str = "") -> bool:
+        ll = str(url or "").lower()
+        mm = str(meta or "").lower()
+        return any(
+            x in ll or x in mm
+            for x in (
+                ".svg",
+                "logo",
+                "icon",
+                "sprite",
+                "favicon",
+                "brand",
+                "avatar",
+                "header",
+                "footer",
+            )
+        )
+
     out: list[str] = []
     seen: set[str] = set()
 
@@ -182,7 +200,11 @@ def _extract_image_candidates_from_html(page_url: str, html: str) -> list[str]:
 
     img_tags = re.findall(r"<img\b[^>]*>", html or "", flags=re.IGNORECASE)
     for tag in img_tags:
-        src_m = re.search(r'src=["\']([^"\']+)["\']', tag, flags=re.IGNORECASE)
+        src_m = re.search(
+            r'(?:src|data-src|data-lazy-src)=["\']([^"\']+)["\']',
+            tag,
+            flags=re.IGNORECASE,
+        )
         if not src_m:
             continue
         u = urljoin(f"{page_url}/", str(src_m.group(1)).strip())
@@ -190,9 +212,7 @@ def _extract_image_candidates_from_html(page_url: str, html: str) -> list[str]:
         if not u or u in seen:
             continue
         meta = str(tag).lower()
-        if any(x in ll for x in (".svg", "logo", "icon", "sprite", "favicon", "brand")):
-            continue
-        if any(x in meta for x in ("logo", "icon", "brand", "avatar", "header", "footer")):
+        if _is_branding_image(ll, meta):
             continue
         seen.add(u)
         out.append(u)
@@ -320,6 +340,7 @@ def _jsonld_product_objects(html: str) -> list[dict]:
 
 
 def _extract_products_from_jsonld(page_url: str, html: str) -> list[dict]:
+    bad_img_tokens = ("logo", "icon", "brand", "favicon", ".svg")
     out: list[dict] = []
     for obj in _jsonld_product_objects(html):
         title = str(obj.get("name") or "").strip()
@@ -332,6 +353,7 @@ def _extract_products_from_jsonld(page_url: str, html: str) -> list[dict]:
             images = [str(x).strip() for x in image_val if str(x or "").strip()]
         else:
             images = []
+        images = [u for u in images if not any(tok in u.lower() for tok in bad_img_tokens)]
         offers = obj.get("offers")
         offer = offers[0] if isinstance(offers, list) and offers else (offers if isinstance(offers, dict) else {})
         price = str(offer.get("price") or "").strip() or None
@@ -374,6 +396,8 @@ def _extract_products_from_woocommerce_meta(page_url: str, html: str) -> list[di
     price = price_match.group(1).strip()
     currency = curr_match.group(1).strip() if curr_match else None
     image = image_match.group(1).strip() if image_match else None
+    if image and any(tok in image.lower() for tok in ("logo", "icon", "brand", "favicon", ".svg")):
+        image = None
     return [
         {
             "entity_type": "product",
@@ -409,11 +433,6 @@ def _extract_product_from_page_fallback(page_url: str, html: str) -> list[dict]:
     if path in ("shop", "", "product-sitemap.xml"):
         return []
 
-    og_img = re.search(
-        r"<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']",
-        html,
-        flags=re.IGNORECASE,
-    )
     desc_m = re.search(
         r"<meta[^>]+name=[\"']description[\"'][^>]+content=[\"']([^\"']+)[\"']",
         html,
@@ -423,6 +442,7 @@ def _extract_product_from_page_fallback(page_url: str, html: str) -> list[dict]:
     price_m = re.search(r"(₦\s?[0-9,]+|NGN\s?[0-9,]+|\$\s?[0-9,]+)", html, flags=re.IGNORECASE)
     price = price_m.group(1).strip() if price_m else None
 
+    images = _extract_image_candidates_from_html(page_url, html)[:4]
     return [
         {
             "entity_type": "product",
@@ -433,7 +453,7 @@ def _extract_product_from_page_fallback(page_url: str, html: str) -> list[dict]:
                 "price": price,
                 "currency": "NGN" if price and ("₦" in price or "NGN" in price.upper()) else None,
                 "availability": "unknown",
-                "images": [og_img.group(1).strip()] if og_img else [],
+                "images": images,
             },
             "source_url": page_url,
             "confidence_score": 0.62,
@@ -516,6 +536,21 @@ def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict
         cl = candidate.lower()
         if any(sw in cl for sw in ("order", "checkout", "subtotal", "total", "delivery", "tax", "bag")):
             continue
+        candidate_words = [w for w in re.findall(r"[a-zA-Z]{4,}", cl) if w not in {"with", "from", "your", "this"}]
+        matched_images: list[str] = []
+        for img in page_images:
+            il = img.lower()
+            if any(w in il for w in candidate_words):
+                matched_images.append(img)
+        if not matched_images:
+            # Allow menu-style assets only; never fallback to likely branding.
+            matched_images = [
+                img
+                for img in page_images
+                if any(k in img.lower() for k in ("menu", "dish", "food", "meal", "product", "uploads"))
+            ]
+        if not matched_images:
+            continue
         key = f"{candidate.lower()}::{price}"
         if key in seen_keys:
             continue
@@ -531,7 +566,7 @@ def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict
                     "price": price,
                     "currency": "NGN",
                     "availability": "unknown",
-                    "images": page_images[:4],
+                    "images": matched_images[:4],
                     "source": "menu_heuristic",
                 },
                 "source_url": page_url,
