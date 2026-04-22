@@ -62,7 +62,12 @@ from app.services.image_service import (
     has_brand_logo,
 )
 from app.services.bannerbear_service import generate_post_images, detect_template_family
-from app.services.billing_entitlements import effective_plan_for_owner, total_free_generations_used_by_owner
+from app.services.billing_entitlements import (
+    billing_anchor_workspace,
+    effective_plan_for_owner,
+    total_free_generations_used_by_owner,
+)
+from app.services.billing_service import PLANS, charge_saved_authorization
 from datetime import date
 import logging
 import re
@@ -75,6 +80,8 @@ MAX_POSTS_PER_PLATFORM_PER_MONTH = 15
 MAX_PREP_VISUAL_BATCH = 15
 MAX_MONTH_REGEN_BATCH = 100
 MAX_GENERATION_MONTHS_AHEAD = 3
+TRIAL_FREE_GENERATIONS = 2
+CARD_BONUS_FREE_GENERATIONS = 2
 PLAN_MONTHLY_POST_CAPS = {
     "starter": 30,
     "smb": 90,  # Growth
@@ -148,6 +155,81 @@ def _assert_generation_horizon(month: int, year: int) -> None:
             detail=(
                 f"You can only generate content up to {MAX_GENERATION_MONTHS_AHEAD} months ahead."
             ),
+        )
+
+
+async def _enforce_generation_billing_gate(
+    *,
+    db: AsyncSession,
+    workspace: Workspace | None,
+    current_user: User,
+    brand_id: str,
+    month: int,
+    year: int,
+) -> None:
+    if not workspace:
+        return
+    effective = await effective_plan_for_owner(db, workspace.owner_id)
+    if effective in ("starter", "smb", "pro"):
+        return
+
+    total_used = await total_free_generations_used_by_owner(db, workspace.owner_id)
+    bonus_limit = TRIAL_FREE_GENERATIONS + CARD_BONUS_FREE_GENERATIONS
+    anchor = await billing_anchor_workspace(db, workspace.owner_id)
+    has_saved_card = bool(anchor and str(anchor.paystack_authorization_code or "").strip())
+
+    if total_used < TRIAL_FREE_GENERATIONS:
+        workspace.free_generations_used = (workspace.free_generations_used or 0) + 1
+        await db.commit()
+        return
+
+    if total_used < bonus_limit:
+        if not has_saved_card:
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "code": "CARD_REQUIRED_FOR_BONUS",
+                    "message": "Add your card to unlock 2 more free designs.",
+                    "remaining_bonus_designs": bonus_limit - total_used,
+                },
+            )
+        workspace.free_generations_used = (workspace.free_generations_used or 0) + 1
+        await db.commit()
+        return
+
+    if not has_saved_card:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "CARD_REQUIRED_FOR_AUTOPAY",
+                "message": "Add your card to continue generating designs.",
+            },
+        )
+
+    try:
+        amount_kobo = int((PLANS.get("starter") or {}).get("ngn_price") or 2000000)
+        await charge_saved_authorization(
+            email=current_user.email,
+            authorization_code=str(anchor.paystack_authorization_code),
+            amount_kobo=amount_kobo,
+            metadata={
+                "source": "autopay_generation",
+                "brand_id": brand_id,
+                "workspace_id": workspace.id,
+                "month": month,
+                "year": year,
+            },
+        )
+        anchor.plan = "starter"
+        anchor.payment_provider = "paystack"
+        await db.commit()
+    except Exception as e:
+        raise HTTPException(
+            status_code=402,
+            detail={
+                "code": "AUTO_CHARGE_FAILED",
+                "message": f"Could not charge saved card automatically: {e}",
+            },
         )
 
 
@@ -1121,15 +1203,22 @@ async def generate_month(
                     "Delete existing posts or upgrade your plan."
                 ),
             )
-        if effective not in ("starter", "smb", "pro"):
-            total_used = await total_free_generations_used_by_owner(db, workspace.owner_id)
-            if total_used >= 2:
-                raise HTTPException(
-                    status_code=402,
-                    detail="You've used your 2 free content generations. Subscribe to continue.",
-                )
-            workspace.free_generations_used = (workspace.free_generations_used or 0) + 1
-            await db.commit()
+        await _enforce_generation_billing_gate(
+            db=db,
+            workspace=workspace,
+            current_user=current_user,
+            brand_id=brand.id,
+            month=body.month,
+            year=body.year,
+        )
+        await _enforce_generation_billing_gate(
+            db=db,
+            workspace=workspace,
+            current_user=current_user,
+            brand_id=brand.id,
+            month=body.month,
+            year=body.year,
+        )
 
     missing = _validate_brand_readiness(brand)
     if missing:
@@ -1519,6 +1608,32 @@ async def generation_prep_chat(
         sample_text = "; ".join(top_dirs) if top_dirs else "no visual directions added yet"
         playbook_lines.append(f"{idx}. {ct} ({direction_count} directions) -> {sample_text}")
     playbook_summary = "\n".join(playbook_lines) if playbook_lines else "No custom templates yet."
+    product_rows = (
+        await db.execute(
+            select(WebsiteEntity)
+            .where(
+                WebsiteEntity.brand_id == brand.id,
+                WebsiteEntity.entity_type == "product",
+                WebsiteEntity.is_active.is_(True),
+            )
+            .order_by(WebsiteEntity.last_seen_at.desc())
+            .limit(6)
+        )
+    ).scalars().all()
+    product_names: list[str] = []
+    for row in product_rows:
+        payload = row.payload if isinstance(row.payload, dict) else {}
+        title = str(payload.get("title") or payload.get("name") or row.title or "").strip()
+        if title:
+            product_names.append(title[:60])
+    product_context = (
+        f"product_count: {len(product_rows)}\n"
+        + (
+            "recent_products: " + ", ".join(product_names[:5])
+            if product_names
+            else "recent_products: none"
+        )
+    )
     msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
     raw = await run_generation_prep_chat(
         _brand_to_dict(brand),
@@ -1526,6 +1641,7 @@ async def generation_prep_chat(
         body.year,
         msgs,
         playbook_summary=playbook_summary,
+        product_context=product_context,
     )
     design_intent = None
     if isinstance(raw.get("design_intent"), dict):

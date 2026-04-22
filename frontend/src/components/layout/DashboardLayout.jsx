@@ -69,6 +69,15 @@ export default function DashboardLayout() {
   }
 
   const handleLogout = () => {
+    try {
+      const prefix = 'contentcard.calendar.prepChat:'
+      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+        const key = localStorage.key(i)
+        if (key && key.startsWith(prefix)) localStorage.removeItem(key)
+      }
+    } catch {
+      /* ignore */
+    }
     logout()
     toast('Signed out', 'success')
     navigate('/login')
