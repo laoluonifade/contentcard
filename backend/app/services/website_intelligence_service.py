@@ -165,6 +165,45 @@ def _extract_products_from_shopify_payload(base_url: str, products: list[dict]) 
     return entities
 
 
+def _extract_image_candidates_from_html(page_url: str, html: str) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+
+    og_matches = re.findall(
+        r"<meta[^>]+property=[\"']og:image[\"'][^>]+content=[\"']([^\"']+)[\"']",
+        html or "",
+        flags=re.IGNORECASE,
+    )
+    for m in og_matches:
+        u = urljoin(f"{page_url}/", str(m).strip())
+        if u and u not in seen:
+            seen.add(u)
+            out.append(u)
+
+    img_matches = re.findall(r"<img[^>]+src=[\"']([^\"']+)[\"']", html or "", flags=re.IGNORECASE)
+    for m in img_matches:
+        u = urljoin(f"{page_url}/", str(m).strip())
+        ll = u.lower()
+        if not u or u in seen:
+            continue
+        if any(x in ll for x in (".svg", "logo", "icon", "sprite")):
+            continue
+        seen.add(u)
+        out.append(u)
+        if len(out) >= 24:
+            break
+
+    return out
+
+
+def _has_product_images(entity: dict) -> bool:
+    if str(entity.get("entity_type") or "") != "product":
+        return True
+    attrs = entity.get("attributes") if isinstance(entity.get("attributes"), dict) else {}
+    images = attrs.get("images") if isinstance(attrs, dict) else None
+    return isinstance(images, list) and any(str(x or "").strip() for x in images)
+
+
 def _extract_generic_entities_from_html(base_url: str, html: str) -> list[dict]:
     entities: list[dict] = []
     title_match = re.search(r"<title>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
@@ -436,6 +475,7 @@ def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict
         "follow us on instagram",
         "kitchen is closed",
     }
+    page_images = _extract_image_candidates_from_html(page_url, html)
     for i, ln in enumerate(lines):
         pm = price_re.search(ln)
         if not pm:
@@ -471,7 +511,7 @@ def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict
                     "price": price,
                     "currency": "NGN",
                     "availability": "unknown",
-                    "images": [],
+                    "images": page_images[:4],
                     "source": "menu_heuristic",
                 },
                 "source_url": page_url,
@@ -529,7 +569,8 @@ async def _fetch_products_from_non_shopify(base_url: str, food_menu_hint: bool =
             continue
         seen.add(k)
         dedup.append(e)
-    return dedup[:80], attempts
+    with_images = [e for e in dedup if _has_product_images(e)]
+    return with_images[:80], attempts
 
 
 def _sync_health_from_snapshots(latest: WebsiteSnapshot | None, recent: list[WebsiteSnapshot]) -> tuple[str | None, int]:
@@ -744,6 +785,8 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
 
     if crawl_status == "ok":
         for entity_data in entities:
+            if not _has_product_images(entity_data):
+                continue
             entity, state = await _upsert_entity(db, brand.id, snapshot.id, entity_data)
             await db.flush()
             seen_entity_ids.add(entity.id)
