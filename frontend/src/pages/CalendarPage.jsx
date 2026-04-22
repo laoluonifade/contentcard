@@ -215,6 +215,9 @@ function CalendarPrepBody({
   onQuestionPick,
   onQuestionUpload,
   onRunCta,
+  usedCtaKeys,
+  ctaBusy,
+  generatingMonth,
 }) {
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -317,20 +320,34 @@ function CalendarPrepBody({
             )}
             {m.role === 'assistant' &&
               (m.cta?.action === 'start_generation' || i === messages.length - 1) && (
+              (() => {
+                const ctaKey = String(i)
+                const isUsed = usedCtaKeys?.has(ctaKey)
+                const disabled = Boolean(isUsed || ctaBusy || generatingMonth)
+                return (
               <div className="mt-2 pt-2 border-t border-fog/70">
                 <select
                   defaultValue=""
+                  disabled={disabled}
                   onChange={(e) => {
-                    if (e.target.value === 'generate') onRunCta(m.cta || { action: 'start_generation', label: 'Generate posts now' })
+                    if (e.target.value === 'generate') onRunCta(m.cta || { action: 'start_generation', label: 'Generate posts now' }, ctaKey)
                     e.target.value = ''
                   }}
-                  className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
+                  className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70 disabled:opacity-60"
                 >
-                  <option value="">{m.cta?.label || 'Choose next action…'}</option>
+                  <option value="">
+                    {isUsed
+                      ? 'Generation already started from this action'
+                      : generatingMonth
+                        ? 'Generation in progress…'
+                        : (m.cta?.label || 'Choose next action…')}
+                  </option>
                   <option value="generate">Generate posts now</option>
                   <option value="modify">Modify context first</option>
                 </select>
               </div>
+                )
+              })()
             )}
             {m.role === 'assistant' && m.design_intent?.action === 'regenerate_visuals' && (
               <div className="mt-2 pt-2 border-t border-fog/70 space-y-1.5">
@@ -436,6 +453,8 @@ export default function CalendarPage() {
   const [prepExecuteBusy, setPrepExecuteBusy] = useState(false)
   const [prepUploadingAsset, setPrepUploadingAsset] = useState(false)
   const [prepQuestionAnswers, setPrepQuestionAnswers] = useState({})
+  const [prepCtaBusy, setPrepCtaBusy] = useState(false)
+  const [usedPrepCtaKeys, setUsedPrepCtaKeys] = useState(() => new Set())
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
   const [prepMinimized, setPrepMinimized] = useState(() => {
     try {
@@ -506,6 +525,8 @@ export default function CalendarPage() {
   useEffect(() => {
     setPrepMessages([])
     setPrepQuestionAnswers({})
+    setUsedPrepCtaKeys(new Set())
+    setPrepCtaBusy(false)
     setSelectedIds(new Set())
     setSelectMode(false)
     setSelectedDate('')
@@ -839,9 +860,19 @@ export default function CalendarPage() {
     }
   }
 
-  const runPrepCtaAction = async (cta) => {
+  const runPrepCtaAction = async (cta, ctaKey) => {
     if (!cta || cta.action !== 'start_generation') return
-    await handleGenerate()
+    const key = String(ctaKey ?? '')
+    if (generatingMonth || prepCtaBusy || (key && usedPrepCtaKeys.has(key))) return
+    setPrepCtaBusy(true)
+    try {
+      const started = await handleGenerate()
+      if (started && key) {
+        setUsedPrepCtaKeys((prev) => new Set(prev).add(key))
+      }
+    } finally {
+      setPrepCtaBusy(false)
+    }
   }
 
   const requestPrepGenerationUpdate = async (kind, extra = {}) => {
@@ -968,11 +999,12 @@ export default function CalendarPage() {
   }
 
   const handleGenerate = async () => {
-    if (!activeBrandId) { toast('Select a brand first', 'error'); return }
+    if (!activeBrandId) { toast('Select a brand first', 'error'); return false }
+    if (generatingMonth) return false
     const visErr = brandVisualBlockReason(activeBrand)
     if (visErr) {
       toast(visErr, 'error')
-      return
+      return false
     }
     try {
       setPrepMessages((pm) => [
@@ -993,7 +1025,7 @@ export default function CalendarPage() {
           const ok = window.confirm(
             `${d.message || 'This month already has posts for the selected platform.'}\n\nGenerate additional posts anyway?`
           )
-          if (!ok) return
+          if (!ok) return false
           await runGenerate(true)
         } else {
           throw err
@@ -1016,15 +1048,17 @@ export default function CalendarPage() {
       } finally {
         setLoading(false)
       }
+      return true
     } catch (err) {
       const d = err.response?.data?.detail
       const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
       if (msg.toLowerCase().includes('taking longer than expected')) {
         toast(msg)
         setShowGenPanel(false)
-        return
+        return false
       }
       toast(msg, 'error')
+      return false
     }
   }
 
@@ -1206,6 +1240,9 @@ export default function CalendarPage() {
             onQuestionPick={answerPrepQuestion}
             onQuestionUpload={uploadPrepAssetForQuestion}
             onRunCta={runPrepCtaAction}
+            usedCtaKeys={usedPrepCtaKeys}
+            ctaBusy={prepCtaBusy}
+            generatingMonth={generatingMonth}
           />
         </div>
       </details>
@@ -1535,6 +1572,9 @@ export default function CalendarPage() {
                 onQuestionPick={answerPrepQuestion}
                 onQuestionUpload={uploadPrepAssetForQuestion}
                 onRunCta={runPrepCtaAction}
+                usedCtaKeys={usedPrepCtaKeys}
+                ctaBusy={prepCtaBusy}
+                generatingMonth={generatingMonth}
               />
             </div>
           </>
