@@ -180,13 +180,19 @@ def _extract_image_candidates_from_html(page_url: str, html: str) -> list[str]:
             seen.add(u)
             out.append(u)
 
-    img_matches = re.findall(r"<img[^>]+src=[\"']([^\"']+)[\"']", html or "", flags=re.IGNORECASE)
-    for m in img_matches:
-        u = urljoin(f"{page_url}/", str(m).strip())
+    img_tags = re.findall(r"<img\b[^>]*>", html or "", flags=re.IGNORECASE)
+    for tag in img_tags:
+        src_m = re.search(r'src=["\']([^"\']+)["\']', tag, flags=re.IGNORECASE)
+        if not src_m:
+            continue
+        u = urljoin(f"{page_url}/", str(src_m.group(1)).strip())
         ll = u.lower()
         if not u or u in seen:
             continue
-        if any(x in ll for x in (".svg", "logo", "icon", "sprite")):
+        meta = str(tag).lower()
+        if any(x in ll for x in (".svg", "logo", "icon", "sprite", "favicon", "brand")):
+            continue
+        if any(x in meta for x in ("logo", "icon", "brand", "avatar", "header", "footer")):
             continue
         seen.add(u)
         out.append(u)
@@ -472,6 +478,13 @@ def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict
         "register",
         "go to checkout",
         "your bag is empty",
+        "your order",
+        "order summary",
+        "checkout",
+        "subtotal",
+        "total",
+        "delivery",
+        "tax",
         "follow us on instagram",
         "kitchen is closed",
     }
@@ -481,6 +494,10 @@ def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict
         if not pm:
             continue
         price = pm.group(1).replace(" ", "")
+        # Skip invalid/empty price points (e.g. ₦0 cart summary rows).
+        price_digits = re.sub(r"[^0-9]", "", price)
+        if not price_digits or int(price_digits) <= 0:
+            continue
         candidate = ""
         for j in range(max(0, i - 3), i):
             prev = lines[j].strip()
@@ -495,6 +512,9 @@ def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict
         if not candidate:
             candidate = ln[: pm.start()].strip(" -–—:")
         if not candidate or candidate.lower() in stop_words:
+            continue
+        cl = candidate.lower()
+        if any(sw in cl for sw in ("order", "checkout", "subtotal", "total", "delivery", "tax", "bag")):
             continue
         key = f"{candidate.lower()}::{price}"
         if key in seen_keys:
