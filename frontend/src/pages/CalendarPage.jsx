@@ -485,6 +485,7 @@ export default function CalendarPage() {
   const prepScrollAsideRef = useRef(null)
   const prepScrollMobileRef = useRef(null)
   const prepGenUpdateBusyRef = useRef(false)
+  const prepCtaInFlightRef = useRef(false)
   const lastPrepGenPollRef = useRef(0)
   const [modal, setModal]   = useState(null)
   const [slideIdx, setSlideIdx] = useState(0)
@@ -930,15 +931,28 @@ export default function CalendarPage() {
   const runPrepCtaAction = async (cta, ctaKey) => {
     if (!cta || cta.action !== 'start_generation') return
     const key = String(ctaKey ?? '')
-    if (generatingMonth || prepCtaBusy || (key && usedPrepCtaKeys.has(key))) return
+    if (generatingMonth || prepCtaBusy || prepCtaInFlightRef.current || (key && usedPrepCtaKeys.has(key))) {
+      return
+    }
+    prepCtaInFlightRef.current = true
+    if (key) {
+      // Lock immediately to prevent rapid double-click races before state repaint.
+      setUsedPrepCtaKeys((prev) => new Set(prev).add(key))
+    }
     setPrepCtaBusy(true)
     try {
       const started = await handleGenerate()
-      if (started && key) {
-        setUsedPrepCtaKeys((prev) => new Set(prev).add(key))
+      if (!started && key) {
+        // If generation did not actually start, unlock this action so user can retry once issue is fixed.
+        setUsedPrepCtaKeys((prev) => {
+          const next = new Set(prev)
+          next.delete(key)
+          return next
+        })
       }
     } finally {
       setPrepCtaBusy(false)
+      prepCtaInFlightRef.current = false
     }
   }
 
@@ -1067,6 +1081,10 @@ export default function CalendarPage() {
 
   const handleGenerate = async () => {
     if (!activeBrandId) { toast('Select a brand first', 'error'); return false }
+    if (generationLockedForMonth) {
+      toast(`You can only generate up to ${MAX_GENERATION_MONTHS_AHEAD} months ahead.`, 'error')
+      return false
+    }
     if (generatingMonth) return false
     const visErr = brandVisualBlockReason(activeBrand)
     if (visErr) {
