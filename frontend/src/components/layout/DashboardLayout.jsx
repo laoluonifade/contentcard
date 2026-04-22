@@ -71,7 +71,7 @@ export default function DashboardLayout() {
   const handleLogout = () => {
     logout()
     toast('Signed out', 'success')
-    navigate('/')
+    navigate('/login')
   }
 
   const freeGenerationsUsed = useAppStore(s => s.subscription?.free_generations_used ?? null)

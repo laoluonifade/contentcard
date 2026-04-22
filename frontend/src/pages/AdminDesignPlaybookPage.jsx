@@ -58,6 +58,8 @@ export default function AdminDesignPlaybookPage() {
   })
   const [fillingDepth, setFillingDepth] = useState(false)
   const [directoryQuery, setDirectoryQuery] = useState('')
+  const [expandedDirectoryParents, setExpandedDirectoryParents] = useState(() => new Set())
+  const [expandedDirectorySubs, setExpandedDirectorySubs] = useState(() => new Set())
 
   const load = async () => {
     setLoading(true)
@@ -108,6 +110,7 @@ export default function AdminDesignPlaybookPage() {
         id: ct.id,
         name: ct.name || 'Untitled template',
         is_active: !!ct.is_active,
+        industry_id: industry.id,
       }))
 
       const matchText = [
@@ -159,7 +162,7 @@ export default function AdminDesignPlaybookPage() {
           const dedupTemplates = []
           const seen = new Set()
           for (const t of sub.templates) {
-            const key = `${String(t.name).toLowerCase()}::${t.is_active ? '1' : '0'}`
+            const key = t.id || `${String(t.name).toLowerCase()}::${t.is_active ? '1' : '0'}`
             if (seen.has(key)) continue
             seen.add(key)
             dedupTemplates.push(t)
@@ -180,6 +183,27 @@ export default function AdminDesignPlaybookPage() {
 
     return out.sort((a, b) => a.parentLabel.localeCompare(b.parentLabel))
   }, [data, directoryQuery])
+
+  const openTemplateEditorFromDirectory = (templateId, industryId) => {
+    if (!templateId) return
+    setExpandedParents((prev) => {
+      const next = new Set(prev)
+      const parentEntry = groupedByParent.find(([, industries]) => industries.some((i) => i.id === industryId))
+      if (parentEntry) next.add(parentEntry[0])
+      return next
+    })
+    setExpandedIndustries((prev) => {
+      const next = new Set(prev)
+      if (industryId) next.add(industryId)
+      return next
+    })
+    const industry = data.find((d) => d.id === industryId)
+    const ct = (industry?.content_types || []).find((c) => c.id === templateId)
+    if (ct && industryId) {
+      beginEditContentType(ct, industryId)
+      setError(null)
+    }
+  }
 
   const addIndustry = async () => {
     try {
@@ -400,38 +424,74 @@ export default function AdminDesignPlaybookPage() {
           <div className="space-y-3">
             {industryDirectory.map((group) => (
               <div key={group.parentKey} className="rounded-xl border border-white/10 p-3">
-                <div className="flex items-center justify-between gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedDirectoryParents((prev) => {
+                      const next = new Set(prev)
+                      if (next.has(group.parentKey)) next.delete(group.parentKey)
+                      else next.add(group.parentKey)
+                      return next
+                    })
+                  }
+                  className="w-full flex items-center justify-between gap-2 mb-1 text-left"
+                >
                   <p className="text-white text-sm font-semibold capitalize">{group.parentLabel}</p>
-                  <span className="text-[11px] text-white/45">{group.subIndustries.length} sub-industries</span>
-                </div>
-                <div className="space-y-2">
-                  {group.subIndustries.map((sub) => (
-                    <div key={`${group.parentKey}-${sub.name}`} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5">
-                      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                        <p className="text-white/90 text-sm font-medium">{sub.name}</p>
-                        <span className="text-[11px] text-white/45">{sub.templates.length} template{sub.templates.length === 1 ? '' : 's'}</span>
-                      </div>
-                      <div className="flex flex-wrap gap-1.5">
-                        {sub.templates.length === 0 ? (
-                          <span className="text-[11px] text-white/45">No templates yet</span>
-                        ) : (
-                          sub.templates.map((t) => (
-                            <span
-                              key={`${group.parentKey}-${sub.name}-${t.id || t.name}-${t.is_active ? 'a' : 'i'}`}
-                              className={`text-[11px] px-2 py-0.5 rounded-full border ${
-                                t.is_active
-                                  ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
-                                  : 'border-white/20 text-white/60 bg-white/5'
-                              }`}
-                            >
-                              {t.name}
+                  <span className="text-[11px] text-white/45">
+                    {group.subIndustries.length} sub-industries {expandedDirectoryParents.has(group.parentKey) ? '▾' : '▸'}
+                  </span>
+                </button>
+                {expandedDirectoryParents.has(group.parentKey) && (
+                  <div className="space-y-2 mt-2">
+                    {group.subIndustries.map((sub) => {
+                      const subKey = `${group.parentKey}::${sub.name}`
+                      return (
+                        <div key={subKey} className="rounded-lg border border-white/10 bg-white/[0.02] p-2.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setExpandedDirectorySubs((prev) => {
+                                const next = new Set(prev)
+                                if (next.has(subKey)) next.delete(subKey)
+                                else next.add(subKey)
+                                return next
+                              })
+                            }
+                            className="w-full flex flex-wrap items-center justify-between gap-2 text-left"
+                          >
+                            <p className="text-white/90 text-sm font-medium">{sub.name}</p>
+                            <span className="text-[11px] text-white/45">
+                              {sub.templates.length} template{sub.templates.length === 1 ? '' : 's'} {expandedDirectorySubs.has(subKey) ? '▾' : '▸'}
                             </span>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                          </button>
+                          {expandedDirectorySubs.has(subKey) && (
+                            <div className="flex flex-wrap gap-1.5 mt-2">
+                              {sub.templates.length === 0 ? (
+                                <span className="text-[11px] text-white/45">No templates yet</span>
+                              ) : (
+                                sub.templates.map((t) => (
+                                  <button
+                                    type="button"
+                                    key={`${group.parentKey}-${sub.name}-${t.id || t.name}-${t.is_active ? 'a' : 'i'}`}
+                                    onClick={() => openTemplateEditorFromDirectory(t.id, t.industry_id)}
+                                    className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                                      t.is_active
+                                        ? 'border-emerald-500/40 text-emerald-300 bg-emerald-500/10'
+                                        : 'border-white/20 text-white/60 bg-white/5'
+                                    } hover:brightness-110`}
+                                    title="Click to view/edit this template"
+                                  >
+                                    {t.name}
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             ))}
           </div>

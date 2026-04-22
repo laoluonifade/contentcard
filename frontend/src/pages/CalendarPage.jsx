@@ -357,6 +357,8 @@ export default function CalendarPage() {
   const [monthHolidays, setMonthHolidays] = useState([])
   const prepScrollAsideRef = useRef(null)
   const prepScrollMobileRef = useRef(null)
+  const prepGenUpdateBusyRef = useRef(false)
+  const lastPrepGenPollRef = useRef(0)
   const [modal, setModal]   = useState(null)
   const [slideIdx, setSlideIdx] = useState(0)
   const [editCaption, setEditCaption]   = useState('')
@@ -656,6 +658,52 @@ export default function CalendarPage() {
 
   const sendPrep = () => sendPrepWithText(prepInput)
 
+  const requestPrepGenerationUpdate = async (kind, extra = {}) => {
+    if (!activeBrandId || prepGenUpdateBusyRef.current) return
+    prepGenUpdateBusyRef.current = true
+    try {
+      const ready = Number(generationProgress?.with || 0)
+      const total = Number(generationProgress?.total || 0)
+      const brandPhotoCount = Array.isArray(activeBrand?.brand_photos) ? activeBrand.brand_photos.length : 0
+      const hasWebsite = !!String(activeBrand?.website || '').trim()
+      const systemPrompt = [
+        `SYSTEM UPDATE (${kind}) for active generation.`,
+        `Month: ${MONTHS[month - 1]} ${year}.`,
+        `Platform: ${genPlatform}.`,
+        `Generation poll: ${generationPollCount}.`,
+        `Ready posts: ${ready}/${total}.`,
+        `Brand photos available: ${brandPhotoCount}.`,
+        `Website present: ${hasWebsite ? 'yes' : 'no'}.`,
+        'Please respond in 1-3 short bullets:',
+        '1) current generation status in plain language',
+        '2) any missing assets needed now (product screenshots, clarification screenshots, proof screenshots)',
+        '3) next best user action while generation continues',
+      ].join('\n')
+      const next = [...prepMessages, { role: 'user', content: systemPrompt }]
+      const data = await contentApi.generationPrepChat({
+        brand_id: activeBrandId,
+        month,
+        year,
+        messages: next,
+      })
+      setPrepMessages((pm) => [
+        ...pm,
+        {
+          role: 'assistant',
+          content: data.message || '',
+          choices: data.choices || [],
+          design_intent: data.design_intent || null,
+          meta: { kind: 'generation_status' },
+          extra,
+        },
+      ])
+    } catch {
+      // Non-blocking: generation should continue even if prep status update fails.
+    } finally {
+      prepGenUpdateBusyRef.current = false
+    }
+  }
+
   const executePrepDesignIntent = async (intent) => {
     if (!intent || intent.action !== 'regenerate_visuals' || !activeBrandId) return
     let ids = []
@@ -725,6 +773,12 @@ export default function CalendarPage() {
     })
   }
 
+  const platformReadyCounts = (items, platformId) => {
+    const scoped = (items || []).filter((p) => p.platform === platformId)
+    const ready = scoped.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length
+    return { total: scoped.length, ready }
+  }
+
   const handleGenerate = async () => {
     if (!activeBrandId) { toast('Select a brand first', 'error'); return }
     const visErr = brandVisualBlockReason(activeBrand)
@@ -733,6 +787,15 @@ export default function CalendarPage() {
       return
     }
     try {
+      setPrepMessages((pm) => [
+        ...pm,
+        {
+          role: 'assistant',
+          content: `Started generating ${MONTHS[month - 1]} ${year} for ${genPlatform}. I will share live progress here and ask for screenshots or clarifications if I need them.`,
+          meta: { kind: 'generation_kickoff' },
+        },
+      ])
+      const before = platformReadyCounts(posts, genPlatform)
       try {
         await runGenerate(false)
       } catch (err) {
@@ -748,10 +811,23 @@ export default function CalendarPage() {
           throw err
         }
       }
-      toast(`${MONTHS[month-1]} ${year} · posts are ready with finished designs`)
       setShowGenPanel(false)
       setLoading(true)
-      fetchMonthContent(month, year).then(items => { setPosts(items); setLoading(false) }).catch(() => setLoading(false))
+      try {
+        const items = await fetchMonthContent(month, year)
+        setPosts(items)
+        const after = platformReadyCounts(items, genPlatform)
+        const platformLabel = PLATFORMS.find((p) => p.id === genPlatform)?.label || genPlatform
+        if (after.ready > before.ready) {
+          toast(`${platformLabel} generation is done — posts are ready with finished designs.`)
+          await requestPrepGenerationUpdate('completed', { platformLabel, before, after })
+        } else {
+          toast(`${platformLabel} generation started. New posts will appear once rendering finishes.`)
+          await requestPrepGenerationUpdate('in_progress', { platformLabel, before, after })
+        }
+      } finally {
+        setLoading(false)
+      }
     } catch (err) {
       const d = err.response?.data?.detail
       const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
@@ -763,6 +839,18 @@ export default function CalendarPage() {
       toast(msg, 'error')
     }
   }
+
+  useEffect(() => {
+    if (!generatingMonth || !activeBrandId) {
+      lastPrepGenPollRef.current = 0
+      return
+    }
+    if (generationPollCount <= 0) return
+    const shouldEmit = generationPollCount === 1 || generationPollCount - lastPrepGenPollRef.current >= 3
+    if (!shouldEmit) return
+    lastPrepGenPollRef.current = generationPollCount
+    requestPrepGenerationUpdate('poll')
+  }, [generatingMonth, generationPollCount, generationProgress?.with, generationProgress?.total, activeBrandId])
 
   const scopedPosts = thisWeekOnly ? posts.filter((p) => isDateInCurrentWeek(p.scheduled_date)) : posts
   const filtered = filterPlat==='all' ? scopedPosts : scopedPosts.filter(p=>p.platform===filterPlat)
