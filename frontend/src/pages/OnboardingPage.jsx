@@ -4,7 +4,7 @@ import { ArrowRight, Building2, Users, Palette, Check, Zap } from 'lucide-react'
 import { LogoMark } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAppStore from '../stores/appStore'
-import { workspaceApi, templateApi } from '../api'
+import { workspaceApi, templateApi, brandApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
@@ -21,6 +21,14 @@ export default function OnboardingPage() {
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
   const [templateSetupRunning, setTemplateSetupRunning] = useState(false)
+  const [quickFillRunning, setQuickFillRunning] = useState(false)
+  const [quickFillWebsite, setQuickFillWebsite] = useState(() => {
+    try {
+      return localStorage.getItem('contentcard.signup.quickFillWebsite') || ''
+    } catch {
+      return ''
+    }
+  })
 
   const [form, setForm] = useState({
     name: '',
@@ -37,6 +45,100 @@ export default function OnboardingPage() {
   })
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const normalizeWebsite = (url) => {
+    const raw = String(url || '').trim()
+    if (!raw) return ''
+    if (/^https?:\/\//i.test(raw)) return raw
+    return `https://${raw}`
+  }
+
+  const inferIndustryFromWebsite = (website) => {
+    const host = String(website || '').toLowerCase()
+    if (/restaurant|diner|cafe|kitchen|menu|food|grill|bakery/.test(host)) {
+      return { industry: 'Food & Beverage', sub_industry: 'Quick Service Restaurant' }
+    }
+    if (/pay|bank|fin|wallet|loan|credit/.test(host)) {
+      return { industry: 'Finance & Fintech', sub_industry: 'Digital Banking' }
+    }
+    if (/shop|store|market|retail|commerce/.test(host)) {
+      return { industry: 'E-commerce & Retail', sub_industry: 'Marketplace' }
+    }
+    return { industry: 'Technology', sub_industry: 'SaaS' }
+  }
+
+  const quickFillFromWebsite = async () => {
+    const website = normalizeWebsite(quickFillWebsite)
+    if (!website) {
+      toast('Add your website link to run quick fill.', 'error')
+      return
+    }
+    setQuickFillRunning(true)
+    try {
+      let workspaces = await fetchWorkspaces().catch(() => [])
+      if (!workspaces?.length) {
+        await workspaceApi.create({ name: 'My Workspace' })
+        workspaces = await fetchWorkspaces().catch(() => [])
+      }
+      const wsId = activeWorkspaceId || workspaces?.[0]?.id
+      if (!wsId) throw new Error('Workspace setup failed')
+
+      const site = new URL(website)
+      const hostLabel = site.hostname.replace(/^www\./, '').split('.')[0].replace(/[-_]+/g, ' ')
+      const niceName = hostLabel
+        .split(' ')
+        .filter(Boolean)
+        .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
+        .join(' ') || 'My Brand'
+      const inferred = inferIndustryFromWebsite(website)
+
+      const brand = await createBrand({
+        name: niceName,
+        website,
+        industry: inferred.industry,
+        sub_industry: inferred.sub_industry,
+        description: `${niceName} serves customers through its website with a focused offer and clear value proposition. This profile was quick-filled from website signals and can be refined in Brand Kit for stronger campaign quality and conversion performance.`,
+        target_audience: `People already searching online for ${niceName} offers, plus new customers comparing alternatives and looking for trusted quality, fast response, and clear pricing.`,
+        pain_point: `Customers struggle to find reliable options quickly, compare quality confidently, and complete decisions without friction or confusion.`,
+        tone_tags: ['professional', 'confident', 'friendly', 'authentic', 'energetic'],
+        language_style: 'english',
+        personality_score: 58,
+        brand_colors: ['#10A37F', '#111827', '#F3F4F6'],
+        design_style: 'bold',
+        brand_font: 'Inter',
+        words_to_avoid: ['cheap', 'guaranteed results', 'perfect'],
+        guidelines: 'Keep copy clear and concise, always include a direct CTA, avoid hype-only claims, and prioritize benefit-first storytelling with practical proof.',
+        brand_kit: {
+          writing_style: 'Clear, confident, conversion-focused',
+          key_messages: [
+            `Choose ${niceName} for reliable quality`,
+            'Fast response and smooth customer experience',
+            'Clear outcomes and value for money',
+          ],
+          visual_system: {
+            primary_hex: '#10A37F',
+            secondary_hex: '#111827',
+            accent_hex: '#F59E0B',
+            neutral_hex: '#F3F4F6',
+          },
+        },
+      })
+
+      await brandApi.syncWebsite(wsId, brand.id, { force: true }).catch(() => {})
+      await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false }).catch(() => {})
+      try {
+        localStorage.removeItem('contentcard.signup.quickFillWebsite')
+      } catch {
+        /* ignore */
+      }
+      toast('Quick fill complete. Upload your logo as the final step.', 'success')
+      navigate('/dashboard/brand-kit')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Quick fill failed. Please continue manually.', 'error')
+    } finally {
+      setQuickFillRunning(false)
+    }
+  }
 
   const toggleTone = (t) => {
     const tags = form.tone_tags
@@ -128,6 +230,28 @@ export default function OnboardingPage() {
                     {firstName ? `Welcome, ${firstName}. Let's set up your brand.` : 'Set up your brand profile'}
                   </h2>
                   <p className="text-ink/50 text-sm">This information shapes every piece of content we generate for you.</p>
+                </div>
+                <div className="rounded-xl border border-brand-200 bg-brand-500/5 p-4">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                      <p className="text-sm font-semibold text-ink">Quick fill from website</p>
+                      <p className="text-xs text-ink/55">We prefill your Brand Kit to 100%, then you upload logo as final step.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={quickFillFromWebsite}
+                      disabled={quickFillRunning || !quickFillWebsite.trim()}
+                      className="btn-primary text-xs px-3 py-2 disabled:opacity-60"
+                    >
+                      {quickFillRunning ? 'Quick filling…' : 'Quick fill'}
+                    </button>
+                  </div>
+                  <input
+                    value={quickFillWebsite}
+                    onChange={(e) => setQuickFillWebsite(e.target.value)}
+                    placeholder="https://yourwebsite.com"
+                    className="input mt-3"
+                  />
                 </div>
                 <div>
                   <label className="label">Brand or business name <span className="text-red-400">*</span></label>

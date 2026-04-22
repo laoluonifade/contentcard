@@ -98,6 +98,8 @@ function AppPreview() {
 export default function SignupPage() {
   const [step, setStep]     = useState(1)
   const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '' })
+  const [quickFillWebsite, setQuickFillWebsite] = useState('')
+  const [quickFillEnabled, setQuickFillEnabled] = useState(false)
   const [showPw, setShowPw] = useState(false)
   const { signup, isLoading } = useAuthStore()
   const { fetchWorkspaces } = useAppStore()
@@ -143,6 +145,15 @@ export default function SignupPage() {
         country_code: form.country_code || undefined,
       })
       await fetchWorkspaces().catch(() => {})
+      try {
+        if (quickFillEnabled && quickFillWebsite.trim()) {
+          localStorage.setItem('contentcard.signup.quickFillWebsite', quickFillWebsite.trim())
+        } else {
+          localStorage.removeItem('contentcard.signup.quickFillWebsite')
+        }
+      } catch {
+        /* ignore */
+      }
       navigate('/onboarding')
     } catch (err) {
       toast(err.message || 'Account creation failed. Please try again.', 'error')
@@ -254,6 +265,32 @@ export default function SignupPage() {
                       className={`input ${selectedCountry ? 'rounded-l-none' : ''}`} />
                   </div>
                 </div>
+              </div>
+              <div className="rounded-2xl border border-fog bg-surface p-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-xs font-semibold text-ink">Quick fill</p>
+                  <button
+                    type="button"
+                    onClick={() => setQuickFillEnabled((v) => !v)}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors ${
+                      quickFillEnabled
+                        ? 'border-brand-500 bg-brand-500/10 text-brand-700'
+                        : 'border-fog text-ink/50 hover:text-ink'
+                    }`}
+                  >
+                    {quickFillEnabled ? 'Enabled' : 'Quick fill'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-ink/50 mb-2">
+                  Add your website and we will prefill your Brand Kit to full strength. Logo upload stays as the final step.
+                </p>
+                <input
+                  value={quickFillWebsite}
+                  onChange={(e) => setQuickFillWebsite(e.target.value)}
+                  placeholder="https://yourwebsite.com"
+                  className="input"
+                  disabled={!quickFillEnabled}
+                />
               </div>
               <button type="submit" className="btn-primary w-full justify-center py-3 text-sm mt-2">
                 Continue <ArrowRight size={15} />
