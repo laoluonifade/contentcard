@@ -1,6 +1,7 @@
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import { LogoFull } from '../ui/Logo'
+import Seo from '../seo/Seo'
 
 const NAV_ITEMS = [
   { label: 'Product',    href: '/features' },
@@ -37,8 +38,37 @@ const LEGAL_LINKS = [
   { label: 'Support',  href: '/support' },
 ]
 
+const SEO_BY_PATH = {
+  '/features': {
+    title: 'ContentCard Features | AI Content Playbook, Calendar, and Team Workflow',
+    description:
+      'Explore ContentCard features for social media managers: playbook-driven content generation, prep assistant, calendar workflow, and approval-ready collaboration.',
+  },
+  '/pricing': {
+    title: 'ContentCard Pricing | Social Content Plans for Teams and Brands',
+    description:
+      'Choose a ContentCard plan for your team. Generate social content faster with on-brand visuals, captions, and workflow controls built for growth.',
+  },
+  '/enterprise': {
+    title: 'ContentCard Enterprise | Social Content Operations at Scale',
+    description:
+      'ContentCard Enterprise helps multi-brand teams manage approvals, consistency, and campaign velocity across regions and business units.',
+  },
+  '/demo': {
+    title: 'Book a ContentCard Demo | See AI Social Content Workflow Live',
+    description:
+      'Book a live demo to see how ContentCard helps social media managers and business owners plan, generate, and publish high-performing content.',
+  },
+}
+
 export default function MarketingLayout({ children }) {
   const navigate = useNavigate()
+  const location = useLocation()
+  const seo = SEO_BY_PATH[location.pathname] || {
+    title: 'ContentCard | AI Social Media Content Platform',
+    description:
+      'ContentCard helps social media managers and business owners create on-brand social content with playbook-driven AI generation and publishing workflows.',
+  }
   const marketingLightThemeVars = {
     '--cc-ink-rgb': '15 23 42',
     '--cc-fog-rgb': '229 231 235',
@@ -49,6 +79,13 @@ export default function MarketingLayout({ children }) {
 
   return (
     <div className="bg-ink min-h-screen text-white flex flex-col" style={marketingLightThemeVars}>
+      <Seo
+        title={seo.title}
+        description={seo.description}
+        path={location.pathname}
+        image="/og-image.svg"
+        keywords="ai social media content, content calendar, social media manager tools, social media content generator, brand content playbook"
+      />
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-white/5 bg-ink/90 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">

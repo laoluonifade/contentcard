@@ -224,6 +224,7 @@ function CalendarPrepBody({
   usedCtaKeys,
   ctaBusy,
   generatingMonth,
+  prepServiceDown,
 }) {
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -329,7 +330,7 @@ function CalendarPrepBody({
               (() => {
                 const ctaKey = String(i)
                 const isUsed = usedCtaKeys?.has(ctaKey)
-                const disabled = Boolean(isUsed || ctaBusy || generatingMonth)
+                const disabled = Boolean(isUsed || ctaBusy || generatingMonth || prepServiceDown)
                 return (
               <div className="mt-2 pt-2 border-t border-fog/70">
                 <select
@@ -344,6 +345,8 @@ function CalendarPrepBody({
                   <option value="">
                     {isUsed
                       ? 'Generation already started from this action'
+                      : prepServiceDown
+                        ? 'Assistant temporarily unavailable — contact support'
                       : generatingMonth
                         ? 'Generation in progress…'
                         : (m.cta?.label || 'Choose next action…')}
@@ -390,7 +393,7 @@ function CalendarPrepBody({
           <input
             type="file"
             accept="image/*,video/mp4,video/webm,video/quicktime"
-            disabled={!activeBrandId || prepSending || prepUploadingAsset}
+            disabled={!activeBrandId || prepSending || prepUploadingAsset || prepServiceDown}
             onChange={(e) => onUploadAsset(e.target.files?.[0] || null)}
             className="block w-full text-[11px] text-ink/60 file:mr-2 file:rounded-md file:border file:border-fog file:bg-surface file:px-2.5 file:py-1 file:text-[11px] file:font-semibold file:text-ink/70"
           />
@@ -402,7 +405,7 @@ function CalendarPrepBody({
           rows={2}
           placeholder="Product updates, promos, tone…"
           className="input text-xs resize-none mb-2"
-          disabled={!activeBrandId || prepSending}
+          disabled={!activeBrandId || prepSending || prepServiceDown}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
@@ -413,7 +416,7 @@ function CalendarPrepBody({
         <button
           type="button"
           onClick={onSend}
-          disabled={!activeBrandId || prepSending || !prepInput.trim()}
+          disabled={!activeBrandId || prepSending || !prepInput.trim() || prepServiceDown}
           className="btn-primary w-full text-xs py-2 justify-center gap-1.5 disabled:opacity-40"
         >
           <Send size={12} />
@@ -471,6 +474,7 @@ export default function CalendarPage() {
   const [prepSending, setPrepSending] = useState(false)
   const [prepExecuteBusy, setPrepExecuteBusy] = useState(false)
   const [prepUploadingAsset, setPrepUploadingAsset] = useState(false)
+  const [prepServiceDown, setPrepServiceDown] = useState(false)
   const [prepQuestionAnswers, setPrepQuestionAnswers] = useState({})
   const [prepCtaBusy, setPrepCtaBusy] = useState(false)
   const [usedPrepCtaKeys, setUsedPrepCtaKeys] = useState(() => new Set())
@@ -499,6 +503,47 @@ export default function CalendarPage() {
   const prepScrollMobileRef = useRef(null)
   const prepGenUpdateBusyRef = useRef(false)
   const prepCtaInFlightRef = useRef(false)
+  const PREP_SERVICE_DOWN_MESSAGE =
+    'Your social media manager is temporarily unavailable right now. Please contact support and try again shortly.'
+
+  const flattenErrorText = (err) => {
+    const detail = err?.response?.data?.detail
+    if (typeof detail === 'string') return detail
+    if (detail && typeof detail === 'object') {
+      return String(detail.message || detail.error || JSON.stringify(detail))
+    }
+    return String(err?.message || '')
+  }
+
+  const isAiCapacityError = (err) => {
+    const status = Number(err?.response?.status || 0)
+    const txt = flattenErrorText(err).toLowerCase()
+    return (
+      status === 429 ||
+      status === 502 ||
+      status === 503 ||
+      txt.includes('insufficient_quota') ||
+      txt.includes('quota') ||
+      txt.includes('credits') ||
+      txt.includes('rate limit') ||
+      txt.includes('temporarily unavailable') ||
+      txt.includes('openai')
+    )
+  }
+
+  const appendPrepServiceDownNotice = () => {
+    setPrepMinimizedPersist(false)
+    setPrepMessages((pm) => {
+      const last = pm[pm.length - 1]
+      if (last?.role === 'assistant' && String(last?.content || '') === PREP_SERVICE_DOWN_MESSAGE) {
+        return pm
+      }
+      return [
+        ...pm,
+        { role: 'assistant', content: PREP_SERVICE_DOWN_MESSAGE, choices: [], questions: [], cta: null, design_intent: null },
+      ]
+    })
+  }
   const lastPrepGenPollRef = useRef(0)
   const [modal, setModal]   = useState(null)
   const [slideIdx, setSlideIdx] = useState(0)
@@ -843,6 +888,7 @@ export default function CalendarPage() {
         year,
         messages: next,
       })
+      setPrepServiceDown(false)
       const chunks = splitPrepAssistantMessage(data.message || '')
       const assistantRows = chunks.map((content, idx) => ({
         role: 'assistant',
@@ -854,8 +900,14 @@ export default function CalendarPage() {
       }))
       setPrepMessages([...next, ...assistantRows])
     } catch (e) {
-      setPrepMessages((pm) => pm.slice(0, -1))
-      toast(e.response?.data?.detail || 'Prep chat failed', 'error')
+      if (isAiCapacityError(e)) {
+        setPrepServiceDown(true)
+        appendPrepServiceDownNotice()
+        toast(PREP_SERVICE_DOWN_MESSAGE, 'error')
+      } else {
+        setPrepMessages((pm) => pm.slice(0, -1))
+        toast(e.response?.data?.detail || 'Prep chat failed', 'error')
+      }
     } finally {
       setPrepSending(false)
     }
@@ -996,6 +1048,7 @@ export default function CalendarPage() {
         year,
         messages: next,
       })
+      setPrepServiceDown(false)
       const chunks = splitPrepAssistantMessage(data.message || '')
       const assistantRows = chunks.map((content, idx) => ({
         role: 'assistant',
@@ -1008,7 +1061,10 @@ export default function CalendarPage() {
         extra,
       }))
       setPrepMessages((pm) => [...pm, ...assistantRows])
-    } catch {
+    } catch (e) {
+      if (isAiCapacityError(e)) {
+        setPrepServiceDown(true)
+      }
       // Non-blocking: generation should continue even if prep status update fails.
     } finally {
       prepGenUpdateBusyRef.current = false
@@ -1140,9 +1196,11 @@ export default function CalendarPage() {
         const platformLabel = PLATFORMS.find((p) => p.id === genPlatform)?.label || genPlatform
         if (after.ready > before.ready) {
           toast(`${platformLabel} generation is done — posts are ready with finished designs.`)
+          setPrepMinimizedPersist(false)
           await requestPrepGenerationUpdate('completed', { platformLabel, before, after })
         } else {
           toast(`${platformLabel} generation started. New posts will appear once rendering finishes.`)
+          setPrepMinimizedPersist(false)
           await requestPrepGenerationUpdate('in_progress', { platformLabel, before, after })
         }
       } finally {
@@ -1151,6 +1209,12 @@ export default function CalendarPage() {
       return true
     } catch (err) {
       const d = err.response?.data?.detail
+      if (isAiCapacityError(err)) {
+        setPrepServiceDown(true)
+        appendPrepServiceDownNotice()
+        toast(PREP_SERVICE_DOWN_MESSAGE, 'error')
+        return false
+      }
       if (d && typeof d === 'object' && d.code === 'CARD_REQUIRED_FOR_BONUS') {
         setCardUpsellToast({
           remaining: Number(d.remaining_bonus_designs || 2),
@@ -1350,6 +1414,7 @@ export default function CalendarPage() {
             usedCtaKeys={usedPrepCtaKeys}
             ctaBusy={prepCtaBusy}
             generatingMonth={generatingMonth}
+            prepServiceDown={prepServiceDown}
           />
         </div>
       </details>
@@ -1682,6 +1747,7 @@ export default function CalendarPage() {
                 usedCtaKeys={usedPrepCtaKeys}
                 ctaBusy={prepCtaBusy}
                 generatingMonth={generatingMonth}
+                prepServiceDown={prepServiceDown}
               />
             </div>
           </>
