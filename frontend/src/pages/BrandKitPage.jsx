@@ -180,7 +180,7 @@ function computeScores(form) {
     },
     brand_font: () => {
       if (!form.brand_font) return s('fair', 'Choose a brand font so visual direction can reference your typographic style.')
-      return s('good', 'Font set. This will be incorporated into visual style descriptions.')
+      return s('excellent', 'Font set. Typography direction is fully defined for generation.')
     },
     design_style: () => {
       if (!form.design_style) return s('poor', 'Select a design style: it directly controls the visual feel of every generated image.')
@@ -200,8 +200,8 @@ function computeScores(form) {
     words_to_avoid: () => {
       const n = arrLen(form.words_to_avoid)
       if (n === 0) return s('fair', 'Add words content must never use: brand terms, competitor names, or overpromising language.')
-      if (n <= 2)  return s('fair', 'Add a few more. Think about buzzwords, competitor names, or phrases that feel off-brand.')
-      return s('good', 'Good guardrail list. These terms will be avoided in generated captions.')
+      if (n <= 2)  return s('good', 'Good start. Add a few more blocked terms for stronger copy guardrails.')
+      return s('excellent', 'Strong guardrail list. Generation will consistently avoid these terms.')
     },
     guidelines: () => {
       const words = wc(form.guidelines)
