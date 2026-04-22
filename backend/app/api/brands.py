@@ -1,6 +1,8 @@
 import asyncio
 import logging
-from datetime import datetime
+import hashlib
+import json
+from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -20,6 +22,7 @@ from app.schemas.website_intelligence import (
     WebsiteAuthCaptureConfigRequest,
     WebsiteAuthCaptureRunRequest,
     WebsiteChangeEventOut,
+    WebsiteProductCreateRequest,
     WebsiteEntityOut,
     WebsiteProductOut,
     WebsiteOpportunityOut,
@@ -60,6 +63,15 @@ cloudinary.config(
 )
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/brands", tags=["brands"])
+
+
+def _website_product_hash(title: str, source_url: str | None, attrs: dict) -> str:
+    payload = json.dumps(
+        {"entity_type": "product", "title": title, "source_url": source_url, "attributes": attrs},
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 INDUSTRY_TAXONOMY: dict[str, list[str]] = {
     "Technology": [
@@ -686,15 +698,15 @@ async def list_brand_website_products(
     workspace_id: str,
     brand_id: str,
     limit: int = 100,
-    state: str = "all",  # all | new | updated | unchanged
+    state: str = "all",  # all | new | updated | unchanged | manual
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _check_member(workspace_id, current_user.id, db)
     if limit < 1 or limit > 500:
         raise HTTPException(status_code=400, detail="limit must be between 1 and 500")
-    if state not in ("all", "new", "updated", "unchanged"):
-        raise HTTPException(status_code=400, detail="state must be all, new, updated, or unchanged")
+    if state not in ("all", "new", "updated", "unchanged", "manual"):
+        raise HTTPException(status_code=400, detail="state must be all, new, updated, unchanged, or manual")
 
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
@@ -748,7 +760,10 @@ async def list_brand_website_products(
 
         change = latest_change_by_entity.get(row.id)
         change_type = str(change.change_type or "").lower() if change else ""
-        if change_type == "created":
+        source_kind = "manual" if str(attrs.get("source") or "").lower() == "manual" else "website"
+        if source_kind == "manual":
+            sync_state = "manual"
+        elif change_type == "created":
             sync_state = "new"
         elif change_type == "updated":
             sync_state = "updated"
@@ -773,6 +788,7 @@ async def list_brand_website_products(
                 vendor=str(attrs.get("vendor") or "") or None,
                 tags=tags[:12],
                 sync_state=sync_state,
+                source_kind=source_kind,
                 last_change_type=change_type or None,
                 last_change_at=change.created_at if change else None,
                 first_seen_at=row.first_seen_at,
@@ -780,6 +796,124 @@ async def list_brand_website_products(
             )
         )
     return out
+
+
+@router.post("/{brand_id}/website/products", response_model=WebsiteProductOut)
+async def create_brand_manual_product(
+    workspace_id: str,
+    brand_id: str,
+    body: WebsiteProductCreateRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Editor access required")
+
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    title = str(body.title or "").strip()
+    if len(title) < 2:
+        raise HTTPException(status_code=400, detail="title must be at least 2 characters")
+
+    now = datetime.now(timezone.utc)
+    tags = [str(t).strip() for t in (body.tags or []) if str(t).strip()][:12]
+    attrs = {
+        "price": str(body.price or "").strip() or None,
+        "compare_at_price": str(body.compare_at_price or "").strip() or None,
+        "currency": str(body.currency or "").strip() or None,
+        "availability": str(body.availability or "").strip() or None,
+        "product_type": str(body.product_type or "").strip() or None,
+        "vendor": str(body.vendor or "").strip() or None,
+        "tags": tags,
+        "images": [str(body.image_url).strip()] if str(body.image_url or "").strip() else [],
+        "source": "manual",
+        "created_by": current_user.id,
+    }
+    source_url = str(body.source_url or "").strip() or None
+    source_hash = _website_product_hash(title, source_url, attrs)
+
+    entity = WebsiteEntity(
+        brand_id=brand.id,
+        snapshot_id=None,
+        entity_type="product",
+        external_id=f"manual:{brand.id}:{source_hash[:16]}",
+        title=title[:500],
+        summary=(str(body.summary or "").strip()[:2000] or None),
+        attributes=attrs,
+        source_url=source_url,
+        source_hash=source_hash,
+        confidence_score=1.0,
+        freshness_score=1.0,
+        first_seen_at=now,
+        last_seen_at=now,
+        is_active=True,
+    )
+    db.add(entity)
+    await db.flush()
+    await db.commit()
+    await db.refresh(entity)
+
+    first_img = next((str(x).strip() for x in (attrs.get("images") or []) if str(x or "").strip()), None)
+    return WebsiteProductOut(
+        id=entity.id,
+        title=entity.title,
+        summary=entity.summary,
+        source_url=entity.source_url,
+        image_url=first_img,
+        price=str(attrs.get("price") or "") or None,
+        compare_at_price=str(attrs.get("compare_at_price") or "") or None,
+        currency=str(attrs.get("currency") or "") or None,
+        availability=str(attrs.get("availability") or "") or None,
+        product_type=str(attrs.get("product_type") or "") or None,
+        vendor=str(attrs.get("vendor") or "") or None,
+        tags=tags,
+        sync_state="manual",
+        source_kind="manual",
+        last_change_type=None,
+        last_change_at=None,
+        first_seen_at=entity.first_seen_at,
+        last_seen_at=entity.last_seen_at,
+    )
+
+
+@router.delete("/{brand_id}/website/products/{product_id}", response_model=dict)
+async def delete_brand_manual_product(
+    workspace_id: str,
+    brand_id: str,
+    product_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="Editor access required")
+
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    row = (
+        await db.execute(
+            select(WebsiteEntity).where(
+                WebsiteEntity.id == product_id,
+                WebsiteEntity.brand_id == brand.id,
+                WebsiteEntity.entity_type == "product",
+                WebsiteEntity.is_active.is_(True),
+            )
+        )
+    ).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    row.is_active = False
+    row.last_seen_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"ok": True}
 
 
 @router.get("/{brand_id}/website/changes", response_model=list[WebsiteChangeEventOut])

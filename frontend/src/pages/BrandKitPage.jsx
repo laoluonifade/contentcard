@@ -343,11 +343,24 @@ export default function BrandKitPage() {
   const [websiteOps, setWebsiteOps] = useState([])
   const [products, setProducts] = useState([])
   const [productStateFilter, setProductStateFilter] = useState('all')
+  const [manualProductForm, setManualProductForm] = useState({
+    title: '',
+    image_url: '',
+    source_url: '',
+    price: '',
+    currency: 'NGN',
+    availability: 'in_stock',
+    product_type: '',
+    tags: '',
+    summary: '',
+  })
   const [screenshotStatus, setScreenshotStatus] = useState(null)
   const [referenceStatus, setReferenceStatus] = useState(null)
   const [websiteSyncing, setWebsiteSyncing] = useState(false)
   const [referenceSyncing, setReferenceSyncing] = useState(false)
   const [productsLoading, setProductsLoading] = useState(false)
+  const [manualProductSaving, setManualProductSaving] = useState(false)
+  const [manualProductRemovingId, setManualProductRemovingId] = useState('')
   const [authCaptureSaving, setAuthCaptureSaving] = useState(false)
   const [authCaptureRunning, setAuthCaptureRunning] = useState(false)
   const [websiteLoading, setWebsiteLoading] = useState(false)
@@ -507,6 +520,70 @@ export default function BrandKitPage() {
       setProducts([])
     } finally {
       setProductsLoading(false)
+    }
+  }
+
+  const createManualProduct = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    const title = String(manualProductForm.title || '').trim()
+    if (title.length < 2) {
+      toast('Enter a product name.', 'error')
+      return
+    }
+    const imageUrl = String(manualProductForm.image_url || '').trim()
+    if (!imageUrl) {
+      toast('Add a product image URL.', 'error')
+      return
+    }
+    setManualProductSaving(true)
+    try {
+      const payload = {
+        title,
+        image_url: imageUrl,
+        source_url: String(manualProductForm.source_url || '').trim() || null,
+        price: String(manualProductForm.price || '').trim() || null,
+        currency: String(manualProductForm.currency || '').trim() || null,
+        availability: String(manualProductForm.availability || '').trim() || null,
+        product_type: String(manualProductForm.product_type || '').trim() || null,
+        summary: String(manualProductForm.summary || '').trim() || null,
+        tags: String(manualProductForm.tags || '')
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean)
+          .slice(0, 12),
+      }
+      await brandApi.createWebsiteProduct(activeWorkspaceId, activeBrandId, payload)
+      setManualProductForm({
+        title: '',
+        image_url: '',
+        source_url: '',
+        price: '',
+        currency: manualProductForm.currency || 'NGN',
+        availability: manualProductForm.availability || 'in_stock',
+        product_type: '',
+        tags: '',
+        summary: '',
+      })
+      toast('Product added.')
+      await loadProducts(productStateFilter)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to add product', 'error')
+    } finally {
+      setManualProductSaving(false)
+    }
+  }
+
+  const removeManualProduct = async (productId) => {
+    if (!activeWorkspaceId || !activeBrandId || !productId) return
+    setManualProductRemovingId(productId)
+    try {
+      await brandApi.deleteWebsiteProduct(activeWorkspaceId, activeBrandId, productId)
+      toast('Product removed.')
+      await loadProducts(productStateFilter)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to remove product', 'error')
+    } finally {
+      setManualProductRemovingId('')
     }
   }
 
@@ -1072,6 +1149,76 @@ export default function BrandKitPage() {
                 </button>
               </div>
 
+              <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
+                <p className="text-sm font-semibold text-ink">Add product manually</p>
+                <p className="text-xs text-ink/45 mt-1 mb-3">
+                  Add products directly when website sync misses items.
+                </p>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <input
+                    className={inpCls}
+                    placeholder="Product name"
+                    value={manualProductForm.title}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, title: e.target.value }))}
+                  />
+                  <input
+                    className={inpCls}
+                    placeholder="Image URL"
+                    value={manualProductForm.image_url}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, image_url: e.target.value }))}
+                  />
+                  <input
+                    className={inpCls}
+                    placeholder="Product page URL (optional)"
+                    value={manualProductForm.source_url}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, source_url: e.target.value }))}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      className={inpCls}
+                      placeholder="Price"
+                      value={manualProductForm.price}
+                      onChange={(e) => setManualProductForm((f) => ({ ...f, price: e.target.value }))}
+                    />
+                    <input
+                      className={inpCls}
+                      placeholder="Currency"
+                      value={manualProductForm.currency}
+                      onChange={(e) => setManualProductForm((f) => ({ ...f, currency: e.target.value }))}
+                    />
+                  </div>
+                  <input
+                    className={inpCls}
+                    placeholder="Type (e.g. Burger)"
+                    value={manualProductForm.product_type}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, product_type: e.target.value }))}
+                  />
+                  <input
+                    className={inpCls}
+                    placeholder="Tags (comma separated)"
+                    value={manualProductForm.tags}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, tags: e.target.value }))}
+                  />
+                </div>
+                <textarea
+                  className={clsx(taCls, 'mt-3')}
+                  rows={2}
+                  placeholder="Short summary (optional)"
+                  value={manualProductForm.summary}
+                  onChange={(e) => setManualProductForm((f) => ({ ...f, summary: e.target.value }))}
+                />
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={createManualProduct}
+                    disabled={manualProductSaving}
+                    className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold disabled:opacity-60"
+                  >
+                    {manualProductSaving ? 'Adding…' : 'Add product'}
+                  </button>
+                </div>
+              </div>
+
               {!isEcommerceBrand && products.length === 0 && (
                 <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
                   <p className="text-sm font-semibold text-ink">No ecommerce signals yet</p>
@@ -1091,6 +1238,7 @@ export default function BrandKitPage() {
                   onChange={(e) => setProductStateFilter(e.target.value)}
                 >
                   <option value="all">All updates</option>
+                  <option value="manual">Manual only</option>
                   <option value="new">New only</option>
                   <option value="updated">Updated only</option>
                   <option value="unchanged">Unchanged</option>
@@ -1107,7 +1255,9 @@ export default function BrandKitPage() {
                 <div className="space-y-3">
                   {products.map((p) => {
                     const statePill =
-                      p.sync_state === 'new'
+                      p.sync_state === 'manual'
+                        ? 'bg-violet-500/10 text-violet-700 border-violet-500/20'
+                        : p.sync_state === 'new'
                         ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20'
                         : p.sync_state === 'updated'
                           ? 'bg-blue-500/10 text-blue-700 border-blue-500/20'
@@ -1157,6 +1307,16 @@ export default function BrandKitPage() {
                                 View product page
                               </a>
                             )}
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                onClick={() => removeManualProduct(p.id)}
+                                disabled={manualProductRemovingId === p.id}
+                                className="text-[11px] font-semibold text-red-600 hover:text-red-700 disabled:opacity-60"
+                              >
+                                {manualProductRemovingId === p.id ? 'Removing…' : 'Remove product'}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       </div>
