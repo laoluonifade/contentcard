@@ -228,13 +228,13 @@ export default function GeneratePage() {
 
       {activeBrandId && usableTemplates.length === 0 && (
         <div className="border border-brand-200 bg-brand-50 rounded-2xl p-5 mb-6">
-          <p className="text-brand-700 text-sm font-semibold mb-1">No custom templates yet</p>
+          <p className="text-brand-700 text-sm font-semibold mb-1">No custom playbook items yet</p>
           <p className="text-brand-700/90 text-xs mb-3">
-            Generation will use your industry default design playbook for now. Add custom templates anytime to override
-            and tailor output to your exact content pattern.
+            Generation will use your current brand playbook defaults for now. Add custom playbook items anytime to tailor
+            output to your exact content pattern.
           </p>
           <button onClick={() => navigate('/dashboard/templates')} className="btn-primary text-xs">
-            Customize templates
+            Customize playbook
           </button>
         </div>
       )}
@@ -242,19 +242,19 @@ export default function GeneratePage() {
       <div className="grid lg:grid-cols-[1fr_240px] gap-6 items-start">
         <div className="space-y-3">
 
-          {/* Step 1: Template */}
+          {/* Step 1: Playbook */}
           <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">1</span>
-              Template blueprint
+              Playbook item
             </p>
             {usableTemplates.length === 0 ? (
               <div className="space-y-2">
                 <p className="text-xs text-ink/60">
-                  No customized template selected. We will generate from your default industry design playbook.
+                  No customized playbook item selected. We will generate from your current brand playbook defaults.
                 </p>
                 <p className="text-[11px] text-ink/40">
-                  Create custom templates to control recurring content type, cadence, and design contract.
+                  Create playbook items to control recurring content type, cadence, and design contract.
                 </p>
               </div>
             ) : (
@@ -269,7 +269,7 @@ export default function GeneratePage() {
                   >
                     <p className="text-xs font-semibold text-ink">{t.name}</p>
                     <p className="text-[10px] text-ink/40 capitalize">
-                      {t.category} · {t.design_spec?.design_template_type ? String(t.design_spec.design_template_type).replace(/_/g, ' ') : 'general social'}
+                      {t.category}
                     </p>
                   </button>
                 ))}
