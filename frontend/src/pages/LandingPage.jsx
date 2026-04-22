@@ -1,6 +1,7 @@
 import { useNavigate, Link } from 'react-router-dom'
 import { ArrowRight, ChevronRight, Check, TrendingUp, Zap, BarChart2, Shield, Users, Calendar, Star, Play } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
+import Seo from '../components/seo/Seo'
 
 /* ─── Data ──────────────────────────────────────────────────────── */
 
@@ -22,25 +23,49 @@ const ROI_STATS = [
 
 const FEATURES = [
   {
-    badge: 'Content Generation',
-    title: 'A full month of on-brand content.\nReady in 30 seconds.',
-    body: 'Stop paying agencies and junior staff to spend days producing content that misses the mark. ContentCard generates an entire month of graphics and captions, calibrated to your brand voice, in one click.',
-    bullets: ['Instagram, Facebook & Twitter at exact spec', 'Single posts, carousels, and quote cards', 'Brand-voice captions, every time'],
+    badge: 'Playbook-Driven Generation',
+    title: 'Generate campaign-ready monthly content.\nFrom your content playbook.',
+    body: 'Your brand gets a prefilled industry playbook that your team can edit at any time. ContentCard generates posts from those playbook items so output stays aligned with your strategy, not random prompts.',
+    bullets: ['Industry + sub-industry playbook defaults', 'Single, carousel, and GIF-ready outputs', 'Story-first visual direction with consistent branding'],
     side: 'mockup-generate',
   },
   {
-    badge: 'Trend Intelligence',
-    title: 'Post on trends before\nyour competitors do.',
-    body: 'Our live trend engine monitors what your industry is talking about right now and surfaces actionable post ideas. First-mover advantage on every trending moment, built in.',
-    bullets: ['Industry-specific trend feed, updated daily', 'One click to build a post around any trend', 'Performance signals show what may work before it peaks'],
+    badge: 'Prep Assistant + Brand Context',
+    title: 'Collaborate with your AI\nsocial media manager.',
+    body: 'Before generation, the assistant helps plan the month, asks for only the right assets, and keeps context across refreshes. It uses your products, brand kit, and playbook to stay relevant.',
+    bullets: ['Interactive prep flow with guided questions', 'Upload screenshots or recordings when needed', 'Persistent prep context scoped to brand + month'],
     side: 'mockup-trends',
   },
   {
-    badge: 'Team & Workflow',
-    title: 'Built for enterprise teams\nand agencies.',
-    body: 'Role-based permissions, approval workflows, and multi-brand management built from the ground up for teams that need control, consistency, and accountability at scale.',
-    bullets: ['Editors, approvers, and viewer roles', 'Approval workflows before content goes live', 'Manage 10+ brands from one dashboard'],
+    badge: 'Calendar + Team Operations',
+    title: 'Run your social calendar like\na high-performing content team.',
+    body: 'Track generation status, edit fast, and keep operations moving from one workspace. Built for social media managers, business owners, and agencies running multiple brands.',
+    bullets: ['Batch generation and visible progress states', 'Quick-fill onboarding from website + brand kit', 'Role-ready workspace management for growing teams'],
     side: 'mockup-team',
+  },
+]
+
+const PRODUCT_UPDATES = [
+  'Quick Fill onboarding from website link with auto-populated brand profile',
+  'Content Playbook system as single source of truth for generation',
+  'Your social media manager prep assistant with persistent chat context',
+  'Brand images + manual products in Brand Kit for grounded visual output',
+  'Campaign art style profiles for month-long visual consistency',
+  'Stronger logo compositing and carousel aesthetic consistency controls',
+]
+
+const FAQS = [
+  {
+    q: 'Can ContentCard create content for my specific industry?',
+    a: 'Yes. During setup you select industry and sub-industry, then ContentCard preloads a relevant content playbook your team can customize.',
+  },
+  {
+    q: 'Can I use my own products and brand assets?',
+    a: 'Yes. You can add products manually, sync from website intelligence, upload brand images, and keep your logo/visual system consistent across posts.',
+  },
+  {
+    q: 'Is this useful for both social media managers and business owners?',
+    a: 'Yes. Social managers get operational speed and consistency, while owners get clearer campaign output and a faster route from idea to published content.',
   },
 ]
 
@@ -202,6 +227,41 @@ const MOCKUPS = { 'mockup-generate': GenerateMockup, 'mockup-trends': TrendsMock
 
 export default function LandingPage() {
   const navigate = useNavigate()
+  const seoStructuredData = {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'Organization',
+        name: 'ContentCard',
+        url: 'https://www.contentcard.co',
+        logo: 'https://www.contentcard.co/contentcard-logo-mark.svg',
+      },
+      {
+        '@type': 'SoftwareApplication',
+        name: 'ContentCard',
+        applicationCategory: 'BusinessApplication',
+        operatingSystem: 'Web',
+        description:
+          'AI social media content platform for social media managers and business owners. Plan, generate, and manage on-brand posts with playbook-driven workflows.',
+        offers: {
+          '@type': 'Offer',
+          price: '25',
+          priceCurrency: 'USD',
+        },
+      },
+      {
+        '@type': 'FAQPage',
+        mainEntity: FAQS.map((item) => ({
+          '@type': 'Question',
+          name: item.q,
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: item.a,
+          },
+        })),
+      },
+    ],
+  }
   const landingDefaultThemeVars = {
     '--cc-ink-rgb': '15 23 42',
     '--cc-fog-rgb': '229 231 235',
@@ -212,6 +272,14 @@ export default function LandingPage() {
 
   return (
     <div className="bg-ink min-h-screen text-white overflow-x-hidden" style={landingDefaultThemeVars}>
+      <Seo
+        title="ContentCard | AI Social Media Content Platform for Teams and Brands"
+        description="ContentCard helps social media managers and business owners generate on-brand content using playbook-driven AI, prep workflows, and campaign-ready calendar operations."
+        path="/"
+        image="/og-image.svg"
+        keywords="ai social media content platform, social media manager software, content playbook, content calendar automation, ai content generator for business"
+        structuredData={seoStructuredData}
+      />
 
       {/* ── Nav ── */}
       <nav className="sticky top-0 z-50 border-b border-white/10 bg-ink">
@@ -241,14 +309,14 @@ export default function LandingPage() {
           {/* Left */}
           <div className="py-12 lg:py-20">
             <div className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500/20 border border-brand-400/40 rounded-full text-brand-300 text-xs font-bold uppercase tracking-widest mb-8">
-              <Zap size={10} /> Trusted by 500+ enterprise marketing teams
+              <Zap size={10} /> Built for social media managers and growth teams
             </div>
             <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-[1.05] mb-6" style={{ letterSpacing: '-0.03em' }}>
-              Social content that<br />performs, generated<br />
-              <span className="text-brand-400">in seconds.</span>
+              Plan, generate, and ship<br />high-performing social content.<br />
+              <span className="text-brand-400">Without content bottlenecks.</span>
             </h1>
             <p className="text-base sm:text-lg text-white/80 mb-10 leading-relaxed max-w-lg">
-              ContentCard gives marketing teams, agencies, and growing brands a complete system to plan, generate, and publish on-brand content, without the overhead of agencies or additional headcount.
+              ContentCard combines your content playbook, brand kit, and website/product context to produce campaign-ready social posts your team can actually trust and publish fast.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 mb-10">
               <button onClick={() => navigate('/signup')} className="btn-primary px-7 py-3.5 text-base">
@@ -315,6 +383,30 @@ export default function LandingPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Product Updates ── */}
+      <section className="py-14 sm:py-16 px-4 sm:px-6 border-y border-white/5 bg-white/[0.02]">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-center justify-between gap-4 mb-7 flex-wrap">
+            <h2 className="text-2xl md:text-3xl font-bold text-white" style={{ letterSpacing: '-0.02em' }}>
+              New in ContentCard
+            </h2>
+            <Link to="/changelog" className="text-brand-300 text-sm font-semibold hover:text-brand-200 transition-colors">
+              View product changelog
+            </Link>
+          </div>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {PRODUCT_UPDATES.map((item) => (
+              <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-white/85 leading-relaxed">
+                <div className="flex items-start gap-2">
+                  <Check size={14} className="text-brand-300 mt-0.5 flex-shrink-0" />
+                  <span>{item}</span>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -556,6 +648,23 @@ export default function LandingPage() {
                 <p className="text-white/70 text-sm mt-5">No credit card required · Cancel anytime</p>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── SEO FAQ Content ── */}
+      <section className="py-16 px-4 sm:px-6 border-t border-white/5">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-3xl font-bold text-white mb-8 text-center" style={{ letterSpacing: '-0.02em' }}>
+            Frequently Asked Questions
+          </h2>
+          <div className="space-y-4">
+            {FAQS.map((item) => (
+              <article key={item.q} className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                <h3 className="text-white font-semibold mb-2">{item.q}</h3>
+                <p className="text-white/75 text-sm leading-relaxed">{item.a}</p>
+              </article>
+            ))}
           </div>
         </div>
       </section>

@@ -14,6 +14,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
+import Seo from '../components/seo/Seo'
 
 /* ─── Typography tokens (Notion-like doc) ─────────────────────── */
 
@@ -322,7 +323,7 @@ const TOC = [
   { id: 'brand-kit', label: 'Brand kit (deep dive)', icon: Palette },
   { id: 'dashboard', label: 'Dashboard & trends', icon: LayoutDashboard },
   { id: 'calendar', label: 'Calendar & generation', icon: Calendar },
-  { id: 'templates', label: 'Templates', icon: Layers },
+  { id: 'templates', label: 'Content playbook', icon: Layers },
   { id: 'directory', label: 'Directory', icon: FolderOpen },
   { id: 'photo-captions', label: 'Photo captions', icon: Camera },
   { id: 'settings-billing', label: 'Settings & billing', icon: Settings },
@@ -331,6 +332,13 @@ const TOC = [
 export default function ProductGuidePage() {
   return (
     <DocShell>
+      <Seo
+        title="ContentCard Product Guide | AI Social Content Workflow and Playbook"
+        description="Learn how ContentCard works end-to-end: brand kit, content playbook, prep assistant, calendar generation, and collaboration workflows."
+        path="/product-guide"
+        image="/og-image.svg"
+        keywords="contentcard product guide, social media content workflow, ai content playbook, social media manager guide"
+      />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10 lg:py-14">
         <div className="lg:grid lg:grid-cols-[210px_1fr] lg:gap-12 xl:grid-cols-[230px_1fr]">
           <nav
@@ -361,6 +369,15 @@ export default function ProductGuidePage() {
               how each area of the product supports pipeline, conversion, and revenue: not just “features,” but where
               they show up in your workflow.
             </p>
+            <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4 mb-10">
+              <p className="text-[12px] font-semibold text-brand-700 uppercase tracking-wider mb-2">What is new</p>
+              <ul className="list-disc pl-5 text-[14px] leading-6 text-[#37352F]/80 space-y-1">
+                <li>Quick Fill onboarding from website link with stronger, grounded profile drafts.</li>
+                <li>Content Playbook now acts as the source of truth for what gets generated.</li>
+                <li>Your social media manager prep assistant supports richer planning context before generation.</li>
+                <li>Brand images and product context can now shape visual output quality more reliably.</li>
+              </ul>
+            </div>
 
             {/* ── INTRO ── */}
             <section id="introduction" className="scroll-mt-28">
@@ -644,13 +661,13 @@ export default function ProductGuidePage() {
               </p>
             </section>
 
-            {/* ── TEMPLATES ── */}
+            {/* ── PLAYBOOK ── */}
             <section id="templates" className="scroll-mt-28">
-              <h2 className={guideH2Spaced}>Templates</h2>
+              <h2 className={guideH2Spaced}>Content playbook</h2>
 
-              <h3 className={guideH3}>What templates are for</h3>
+              <h3 className={guideH3}>What playbook items are for</h3>
               <p className={guideP}>
-                Templates store <strong>curated topic lists</strong>, for example “Q2 pipeline push” or “Founder-led
+                Playbook items store <strong>curated topic lists</strong>, for example “Q2 pipeline push” or “Founder-led
                 narrative.” They keep the AI rotating through the themes your GTM org cares about instead of drifting
                 into generic inspiration quotes.
               </p>
