@@ -13,7 +13,7 @@ const inpCls =
  */
 export default function LogoCropModal({ imageSrc, originalFile, onClose, onConfirm, busy }) {
   const [crop, setCrop] = useState({ x: 0, y: 0 })
-  const [zoom, setZoom] = useState(1)
+  const [zoom, setZoom] = useState(0.8)
   const [croppedAreaPixels, setCroppedAreaPixels] = useState(null)
 
   const onCropComplete = useCallback((_croppedArea, croppedPixels) => {
@@ -62,6 +62,15 @@ export default function LogoCropModal({ imageSrc, originalFile, onClose, onConfi
           Drag to frame your mark. Output is {BRAND_KIT_LOGO_PX}×{BRAND_KIT_LOGO_PX} PNG — ideal for Brand Kit and compositing on posts.
         </p>
         <div className="relative w-full h-[min(52vh,320px)] bg-zinc-100 mt-3 mx-4 rounded-xl overflow-hidden">
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundImage:
+                'linear-gradient(45deg, rgba(0,0,0,0.05) 25%, transparent 25%), linear-gradient(-45deg, rgba(0,0,0,0.05) 25%, transparent 25%), linear-gradient(45deg, transparent 75%, rgba(0,0,0,0.05) 75%), linear-gradient(-45deg, transparent 75%, rgba(0,0,0,0.05) 75%)',
+              backgroundSize: '20px 20px',
+              backgroundPosition: '0 0, 0 10px, 10px -10px, -10px 0px',
+            }}
+          />
           <Cropper
             image={imageSrc}
             crop={crop}
@@ -69,6 +78,9 @@ export default function LogoCropModal({ imageSrc, originalFile, onClose, onConfi
             aspect={1}
             cropShape="rect"
             showGrid={false}
+            objectFit="contain"
+            minZoom={0.3}
+            maxZoom={4}
             onCropChange={setCrop}
             onZoomChange={setZoom}
             onCropComplete={onCropComplete}
@@ -78,13 +90,16 @@ export default function LogoCropModal({ imageSrc, originalFile, onClose, onConfi
           <label className="block text-[10px] font-bold uppercase tracking-widest text-ink/40">Zoom</label>
           <input
             type="range"
-            min={1}
-            max={3}
+            min={0.3}
+            max={4}
             step={0.01}
             value={zoom}
             onChange={(e) => setZoom(Number(e.target.value))}
             className="w-full accent-brand-500"
           />
+          <p className="text-[10px] text-ink/40">
+            Tip: for long or wide logos, drag zoom left to fit the full mark before positioning.
+          </p>
         </div>
         <div className="px-4 pb-2">
           <button
