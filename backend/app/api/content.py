@@ -30,6 +30,8 @@ from app.schemas.content import (
     GenerationPrepChatRequest,
     GenerationPrepChatResponse,
     PrepChatChoice,
+    PrepChatQuestion,
+    PrepChatCta,
     PrepChatDesignIntent,
     PrepExecuteVisualRequest,
     PrepExecuteVisualResponse,
@@ -53,6 +55,7 @@ from app.services.art_brief_service import build_art_brief
 from app.services.visual_lint_service import lint_final_image
 from app.services.quality_gate_service import score_visual_quality
 from app.services.image_service import (
+    create_loop_gif_from_image_url,
     burn_logo_into_image_url,
     finalize_rendered_urls_with_logo,
     generate_post_image,
@@ -1446,8 +1449,41 @@ async def generation_prep_chat(
     if body.month < 1 or body.month > 12:
         raise HTTPException(status_code=400, detail="Month must be 1–12")
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=False)
+    templates = (
+        await db.execute(
+            select(ContentTemplate)
+            .where(
+                ContentTemplate.brand_id == brand.id,
+                ContentTemplate.is_active.is_(True),
+            )
+            .order_by(ContentTemplate.updated_at.desc())
+            .limit(8)
+        )
+    ).scalars().all()
+    playbook_lines: list[str] = []
+    for idx, t in enumerate(templates, start=1):
+        spec = t.design_spec if isinstance(t.design_spec, dict) else {}
+        ct = str(spec.get("playbook_content_type") or t.name or "general").strip()
+        slots = spec.get("playbook_visual_direction_slots") if isinstance(spec.get("playbook_visual_direction_slots"), list) else []
+        direction_count = len([s for s in slots if isinstance(s, dict) and str(s.get("visual_direction") or "").strip()])
+        top_dirs = []
+        for row in slots[:3]:
+            if not isinstance(row, dict):
+                continue
+            vd = str(row.get("visual_direction") or "").strip()
+            if vd:
+                top_dirs.append(vd[:110])
+        sample_text = "; ".join(top_dirs) if top_dirs else "no visual directions added yet"
+        playbook_lines.append(f"{idx}. {ct} ({direction_count} directions) -> {sample_text}")
+    playbook_summary = "\n".join(playbook_lines) if playbook_lines else "No custom templates yet."
     msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
-    raw = await run_generation_prep_chat(_brand_to_dict(brand), body.month, body.year, msgs)
+    raw = await run_generation_prep_chat(
+        _brand_to_dict(brand),
+        body.month,
+        body.year,
+        msgs,
+        playbook_summary=playbook_summary,
+    )
     design_intent = None
     if isinstance(raw.get("design_intent"), dict):
         try:
@@ -1459,9 +1495,45 @@ async def generation_prep_chat(
         for c in (raw.get("choices") or [])
         if isinstance(c, dict) and str(c.get("id") or "").strip() and str(c.get("label") or "").strip()
     ]
+    question_rows = []
+    for q in (raw.get("questions") or []):
+        if not isinstance(q, dict):
+            continue
+        qid = str(q.get("id") or "").strip()
+        prompt = str(q.get("prompt") or "").strip()
+        if not qid or not prompt:
+            continue
+        input_type = str(q.get("input_type") or "select").strip().lower()
+        if input_type not in ("select", "upload"):
+            input_type = "select"
+        accept = q.get("accept")
+        accept = str(accept).strip().lower() if isinstance(accept, str) and str(accept).strip() else None
+        if accept not in (None, "image", "recording", "either"):
+            accept = None
+        options = [str(o).strip() for o in (q.get("options") or []) if str(o).strip()][:8]
+        question_rows.append(
+            {
+                "id": qid[:64],
+                "prompt": prompt[:220],
+                "field_key": str(q.get("field_key") or "").strip()[:64] or None,
+                "input_type": input_type,
+                "options": options,
+                "accept": accept,
+                "required": bool(q.get("required")),
+            }
+        )
+    cta = None
+    raw_cta = raw.get("cta")
+    if isinstance(raw_cta, dict):
+        lbl = str(raw_cta.get("label") or "").strip()
+        action = str(raw_cta.get("action") or "none").strip().lower()
+        if lbl and action in ("none", "start_generation"):
+            cta = PrepChatCta(label=lbl[:80], action=action)
     return GenerationPrepChatResponse(
         message=str(raw.get("message") or "").strip(),
         choices=[PrepChatChoice(**c) for c in choice_rows],
+        questions=[PrepChatQuestion(**q) for q in question_rows],
+        cta=cta,
         design_intent=design_intent,
     )
 
@@ -1951,6 +2023,7 @@ async def _do_generate_month(
                     continue
 
                 fmt_val = post.get("format", "single").lower()
+                requested_media_type = "gif" if fmt_val == "gif" else "image"
                 try:
                     fmt = ContentFormat(fmt_val)
                 except ValueError:
@@ -2061,6 +2134,7 @@ async def _do_generate_month(
                         only_new_website_changes,
                         len(approved_map),
                     ),
+                    "requested_media_type": requested_media_type,
                 }
                 item.theme = th
                 saved_items[i] = (item, enriched)
@@ -2115,6 +2189,13 @@ async def _do_generate_month(
                 cm["logo_required"] = has_brand_logo(brand_dict)
                 cm["logo_applied"] = logo_ok
                 cm["quality_failure_tags"] = _quality_failure_tags(quality_gate)
+                requested_media_type = str(cm.get("requested_media_type") or "").lower()
+                if requested_media_type == "gif" and item.image_url:
+                    gif_url = await create_loop_gif_from_image_url(item.image_url, item.topic or "post")
+                    if gif_url:
+                        item.image_url = gif_url
+                        item.image_urls = [gif_url]
+                        cm["rendered_media_type"] = "gif"
                 if template_contract:
                     cm["template_contract"] = template_contract
                 if isinstance(post_data.get("message_architecture"), dict):

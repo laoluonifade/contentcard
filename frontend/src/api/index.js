@@ -188,6 +188,14 @@ export const uploadApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then(r => r.data)
   },
+  prepAsset: (file, assetKind = 'auto') => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('asset_kind', assetKind)
+    return api.post('/upload/prep-asset', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
 }
 
 // ─── Holidays ───────────────────────────────────────────────────
