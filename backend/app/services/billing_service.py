@@ -201,6 +201,38 @@ async def get_subscription_next_payment(subscription_code: str) -> str | None:
     return None
 
 
+async def charge_saved_authorization(
+    *,
+    email: str,
+    authorization_code: str,
+    amount_kobo: int,
+    metadata: dict | None = None,
+) -> dict:
+    """
+    Charge a saved Paystack authorization immediately (no checkout redirect).
+    Returns Paystack response body and raises ValueError on failed charge init.
+    """
+    if not authorization_code:
+        raise ValueError("Missing authorization code")
+    payload = {
+        "email": email,
+        "amount": int(amount_kobo),
+        "authorization_code": authorization_code,
+        "metadata": metadata or {},
+    }
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        resp = await client.post(
+            f"{PAYSTACK_BASE}/transaction/charge_authorization",
+            json=payload,
+            headers=_headers(),
+        )
+        body = resp.json() if resp.headers.get("content-type", "").lower().startswith("application/json") else {}
+        if resp.status_code not in (200, 201) or not body.get("status"):
+            msg = body.get("message") if isinstance(body, dict) else None
+            raise ValueError(msg or f"Paystack charge_authorization failed ({resp.status_code})")
+        return body
+
+
 def get_plan_limits(plan: str) -> dict:
     return PLANS.get(plan, PLANS["starter"])
 

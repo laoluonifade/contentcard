@@ -20,6 +20,12 @@ const PLATFORMS = [
 ]
 
 const PREP_ASSISTANT_MIN_KEY = 'contentcard.ui.prepAssistantMinimized'
+const PREP_CHAT_CACHE_PREFIX = 'contentcard.calendar.prepChat'
+
+function prepChatCacheKey(userId, brandId, month, year) {
+  if (!userId || !brandId || !month || !year) return ''
+  return `${PREP_CHAT_CACHE_PREFIX}:${userId}:${brandId}:${year}-${month}`
+}
 
 const PLATFORM_LOGO = {
   instagram: (
@@ -456,6 +462,7 @@ export default function CalendarPage() {
   const [prepCtaBusy, setPrepCtaBusy] = useState(false)
   const [usedPrepCtaKeys, setUsedPrepCtaKeys] = useState(() => new Set())
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
+  const [generationBaseline, setGenerationBaseline] = useState({ with: 0, total: 0 })
   const [prepMinimized, setPrepMinimized] = useState(() => {
     try {
       const persisted = localStorage.getItem(PREP_ASSISTANT_MIN_KEY)
@@ -491,7 +498,8 @@ export default function CalendarPage() {
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
-  const [layoutMode, setLayoutMode] = useState('month')
+  const [layoutMode, setLayoutMode] = useState('grid')
+  const [cardUpsellToast, setCardUpsellToast] = useState(null)
   const [thisWeekOnly, setThisWeekOnly] = useState(false)
   const [selectedDate, setSelectedDate] = useState('')
   const cardRef = useRef(null)
@@ -523,14 +531,73 @@ export default function CalendarPage() {
   }, [activeBrandId, month, year])
 
   useEffect(() => {
-    setPrepMessages([])
-    setPrepQuestionAnswers({})
-    setUsedPrepCtaKeys(new Set())
+    const cacheKey = prepChatCacheKey(user?.id, activeBrandId, month, year)
+    let restored = false
+    if (cacheKey) {
+      try {
+        const raw = localStorage.getItem(cacheKey)
+        if (raw) {
+          const parsed = JSON.parse(raw)
+          const nextMsgs = Array.isArray(parsed?.messages) ? parsed.messages.slice(-60) : []
+          const nextAnswers = parsed?.prepQuestionAnswers && typeof parsed.prepQuestionAnswers === 'object'
+            ? parsed.prepQuestionAnswers
+            : {}
+          const usedKeysArr = Array.isArray(parsed?.usedPrepCtaKeys) ? parsed.usedPrepCtaKeys : []
+          const nextBaseline = parsed?.generationBaseline && typeof parsed.generationBaseline === 'object'
+            ? {
+                with: Number(parsed.generationBaseline.with || 0),
+                total: Number(parsed.generationBaseline.total || 0),
+              }
+            : { with: 0, total: 0 }
+          setPrepMessages(nextMsgs)
+          setPrepQuestionAnswers(nextAnswers)
+          setUsedPrepCtaKeys(new Set(usedKeysArr.map((v) => String(v))))
+          setGenerationBaseline(nextBaseline)
+          restored = true
+        }
+      } catch {
+        /* ignore invalid cache */
+      }
+    }
+    if (!restored) {
+      setPrepMessages([])
+      setPrepQuestionAnswers({})
+      setUsedPrepCtaKeys(new Set())
+      setGenerationBaseline({ with: 0, total: 0 })
+    }
     setPrepCtaBusy(false)
     setSelectedIds(new Set())
     setSelectMode(false)
     setSelectedDate('')
-  }, [month, year, activeBrandId])
+  }, [month, year, activeBrandId, user?.id])
+
+  useEffect(() => {
+    const cacheKey = prepChatCacheKey(user?.id, activeBrandId, month, year)
+    if (!cacheKey) return
+    try {
+      localStorage.setItem(
+        cacheKey,
+        JSON.stringify({
+          messages: prepMessages.slice(-60),
+          prepQuestionAnswers,
+          usedPrepCtaKeys: Array.from(usedPrepCtaKeys || []),
+          generationBaseline,
+          updatedAt: Date.now(),
+        })
+      )
+    } catch {
+      /* ignore storage errors */
+    }
+  }, [
+    user?.id,
+    activeBrandId,
+    month,
+    year,
+    prepMessages,
+    prepQuestionAnswers,
+    usedPrepCtaKeys,
+    generationBaseline,
+  ])
 
   useEffect(() => {
     if (!generatingMonth || !generationStartedAt) {
@@ -1007,6 +1074,10 @@ export default function CalendarPage() {
       return false
     }
     try {
+      setGenerationBaseline({
+        with: posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length,
+        total: posts.length,
+      })
       setPrepMessages((pm) => [
         ...pm,
         {
@@ -1051,6 +1122,11 @@ export default function CalendarPage() {
       return true
     } catch (err) {
       const d = err.response?.data?.detail
+      if (d && typeof d === 'object' && d.code === 'CARD_REQUIRED_FOR_BONUS') {
+        setCardUpsellToast({
+          remaining: Number(d.remaining_bonus_designs || 2),
+        })
+      }
       const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
       if (msg.toLowerCase().includes('taking longer than expected')) {
         toast(msg)
@@ -1098,6 +1174,8 @@ export default function CalendarPage() {
   const postCountLabel = loading ? 'Loading…' : `${posts.length} post${posts.length === 1 ? '' : 's'}`
   const withVisuals = posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length
   const pendingVisuals = Math.max(0, posts.length - withVisuals)
+  const batchReady = Math.max(0, Number(generationProgress?.with || 0) - Number(generationBaseline?.with || 0))
+  const batchTotal = Math.max(0, Number(generationProgress?.total || 0) - Number(generationBaseline?.total || 0))
 
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
@@ -1162,10 +1240,10 @@ export default function CalendarPage() {
 
       {generatingMonth && (
         <div className="mb-4 rounded-xl border border-fog bg-mist px-4 py-3 text-sm text-ink/70">
-          {generationProgress && generationProgress.total > 0 ? (
+          {generationProgress && batchTotal > 0 ? (
             <>
-              Finishing designs… <strong className="text-ink">{generationProgress.with}</strong> of{' '}
-              <strong className="text-ink">{generationProgress.total}</strong> posts are ready.
+              Finishing designs… <strong className="text-ink">{batchReady}</strong> of{' '}
+              <strong className="text-ink">{batchTotal}</strong> posts are ready.
               This page refreshes automatically when they are all done — you do not need to reload manually.
             </>
           ) : (
@@ -1215,7 +1293,7 @@ export default function CalendarPage() {
         <summary className="list-none cursor-pointer px-4 py-3 flex items-center gap-2 border-b border-fog bg-surface [&::-webkit-details-marker]:hidden">
           <MessageSquare size={16} className="text-ink/40 flex-shrink-0" />
           <div className="min-w-0">
-            <p className="text-ink text-sm font-semibold">Prep assistant</p>
+            <p className="text-ink text-sm font-semibold">Your social media manager</p>
             <p className="text-ink/35 text-[10px] leading-snug">
               Q&amp;A, quick replies, and design refresh for {MONTHS[month - 1]} before you generate.
             </p>
@@ -1523,7 +1601,7 @@ export default function CalendarPage() {
             type="button"
             onClick={() => setPrepMinimizedPersist(false)}
             className="flex flex-col items-center gap-3 py-5 px-1 flex-1 min-h-[min(240px,50vh)] hover:bg-mist/40 transition-colors rounded-2xl"
-            title="Expand Prep assistant"
+            title="Expand your social media manager"
             aria-expanded="false"
           >
             <MessageSquare size={20} className="text-brand-600 shrink-0" />
@@ -1539,7 +1617,7 @@ export default function CalendarPage() {
             <div className="px-3 py-3 border-b border-fog flex items-start gap-2">
               <MessageSquare size={16} className="text-ink/40 shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
-                <p className="text-ink text-sm font-semibold">Prep assistant</p>
+                <p className="text-ink text-sm font-semibold">Your social media manager</p>
                 <p className="text-ink/35 text-[10px] leading-snug">
                   Ask questions or share updates before you generate {MONTHS[month - 1]}.
                 </p>
@@ -1548,8 +1626,8 @@ export default function CalendarPage() {
                 type="button"
                 onClick={() => setPrepMinimizedPersist(true)}
                 className="p-2 rounded-lg text-ink/35 hover:text-ink hover:bg-mist/80 transition-colors shrink-0"
-                title="Minimize Prep assistant"
-                aria-label="Minimize Prep assistant"
+                title="Minimize your social media manager"
+                aria-label="Minimize your social media manager"
               >
                 <PanelRightClose size={18} />
               </button>
@@ -1941,6 +2019,56 @@ export default function CalendarPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {cardUpsellToast && (
+        <div className="fixed bottom-6 right-6 z-[120] w-[min(420px,calc(100vw-24px))] rounded-2xl border border-fog bg-surface shadow-2xl p-3">
+          <button
+            type="button"
+            onClick={() => setCardUpsellToast(null)}
+            className="absolute top-2 right-2 text-ink/35 hover:text-ink/60"
+            aria-label="Dismiss card bonus prompt"
+          >
+            <X size={14} />
+          </button>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-brand-700 mb-1">
+            Unlock 2 extra free designs
+          </p>
+          <p className="text-sm text-ink font-semibold leading-tight pr-5">
+            Add your card now and get {cardUpsellToast.remaining || 2} bonus free design{(cardUpsellToast.remaining || 2) === 1 ? '' : 's'}.
+          </p>
+          <p className="text-[11px] text-ink/60 mt-1.5">
+            After bonus credits, we auto-charge your card instantly so generation keeps flowing.
+          </p>
+          <div className="grid grid-cols-2 gap-2 mt-3">
+            <div className="rounded-xl border border-fog p-2 bg-gradient-to-br from-orange-100 via-red-50 to-amber-100">
+              <p className="text-[10px] text-ink/55">Jay&apos;s Diner poster</p>
+              <p className="text-xs font-semibold text-ink">Smoky Burger Combo Night</p>
+            </div>
+            <div className="rounded-xl border border-fog p-2 bg-gradient-to-br from-sky-100 via-blue-50 to-cyan-100">
+              <p className="text-[10px] text-ink/55">Paystack poster</p>
+              <p className="text-xs font-semibold text-ink">Instant Transfer Proof</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 mt-3">
+            <button
+              type="button"
+              className="btn-primary text-xs px-3 py-2"
+              onClick={() => {
+                setCardUpsellToast(null)
+                navigate('/dashboard/billing')
+              }}
+            >
+              Add card and continue
+            </button>
+            <button
+              type="button"
+              className="btn-secondary text-xs px-3 py-2"
+              onClick={() => setCardUpsellToast(null)}
+            >
+              Later
+            </button>
           </div>
         </div>
       )}

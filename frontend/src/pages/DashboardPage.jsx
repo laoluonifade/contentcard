@@ -223,28 +223,6 @@ export default function DashboardPage() {
           </div>
         )
 
-        // Brand ready but templates are not yet generated: enforce template onboarding
-        if (brandReady && readyTemplates.length === 0) return (
-          <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-5 mb-6">
-            <div className="flex items-start gap-3">
-              <div className="w-8 h-8 rounded-xl bg-indigo-100 flex items-center justify-center flex-shrink-0">
-                <Sparkles size={15} className="text-indigo-600" />
-              </div>
-              <div className="flex-1">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-0.5">Onboarding Tip</p>
-                <h4 className="text-ink font-semibold text-sm mb-1.5">Create your content playbook first</h4>
-                <p className="text-ink/50 text-xs mb-3">
-                  Content generation now runs from your editable playbook items. Open Playbook, refine details, and generate posts.
-                </p>
-                <button onClick={() => navigate('/dashboard/templates')}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition-colors">
-                  <Zap size={12} /> Open Playbook
-                </button>
-              </div>
-            </div>
-          </div>
-        )
-
         // Brand ready, templates ready, no content yet: nudge to generate
         if (brandReady && !hasContent) return (
           <div className="bg-brand-500/8 border border-brand-400/30 rounded-2xl p-5 mb-6">

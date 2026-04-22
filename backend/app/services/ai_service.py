@@ -1736,6 +1736,8 @@ Ask for clarification screenshots or short screen recordings (under 1 minute) wh
 When a plan is ready, present 3 to 6 concise bullet points and include a clear CTA to approve or modify.
 Use playbook context from the user's templates as the source of truth for what content types to prepare.
 Stay under the brand's industry; never invent product facts.
+If product catalog context says products already exist, do not ask for generic product screenshots again.
+Never ask for vague "any visual you want to include". Ask for a specific asset tied to a specific planned post (for example event flyer for Friday launch post).
 Do not use long dash, en dash, or two hyphens in a row as punctuation in your replies. Use commas or periods instead."""
 
 _PREP_JSON_RULES = """
@@ -1784,6 +1786,7 @@ async def run_generation_prep_chat(
     messages: list[dict],
     *,
     playbook_summary: str | None = None,
+    product_context: str | None = None,
 ) -> dict:
     import calendar
 
@@ -1796,6 +1799,8 @@ async def run_generation_prep_chat(
     )
     if playbook_summary and str(playbook_summary).strip():
         intro += f"\n\nBrand playbook templates:\n{str(playbook_summary).strip()}"
+    if product_context and str(product_context).strip():
+        intro += f"\n\nProduct catalog context:\n{str(product_context).strip()}"
     msgs: list[dict] = [
         {"role": "system", "content": intro},
         {"role": "system", "content": _visual_system_prompt_block(brand)},
@@ -1852,6 +1857,14 @@ async def run_generation_prep_chat(
             "reason": reason.strip()[:500] if isinstance(reason, str) and reason.strip() else None,
         }
 
+    industry_text = str(brand.get("industry") or "").lower()
+    sub_industry_text = str(brand.get("sub_industry") or "").lower()
+    is_food_like = any(
+        t in f"{industry_text} {sub_industry_text}"
+        for t in ("food", "restaurant", "diner", "cafe", "bakery", "kitchen", "menu")
+    )
+    has_product_catalog = "product_count:" in (str(product_context or "").lower())
+
     questions_out: list[dict] = []
     for q in (data.get("questions") or [])[:3]:
         if not isinstance(q, dict):
@@ -1870,6 +1883,22 @@ async def run_generation_prep_chat(
         acc = str(acc).strip().lower() if isinstance(acc, str) and str(acc).strip() else None
         if acc not in (None, "image", "recording", "either"):
             acc = None
+        lowered_prompt = prompt.lower()
+        lowered_field = str(q.get("field_key") or "").strip().lower()
+        asks_generic_product_shot = (
+            ("product screenshot" in lowered_prompt)
+            or ("screenshots" in lowered_prompt and "product" in lowered_prompt)
+            or ("product_screen" in lowered_field)
+        )
+        asks_vague_any_visual = (
+            "any visual" in lowered_prompt
+            or "any image" in lowered_prompt
+            or "anything you'd like to include" in lowered_prompt
+        )
+        if has_product_catalog and is_food_like and asks_generic_product_shot:
+            continue
+        if asks_vague_any_visual:
+            continue
         questions_out.append(
             {
                 "id": qid[:64],

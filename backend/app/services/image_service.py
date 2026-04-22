@@ -32,6 +32,14 @@ def has_brand_logo(brand: dict) -> bool:
     return bool(_resolve_logo_url(brand))
 
 
+def _is_food_like_post(post: dict, brand: dict) -> bool:
+    industry = str(brand.get("industry") or "").lower()
+    sub_industry = str(brand.get("sub_industry") or "").lower()
+    title = str(post.get("topic") or post.get("content_idea") or "").lower()
+    hay = f"{industry} {sub_industry} {title}"
+    return any(k in hay for k in ("food", "restaurant", "diner", "cafe", "bakery", "kitchen", "menu", "dish", "meal"))
+
+
 def _build_image_prompt(post: dict, brand: dict) -> str:
     """
     Build a campaign-ready visual prompt for DALL-E.
@@ -130,23 +138,39 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         product_grounding_bits.append(f"Product price context: {product_price}.")
     if product_availability:
         product_grounding_bits.append(f"Availability context: {product_availability}.")
+    food_like_ctx = f"{industry} {str(brand.get('sub_industry') or '').lower()}"
+    is_food_like = any(k in food_like_ctx for k in ("food", "restaurant", "diner", "cafe", "bakery", "kitchen", "menu"))
     if product_image_urls:
         product_grounding_bits.append(
             f"Use the provided product photo reference(s) ({len(product_image_urls)} image source(s)) "
             "for silhouette, materials, and merchandising composition."
         )
-        product_grounding_bits.append(
-            "You may recreate a sharper, premium campaign version of these exact products, "
-            "but preserve core identity cues from the references: silhouette, materials, signature color blocking, "
-            "and recognizable product family characteristics."
-        )
+        if is_food_like:
+            product_grounding_bits.append(
+                "For food posts, keep the product visually authentic to the source photos. "
+                "Do not cartoonize or invent a substitute dish."
+            )
+            product_grounding_bits.append(
+                "Build an enticing ad design around the real product look: premium lighting, props, depth, and graphic framing."
+            )
+        else:
+            product_grounding_bits.append(
+                "You may recreate a sharper, premium campaign version of these exact products, "
+                "but preserve core identity cues from the references: silhouette, materials, signature color blocking, "
+                "and recognizable product family characteristics."
+            )
         product_grounding_bits.append(
             "Do not invent unrelated products, categories, or SKU families outside these references."
         )
-        product_grounding_bits.append(
-            "Do not paste or directly upscale source product photos. Recreate a new campaign-grade composition "
-            "in the same product family using studio-quality lighting, cleaner framing, and premium ad styling."
-        )
+        if is_food_like:
+            product_grounding_bits.append(
+                "If using the exact source photo look, elevate it with composition and design treatment rather than plain raw placement."
+            )
+        else:
+            product_grounding_bits.append(
+                "Do not paste or directly upscale source product photos. Recreate a new campaign-grade composition "
+                "in the same product family using studio-quality lighting, cleaner framing, and premium ad styling."
+            )
     product_grounding_note = " ".join(product_grounding_bits)
     website_source_url = str(
         grounding_payload.get("source_url")
@@ -594,6 +618,55 @@ async def _upload_to_cloudinary(
         return None
 
 
+async def _blend_product_photo_overlay(image_bytes: bytes, post: dict, brand: dict) -> bytes:
+    urls = post.get("product_image_urls") if isinstance(post.get("product_image_urls"), list) else []
+    if not urls or not _is_food_like_post(post, brand):
+        return image_bytes
+    try:
+        from io import BytesIO
+        from PIL import Image, ImageFilter, ImageDraw
+
+        source_url = str(urls[0] or "").strip()
+        if not source_url:
+            return image_bytes
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(source_url)
+            if r.status_code != 200 or not r.content:
+                return image_bytes
+            product_bytes = r.content
+
+        bg = Image.open(BytesIO(image_bytes)).convert("RGBA")
+        fg = Image.open(BytesIO(product_bytes)).convert("RGBA")
+        bw, bh = bg.size
+        fg.thumbnail((int(bw * 0.46), int(bh * 0.52)), Image.Resampling.LANCZOS)
+
+        card_pad = 18
+        card_w = fg.size[0] + card_pad * 2
+        card_h = fg.size[1] + card_pad * 2
+        card = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(card)
+        draw.rounded_rectangle((0, 0, card_w - 1, card_h - 1), radius=22, fill=(255, 255, 255, 238))
+        prod_x = (card_w - fg.size[0]) // 2
+        prod_y = (card_h - fg.size[1]) // 2
+        card.alpha_composite(fg, (prod_x, prod_y))
+
+        shadow = Image.new("RGBA", (card_w, card_h), (0, 0, 0, 0))
+        sdraw = ImageDraw.Draw(shadow)
+        sdraw.rounded_rectangle((0, 0, card_w - 1, card_h - 1), radius=22, fill=(0, 0, 0, 110))
+        shadow = shadow.filter(ImageFilter.GaussianBlur(9))
+
+        base_x = max(16, min((bw - card_w) // 2, bw - card_w - 16))
+        base_y = max(16, min(int(bh * 0.56) - (card_h // 2), bh - card_h - 16))
+        bg.alpha_composite(shadow, (base_x + 4, base_y + 6))
+        bg.alpha_composite(card, (base_x, base_y))
+
+        out = BytesIO()
+        bg.convert("RGB").save(out, format="PNG", optimize=True)
+        return out.getvalue()
+    except Exception:
+        return image_bytes
+
+
 async def _upload_gif_to_cloudinary(gif_bytes: bytes, post_topic: str, *, public_suffix: str | None = None) -> str | None:
     if not all([settings.CLOUDINARY_CLOUD_NAME, settings.CLOUDINARY_API_KEY, settings.CLOUDINARY_API_SECRET]):
         logger.warning("Cloudinary not configured; GIF URL will not be persisted")
@@ -791,6 +864,7 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                     logger.warning(f"Image {idx} had neither b64_json nor url; skipping")
                     continue
 
+                image_bytes = await _blend_product_photo_overlay(image_bytes, post, brand)
                 # Logo is composited after Bannerbear (or here if caller uses raster-only flow).
                 permanent_url = await _upload_to_cloudinary(image_bytes, topic, idx)
                 if permanent_url:
