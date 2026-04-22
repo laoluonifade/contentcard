@@ -25,6 +25,11 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _slugify(text: str) -> str:
+    t = re.sub(r"[^a-z0-9]+", "-", str(text or "").lower()).strip("-")
+    return t[:80] or "item"
+
+
 def _normalize_url(raw: str | None) -> str | None:
     if not raw:
         return None
@@ -392,13 +397,108 @@ def _extract_product_from_page_fallback(page_url: str, html: str) -> list[dict]:
     ]
 
 
-async def _fetch_products_from_non_shopify(base_url: str) -> tuple[list[dict], int]:
+def _discover_menu_like_urls_from_html(base_url: str, html: str) -> list[str]:
+    hrefs = re.findall(r'href=["\']([^"\']+)["\']', html or "", flags=re.IGNORECASE)
+    out: list[str] = []
+    seen: set[str] = set()
+    for href in hrefs:
+        u = urljoin(f"{base_url}/", str(href).strip())
+        ll = u.lower()
+        if not ll.startswith("http://") and not ll.startswith("https://"):
+            continue
+        if any(k in ll for k in ("/menu", "main-menu", "/order", "/shop", "corporate-meals")):
+            if u not in seen:
+                seen.add(u)
+                out.append(u)
+    return out[:20]
+
+
+def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict]:
+    """
+    Heuristic extractor for restaurant-style menu pages where products are often
+    rendered as title + price blocks instead of ecommerce product schemas.
+    """
+    text = re.sub(r"<[^>]+>", "\n", html or "")
+    lines = [re.sub(r"\s+", " ", ln).strip() for ln in text.splitlines()]
+    lines = [ln for ln in lines if ln]
+    products: list[dict] = []
+    seen_keys: set[str] = set()
+    price_re = re.compile(r"(₦\s?[0-9][0-9,]*)")
+    stop_words = {
+        "main menu",
+        "best sellers",
+        "about",
+        "contact us",
+        "login",
+        "register",
+        "go to checkout",
+        "your bag is empty",
+        "follow us on instagram",
+        "kitchen is closed",
+    }
+    for i, ln in enumerate(lines):
+        pm = price_re.search(ln)
+        if not pm:
+            continue
+        price = pm.group(1).replace(" ", "")
+        candidate = ""
+        for j in range(max(0, i - 3), i):
+            prev = lines[j].strip()
+            pl = prev.lower()
+            if len(prev) < 2 or len(prev) > 64:
+                continue
+            if pl in stop_words or any(sw in pl for sw in ("copyright", "password", "email reset", "home")):
+                continue
+            if not re.search(r"[A-Za-z]", prev):
+                continue
+            candidate = prev
+        if not candidate:
+            candidate = ln[: pm.start()].strip(" -–—:")
+        if not candidate or candidate.lower() in stop_words:
+            continue
+        key = f"{candidate.lower()}::{price}"
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        product_id = f"{page_url}#menu-{_slugify(candidate)}-{i}"
+        products.append(
+            {
+                "entity_type": "product",
+                "external_id": product_id,
+                "title": candidate[:300],
+                "summary": None,
+                "attributes": {
+                    "price": price,
+                    "currency": "NGN",
+                    "availability": "unknown",
+                    "images": [],
+                    "source": "menu_heuristic",
+                },
+                "source_url": page_url,
+                "confidence_score": 0.74,
+                "freshness_score": 0.8,
+            }
+        )
+    return products[:120]
+
+
+async def _fetch_products_from_non_shopify(base_url: str, food_menu_hint: bool = False) -> tuple[list[dict], int]:
     product_urls = await _discover_product_urls(base_url)
-    if not product_urls:
+    homepage_html = ""
+    if food_menu_hint:
+        try:
+            homepage_html = await _fetch_text(base_url)
+        except Exception:
+            homepage_html = ""
+        if homepage_html:
+            for u in _discover_menu_like_urls_from_html(base_url, homepage_html):
+                if u not in product_urls:
+                    product_urls.append(u)
+    if not product_urls and not food_menu_hint:
         return [], 0
     entities: list[dict] = []
     attempts = 0
-    for u in product_urls[:30]:
+    for u in product_urls[:40]:
         attempts += 1
         try:
             html = await _fetch_text(u)
@@ -412,7 +512,14 @@ async def _fetch_products_from_non_shopify(base_url: str) -> tuple[list[dict], i
         if via_wc:
             entities.extend(via_wc)
             continue
+        if food_menu_hint:
+            via_menu = _extract_food_menu_products_from_html(u, html)
+            if via_menu:
+                entities.extend(via_menu)
+                continue
         entities.extend(_extract_product_from_page_fallback(u, html))
+    if food_menu_hint and not entities and homepage_html:
+        entities.extend(_extract_food_menu_products_from_html(base_url, homepage_html))
     # de-dup by external_id/source_url
     dedup: list[dict] = []
     seen: set[str] = set()
@@ -585,6 +692,10 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
     shopify_attempts = 0
     non_shopify_attempts = 0
     page_attempts = 0
+    food_menu_hint = any(
+        k in str((brand.industry or "") + " " + (getattr(brand, "sub_industry", "") or "") + " " + (brand.website or "")).lower()
+        for k in ("food", "restaurant", "diner", "cafe", "beverage", "menu")
+    )
     started_at = time.perf_counter()
     try:
         shopify_products, shopify_attempts = await _fetch_shopify_products_with_retry(source_url, max_attempts=3)
@@ -592,7 +703,10 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
             entities.extend(_extract_products_from_shopify_payload(source_url, shopify_products))
             raw_payload["shopify_products_count"] = len(shopify_products)
         else:
-            non_shopify_products, non_shopify_attempts = await _fetch_products_from_non_shopify(source_url)
+            non_shopify_products, non_shopify_attempts = await _fetch_products_from_non_shopify(
+                source_url,
+                food_menu_hint=food_menu_hint,
+            )
             if non_shopify_products:
                 entities.extend(non_shopify_products)
                 raw_payload["non_shopify_products_count"] = len(non_shopify_products)
