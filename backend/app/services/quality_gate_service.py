@@ -241,6 +241,10 @@ def _score_template_fit(post: dict[str, Any]) -> float:
         if vt in ("product", "illustration"):
             return 0.9
         return 0.55
+    if any(k in bag for k in ("update", "integration", "workflow", "process", "solution", "payroll")):
+        if vt in ("illustration", "product"):
+            return 0.88
+        return 0.45
     if any(k in bag for k in ("testimonial", "customer", "story", "founder")):
         if vt in ("real_people", "illustration"):
             return 0.85
@@ -348,6 +352,13 @@ async def score_visual_quality(
     if s_fit < 0.5:
         reasons.append("Visual type does not match post intent")
         hints.append("Use non-portrait design pattern for educational/data/promotional post")
+    post_bag = (str(post.get("content_type") or "") + " " + str(post.get("topic") or "")).lower()
+    if any(k in post_bag for k in ("promo", "offer", "sale", "launch", "announcement", "deal", "discount")) and (s_cta < 0.5 or s_read < 0.5):
+        reasons.append("Offer storytelling is weak in-frame")
+        hints.append("Strengthen in-frame narrative chain: hook headline, value/offer proof, and one explicit CTA module")
+    if any(k in (str(post.get("content_type") or "") + " " + str(post.get("topic") or "")).lower() for k in ("update", "integration", "workflow", "process", "solution", "payroll")) and vt == "real_people":
+        reasons.append("Update post rendered as generic portrait")
+        hints.append("Use illustration or product-led ad composition with explicit in-frame value headline")
     if s_space < 0.45:
         reasons.append("Spacing rhythm feels uneven")
         hints.append("Use cleaner block spacing and stronger alignment rhythm")

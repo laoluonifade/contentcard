@@ -174,8 +174,9 @@ def _coerce_visual_type_by_content_type(post: dict) -> str:
 
     if any(k in bag for k in ("tip", "guide", "how to", "insight", "myth", "mistake", "breakdown", "thread")):
         return current if current in ("illustration", "abstract", "product") else "illustration"
-    if any(k in bag for k in ("promo", "offer", "sale", "launch", "product spotlight", "announcement")):
-        return current if current in ("product", "illustration") else "product"
+    if any(k in bag for k in ("promo", "offer", "sale", "launch", "product spotlight", "announcement", "update", "integration", "workflow", "process")):
+        # Prefer designed visuals over plain people-led photos for offer/update posts.
+        return current if current in ("product", "illustration") else "illustration"
     if any(k in bag for k in ("testimonial", "customer", "case study", "proof", "review", "founder story")):
         return current if current in ("real_people", "illustration") else "real_people"
     if any(k in bag for k in ("meme", "relatable humour", "hot take", "engagement question")):
@@ -191,7 +192,7 @@ def _detect_template_family_for_mix(post: dict) -> str:
         return "promo"
     if any(k in bag for k in ("launch", "announcement", "event", "webinar", "live session", "speaker")):
         return "announcement"
-    if any(k in bag for k in ("product spotlight", "feature", "tool", "app", "dashboard", "integration")):
+    if any(k in bag for k in ("product spotlight", "feature", "tool", "app", "dashboard", "integration", "update", "workflow", "process", "payroll", "solution")):
         return "product_hero"
     if any(k in bag for k in ("education", "tip", "how to", "guide", "explainer", "myth", "mistake")):
         return "edu"
@@ -345,6 +346,7 @@ def _enforce_designer_visual_direction(post: dict) -> None:
     topic = str(post.get("topic") or post.get("content_idea") or "the message").strip()
     zone = str(post.get("logo_safe_zone") or "lower_right").replace("_", " ")
     vt = str(post.get("visual_type") or "illustration").lower()
+    style_profile = str(post.get("campaign_art_style_profile") or "balanced_social_ad").lower()
     if vt == "illustration":
         style_line = (
             "Use illustration-first composition with vector-like shape language, iconography cues, "
@@ -364,16 +366,43 @@ def _enforce_designer_visual_direction(post: dict) -> None:
         style_line = (
             "Use campaign-grade composition with strong subject hierarchy and context props, not a generic portrait."
         )
+    if style_profile == "bold_illustration_offer":
+        profile_line = (
+            "Use high-contrast campaign color blocks, bold offer/value headline treatment, and expressive illustration modules that read instantly in-feed."
+        )
+    elif style_profile == "minimal_premium_editorial":
+        profile_line = (
+            "Use restrained premium editorial spacing, tight type hierarchy, and one hero concept with luxury-grade visual restraint."
+        )
+    elif style_profile == "product_cutout_collage":
+        profile_line = (
+            "Use product cutout collage direction with layered sticker/callout elements and clear product-benefit framing in the image."
+        )
+    else:
+        profile_line = (
+            "Use a balanced social-ad system with clear in-frame message hierarchy and branded graphic accents."
+        )
     carousel_graphic_rule = ""
     if str(post.get("format") or "").lower() == "carousel":
         carousel_graphic_rule = (
             " For carousel execution, every slide must include at least one designed visual element, such as illustration motif, "
             "iconic graphic shape system, product cut-in, or textured scene component, so it never looks like plain text on flat background."
         )
+    in_frame_message_rule = (
+        "The image itself must communicate the core message at a glance in under one second, "
+        "using a bold headline module, offer/value callout, and clear focal subject before caption is read."
+    )
+    story_rule = (
+        "Build one explicit story beat in-frame (hook -> context -> proof -> action): "
+        "the viewer should understand what happened, why it matters, and what to do next without opening the caption."
+    )
     post["visual_direction"] = (
         f"Design this like a premium social ad for {topic}: define one clear focal subject tied to the idea, "
         "build layered foreground, midground, and background depth, and include contextual props or product cues that prove the message. "
         f"{style_line} "
+        f"{profile_line} "
+        f"{in_frame_message_rule} "
+        f"{story_rule} "
         "Use controlled lighting, real material texture, and clean colour hierarchy so it feels art-directed, not a random lifestyle snapshot. "
         "Vary typography structure from previous posts by changing alignment, scale contrast, and block arrangement; avoid recurring centered lockups. "
         f"Reserve the {zone} quadrant for the final brand mark (added after generation): keep that area calmer and less busy so the real logo composites cleanly — never describe painting a logo into the raster image. "
@@ -399,7 +428,7 @@ def _enforce_carousel_visual_richness(post: dict) -> None:
     vt = str(post.get("visual_type") or "").lower()
     if vt == "real_people":
         post["visual_type"] = "illustration"
-        post["visual_archetype"] = "flat_edu"
+        post["visual_archetype"] = "pov_comic"
     elif vt == "abstract":
         post["visual_archetype"] = "pattern_headline"
     elif vt == "product":
@@ -417,10 +446,16 @@ def _visual_system_prompt_block(brand: dict) -> str:
     ips = str(vs.get("image_people_style") or "mixed").lower()
     if ips not in ("real_people", "illustration", "cartoon", "mixed"):
         ips = "mixed"
+    art_style = str(vs.get("campaign_art_style_profile") or "balanced_social_ad").strip().lower()
+    if art_style not in ("balanced_social_ad", "bold_illustration_offer", "minimal_premium_editorial", "product_cutout_collage"):
+        art_style = "balanced_social_ad"
     return (
         f"Allowed visual_archetype values: {', '.join(str(a) for a in arch)}. "
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
         f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; cartoon = comic illustration; mixed = vary by post). "
+        f"Campaign art style profile for the month: {art_style}. Keep this profile consistent across posts and all carousel slides. "
+        "Visual storytelling standard: each post must carry one narrative beat in-frame (hook, context, proof, and CTA/action cue), not isolated decoration. "
+        "Use playful graphic accents only when they reinforce the core message module. "
         f"Choose logo_safe_zone where the final composited brand mark should sit; keep that quadrant visually calm in the generated art — the raster model must not draw the logo. "
         f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
     )
@@ -492,6 +527,10 @@ def _validate_posts(
 
         _br_vs = (brand or {}).get("visual_system")
         vs = _br_vs if isinstance(_br_vs, dict) else {}
+        art_style_profile = str(vs.get("campaign_art_style_profile") or "balanced_social_ad").strip().lower()
+        if art_style_profile not in ("balanced_social_ad", "bold_illustration_offer", "minimal_premium_editorial", "product_cutout_collage"):
+            art_style_profile = "balanced_social_ad"
+        post["campaign_art_style_profile"] = art_style_profile
         ips = str(vs.get("image_people_style") or "mixed").lower()
         if ips not in ("real_people", "illustration", "cartoon", "mixed"):
             ips = "mixed"

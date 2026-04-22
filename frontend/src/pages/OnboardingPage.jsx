@@ -16,7 +16,7 @@ const TONES = [
 
 export default function OnboardingPage() {
   const navigate = useNavigate()
-  const { createBrand, activeWorkspaceId, fetchWorkspaces } = useAppStore()
+  const { createBrand, setActiveWorkspace, activeWorkspaceId, fetchWorkspaces } = useAppStore()
   const { user } = useAuthStore()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
@@ -67,10 +67,86 @@ export default function OnboardingPage() {
     return { industry: 'Technology', sub_industry: 'SaaS' }
   }
 
+  const cleanInline = (value, max = 90) => {
+    const text = String(value || '').replace(/\s+/g, ' ').trim()
+    if (!text) return ''
+    return text.length > max ? `${text.slice(0, max - 1).trim()}…` : text
+  }
+
+  const buildQuickFillProfile = ({ brandName, inferred, products = [], opportunities = [] }) => {
+    const topProducts = products
+      .map((p) => cleanInline(p?.title || '', 48))
+      .filter(Boolean)
+      .slice(0, 3)
+    const topOpportunity = cleanInline(opportunities?.[0]?.title || '', 72)
+    const industry = String(inferred?.industry || '').toLowerCase()
+    const subIndustry = String(inferred?.sub_industry || '').toLowerCase()
+
+    let whatYouDo = `${brandName} helps customers discover and buy online with a smooth, trustworthy experience.`
+    let targetAudience = `Busy online shoppers comparing options and looking for reliable quality, transparent pricing, and fast delivery.`
+    let painPoint = `Customers often waste time jumping between options, unclear pricing, and inconsistent fulfilment quality before making a decision.`
+    let keyMessages = [
+      `${brandName} makes purchase decisions easier with clear value.`,
+      'Reliable quality, transparent offers, and faster checkout.',
+      'A smoother customer journey from discovery to delivery.',
+    ]
+
+    if (industry.includes('food') || subIndustry.includes('restaurant')) {
+      const menuList = topProducts.length ? topProducts.join(', ') : 'popular meals and bundles'
+      whatYouDo = `${brandName} helps customers order ${menuList} quickly, with clear pricing and delivery-first convenience.`
+      targetAudience = `People ordering meals, groceries, or treats who want fast delivery, quality, and great value.`
+      painPoint = `Customers want tasty, trusted options fast, but often face unclear menus, weak offers, and slow ordering experiences.`
+      keyMessages = [
+        `Order your favourites from ${brandName} in minutes.`,
+        'Clear pricing, strong deals, and dependable delivery.',
+        'Great food and everyday value without the stress.',
+      ]
+    } else if (industry.includes('fin') || subIndustry.includes('banking')) {
+      whatYouDo = `${brandName} helps customers move money and manage finances with a simple, secure digital experience.`
+      targetAudience = `Digitally active users and growing businesses that need fast, reliable financial tools.`
+      painPoint = `People need trusted financial services without friction, long wait times, or confusing product information.`
+      keyMessages = [
+        `${brandName} makes financial actions faster and clearer.`,
+        'Secure, reliable flows for daily money movement.',
+        'Simple experiences that build long-term trust.',
+      ]
+    } else if (industry.includes('technology') || subIndustry.includes('saas')) {
+      whatYouDo = `${brandName} provides digital tools that help teams work faster, stay organized, and deliver better outcomes.`
+      targetAudience = `Founders, operators, and teams looking for practical software that improves productivity and execution.`
+      painPoint = `Teams struggle with fragmented workflows, manual processes, and unclear visibility across critical work.`
+      keyMessages = [
+        `${brandName} simplifies work with practical product experiences.`,
+        'Move faster with clearer workflows and better collaboration.',
+        'Built for measurable outcomes, not just feature lists.',
+      ]
+    }
+
+    if (topOpportunity) {
+      whatYouDo = `${whatYouDo} Current offer focus: ${topOpportunity}.`
+    }
+
+    return {
+      description: whatYouDo,
+      target_audience: targetAudience,
+      pain_point: painPoint,
+      key_messages: keyMessages,
+    }
+  }
+
   const quickFillFromWebsite = async () => {
     const website = normalizeWebsite(quickFillWebsite)
     if (!website) {
       toast('Add your website link to run quick fill.', 'error')
+      return
+    }
+    let site
+    try {
+      site = new URL(website)
+      if (!site.hostname || !site.hostname.includes('.')) {
+        throw new Error('invalid host')
+      }
+    } catch {
+      toast('Enter a valid website URL (example: https://golemon.co).', 'error')
       return
     }
     setQuickFillRunning(true)
@@ -82,8 +158,10 @@ export default function OnboardingPage() {
       }
       const wsId = activeWorkspaceId || workspaces?.[0]?.id
       if (!wsId) throw new Error('Workspace setup failed')
+      if (activeWorkspaceId !== wsId) {
+        await setActiveWorkspace(wsId)
+      }
 
-      const site = new URL(website)
       const hostLabel = site.hostname.replace(/^www\./, '').split('.')[0].replace(/[-_]+/g, ' ')
       const niceName = hostLabel
         .split(' ')
@@ -97,9 +175,9 @@ export default function OnboardingPage() {
         website,
         industry: inferred.industry,
         sub_industry: inferred.sub_industry,
-        description: `${niceName} serves customers through its website with a focused offer and clear value proposition. This profile was quick-filled from website signals and can be refined in Brand Kit for stronger campaign quality and conversion performance.`,
-        target_audience: `People already searching online for ${niceName} offers, plus new customers comparing alternatives and looking for trusted quality, fast response, and clear pricing.`,
-        pain_point: `Customers struggle to find reliable options quickly, compare quality confidently, and complete decisions without friction or confusion.`,
+        description: `${niceName} helps customers discover and buy with a smoother online experience.`,
+        target_audience: `People searching for trusted options and clear value before they buy.`,
+        pain_point: `Customers often face unclear offers, inconsistent quality signals, and too much friction in the buying journey.`,
         tone_tags: ['professional', 'confident', 'friendly', 'authentic', 'energetic'],
         language_style: 'english',
         personality_score: 58,
@@ -125,6 +203,25 @@ export default function OnboardingPage() {
       })
 
       await brandApi.syncWebsite(wsId, brand.id, { force: true }).catch(() => {})
+      const [products, opportunities] = await Promise.all([
+        brandApi.websiteProducts(wsId, brand.id, { limit: 12 }).catch(() => []),
+        brandApi.websiteOpportunities(wsId, brand.id, { limit: 8 }).catch(() => []),
+      ])
+      const profile = buildQuickFillProfile({
+        brandName: niceName,
+        inferred,
+        products: Array.isArray(products) ? products : [],
+        opportunities: Array.isArray(opportunities) ? opportunities : [],
+      })
+      await brandApi.update(wsId, brand.id, {
+        description: profile.description,
+        target_audience: profile.target_audience,
+        pain_point: profile.pain_point,
+        brand_kit: {
+          writing_style: 'Clear, practical, and conversion-focused',
+          key_messages: profile.key_messages,
+        },
+      })
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false }).catch(() => {})
       try {
         localStorage.removeItem('contentcard.signup.quickFillWebsite')
