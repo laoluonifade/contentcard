@@ -14,6 +14,15 @@ const TONES = [
   'Warm','Professional','Witty','Inspirational','Confident','Friendly',
 ]
 
+const WEBSITE_PLATFORMS = [
+  { id: 'auto', label: 'Auto-detect' },
+  { id: 'shopify', label: 'Shopify' },
+  { id: 'bumpa', label: 'Bumpa' },
+  { id: 'chowdeck', label: 'Chowdeck' },
+  { id: 'wordpress_woocommerce', label: 'WordPress / WooCommerce' },
+  { id: 'custom', label: 'Other / Custom website' },
+]
+
 export default function OnboardingPage() {
   const navigate = useNavigate()
   const { createBrand, setActiveWorkspace, activeWorkspaceId, fetchWorkspaces } = useAppStore()
@@ -29,6 +38,7 @@ export default function OnboardingPage() {
       return ''
     }
   })
+  const [quickFillPlatform, setQuickFillPlatform] = useState('auto')
 
   const [form, setForm] = useState({
     name: '',
@@ -42,6 +52,7 @@ export default function OnboardingPage() {
     instagram_handle: '',
     facebook_handle: '',
     twitter_handle: '',
+    website_platform: 'auto',
   })
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
@@ -65,6 +76,16 @@ export default function OnboardingPage() {
       return { industry: 'E-commerce & Retail', sub_industry: 'Marketplace' }
     }
     return { industry: 'Technology', sub_industry: 'SaaS' }
+  }
+
+  const inferPlatformFromWebsite = (website) => {
+    const full = String(website || '').toLowerCase()
+    if (!full) return 'auto'
+    if (full.includes('chowdeck.com')) return 'chowdeck'
+    if (full.includes('mybumpa.com') || full.includes('bumpa')) return 'bumpa'
+    if (full.includes('myshopify.com') || full.includes('/products') || full.includes('/collections')) return 'shopify'
+    if (full.includes('woocommerce') || full.includes('/product/')) return 'wordpress_woocommerce'
+    return 'custom'
   }
 
   const cleanInline = (value, max = 90) => {
@@ -177,6 +198,7 @@ export default function OnboardingPage() {
         .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
         .join(' ') || 'My Brand'
       const inferred = inferIndustryFromWebsite(website)
+      const platformHint = quickFillPlatform === 'auto' ? inferPlatformFromWebsite(website) : quickFillPlatform
 
       const brand = await createBrand({
         name: niceName,
@@ -195,6 +217,9 @@ export default function OnboardingPage() {
         words_to_avoid: ['cheap', 'guaranteed results', 'perfect'],
         guidelines: 'Keep copy clear and concise, always include a direct CTA, avoid hype-only claims, and prioritize benefit-first storytelling with practical proof.',
         brand_kit: {
+          website_intelligence: {
+            platform_hint: platformHint,
+          },
           writing_style: 'Clear, confident, conversion-focused',
           key_messages: [
             `Choose ${niceName} for reliable quality`,
@@ -254,6 +279,7 @@ export default function OnboardingPage() {
     if (step === 1 && !form.name.trim()) { toast('Please enter your brand name.', 'error'); return }
     if (step === 1 && !form.industry) { toast('Please select your industry.', 'error'); return }
     if (step === 1 && !form.sub_industry) { toast('Please select your sub-industry.', 'error'); return }
+    if (step === 1 && !form.website_platform) { toast('Please select your website type.', 'error'); return }
     setStep(s => s + 1)
   }
 
@@ -268,6 +294,11 @@ export default function OnboardingPage() {
       const brand = await createBrand({
         ...form,
         tone_tags: form.tone_tags.map(t => t.toLowerCase()),
+        brand_kit: {
+          website_intelligence: {
+            platform_hint: form.website_platform || 'auto',
+          },
+        },
       })
       setTemplateSetupRunning(true)
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false })
@@ -357,6 +388,15 @@ export default function OnboardingPage() {
                     placeholder="https://yourwebsite.com"
                     className="input mt-3"
                   />
+                <select
+                  value={quickFillPlatform}
+                  onChange={(e) => setQuickFillPlatform(e.target.value)}
+                  className="input mt-2"
+                >
+                  {WEBSITE_PLATFORMS.map((p) => (
+                    <option key={p.id} value={p.id}>{`Quick fill website type: ${p.label}`}</option>
+                  ))}
+                </select>
                 </div>
                 <div>
                   <label className="label">Brand or business name <span className="text-red-400">*</span></label>
@@ -390,6 +430,18 @@ export default function OnboardingPage() {
                     <option value="">{form.industry ? 'Select sub-industry…' : 'Choose industry first'}</option>
                     {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
                       <option key={sub} value={sub}>{sub}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Website type <span className="text-red-400">*</span></label>
+                  <select
+                    value={form.website_platform || 'auto'}
+                    onChange={e => set('website_platform', e.target.value)}
+                    className="input"
+                  >
+                    {WEBSITE_PLATFORMS.map((p) => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                   </select>
                 </div>

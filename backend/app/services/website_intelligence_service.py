@@ -58,7 +58,15 @@ def _website_intelligence_cfg(brand: Brand) -> dict:
     cfg.setdefault("enabled", True)
     cfg.setdefault("default_sync_cadence", "weekly")
     cfg.setdefault("trigger_defaults", {"product.created": "approval_queue"})
+    cfg.setdefault("platform_hint", "auto")
     return cfg
+
+
+def _normalize_platform_hint(value: str | None) -> str:
+    v = str(value or "").strip().lower()
+    if v in ("shopify", "bumpa", "chowdeck", "wordpress_woocommerce", "custom", "auto"):
+        return v
+    return "auto"
 
 
 def ensure_website_intelligence_defaults(brand: Brand) -> bool:
@@ -135,6 +143,49 @@ async def _fetch_shopify_products_with_retry(base_url: str, max_attempts: int = 
     raise last_exc if last_exc else RuntimeError("fetch failed")
 
 
+async def _fetch_bumpa_products(base_url: str) -> list[dict]:
+    """
+    Try common Bumpa storefront product endpoints.
+    Response shapes vary; extractor handles dict/list roots.
+    """
+    endpoints = (
+        "api/storefront/products?limit=200",
+        "api/v1/storefront/products?limit=200",
+        "storefront/products?limit=200",
+    )
+    timeout = httpx.Timeout(12.0, connect=8.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        for rel in endpoints:
+            try:
+                url = urljoin(f"{base_url}/", rel)
+                res = await client.get(url, headers={"Accept": "application/json"})
+                if res.status_code >= 400:
+                    continue
+                payload = res.json()
+                if isinstance(payload, list):
+                    return payload
+                if isinstance(payload, dict):
+                    for key in ("products", "data", "items", "results"):
+                        rows = payload.get(key)
+                        if isinstance(rows, list):
+                            return rows
+            except Exception:
+                continue
+    return []
+
+
+async def _fetch_bumpa_products_with_retry(base_url: str, max_attempts: int = 3) -> tuple[list[dict], int]:
+    last_exc: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return await _fetch_bumpa_products(base_url), attempt
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts:
+                await asyncio.sleep(0.35 * attempt)
+    raise last_exc if last_exc else RuntimeError("fetch failed")
+
+
 def _extract_products_from_shopify_payload(base_url: str, products: list[dict]) -> list[dict]:
     entities: list[dict] = []
     for p in products:
@@ -170,6 +221,74 @@ def _extract_products_from_shopify_payload(base_url: str, products: list[dict]) 
                 "attributes": attrs,
                 "source_url": product_url,
                 "confidence_score": 0.95,
+                "freshness_score": 1.0,
+            }
+        )
+    return entities
+
+
+def _extract_products_from_bumpa_payload(base_url: str, products: list[dict]) -> list[dict]:
+    entities: list[dict] = []
+    for p in products:
+        if not isinstance(p, dict):
+            continue
+        title = str(
+            p.get("name")
+            or p.get("title")
+            or p.get("product_name")
+            or ""
+        ).strip()
+        if not title:
+            continue
+        product_id = p.get("id") or p.get("_id") or p.get("productId")
+        handle = p.get("slug") or p.get("handle") or p.get("url_slug")
+        source_url = (
+            str(p.get("url") or "").strip()
+            or (urljoin(f"{base_url}/", f"product/{handle}") if handle else base_url)
+        )
+        images = []
+        for key in ("images", "image_urls", "photos"):
+            val = p.get(key)
+            if isinstance(val, list):
+                images.extend([str(x).strip() for x in val if str(x).strip()])
+            elif isinstance(val, str) and val.strip():
+                images.append(val.strip())
+        image_single = str(p.get("image") or p.get("image_url") or "").strip()
+        if image_single:
+            images.append(image_single)
+        dedup_images = []
+        seen = set()
+        for img in images:
+            if img and img not in seen:
+                seen.add(img)
+                dedup_images.append(img)
+
+        price = p.get("price") or p.get("selling_price") or p.get("amount")
+        compare_at = p.get("compare_at_price") or p.get("old_price")
+        currency = p.get("currency") or "NGN"
+        availability = p.get("availability") or p.get("status") or "unknown"
+        attrs = {
+            "bumpa_product_id": product_id,
+            "vendor": p.get("vendor") or p.get("brand"),
+            "product_type": p.get("category") or p.get("product_type"),
+            "tags": p.get("tags"),
+            "status": p.get("status"),
+            "price": str(price) if price is not None else None,
+            "compare_at_price": str(compare_at) if compare_at is not None else None,
+            "currency": str(currency) if currency is not None else None,
+            "availability": str(availability) if availability is not None else "unknown",
+            "images": dedup_images[:8],
+            "source": "bumpa_api",
+        }
+        entities.append(
+            {
+                "entity_type": "product",
+                "external_id": str(product_id) if product_id is not None else (str(handle) if handle else None),
+                "title": title[:300],
+                "summary": str(p.get("description") or p.get("summary") or "")[:600] or None,
+                "attributes": attrs,
+                "source_url": source_url,
+                "confidence_score": 0.9,
                 "freshness_score": 1.0,
             }
         )
@@ -882,7 +1001,11 @@ async def _fetch_products_from_non_shopify(base_url: str, food_menu_hint: bool =
         seen.add(k)
         dedup.append(e)
     with_images = [e for e in dedup if _has_product_images(e)]
-    return with_images[:80], attempts
+    # Prefer richer rows with images when available, but do not drop valid products
+    # that only expose title/price/url metadata.
+    if with_images:
+        return with_images[:80], attempts
+    return dedup[:80], attempts
 
 
 def _sync_health_from_snapshots(latest: WebsiteSnapshot | None, recent: list[WebsiteSnapshot]) -> tuple[str | None, int]:
@@ -1045,17 +1168,54 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
     shopify_attempts = 0
     non_shopify_attempts = 0
     page_attempts = 0
+    bumpa_attempts = 0
+    bumpa_products_count = 0
+    platform_hint = _normalize_platform_hint((cfg or {}).get("platform_hint"))
+    host = (urlparse(source_url).hostname or "").lower()
+    if platform_hint == "auto":
+        if "chowdeck.com" in host:
+            platform_hint = "chowdeck"
+        elif "myshopify.com" in host:
+            platform_hint = "shopify"
+        elif "mybumpa.com" in host or "bumpa" in host:
+            platform_hint = "bumpa"
     food_menu_hint = any(
         k in str((brand.industry or "") + " " + (getattr(brand, "sub_industry", "") or "") + " " + (brand.website or "")).lower()
         for k in ("food", "restaurant", "diner", "cafe", "beverage", "menu")
     )
     started_at = time.perf_counter()
     try:
-        shopify_products, shopify_attempts = await _fetch_shopify_products_with_retry(source_url, max_attempts=3)
-        if shopify_products:
-            entities.extend(_extract_products_from_shopify_payload(source_url, shopify_products))
-            raw_payload["shopify_products_count"] = len(shopify_products)
+        raw_payload["platform_hint"] = platform_hint
+        if platform_hint == "bumpa":
+            bumpa_rows, bumpa_attempts = await _fetch_bumpa_products_with_retry(source_url, max_attempts=3)
+            if bumpa_rows:
+                bumpa_entities = _extract_products_from_bumpa_payload(source_url, bumpa_rows)
+                entities.extend(bumpa_entities)
+                bumpa_products_count = len(bumpa_entities)
+                raw_payload["bumpa_products_count"] = bumpa_products_count
+            if not entities:
+                non_shopify_products, non_shopify_attempts = await _fetch_products_from_non_shopify(
+                    source_url,
+                    food_menu_hint=food_menu_hint,
+                )
+                if non_shopify_products:
+                    entities.extend(non_shopify_products)
+                    raw_payload["non_shopify_products_count"] = len(non_shopify_products)
+        elif platform_hint == "shopify":
+            shopify_products, shopify_attempts = await _fetch_shopify_products_with_retry(source_url, max_attempts=3)
+            if shopify_products:
+                entities.extend(_extract_products_from_shopify_payload(source_url, shopify_products))
+                raw_payload["shopify_products_count"] = len(shopify_products)
+            else:
+                non_shopify_products, non_shopify_attempts = await _fetch_products_from_non_shopify(
+                    source_url,
+                    food_menu_hint=food_menu_hint,
+                )
+                if non_shopify_products:
+                    entities.extend(non_shopify_products)
+                    raw_payload["non_shopify_products_count"] = len(non_shopify_products)
         else:
+            # For Chowdeck/custom/auto we lead with generic extraction first.
             non_shopify_products, non_shopify_attempts = await _fetch_products_from_non_shopify(
                 source_url,
                 food_menu_hint=food_menu_hint,
@@ -1063,6 +1223,11 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
             if non_shopify_products:
                 entities.extend(non_shopify_products)
                 raw_payload["non_shopify_products_count"] = len(non_shopify_products)
+            if not entities and platform_hint in ("auto", "custom"):
+                shopify_products, shopify_attempts = await _fetch_shopify_products_with_retry(source_url, max_attempts=3)
+                if shopify_products:
+                    entities.extend(_extract_products_from_shopify_payload(source_url, shopify_products))
+                    raw_payload["shopify_products_count"] = len(shopify_products)
         html, page_attempts = await _fetch_text_with_retry(source_url, max_attempts=3)
         entities.extend(_extract_generic_entities_from_html(source_url, html))
         entities.extend(_extract_reviews_from_html(source_url, html))
@@ -1084,6 +1249,7 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
             "shopify_attempts": int(shopify_attempts),
             "non_shopify_attempts": int(non_shopify_attempts),
             "page_attempts": int(page_attempts),
+            "bumpa_attempts": int(bumpa_attempts),
         },
         raw_payload=raw_payload,
         error_message=error_message,
@@ -1138,7 +1304,9 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
         "updated_count": updated_count,
         "opportunity_count": opportunity_count,
         "latency_ms": latency_ms,
-        "attempts": max(shopify_attempts, non_shopify_attempts, page_attempts),
+        "attempts": max(shopify_attempts, non_shopify_attempts, bumpa_attempts, page_attempts),
+        "platform_hint": platform_hint,
+        "bumpa_products_count": int(bumpa_products_count),
     }
 
 
