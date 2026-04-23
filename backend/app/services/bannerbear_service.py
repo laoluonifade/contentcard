@@ -430,10 +430,10 @@ async def generate_post_images(
     """
     Generate Bannerbear images for all slides of a post.
 
-    background_image_url: URL of the AI-generated background photo.
+    background_image_url: URL of the AI-generated background (photo or illustration).
         Passed to Bannerbear as the 'background_image' layer on the cover slide.
-        Text layers are left empty so the export stays photo-first; the API then
-        composites the brand logo onto the final PNG.
+        Headline and subtitle layers are filled from message_architecture (hook/support);
+        the API then composites the brand logo onto the final PNG.
 
     Returns a list of PNG URLs (one per slide). Returns [] if Bannerbear not configured.
     """
