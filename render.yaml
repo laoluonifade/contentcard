@@ -100,4 +100,4 @@ databases:
   - name: contentcard-db
     databaseName: contentcard
     user: contentcard
-    plan: starter
+    plan: basic-256mb
