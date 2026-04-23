@@ -141,7 +141,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"Depict this exact menu/product line ({grounded_product_title}) as the hero, not a generic substitute."
         )
     if product_price:
-        product_grounding_bits.append(f"Product price context: {product_price}.")
+        product_grounding_bits.append(
+            f"Offer context may include price {product_price}; use only for tone, never paint price digits, "
+            "currency symbols, or hashtags as readable pixels in the raster (pricing belongs in layout typography, not the photo)."
+        )
     if product_availability:
         product_grounding_bits.append(f"Availability context: {product_availability}.")
     food_like_ctx = f"{industry} {str(brand.get('sub_industry') or '').lower()}"

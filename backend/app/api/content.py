@@ -488,8 +488,19 @@ def _build_message_architecture(post: dict, contract: dict | None) -> dict:
     caption = str(post.get("caption") or "").strip()
     cap_lines = [ln.strip() for ln in caption.replace("\r", "").split("\n") if ln.strip()]
 
-    hook = _trim_words(topic or (cap_lines[0] if cap_lines else "Ready to post"), hook_max)
-    support_src = cap_lines[1] if len(cap_lines) > 1 else description
+    # Prefer a story-first hook: short idea or first description beat, not a dry agenda title alone.
+    desc_first = description.split(".")[0].strip() if description else ""
+    hook_candidates = [
+        desc_first if 3 <= len(desc_first.split()) <= hook_max + 3 else "",
+        str(post.get("content_idea") or "").strip(),
+        topic,
+        cap_lines[0] if cap_lines else "",
+    ]
+    hook_src = next((h for h in hook_candidates if str(h).strip()), topic or "Ready to post")
+    hook = _trim_words(hook_src, hook_max)
+    support_src = description or (cap_lines[1] if len(cap_lines) > 1 else "") or (cap_lines[0] if cap_lines else "")
+    if support_src.strip().lower().startswith(hook.lower()[: min(18, len(hook))]) and len(cap_lines) > 1:
+        support_src = cap_lines[1]
     support = _trim_words(support_src or "Built for clear social communication", support_max)
     evidence_src = description or (cap_lines[2] if len(cap_lines) > 2 else "")
     evidence = _trim_words(evidence_src or "Brand and product proof in one glance", evidence_max)
@@ -505,7 +516,11 @@ def _apply_template_contract_to_post(post: dict, contract: dict | None) -> dict:
     out["force_template_family"] = out["template_family"]
     if not str(out.get("content_type") or "").strip():
         out["content_type"] = str(contract.get("content_template_type") or "general")
-    message_arch = _build_message_architecture(out, contract)
+    existing_ma = out.get("message_architecture") if isinstance(out.get("message_architecture"), dict) else None
+    if existing_ma and str(existing_ma.get("hook") or "").strip() and str(existing_ma.get("support") or "").strip():
+        message_arch = existing_ma
+    else:
+        message_arch = _build_message_architecture(out, contract)
     out["message_architecture"] = message_arch
     # Keep existing caption, but ensure deterministic slot texts exist for renderers.
     out["headline"] = message_arch.get("hook")
@@ -2635,8 +2650,8 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         p_img_urls = cm.get("product_image_urls") if isinstance(cm.get("product_image_urls"), list) else None
     vt = "real_people"
     if isinstance(cm, dict):
-        v = cm.get("visual_type")
-        if v in ("real_people", "illustration"):
+        v = str(cm.get("visual_type") or "").strip().lower()
+        if v in ("real_people", "illustration", "abstract", "product"):
             vt = v
     return {
         "topic": item.topic,
