@@ -466,6 +466,15 @@ def _trim_words(text: str, max_words: int) -> str:
     return " ".join(words[:max_words]).strip()
 
 
+def _force_single_user_format_mix(fmt: str | None) -> str:
+    """
+    Keep playbook entries intact, but for user generation runs we currently ship
+    only single-post outputs for consistency and design quality.
+    """
+    _ = fmt
+    return "single_only"
+
+
 def _build_message_architecture(post: dict, contract: dict | None) -> dict:
     sc = (contract or {}).get("slot_contract") if isinstance((contract or {}).get("slot_contract"), dict) else {}
     hook_max = int(sc.get("headline_max_words") or 7)
@@ -1313,7 +1322,7 @@ async def generate_month(
         month=body.month,
         year=body.year,
         platforms=[p.value for p in body.platforms],
-        format_mix=body.format_mix,
+        format_mix=_force_single_user_format_mix(body.format_mix),
         posts_per_week=max(1, min(7, body.posts_per_week)),
         topic_override=body.topic_override,
         template_topics=template_topics,
@@ -1426,7 +1435,7 @@ async def generate_month_v2(
         month=body.month,
         year=body.year,
         platforms=platform_values,
-        format_mix=body.format_mix,
+        format_mix=_force_single_user_format_mix(body.format_mix),
         posts_per_week=max(1, min(7, body.posts_per_week)),
         topic_override=body.topic_override,
         template_topics=template_topics,
@@ -2311,6 +2320,19 @@ async def _do_generate_month(
                     fmt = ContentFormat(fmt_val)
                 except ValueError:
                     fmt = ContentFormat.SINGLE
+
+                if not isinstance(post.get("message_architecture"), dict):
+                    message_arch = _build_message_architecture(post, template_contract)
+                    post["message_architecture"] = message_arch
+                    post["headline"] = message_arch.get("hook")
+                    post["support_line"] = message_arch.get("support")
+                    post["evidence_line"] = message_arch.get("evidence")
+                    post["cta_line"] = message_arch.get("cta")
+                    vd = str(post.get("visual_direction") or "").strip()
+                    if vd:
+                        post["visual_direction"] = (
+                            f"{vd} Ensure hierarchy follows hook -> support -> evidence -> CTA with clear spacing."
+                        )
 
                 cta_text = str(post.get("cta") or "").strip()[:300]
                 if not cta_text:

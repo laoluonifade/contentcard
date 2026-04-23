@@ -996,12 +996,17 @@ async def _generate_for_platform(
     today = datetime.date.today()
     n = len(posting_dates)
 
+    fmt_pref = str(format_mix or "").strip().lower()
+    single_only = any(k in fmt_pref for k in ("single_only", "single", "no_carousel", "single-post"))
     playbook = _playbook_from_brand(brand_dict)
     playbook_plan = _build_playbook_schedule(
         posting_dates,
         playbook,
         seed_key=f"{month_name}{year}{platform}",
     )
+    if single_only and playbook_plan:
+        for row in playbook_plan:
+            row["post_type"] = "single"
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
     rng = random.Random(seed)
@@ -1138,6 +1143,13 @@ HARD RULES:
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""
+
+    if single_only:
+        creative_brief += (
+            "\n\nSINGLE-POST MODE (strict):\n"
+            "- Every assigned post_type is single and must return format=\"single\" (or \"gif\" only when motion is strongly justified).\n"
+            "- Do not return carousel format in this run.\n"
+        )
 
     if planner_addon.strip():
         creative_brief += f"\n\n=== USER / STRATEGIST ADD-ONS ===\n{planner_addon.strip()}\n"
@@ -2181,6 +2193,7 @@ async def run_generation_prep_chat(
     )
     has_product_catalog = "product_count:" in (str(product_context or "").lower())
 
+    hidden_field_keys = {"launch_date", "visual_asset"}
     questions_out: list[dict] = []
     for q in (data.get("questions") or [])[:3]:
         if not isinstance(q, dict):
@@ -2215,11 +2228,14 @@ async def run_generation_prep_chat(
             continue
         if asks_vague_any_visual:
             continue
+        safe_field_key = str(q.get("field_key") or "").strip()[:64] or None
+        if safe_field_key and safe_field_key.lower() in hidden_field_keys:
+            safe_field_key = None
         questions_out.append(
             {
                 "id": qid[:64],
                 "prompt": prompt[:220],
-                "field_key": str(q.get("field_key") or "").strip()[:64] or None,
+                "field_key": safe_field_key,
                 "input_type": it,
                 "options": options,
                 "accept": acc,

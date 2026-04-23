@@ -1098,8 +1098,8 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
 
     if crawl_status == "ok":
         for entity_data in entities:
-            if not _has_product_images(entity_data):
-                continue
+            # Keep product entities even when image metadata is missing.
+            # Many menu/catalog pages expose title/price links but no explicit image URL.
             entity, state = await _upsert_entity(db, brand.id, snapshot.id, entity_data)
             await db.flush()
             seen_entity_ids.add(entity.id)

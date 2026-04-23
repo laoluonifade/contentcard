@@ -260,11 +260,10 @@ function CalendarPrepBody({
                 ))}
               </div>
             )}
-            {m.role === 'assistant' && Array.isArray(m.questions) && m.questions.length > 0 && (
+            {m.role === 'assistant' && !generatingMonth && Array.isArray(m.questions) && m.questions.length > 0 && (
               <div className="mt-2 pt-2 border-t border-fog/70 space-y-2">
                 {m.questions.map((q) => {
                   const answer = prepQuestionAnswers?.[q.id] || {}
-                  const keyLabel = q.field_key ? ` (${q.field_key})` : ''
                   if (q.input_type === 'upload') {
                     const accept =
                       q.accept === 'image'
@@ -276,7 +275,6 @@ function CalendarPrepBody({
                       <div key={q.id} className="rounded-lg border border-fog bg-surface px-2 py-2">
                         <p className="text-[11px] font-semibold text-ink/70 mb-1">
                           {q.prompt}
-                          {keyLabel}
                         </p>
                         <div className="flex gap-1.5 mb-1.5">
                           <select
@@ -306,7 +304,6 @@ function CalendarPrepBody({
                     <div key={q.id} className="rounded-lg border border-fog bg-surface px-2 py-2">
                       <p className="text-[11px] font-semibold text-ink/70 mb-1">
                         {q.prompt}
-                        {keyLabel}
                       </p>
                       <select
                         value={answer.value || ''}
@@ -967,8 +964,7 @@ export default function CalendarPage() {
       ...prev,
       [qid]: { ...(prev[qid] || {}), value },
     }))
-    const key = question.field_key ? ` (${question.field_key})` : ''
-    await sendPrepWithText(`Answer${key}: ${value}`)
+    await sendPrepWithText(`Answer: ${value}`)
   }
 
   const uploadPrepAssetForQuestion = async (question, file, assetType) => {
@@ -979,8 +975,7 @@ export default function CalendarPage() {
       const res = await uploadApi.prepAsset(file, normalizedType)
       const url = String(res?.url || '').trim()
       if (!url) throw new Error('No uploaded URL returned')
-      const key = question.field_key ? ` (${question.field_key})` : ''
-      await sendPrepWithText(`Upload${key} ${normalizedType}: ${url}`)
+      await sendPrepWithText(`Uploaded ${normalizedType}: ${url}`)
       setPrepQuestionAnswers((prev) => ({
         ...prev,
         [question.id]: { ...(prev[question.id] || {}), uploaded_url: url, asset_type: assetType },
@@ -1038,8 +1033,8 @@ export default function CalendarPage() {
         `Website present: ${hasWebsite ? 'yes' : 'no'}.`,
         'Please respond in 1-3 short bullets:',
         '1) current generation status in plain language',
-        '2) any missing assets needed now (product screenshots, clarification screenshots, proof screenshots)',
-        '3) next best user action while generation continues',
+        '2) next best user action while generation continues',
+        'Do not ask for uploads while generation is already in progress.',
       ].join('\n')
       const next = [...prepMessages, { role: 'user', content: systemPrompt }]
       const data = await contentApi.generationPrepChat({
@@ -1131,7 +1126,7 @@ export default function CalendarPage() {
       month,
       year,
       platforms: [genPlatform],
-      format_mix: 'mixed',
+      format_mix: 'single_only',
       posts_per_week: genPPW,
       topic_override: genTopic.trim() || null,
       include_holidays_in_content: includeHolidays,

@@ -178,6 +178,15 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
                 "in the same product family using studio-quality lighting, cleaner framing, and premium ad styling."
             )
     product_grounding_note = " ".join(product_grounding_bits)
+    food_specific_guardrail = ""
+    if is_food_like:
+        topic_desc_bag = f"{content_idea} {description} {grounded_product_title}".lower()
+        mentions_specific_fast_food = any(x in topic_desc_bag for x in ("burger", "fries", "pizza"))
+        if not mentions_specific_fast_food:
+            food_specific_guardrail = (
+                "Food accuracy guardrail: never default to burger-and-fries hero visuals unless burger/fries are explicitly in the brief "
+                "or grounded product context. Match the real menu category and product cues from website-grounded references."
+            )
     website_source_url = str(
         grounding_payload.get("source_url")
         or website_grounding.get("source_url")
@@ -453,7 +462,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
             f"{audience_note} {cultural_note} {motif_note} {imagery_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} "
+            f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} "
             "Creative standard: emulate high-performing social campaign craft with clear module hierarchy (headline/offer/proof/cta), "
             "bold but disciplined color blocking, and storytelling props that support the claim. "
             "Illustration or graphic accents must reinforce the message narrative, never act as random decoration. "

@@ -344,14 +344,28 @@ def _cover_mods(
         bg_hex = art_brief["dominant_colors_from_tokens"][0]
     brand_name = _clean_inline(brand_dict.get("name") or "", 40)
     ma = (post_data or {}).get("message_architecture") if isinstance((post_data or {}).get("message_architecture"), dict) else {}
+    fmt = str((post_data or {}).get("format") or "single").lower()
+    tokens = _family_tokens(post_data or {}, brand_dict=brand_dict)
     if prefer_explicit_copy:
         headline = _clean_inline(topic, _copy_limit(fam, "headline", 68))
         subtitle = _clean_inline(caption, _copy_limit(fam, "subtitle", 96))
     else:
         headline = _clean_inline(ma.get("hook") or topic, _copy_limit(fam, "headline", 68))
         subtitle = _clean_inline(ma.get("support") or (_split_caption_sentences(caption) or [""])[0], _copy_limit(fam, "subtitle", 96))
+    if not headline:
+        headline = _clean_inline(tokens.get("badge") or "Today’s highlight", _copy_limit(fam, "headline", 68))
+    if len(headline.split()) < 2 and isinstance(ma.get("hook"), str) and ma.get("hook").strip():
+        headline = _clean_inline(ma.get("hook"), _copy_limit(fam, "headline", 68))
     if not subtitle:
-        subtitle = "Swipe for details"
+        # Single-post cards should read like complete ad/story units in-feed,
+        # not carousel placeholders.
+        if fmt == "single":
+            subtitle = _clean_inline(
+                ma.get("support") or ma.get("evidence") or caption or "Clear value, clear proof, clear next step.",
+                _copy_limit(fam, "subtitle", 96),
+            )
+        else:
+            subtitle = "Swipe for details"
     mods = [
         {"name": "headline",   "text": headline},
         {"name": "subtitle",   "text": subtitle},
