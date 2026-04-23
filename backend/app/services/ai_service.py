@@ -56,6 +56,14 @@ def _sanitize_post_copy_fields(post: dict) -> dict:
         if key in post:
             v = _sanitize_ai_copy_dashes(post.get(key))
             post[key] = _sanitize_ai_mentions(v)
+    ma = post.get("message_architecture")
+    if isinstance(ma, dict):
+        out_ma = dict(ma)
+        for mk in ("hook", "support", "evidence", "cta"):
+            if mk in out_ma and out_ma[mk] is not None:
+                v = _sanitize_ai_copy_dashes(str(out_ma[mk]))
+                out_ma[mk] = _sanitize_ai_mentions(v)
+        post["message_architecture"] = out_ma
     return post
 
 
@@ -75,7 +83,7 @@ HARD CONSTRAINTS (violating any of these is a failure):
 • NEVER hallucinate brand details. Use only what is provided in the brand context.
 • For Nigerian English or Pidgin, use authentic local expressions, not stereotypes.
 • Captions must be platform-native: short/punchy for Instagram/Twitter, longer/professional for LinkedIn.
-• In caption, cta, description, content_idea, topic, and visual_direction: never use the long dash character, the en dash, or two hyphens in a row as punctuation. Use commas, periods, semicolons, or parentheses. Hyphens inside ordinary compound words are fine.
+• In caption, cta, description, content_idea, topic, visual_direction, and message_architecture strings (hook, support, evidence): never use the long dash character, the en dash, or two hyphens in a row as punctuation. Use commas, periods, semicolons, or parentheses. Hyphens inside ordinary compound words are fine.
 • Every post MUST include a non-empty string field "cta": one short imperative line (max 12 words) that drives a concrete next step: order or book, visit the website or link in bio, or meaningful engagement (comment, DM, save, share). Never leave cta blank, null, or placeholder text like "TBC" or "N/A"."""
 
 
@@ -108,6 +116,18 @@ _FOOD_INDUSTRY_HINTS = (
     "pizzeria",
     "pub",
 )
+
+
+def _is_food_service_post(post: dict, brand: dict | None) -> bool:
+    parts = [
+        str((brand or {}).get("industry") or ""),
+        str((brand or {}).get("sub_industry") or ""),
+        str(post.get("content_type") or ""),
+        str(post.get("topic") or ""),
+        str(post.get("content_idea") or ""),
+    ]
+    bag = " ".join(p.lower() for p in parts)
+    return any(h in bag for h in _FOOD_INDUSTRY_HINTS)
 
 
 def _normalize_cta_raw(raw) -> str:
@@ -158,6 +178,48 @@ def _ensure_post_cta(post: dict, brand: dict | None) -> None:
         text = _default_cta_from_brand(brand, post)
     text = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(text)) or _default_cta_from_brand(brand, post)
     post["cta"] = str(text).strip()[:300]
+
+
+def _trim_words_local(text: str, max_words: int) -> str:
+    words = [w for w in str(text or "").strip().split() if w]
+    if not words:
+        return ""
+    return " ".join(words[: max(1, max_words)]).strip()
+
+
+def _ensure_message_architecture(post: dict, brand: dict | None) -> None:
+    """Guarantee hook/support lines for Bannerbear typography when the model omits them."""
+    ma = post.get("message_architecture")
+    if isinstance(ma, dict):
+        hook = str(ma.get("hook") or "").strip()
+        support = str(ma.get("support") or "").strip()
+        if hook and support:
+            return
+    caption = str(post.get("caption") or "").strip()
+    cap_lines = [ln.strip() for ln in caption.replace("\r", "").split("\n") if ln.strip()]
+    topic = str(post.get("topic") or post.get("content_idea") or "This week").strip()
+    desc = str(post.get("description") or "").strip()
+    desc_hook = desc.split(".")[0].strip() if desc else ""
+    hook_src = desc_hook if 4 <= len(desc_hook.split()) <= 12 else topic
+    hook = _trim_words_local(hook_src, 9) or _trim_words_local(topic, 9) or "Fresh from our kitchen"
+    support_src = desc if desc and desc != hook else (cap_lines[0] if cap_lines else caption)
+    if support_src.strip().lower().startswith(hook[:20].lower()) and len(cap_lines) > 1:
+        support_src = cap_lines[1]
+    support = _trim_words_local(support_src, 24) or _trim_words_local(caption, 24) or "Made to order, built to crave."
+    evidence = ""
+    if isinstance(ma, dict) and str(ma.get("evidence") or "").strip():
+        evidence = str(ma.get("evidence")).strip()[:160]
+    elif desc:
+        evidence = _trim_words_local(desc.split(".")[-1], 16) if "." in desc else _trim_words_local(desc, 16)
+    cta_line = _normalize_cta_raw(post.get("cta")) or _default_cta_from_brand(brand, post)
+    post["message_architecture"] = {
+        "hook": hook[:120],
+        "support": support[:220],
+        "evidence": evidence[:160],
+        "cta": _trim_words_local(str(cta_line), 10)[:120],
+    }
+
+
 VISUAL_DIRECTION_DESIGN_TOKENS = (
     "foreground",
     "midground",
@@ -249,7 +311,7 @@ def _hard_visual_type_rule(ips: str) -> str:
     )
 
 
-def _coerce_visual_type_by_content_type(post: dict) -> str:
+def _coerce_visual_type_by_content_type(post: dict, brand: dict | None = None) -> str:
     """
     Route style by content intent so we do not default to generic people photos.
     """
@@ -259,12 +321,18 @@ def _coerce_visual_type_by_content_type(post: dict) -> str:
     current = str(post.get("visual_type") or "real_people").lower()
     if current not in VALID_VISUAL_TYPES:
         current = "real_people"
+    food = _is_food_service_post(post, brand)
 
     if any(k in bag for k in ("tip", "guide", "how to", "insight", "myth", "mistake", "breakdown", "thread")):
         return current if current in ("illustration", "abstract", "product") else "illustration"
     if any(k in bag for k in ("promo", "offer", "sale", "launch", "product spotlight", "announcement", "update", "integration", "workflow", "process")):
         # Prefer designed visuals over plain people-led photos for offer/update posts.
-        return current if current in ("product", "illustration") else "illustration"
+        if current in ("product", "illustration"):
+            return current
+        # Hospitality: show real menu-quality food, not cartoon flat-lay, unless the batch chose abstract.
+        if food and current != "abstract":
+            return "product"
+        return "illustration"
     if any(k in bag for k in ("testimonial", "customer", "case study", "proof", "review", "founder story")):
         return current if current in ("real_people", "illustration") else "real_people"
     if any(k in bag for k in ("meme", "relatable humour", "hot take", "engagement question")):
@@ -631,7 +699,40 @@ def _validate_posts(
             post["visual_type"] = "illustration"
         else:
             post["visual_type"] = vt_ai
-        post["visual_type"] = _coerce_visual_type_by_content_type(post)
+        post["visual_type"] = _coerce_visual_type_by_content_type(post, brand)
+
+        # Food brands selling dishes: avoid illustration that reads as clip-art food when the angle is promo or menu-led.
+        if _is_food_service_post(post, brand) and str(post.get("visual_type") or "").lower() == "illustration":
+            idea = f"{post.get('content_idea') or ''} {post.get('topic') or ''} {post.get('description') or ''}".lower()
+            dish_angle = any(
+                w in idea
+                for w in (
+                    "menu",
+                    "dish",
+                    "meal",
+                    "order",
+                    "taste",
+                    "fresh",
+                    "flavor",
+                    "recipe",
+                    "sandwich",
+                    "burger",
+                    "combo",
+                    "checklist",
+                    "kitchen",
+                    "serve",
+                    "deliver",
+                    "price",
+                    "offer",
+                    "easter",
+                    "holiday",
+                    "seasonal",
+                )
+            )
+            urls = post.get("product_image_urls") if isinstance(post.get("product_image_urls"), list) else []
+            if dish_angle or urls:
+                post["visual_type"] = "product"
+                post["visual_archetype"] = "photo_hero"
 
         # visual_archetype: layout family for VBS / art brief (PRD)
         va = str(post.get("visual_archetype", "")).strip().lower()
@@ -684,6 +785,7 @@ def _validate_posts(
                 )
 
         _ensure_post_cta(post, brand)
+        _ensure_message_architecture(post, brand)
         valid.append(_sanitize_post_copy_fields(post))
 
     valid = _apply_style_mix_targets(valid, brand)
@@ -1109,8 +1211,8 @@ For EACH post return ALL these fields:
 4. caption: full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
 5. cta: REQUIRED non-empty string, standalone imperative, max 12 words. Must ask for ONE clear action: order food or book a table, visit the website or tap link in bio, or engage (comment, DM, save, share). Never omit, never use placeholders.
 6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster. Do NOT describe caption text overlaid on the image. Copy lives only in the caption field.
-8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable text blocks and must NOT ask the raster model to paint any logo, wordmark, or trademark.
+7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster. Plan composition knowing headline and subcopy are rendered by the layout tool from message_architecture (leave readable headline-safe negative space when the scene is very busy).
+8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable letters, numbers, prices, hashtags, titles, or watermarks and must NOT ask the raster model to paint any logo, wordmark, or trademark. On-image story copy belongs in message_architecture only.
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
 10. visual_type: {_visual_type_rule_for_style(ips)}
@@ -1119,6 +1221,11 @@ For EACH post return ALL these fields:
 13. slide_count: 1 for single or gif, 2-5 for carousel
 14. date: posting date in YYYY-MM-DD format exactly as listed above
 15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
+16. message_architecture: REQUIRED object for the on-image typography layout (rendered as headline and subcopy on the final graphic, before people read the caption). String fields:
+    - hook: 3-10 words, scroll-stopping headline; may be seasonal, cheeky, or celebratory when USER / STRATEGIST add-ons mention a holiday or moment. Must feel like ad copy, not a dry calendar label alone.
+    - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim.
+    - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
+    - cta: one short line aligned with field 5, tightened for a card footer if needed.
 
 HARD RULES:
 • Every post MUST have a non-empty "cta" string (see field 5); if unsure, default to "Visit our site via the link in bio." adapted to brand voice and website if known
@@ -1135,7 +1242,8 @@ HARD RULES:
 • Use "gif" for selected high-energy moments (product reveal, testimonial proof pulse, quick before/after) when motion would improve scroll-stopping impact, without requiring full video
 • topic must equal content_idea exactly
 {_hard_visual_type_rule(ips)}
-• image_prompt must never ask for text, titles, or captions, or for any drawn logo or wordmark; reserve logo_safe_zone only
+• image_prompt must never ask for text, titles, captions, prices, currency, hashtags, or watermarks, or for any drawn logo or wordmark; reserve logo_safe_zone only
+• message_architecture carries every headline, subhead, and CTA line meant to be read on the graphic; the raster image stays photo or illustration only
 • visual_direction should plan final logo lockup placement and breathing room for compositing after generation, not an in-model logo
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
 • If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning
