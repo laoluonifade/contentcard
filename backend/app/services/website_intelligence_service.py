@@ -944,14 +944,20 @@ def _extract_food_menu_products_from_html(page_url: str, html: str) -> list[dict
 async def _fetch_products_from_non_shopify(base_url: str, food_menu_hint: bool = False) -> tuple[list[dict], int]:
     product_urls = await _discover_product_urls(base_url)
     homepage_html = ""
-    is_chowdeck_store = ("chowdeck.com" in (urlparse(base_url).hostname or "").lower()) and ("/restaurants/" in base_url.lower())
-    if food_menu_hint:
+    parsed = urlparse(base_url)
+    host_lc = (parsed.hostname or "").lower()
+    path_lc = (parsed.path or "").lower()
+    is_chowdeck_store = ("chowdeck.com" in host_lc) and ("/restaurants/" in path_lc or "/vendors/" in path_lc or "/stores/" in path_lc)
+    chowdeck_host = "chowdeck.com" in host_lc
+    # Chowdeck storefronts are often JS-heavy and may not expose sitemap/product URLs.
+    # Always try homepage extraction there, even when generic food heuristics are false.
+    if food_menu_hint or chowdeck_host:
         try:
             homepage_html = await _fetch_text(base_url)
         except Exception:
             homepage_html = ""
         if homepage_html:
-            if is_chowdeck_store:
+            if chowdeck_host:
                 chowdeck_products = _extract_chowdeck_products_from_html(base_url, homepage_html)
                 if chowdeck_products:
                     with_images = [e for e in chowdeck_products if _has_product_images(e)]
@@ -960,7 +966,7 @@ async def _fetch_products_from_non_shopify(base_url: str, food_menu_hint: bool =
             for u in _discover_menu_like_urls_from_html(base_url, homepage_html):
                 if u not in product_urls:
                     product_urls.append(u)
-    if not product_urls and not food_menu_hint:
+    if not product_urls and not (food_menu_hint or chowdeck_host):
         return [], 0
     entities: list[dict] = []
     attempts = 0
@@ -978,8 +984,8 @@ async def _fetch_products_from_non_shopify(base_url: str, food_menu_hint: bool =
         if via_wc:
             entities.extend(via_wc)
             continue
-        if food_menu_hint:
-            if is_chowdeck_store and "chowdeck.com" in (urlparse(u).hostname or "").lower():
+        if food_menu_hint or chowdeck_host:
+            if "chowdeck.com" in (urlparse(u).hostname or "").lower():
                 via_chowdeck = _extract_chowdeck_products_from_html(u, html)
                 if via_chowdeck:
                     entities.extend(via_chowdeck)
