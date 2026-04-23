@@ -654,6 +654,188 @@ def _extract_chowdeck_store_name(page_url: str, html: str) -> str | None:
     return None
 
 
+async def _resolve_chowdeck_storefront_url(base_url: str) -> str:
+    """
+    Normalize Chowdeck links to a concrete storefront page.
+    Some users paste generic/short links that do not include /restaurants/<slug>.
+    """
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "").lower()
+    path = (parsed.path or "").lower()
+    if "chowdeck.com" not in host:
+        return base_url
+    if any(seg in path for seg in ("/restaurants/", "/vendors/", "/stores/")):
+        return base_url
+    try:
+        html = await _fetch_text(base_url)
+    except Exception:
+        return base_url
+    # Prefer canonical/og URL when present.
+    for pat in (
+        r"<meta[^>]+property=[\"']og:url[\"'][^>]+content=[\"']([^\"']+)[\"']",
+        r"<link[^>]+rel=[\"']canonical[\"'][^>]+href=[\"']([^\"']+)[\"']",
+    ):
+        m = re.search(pat, html or "", flags=re.IGNORECASE)
+        if m:
+            u = _normalize_url(urljoin(f"{base_url}/", m.group(1).strip()))
+            if u and "chowdeck.com" in (urlparse(u).hostname or "").lower():
+                up = (urlparse(u).path or "").lower()
+                if any(seg in up for seg in ("/restaurants/", "/vendors/", "/stores/")):
+                    return u
+    # Fallback: first storefront-style href in page body.
+    hrefs = re.findall(r'href=["\']([^"\']+)["\']', html or "", flags=re.IGNORECASE)
+    for href in hrefs:
+        u = _normalize_url(urljoin(f"{base_url}/", href))
+        if not u:
+            continue
+        uu = urlparse(u)
+        if "chowdeck.com" not in (uu.hostname or "").lower():
+            continue
+        p = (uu.path or "").lower()
+        if any(seg in p for seg in ("/restaurants/", "/vendors/", "/stores/")):
+            return u
+    return base_url
+
+
+def _extract_chowdeck_vendor_id_from_html(html: str) -> str | None:
+    patterns = (
+        r'"vendor"\s*:\s*\{\s*"id"\s*:\s*(\d+)',
+        r'\\"vendor\\"\s*:\s*\{\s*\\"id\\"\s*:\s*(\d+)',
+        r'"vendor_id"\s*:\s*(\d+)',
+        r'\\"vendor_id\\"\s*:\s*(\d+)',
+        r'"id"\s*:\s*(\d+)\s*,\s*"name"\s*:\s*"[^"]+"\s*,\s*"description"\s*:',
+    )
+    for pat in patterns:
+        m = re.search(pat, html or "", flags=re.IGNORECASE)
+        if m and m.group(1):
+            return m.group(1)
+    # Next.js app-router streams escaped payload chunks; decode and inspect.
+    chunks = re.findall(
+        r'self\.__next_f\.push\(\[\d+,"((?:\\.|[^"])*)"\]\)',
+        html or "",
+        flags=re.IGNORECASE,
+    )
+    for raw in chunks:
+        try:
+            decoded = bytes(raw, "utf-8").decode("unicode_escape")
+        except Exception:
+            decoded = raw
+        for pat in (r'"vendor"\s*:\s*\{\s*"id"\s*:\s*(\d+)', r'"vendor_id"\s*:\s*(\d+)'):
+            m = re.search(pat, decoded or "", flags=re.IGNORECASE)
+            if m and m.group(1):
+                return m.group(1)
+    return None
+
+
+def _extract_products_from_chowdeck_menu_payload(page_url: str, payload: object) -> list[dict]:
+    out: list[dict] = []
+    seen: set[str] = set()
+
+    def _price_str(value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            amount = float(value)
+            if amount > 10000:
+                amount = amount / 100.0
+            if amount <= 0:
+                return None
+            return f"₦{int(round(amount)):,}"
+        digits = re.sub(r"[^0-9]", "", str(value))
+        if not digits:
+            return None
+        amount = int(digits)
+        if amount > 10000:
+            amount = int(round(amount / 100.0))
+        if amount <= 0:
+            return None
+        return f"₦{amount:,}"
+
+    def _append_item(item: dict, category_name: str | None = None) -> None:
+        name = str(item.get("name") or item.get("title") or "").strip()
+        if not name:
+            return
+        price = _price_str(item.get("price") or item.get("amount") or item.get("displayPrice") or item.get("basePrice"))
+        if not price:
+            return
+        image = str(item.get("image") or item.get("image_url") or item.get("thumbnail") or "").strip()
+        images = [urljoin(f"{page_url}/", image)] if image else []
+        ext_id = str(item.get("id") or item.get("slug") or f"{_slugify(name)}-{len(out)+1}")
+        dedup_key = f"{name.lower()}::{price}"
+        if dedup_key in seen:
+            return
+        seen.add(dedup_key)
+        out.append(
+            {
+                "entity_type": "product",
+                "external_id": ext_id,
+                "title": name[:300],
+                "summary": str(item.get("description") or item.get("summary") or "")[:600] or None,
+                "attributes": {
+                    "price": price,
+                    "currency": str(item.get("currency") or "NGN"),
+                    "availability": "in_stock" if bool(item.get("in_stock", True)) else "out_of_stock",
+                    "images": images,
+                    "category": category_name,
+                    "vendor_id": str(item.get("vendor_id") or "") or None,
+                    "source": "chowdeck_menu_api",
+                },
+                "source_url": page_url,
+                "confidence_score": 0.95,
+                "freshness_score": 1.0,
+            }
+        )
+
+    if isinstance(payload, dict):
+        rows = payload.get("data")
+        if isinstance(rows, list):
+            payload = rows
+        else:
+            payload = [payload]
+    if not isinstance(payload, list):
+        return out
+
+    for row in payload:
+        if not isinstance(row, dict):
+            continue
+        # Shape A: category summary rows -> {name, items:[...]}
+        category_name = str(row.get("name") or "").strip() or None
+        items = row.get("items")
+        if isinstance(items, list) and items and all(isinstance(x, dict) for x in items):
+            for item in items:
+                _append_item(item, category_name=category_name)
+            continue
+        # Shape B: flat menu rows -> {name, price, ...}
+        _append_item(row, category_name=None)
+
+    return out[:160]
+
+
+async def _fetch_chowdeck_products_from_api(page_url: str, homepage_html: str) -> list[dict]:
+    vendor_id = _extract_chowdeck_vendor_id_from_html(homepage_html or "")
+    if not vendor_id:
+        return []
+    endpoints = (
+        f"https://api.chowdeck.com/customer/vendor/{vendor_id}/menu-category/summary",
+        f"https://api.chowdeck.com/customer/vendor/{vendor_id}/menu?return_out_of_stock=1",
+    )
+    timeout = httpx.Timeout(12.0, connect=8.0)
+    headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+        for endpoint in endpoints:
+            try:
+                res = await client.get(endpoint, headers=headers)
+                if res.status_code >= 400:
+                    continue
+                payload = res.json()
+            except Exception:
+                continue
+            extracted = _extract_products_from_chowdeck_menu_payload(page_url, payload)
+            if extracted:
+                return extracted
+    return []
+
+
 def _extract_chowdeck_products_from_html(page_url: str, html: str) -> list[dict]:
     """
     Chowdeck storefront pages are often JS-rendered. Parse JSON blobs and fallback
@@ -666,6 +848,11 @@ def _extract_chowdeck_products_from_html(page_url: str, html: str) -> list[dict]
         r"<script[^>]*>(.*?)</script>",
         html or "",
         flags=re.IGNORECASE | re.DOTALL,
+    )
+    next_stream_chunks = re.findall(
+        r'self\.__next_f\.push\(\[\d+,"((?:\\.|[^"])*)"\]\)',
+        html or "",
+        flags=re.IGNORECASE,
     )
 
     def _is_bad_name(name: str) -> bool:
@@ -696,7 +883,7 @@ def _extract_chowdeck_products_from_html(page_url: str, html: str) -> list[dict]
 
     def _best_images(candidate: dict) -> list[str]:
         imgs: list[str] = []
-        for key in ("image", "image_url", "imageUrl", "thumbnail", "photo"):
+        for key in ("image", "image_url", "imageUrl", "thumbnail", "photo", "previewImage", "displayImage"):
             val = candidate.get(key)
             if isinstance(val, str) and val.strip():
                 imgs.append(urljoin(f"{page_url}/", val.strip()))
@@ -770,8 +957,41 @@ def _extract_chowdeck_products_from_html(page_url: str, html: str) -> list[dict]
         payload = (script_body or "").strip()
         if not payload or len(payload) < 2:
             continue
+        parsed = None
         try:
             parsed = json.loads(payload)
+        except Exception:
+            # Handle JS assignment blobs like: window.__NEXT_DATA__ = {...};
+            m = re.search(r"=\s*(\{.*\})\s*;?\s*$", payload, flags=re.DOTALL)
+            if m:
+                try:
+                    parsed = json.loads(m.group(1))
+                except Exception:
+                    parsed = None
+        if parsed is not None:
+            _walk(parsed)
+
+    # Next.js app-router pages can stream JSON in escaped chunks under self.__next_f.push.
+    for raw_chunk in next_stream_chunks:
+        chunk = (raw_chunk or "").strip()
+        if not chunk:
+            continue
+        try:
+            decoded = bytes(chunk, "utf-8").decode("unicode_escape")
+        except Exception:
+            decoded = chunk
+        decoded = decoded.strip()
+        if not decoded:
+            continue
+        candidate_json = decoded
+        if ":" in decoded:
+            maybe = decoded.split(":", 1)[1].strip()
+            if maybe.startswith("{") or maybe.startswith("["):
+                candidate_json = maybe
+        if not (candidate_json.startswith("{") or candidate_json.startswith("[")):
+            continue
+        try:
+            parsed = json.loads(candidate_json)
         except Exception:
             continue
         _walk(parsed)
@@ -958,11 +1178,12 @@ async def _fetch_products_from_non_shopify(base_url: str, food_menu_hint: bool =
             homepage_html = ""
         if homepage_html:
             if chowdeck_host:
+                via_chowdeck_api = await _fetch_chowdeck_products_from_api(base_url, homepage_html)
+                if via_chowdeck_api:
+                    return via_chowdeck_api[:80], 1
                 chowdeck_products = _extract_chowdeck_products_from_html(base_url, homepage_html)
                 if chowdeck_products:
-                    with_images = [e for e in chowdeck_products if _has_product_images(e)]
-                    if with_images:
-                        return with_images[:80], 1
+                    return chowdeck_products[:80], 1
             for u in _discover_menu_like_urls_from_html(base_url, homepage_html):
                 if u not in product_urls:
                     product_urls.append(u)
@@ -1163,6 +1384,7 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
     source_url = _normalize_url(brand.website)
     if not source_url:
         raise ValueError("Brand website is required for website sync")
+    source_url = await _resolve_chowdeck_storefront_url(source_url)
 
     parsed = urlparse(source_url)
     crawl_status = "ok"
@@ -1176,6 +1398,8 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
     page_attempts = 0
     bumpa_attempts = 0
     bumpa_products_count = 0
+    extraction_source: str | None = None
+    chowdeck_vendor_id: str | None = None
     platform_hint = _normalize_platform_hint((cfg or {}).get("platform_hint"))
     host = (urlparse(source_url).hostname or "").lower()
     if platform_hint == "auto":
@@ -1240,6 +1464,26 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
     except Exception as exc:
         crawl_status = "error"
         error_message = str(exc)[:500]
+
+    # Lightweight debug metadata for quick sync diagnostics in UI/logs.
+    for e in entities:
+        if str(e.get("entity_type") or "") != "product":
+            continue
+        attrs = e.get("attributes") if isinstance(e.get("attributes"), dict) else {}
+        if not extraction_source:
+            src = str(attrs.get("source") or "").strip()
+            if src:
+                extraction_source = src
+        if not chowdeck_vendor_id:
+            vid = str(attrs.get("vendor_id") or "").strip()
+            if vid:
+                chowdeck_vendor_id = vid
+        if extraction_source and chowdeck_vendor_id:
+            break
+    if extraction_source:
+        raw_payload["extraction_source"] = extraction_source
+    if chowdeck_vendor_id:
+        raw_payload["chowdeck_vendor_id"] = chowdeck_vendor_id
     latency_ms = int((time.perf_counter() - started_at) * 1000)
 
     snapshot = WebsiteSnapshot(
@@ -1313,6 +1557,8 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
         "attempts": max(shopify_attempts, non_shopify_attempts, bumpa_attempts, page_attempts),
         "platform_hint": platform_hint,
         "bumpa_products_count": int(bumpa_products_count),
+        "extraction_source": extraction_source,
+        "chowdeck_vendor_id": chowdeck_vendor_id,
     }
 
 
