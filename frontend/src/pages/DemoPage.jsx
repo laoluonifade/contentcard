@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Check, ArrowRight, Star } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
+import { marketingApi } from '../api'
+import { toast } from '../components/ui/Toast'
 
 const TEAM_SIZES = ['Just me', '2 to 5', '6 to 20', '21 to 100', '100+']
 const ROLES = ['Founder / CEO', 'CMO / Marketing Director', 'Social Media Manager', 'Agency Owner', 'Brand Manager', 'Other']
@@ -10,12 +12,30 @@ export default function DemoPage() {
   const navigate = useNavigate()
   const [form, setForm] = useState({ name: '', email: '', company: '', role: '', teamSize: '', message: '' })
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    setSubmitted(true)
+    setSubmitting(true)
+    try {
+      await marketingApi.submitDemoRequest({
+        full_name: form.name.trim(),
+        email: form.email.trim(),
+        company: form.company.trim(),
+        role: form.role,
+        team_size: form.teamSize,
+        message: form.message.trim() || null,
+      })
+      setSubmitted(true)
+    } catch (err) {
+      const d = err.response?.data?.detail
+      const msg = typeof d === 'string' ? d : Array.isArray(d) ? d.map((x) => x.msg || x).join(' ') : err.message
+      toast(msg || 'Could not submit your request. Please try again.', 'error')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (submitted) {
@@ -141,8 +161,8 @@ export default function DemoPage() {
                   rows={3}
                   className="w-full bg-white/[0.04] border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder-white/20 focus:outline-none focus:border-brand-500/50 transition-colors resize-none" />
               </div>
-              <button type="submit" className="btn-primary w-full py-3.5 text-base">
-                Book my demo <ArrowRight size={16} />
+              <button type="submit" disabled={submitting} className="btn-primary w-full py-3.5 text-base disabled:opacity-60">
+                {submitting ? 'Sending…' : (<><span>Book my demo</span> <ArrowRight size={16} /></>)}
               </button>
               <p className="text-white/25 text-xs text-center">No commitment required · We respond within 1 business day</p>
             </form>

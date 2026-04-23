@@ -185,8 +185,15 @@ async def generate_post_from_trend(
             detail="AI trending topics are available on Growth and Pro. Upgrade your plan to use this feature.",
         )
 
+    kit = brand.brand_kit if isinstance(brand.brand_kit, dict) else {}
+    cta_style = str(kit.get("cta_style") or "").strip()
+
     brand_dict = {
         "name": brand.name,
+        "industry": brand.industry or "",
+        "sub_industry": getattr(brand, "sub_industry", None) or "",
+        "website": brand.website or "",
+        "cta_style": cta_style,
         "tone_tags": brand.tone_tags or [],
         "language_style": brand.language_style or "english",
         "personality_score": brand.personality_score or 50,
@@ -203,7 +210,11 @@ async def generate_post_from_trend(
             platform=body.platform,
             description=f"Trending in {cc} right now: {body.trend_topic}. Make it timely and culturally relevant for that location.",
         )
-        return {"caption": result.get("caption", ""), "hashtags": result.get("hashtags", [])}
+        return {
+            "caption": result.get("caption", ""),
+            "cta": result.get("cta") or "",
+            "hashtags": result.get("hashtags", []),
+        }
     except Exception as e:
         logger.error(f"Trend post generation error: {e}")
         raise HTTPException(status_code=502, detail="AI generation failed. Please try again.")

@@ -54,14 +54,14 @@ export default function OnboardingPage() {
   }
 
   const inferIndustryFromWebsite = (website) => {
-    const host = String(website || '').toLowerCase()
-    if (/restaurant|diner|cafe|kitchen|menu|food|grill|bakery/.test(host)) {
+    const full = String(website || '').toLowerCase()
+    if (/restaurant|diner|cafe|kitchen|menu|food|grill|bakery|\/restaurants\//.test(full)) {
       return { industry: 'Food & Beverage', sub_industry: 'Quick Service Restaurant' }
     }
-    if (/pay|bank|fin|wallet|loan|credit/.test(host)) {
+    if (/pay|bank|fin|wallet|loan|credit/.test(full)) {
       return { industry: 'Finance & Fintech', sub_industry: 'Digital Banking' }
     }
-    if (/shop|store|market|retail|commerce/.test(host)) {
+    if (/shop|store|market|retail|commerce/.test(full)) {
       return { industry: 'E-commerce & Retail', sub_industry: 'Marketplace' }
     }
     return { industry: 'Technology', sub_industry: 'SaaS' }
@@ -163,8 +163,16 @@ export default function OnboardingPage() {
       }
 
       const hostLabel = site.hostname.replace(/^www\./, '').split('.')[0].replace(/[-_]+/g, ' ')
-      const niceName = hostLabel
+      const chowdeckStoreSlugMatch = site.hostname.includes('chowdeck.com')
+        ? site.pathname.match(/\/restaurants\/([a-z0-9-]+)/i)
+        : null
+      const derivedSource = chowdeckStoreSlugMatch?.[1]
+        ? chowdeckStoreSlugMatch[1].replace(/-[a-z0-9]{6,}$/i, '')
+        : hostLabel
+      const niceName = derivedSource
         .split(' ')
+        .filter(Boolean)
+        .flatMap((part) => part.split('-'))
         .filter(Boolean)
         .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
         .join(' ') || 'My Brand'

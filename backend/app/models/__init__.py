@@ -5,6 +5,8 @@ from app.models.content import ContentItem, ContentStatus, ContentPlatform, Cont
 from app.models.template import ContentTemplate, TemplateCategory, TemplateRecurrence
 from app.models.trend import TrendingTopic
 from app.models.holiday import UserDismissedHoliday
+from app.models.meme_asset import MemeAsset
+from app.models.demo_request import DemoRequest
 from app.models.creative_engine import (
     StyleFingerprint,
     CampaignPlan,
@@ -29,6 +31,8 @@ __all__ = [
     "ContentTemplate", "TemplateCategory", "TemplateRecurrence",
     "TrendingTopic",
     "UserDismissedHoliday",
+    "MemeAsset",
+    "DemoRequest",
     "WebsiteSnapshot", "WebsiteEntity", "WebsiteChangeEvent", "WebsiteOpportunity", "WebsiteOpportunityStatus",
     "StyleFingerprint", "CampaignPlan", "RenderVariant",
     "DesignPlaybookIndustry", "DesignPlaybookContentType", "DesignPlaybookVisualDirection",

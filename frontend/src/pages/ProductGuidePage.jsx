@@ -364,18 +364,17 @@ export default function ProductGuidePage() {
               Turn social into a reliable growth channel
             </h1>
             <p className="text-lg text-[#37352F]/65 leading-relaxed mb-10">
-              ContentCard helps you publish <strong>consistent, on-brand posts</strong> at scale: full-month runs,
-              trend-led angles, and creative your sales and performance teams can reuse. Below is a full walkthrough of
-              how each area of the product supports pipeline, conversion, and revenue: not just “features,” but where
-              they show up in your workflow.
+              ContentCard helps you publish <strong>consistent, on-brand posts</strong> at scale: full-month plans,
+              trend-led ideas, and creative your team can reuse across campaigns. This guide shows how to use each
+              part of ContentCard in day-to-day marketing workflows, step by step.
             </p>
             <div className="rounded-xl border border-brand-200 bg-brand-50/60 p-4 mb-10">
               <p className="text-[12px] font-semibold text-brand-700 uppercase tracking-wider mb-2">What is new</p>
               <ul className="list-disc pl-5 text-[14px] leading-6 text-[#37352F]/80 space-y-1">
-                <li>Quick Fill onboarding from website link with stronger, grounded profile drafts.</li>
-                <li>Content Playbook now acts as the source of truth for what gets generated.</li>
-                <li>Your social media manager prep assistant supports richer planning context before generation.</li>
-                <li>Brand images and product context can now shape visual output quality more reliably.</li>
+                <li>Website Quick Fill gets your brand setup done faster so you can start creating immediately.</li>
+                <li>Content Playbook now controls what gets generated, so posting stays aligned with campaign goals.</li>
+                <li>Your social media manager assistant helps you plan before generation for better post quality.</li>
+                <li>Brand images and product context improve visual authenticity for product-led campaigns.</li>
               </ul>
             </div>
 

@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""
+    # When True, logo upload also requests Cloudinary AI background removal (paid add-on). Local edge-based stripping always runs first.
+    CLOUDINARY_LOGO_AI_BG_REMOVAL: bool = False
 
     BANNERBEAR_API_KEY: str = ""
     BANNERBEAR_TEMPLATE_COVER: str = ""
@@ -46,6 +48,40 @@ class Settings(BaseSettings):
     QUALITY_GATE_MIN_SCORE: float = 0.66
     QUALITY_GATE_MAX_RETRIES: int = 2
     MAX_REAL_PEOPLE_SHARE: float = 0.35
+
+    # AI cost optimization (safe-by-default rollout flags)
+    AI_COST_OPTIMIZATION_ENABLED: bool = True
+    AI_CACHE_ENABLED: bool = True
+    AI_MODEL_ROUTING_ENABLED: bool = True
+    AI_STRICT_TOKEN_BUDGET_ENABLED: bool = True
+    AI_LOW_COST_PREP_MODE: bool = True
+    AI_IMAGE_VARIANT_MIN_MODE: bool = True
+    AI_HIGH_QUALITY_FINAL_ONLY: bool = True
+
+    OPENAI_HIGH_QUALITY_MODEL: str = "gpt-4o"
+    OPENAI_LOW_COST_MODEL: str = "gpt-4o-mini"
+
+    AI_MAX_OUTPUT_TOKENS_DEFAULT: int = 2000
+    AI_PREP_MAX_OUTPUT_TOKENS: int = 1100
+    AI_BRAND_COACH_MAX_OUTPUT_TOKENS: int = 1800
+    AI_MONTHLY_PLAN_MAX_OUTPUT_TOKENS: int = 6000
+    AI_CAPTION_MAX_OUTPUT_TOKENS: int = 900
+    AI_TRENDS_MAX_OUTPUT_TOKENS: int = 1500
+
+    AI_MAX_INPUT_CHARS_PER_MESSAGE: int = 12000
+    AI_MAX_INPUT_CHARS_TOTAL: int = 70000
+    AI_CHAT_SUMMARY_TRIGGER_MESSAGES: int = 14
+    AI_CHAT_SUMMARY_KEEP_LAST_MESSAGES: int = 10
+
+    AI_CACHE_TTL_CHAT_SEC: int = 900
+    AI_CACHE_TTL_DETERMINISTIC_SEC: int = 14400
+    AI_TRANSIENT_RETRY_MAX: int = 1
+
+    # Rough cost modelling for telemetry (USD / 1K tokens)
+    AI_LOW_COST_MODEL_INPUT_PER_1K_USD: float = 0.00015
+    AI_LOW_COST_MODEL_OUTPUT_PER_1K_USD: float = 0.0006
+    AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.005
+    AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.015
 
     class Config:
         env_file = ".env"

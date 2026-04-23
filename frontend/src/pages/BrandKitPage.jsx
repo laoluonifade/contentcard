@@ -12,7 +12,7 @@ import LogoCropModal from '../components/brand/LogoCropModal'
 import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 
-const TABS = ['Basics', 'Products', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
+const TABS = ['Basics', 'Products', 'Reviews', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
 
 const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
 const CAMPAIGN_ART_STYLE_PROFILES = [
@@ -371,6 +371,16 @@ export default function BrandKitPage() {
   const [websiteSyncing, setWebsiteSyncing] = useState(false)
   const [referenceSyncing, setReferenceSyncing] = useState(false)
   const [productsLoading, setProductsLoading] = useState(false)
+  const [websiteReviews, setWebsiteReviews] = useState([])
+  const [reviewsLoading, setReviewsLoading] = useState(false)
+  const [reviewPhotoUploading, setReviewPhotoUploading] = useState(false)
+  const [manualReviewForm, setManualReviewForm] = useState({
+    customer_name: '',
+    rating: '5',
+    quote: '',
+    customer_image_url: '',
+    source_url: '',
+  })
   const [manualProductSaving, setManualProductSaving] = useState(false)
   const [manualProductRemovingId, setManualProductRemovingId] = useState('')
   const [authCaptureSaving, setAuthCaptureSaving] = useState(false)
@@ -378,6 +388,7 @@ export default function BrandKitPage() {
   const [websiteLoading, setWebsiteLoading] = useState(false)
   const logoFileRef = useRef(null)
   const brandImagesFileRef = useRef(null)
+  const reviewPhotoFileRef = useRef(null)
 
   useEffect(() => {
     if (!brand) return
@@ -399,6 +410,7 @@ export default function BrandKitPage() {
       pii_block_mode: 'strict',
       ...(kit.website_intelligence.auth_capture || {}),
     }
+    kit.reviews = Array.isArray(kit.reviews) ? kit.reviews : []
     setForm({ ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} })
   }, [brand?.id])
 
@@ -408,12 +420,13 @@ export default function BrandKitPage() {
     const loadWebsiteIntel = async () => {
       setWebsiteLoading(true)
       try {
-        const [status, opportunities, screenshots, refStatus, productRows] = await Promise.all([
+        const [status, opportunities, screenshots, refStatus, productRows, reviewRows] = await Promise.all([
           brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
           brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
           brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId),
           brandApi.referenceStatus(activeWorkspaceId, activeBrandId).catch(() => null),
           brandApi.websiteProducts(activeWorkspaceId, activeBrandId, { limit: 120, state: 'all' }).catch(() => []),
+          brandApi.websiteEntities(activeWorkspaceId, activeBrandId, { limit: 120, entity_type: 'review' }).catch(() => []),
         ])
         if (cancelled) return
         setWebsiteStatus(status)
@@ -421,6 +434,7 @@ export default function BrandKitPage() {
         setScreenshotStatus(screenshots || null)
         setReferenceStatus(refStatus || null)
         setProducts(Array.isArray(productRows) ? productRows : [])
+        setWebsiteReviews(Array.isArray(reviewRows) ? reviewRows : [])
       } catch {
         if (!cancelled) {
           setWebsiteStatus(null)
@@ -428,6 +442,7 @@ export default function BrandKitPage() {
           setScreenshotStatus(null)
           setReferenceStatus(null)
           setProducts([])
+          setWebsiteReviews([])
         }
       } finally {
         if (!cancelled) setWebsiteLoading(false)
@@ -535,6 +550,84 @@ export default function BrandKitPage() {
     }
   }
 
+  const loadWebsiteReviews = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setReviewsLoading(true)
+    try {
+      const rows = await brandApi.websiteEntities(activeWorkspaceId, activeBrandId, { limit: 120, entity_type: 'review' })
+      setWebsiteReviews(Array.isArray(rows) ? rows : [])
+    } catch {
+      setWebsiteReviews([])
+    } finally {
+      setReviewsLoading(false)
+    }
+  }
+
+  const addManualReview = () => {
+    const quote = String(manualReviewForm.quote || '').trim()
+    if (quote.length < 12) {
+      toast('Add a stronger customer quote (at least 12 characters).', 'error')
+      return
+    }
+    const customer = String(manualReviewForm.customer_name || '').trim() || 'Customer'
+    const ratingNum = Math.max(1, Math.min(5, parseInt(manualReviewForm.rating, 10) || 5))
+    const current = Array.isArray(form.brand_kit?.reviews) ? [...form.brand_kit.reviews] : []
+    current.unshift({
+      id: `manual-${Date.now()}`,
+      source: 'manual',
+      customer_name: customer,
+      rating: ratingNum,
+      quote,
+      customer_image_url: String(manualReviewForm.customer_image_url || '').trim() || null,
+      source_url: String(manualReviewForm.source_url || '').trim() || null,
+      created_at: new Date().toISOString(),
+    })
+    set('brand_kit', { ...(form.brand_kit || {}), reviews: current.slice(0, 60) })
+    setManualReviewForm({
+      customer_name: '',
+      rating: '5',
+      quote: '',
+      customer_image_url: '',
+      source_url: '',
+    })
+    toast('Review added to Brand Kit.')
+  }
+
+  const removeReviewAt = (idx) => {
+    const current = Array.isArray(form.brand_kit?.reviews) ? [...form.brand_kit.reviews] : []
+    if (idx < 0 || idx >= current.length) return
+    current.splice(idx, 1)
+    set('brand_kit', { ...(form.brand_kit || {}), reviews: current })
+  }
+
+  const importWebsiteReview = (row) => {
+    const attrs = row?.attributes || {}
+    const summary = String(row?.summary || '').trim()
+    const quote = summary || String(row?.title || '').trim()
+    if (!quote) return
+    const ratingRaw = attrs.rating
+    const ratingNum = Math.max(1, Math.min(5, parseInt(String(ratingRaw || '5'), 10) || 5))
+    const imageUrl = Array.isArray(attrs.images) && attrs.images.length ? String(attrs.images[0] || '') : ''
+    const payload = {
+      id: `website-${row.id}`,
+      source: 'website',
+      customer_name: String(attrs.customer_name || attrs.author || 'Verified customer').trim(),
+      rating: ratingNum,
+      quote: quote.slice(0, 500),
+      customer_image_url: imageUrl || null,
+      source_url: row?.source_url || null,
+      created_at: row?.last_seen_at || new Date().toISOString(),
+    }
+    const current = Array.isArray(form.brand_kit?.reviews) ? [...form.brand_kit.reviews] : []
+    if (current.some((r) => String(r.quote || '').trim().toLowerCase() === payload.quote.trim().toLowerCase())) {
+      toast('This review is already in your Brand Kit.')
+      return
+    }
+    current.unshift(payload)
+    set('brand_kit', { ...(form.brand_kit || {}), reviews: current.slice(0, 60) })
+    toast('Imported review into Brand Kit.')
+  }
+
   const createManualProduct = async () => {
     if (!activeWorkspaceId || !activeBrandId) return
     const title = String(manualProductForm.title || '').trim()
@@ -612,6 +705,7 @@ export default function BrandKitPage() {
       setWebsiteStatus(status)
       setWebsiteOps(opportunities || [])
       await loadProducts(productStateFilter)
+      await loadWebsiteReviews()
       try {
         const screenshots = await brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId)
         setScreenshotStatus(screenshots || null)
@@ -730,7 +824,7 @@ export default function BrandKitPage() {
       useAppStore.setState((s) => ({
         brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, logo_url: logoUrl } : b)),
       }))
-      toast('Logo saved. It will be composited onto generated post images.')
+      toast('Logo saved with a transparent-friendly treatment so it sits cleanly on any generated design.')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Upload failed', 'error')
       throw err
@@ -793,6 +887,34 @@ export default function BrandKitPage() {
       toast(err.response?.data?.detail || err.message || 'Brand image upload failed', 'error')
     } finally {
       setBrandImagesUploading(false)
+    }
+  }
+
+  const onReviewPhotoFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !activeBrandId || !activeWorkspaceId) return
+    if (!String(file.type || '').startsWith('image/')) {
+      toast('Please choose an image file for the customer photo.', 'error')
+      return
+    }
+    setReviewPhotoUploading(true)
+    try {
+      const res = await brandApi.uploadPhoto(activeWorkspaceId, activeBrandId, file)
+      const latestPhotos = Array.isArray(res?.brand_photos) ? res.brand_photos : []
+      const photoUrl = String(res?.photo_url || latestPhotos[latestPhotos.length - 1] || '').trim()
+      if (photoUrl) {
+        setManualReviewForm((f) => ({ ...f, customer_image_url: photoUrl }))
+      }
+      setForm((f) => ({ ...f, brand_photos: latestPhotos }))
+      useAppStore.setState((s) => ({
+        brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, brand_photos: latestPhotos } : b)),
+      }))
+      toast('Customer photo uploaded.')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Review photo upload failed', 'error')
+    } finally {
+      setReviewPhotoUploading(false)
     }
   }
 
@@ -1336,6 +1458,185 @@ export default function BrandKitPage() {
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {tab === 'Reviews' && (
+            <div className={cardCls}>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className={sectionTitleCls}>Reviews</h3>
+                  <p className="text-ink/40 text-xs mt-1">
+                    Add proof from real customer feedback. AI uses this section to write stronger trust-led content.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadWebsiteReviews}
+                  disabled={reviewsLoading}
+                  className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                >
+                  {reviewsLoading ? 'Refreshing…' : 'Refresh reviews'}
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
+                <p className="text-sm font-semibold text-ink">Add review manually</p>
+                <p className="text-xs text-ink/45 mt-1 mb-3">
+                  Add testimonials from calls, DMs, or client feedback. Include customer photo for stronger social proof.
+                </p>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <input
+                    className={inpCls}
+                    placeholder="Customer name"
+                    value={manualReviewForm.customer_name}
+                    onChange={(e) => setManualReviewForm((f) => ({ ...f, customer_name: e.target.value }))}
+                  />
+                  <select
+                    className={inpCls}
+                    value={manualReviewForm.rating}
+                    onChange={(e) => setManualReviewForm((f) => ({ ...f, rating: e.target.value }))}
+                  >
+                    <option value="5">5 stars</option>
+                    <option value="4">4 stars</option>
+                    <option value="3">3 stars</option>
+                    <option value="2">2 stars</option>
+                    <option value="1">1 star</option>
+                  </select>
+                </div>
+                <textarea
+                  className={clsx(taCls, 'mt-3')}
+                  rows={3}
+                  placeholder="Customer quote"
+                  value={manualReviewForm.quote}
+                  onChange={(e) => setManualReviewForm((f) => ({ ...f, quote: e.target.value }))}
+                />
+                <div className="grid md:grid-cols-2 gap-3 mt-3">
+                  <input
+                    className={inpCls}
+                    placeholder="Customer image URL (optional)"
+                    value={manualReviewForm.customer_image_url}
+                    onChange={(e) => setManualReviewForm((f) => ({ ...f, customer_image_url: e.target.value }))}
+                  />
+                  <input
+                    className={inpCls}
+                    placeholder="Review source URL (optional)"
+                    value={manualReviewForm.source_url}
+                    onChange={(e) => setManualReviewForm((f) => ({ ...f, source_url: e.target.value }))}
+                  />
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    ref={reviewPhotoFileRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    className="sr-only"
+                    onChange={onReviewPhotoFile}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => reviewPhotoFileRef.current?.click()}
+                    disabled={reviewPhotoUploading}
+                    className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-60"
+                  >
+                    {reviewPhotoUploading ? 'Uploading…' : 'Upload customer photo'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addManualReview}
+                    className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold"
+                  >
+                    Add review
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-fog bg-surface p-4 mb-4">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <p className="text-sm font-semibold text-ink">Import from website sync</p>
+                  <span className="text-xs text-ink/45">{websiteReviews.length} found</span>
+                </div>
+                {reviewsLoading ? (
+                  <div className="py-6 text-center text-sm text-ink/45">Loading reviews…</div>
+                ) : websiteReviews.length === 0 ? (
+                  <div className="text-xs text-ink/45">
+                    No website reviews found yet. Run website sync and refresh reviews.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                    {websiteReviews.map((r) => {
+                      const attrs = r.attributes || {}
+                      const rating = attrs.rating ? `${attrs.rating}/5` : null
+                      const reviewCount = attrs.review_count ? `${attrs.review_count} reviews` : null
+                      const quote = String(r.summary || '').trim() || String(r.title || '').trim()
+                      return (
+                        <div key={r.id} className="rounded-lg border border-fog bg-mist/40 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs font-semibold text-ink truncate">{r.title || 'Customer review'}</p>
+                            <button
+                              type="button"
+                              onClick={() => importWebsiteReview(r)}
+                              className="text-[11px] font-semibold text-brand-600 hover:text-brand-700"
+                            >
+                              Import
+                            </button>
+                          </div>
+                          {(rating || reviewCount) && (
+                            <p className="text-[11px] text-ink/45 mt-1">
+                              {[rating, reviewCount].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
+                          {quote && <p className="text-xs text-ink/60 mt-1 line-clamp-3">{quote}</p>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-fog bg-surface p-4">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <p className="text-sm font-semibold text-ink">Saved in Brand Kit</p>
+                  <span className="text-xs text-ink/45">{Array.isArray(form.brand_kit?.reviews) ? form.brand_kit.reviews.length : 0} saved</span>
+                </div>
+                {!Array.isArray(form.brand_kit?.reviews) || form.brand_kit.reviews.length === 0 ? (
+                  <div className="text-xs text-ink/45">No reviews added yet.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {form.brand_kit.reviews.map((rev, idx) => (
+                      <div key={rev.id || `${rev.quote}-${idx}`} className="rounded-lg border border-fog bg-mist/40 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 min-w-0">
+                            {rev.customer_image_url ? (
+                              <img src={rev.customer_image_url} alt={rev.customer_name || 'customer'} className="w-10 h-10 rounded-full object-cover border border-fog flex-shrink-0" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-slate-200 border border-fog flex-shrink-0" />
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-ink truncate">
+                                {rev.customer_name || 'Customer'} {rev.rating ? `· ${rev.rating}/5` : ''}
+                              </p>
+                              <p className="text-xs text-ink/65 mt-1">{rev.quote}</p>
+                              {rev.source_url ? (
+                                <a href={rev.source_url} target="_blank" rel="noreferrer" className="inline-block text-[11px] text-brand-600 hover:text-brand-700 mt-1">
+                                  Source
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeReviewAt(idx)}
+                            className="text-[11px] font-semibold text-red-600 hover:text-red-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

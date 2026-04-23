@@ -31,6 +31,7 @@ import TemplatesPage        from './pages/TemplatesPage'
 import SettingsPage         from './pages/SettingsPage'
 import BillingPage          from './pages/BillingPage'
 import DirectoryPage        from './pages/DirectoryPage'
+import MemesPage            from './pages/MemesPage'
 
 // Admin
 import AdminLogin           from './pages/AdminLogin'
@@ -45,6 +46,8 @@ import AdminTrendsPage      from './pages/AdminTrendsPage'
 import AdminTemplatesPage   from './pages/AdminTemplatesPage'
 import AdminSettingsPage    from './pages/AdminSettingsPage'
 import AdminDesignPlaybookPage from './pages/AdminDesignPlaybookPage'
+import AdminMemesPage       from './pages/AdminMemesPage'
+import AdminDemoRequestsPage from './pages/AdminDemoRequestsPage'
 
 function PrivateRoute({ children }) {
   const { isAuthenticated } = useAuthStore()
@@ -103,6 +106,7 @@ export default function App() {
           <Route path="settings"   element={<SettingsPage />} />
           <Route path="billing"    element={<BillingPage />} />
           <Route path="directory"  element={<DirectoryPage />} />
+          <Route path="memes"      element={<MemesPage />} />
         </Route>
 
         {/* Admin */}
@@ -112,11 +116,13 @@ export default function App() {
         <Route path="/admindash/workspaces"  element={<AdminRoute><AdminWorkspacesPage /></AdminRoute>} />
         <Route path="/admindash/brands"      element={<AdminRoute><AdminBrandsPage /></AdminRoute>} />
         <Route path="/admindash/content"     element={<AdminRoute><AdminContentPage /></AdminRoute>} />
+        <Route path="/admindash/demo-requests" element={<AdminRoute><AdminDemoRequestsPage /></AdminRoute>} />
         <Route path="/admindash/billing"     element={<AdminRoute><AdminBillingPage /></AdminRoute>} />
         <Route path="/admindash/analytics"   element={<AdminRoute><AdminAnalyticsPage /></AdminRoute>} />
         <Route path="/admindash/trends"      element={<AdminRoute><AdminTrendsPage /></AdminRoute>} />
         <Route path="/admindash/templates"   element={<AdminRoute><AdminTemplatesPage /></AdminRoute>} />
         <Route path="/admindash/design-playbook" element={<AdminRoute><AdminDesignPlaybookPage /></AdminRoute>} />
+        <Route path="/admindash/memes"       element={<AdminRoute><AdminMemesPage /></AdminRoute>} />
         <Route path="/admindash/settings"    element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
