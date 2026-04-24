@@ -7,6 +7,7 @@ import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
+import { authApi } from '../api'
 
 export const COUNTRIES_LIST = [
   { code: 'NG', name: 'Nigeria',              dial: '+234', placeholder: '801 234 5678' },
@@ -53,6 +54,7 @@ export default function SignupPage() {
   const [quickFillWebsite, setQuickFillWebsite] = useState('')
   const [quickFillEnabled, setQuickFillEnabled] = useState(false)
   const [showPw, setShowPw] = useState(false)
+  const [shopDomain, setShopDomain] = useState('')
   const { signup, isLoading } = useAuthStore()
   const { fetchWorkspaces } = useAppStore()
   const navigate = useNavigate()
@@ -63,6 +65,7 @@ export default function SignupPage() {
     '--cc-surface-rgb': '255 255 255',
     '--cc-page-rgb': '255 255 255',
   }
+  const shopifyEnabled = String(import.meta.env.VITE_SHOPIFY_AUTH_ENABLED || 'false') === 'true'
 
   const selectedCountry = COUNTRIES_LIST.find(c => c.code === form.country_code)
 
@@ -112,6 +115,20 @@ export default function SignupPage() {
     }
   }
 
+  const startShopify = async () => {
+    const candidate = shopDomain.trim().toLowerCase()
+    if (!candidate.endsWith('.myshopify.com')) {
+      toast('Enter your Shopify domain, e.g. yourstore.myshopify.com', 'error')
+      return
+    }
+    try {
+      const res = await authApi.shopifyStart({ shop: candidate, mode: 'signup', next_path: '/onboarding' })
+      window.location.href = res.authorization_url
+    } catch (err) {
+      toast(err?.response?.data?.detail || 'Could not start Shopify signup.', 'error')
+    }
+  }
+
   const pwStrength = () => {
     const l = form.password.length
     if (!l) return null
@@ -156,6 +173,22 @@ export default function SignupPage() {
           <>
             <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Create your account</h1>
             <p className="text-ink/50 mb-6 text-sm">Start free · No credit card required.</p>
+            {shopifyEnabled && (
+              <div className="rounded-xl border border-fog p-3 bg-white mb-5">
+                <p className="label">Sign up with Shopify</p>
+                <div className="flex gap-2">
+                  <input
+                    value={shopDomain}
+                    onChange={(e) => setShopDomain(e.target.value)}
+                    placeholder="yourstore.myshopify.com"
+                    className="input"
+                  />
+                  <button type="button" className="btn-secondary whitespace-nowrap" onClick={startShopify}>
+                    Continue
+                  </button>
+                </div>
+              </div>
+            )}
             <form onSubmit={nextStep} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>

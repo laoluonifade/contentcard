@@ -1,15 +1,35 @@
 import re
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import hashlib
+import hmac
+import json
+import secrets
+from urllib.parse import urlencode
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from datetime import datetime, timedelta, timezone
 
 from app.db.database import get_db
+from app.models.brand import Brand
+from app.models.shopify import ShopifyConnection, ShopifyConnectionStatus, ShopifyProductSnapshot
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.dependencies import get_current_user
-from app.schemas.auth import SignupRequest, LoginRequest, TokenResponse, UserOut, PasswordChangeRequest
+from app.schemas.auth import (
+    LoginRequest,
+    PasswordChangeRequest,
+    PostSignupDecisionRequest,
+    ShopifyAuthStartResponse,
+    ShopifyOnboardingCompleteRequest,
+    ShopifyOnboardingStatusOut,
+    SignupRequest,
+    TokenResponse,
+    UserOut,
+)
 from app.services.geo_service import get_country_from_ip, get_payment_provider
 from app.core.config import settings
 
@@ -140,3 +160,455 @@ async def change_password(
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     current_user.hashed_password = hash_password(body.new_password)
     await db.commit()
+
+
+def _shopify_state_secret() -> str:
+    return (settings.SHOPIFY_OAUTH_STATE_SECRET or settings.SECRET_KEY).strip()
+
+
+def _sign_state(payload: dict) -> str:
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    sig = hmac.new(_shopify_state_secret().encode("utf-8"), raw, hashlib.sha256).hexdigest()
+    return f"{raw.hex()}.{sig}"
+
+
+def _parse_state(state: str) -> dict:
+    try:
+        raw_hex, sig = state.split(".", 1)
+        raw = bytes.fromhex(raw_hex)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Invalid Shopify OAuth state") from exc
+    expected = hmac.new(_shopify_state_secret().encode("utf-8"), raw, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, sig):
+        raise HTTPException(status_code=400, detail="Invalid Shopify OAuth state signature")
+    payload = json.loads(raw.decode("utf-8"))
+    if datetime.now(timezone.utc).timestamp() > float(payload.get("exp_ts", 0)):
+        raise HTTPException(status_code=400, detail="Shopify OAuth state expired")
+    return payload
+
+
+def _normalize_shop_domain(shop: str) -> str:
+    s = (shop or "").strip().lower()
+    if not s.endswith(".myshopify.com"):
+        raise HTTPException(status_code=400, detail="Invalid Shopify shop domain")
+    return s
+
+
+def _callback_url() -> str:
+    v = (settings.SHOPIFY_OAUTH_CALLBACK_URL or "").strip()
+    if v:
+        return v
+    api_base = (settings.API_BASE_URL or "").strip().rstrip("/")
+    if not api_base:
+        raise HTTPException(status_code=500, detail="Shopify callback URL is not configured")
+    return f"{api_base}/api/v1/auth/shopify/callback"
+
+
+def _frontend_base() -> str:
+    return ((settings.APP_BASE_URL or settings.FRONTEND_URL or "").strip() or "http://localhost:5173").rstrip("/")
+
+
+async def _exchange_code_for_token(shop: str, code: str) -> dict:
+    token_url = f"https://{shop}/admin/oauth/access_token"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        res = await client.post(
+            token_url,
+            json={
+                "client_id": settings.SHOPIFY_CLIENT_ID,
+                "client_secret": settings.SHOPIFY_CLIENT_SECRET,
+                "code": code,
+            },
+        )
+        if res.status_code >= 400:
+            raise HTTPException(status_code=400, detail="Failed to exchange Shopify OAuth code")
+        return res.json()
+
+
+async def _shopify_get(shop: str, token: str, path: str, params: dict | None = None) -> httpx.Response:
+    url = f"https://{shop}{path}"
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        res = await client.get(
+            url,
+            params=params or {},
+            headers={"X-Shopify-Access-Token": token},
+        )
+        res.raise_for_status()
+        return res
+
+
+def _required_onboarding_fields(brand: Brand, product_count: int) -> list[str]:
+    missing: list[str] = []
+    if not (brand.name or "").strip():
+        missing.append("brand_name")
+    if not (brand.logo_url or "").strip():
+        missing.append("logo_url")
+    if not (brand.industry or "").strip():
+        missing.append("industry")
+    if not (brand.description or "").strip():
+        missing.append("description")
+    if not (brand.target_audience or "").strip():
+        missing.append("target_audience")
+    if product_count <= 0:
+        missing.append("primary_product_description")
+    return missing
+
+
+async def _latest_shopify_connection_for_user(db: AsyncSession, user_id: str) -> ShopifyConnection | None:
+    result = await db.execute(
+        select(ShopifyConnection)
+        .where(ShopifyConnection.user_id == user_id)
+        .order_by(ShopifyConnection.connected_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+@router.get("/shopify/start", response_model=ShopifyAuthStartResponse)
+async def shopify_start(
+    shop: str = Query(...),
+    mode: str = Query("signup"),
+    next_path: str = Query("/dashboard"),
+):
+    if not settings.SHOPIFY_AUTH_ENABLED:
+        raise HTTPException(status_code=404, detail="Shopify auth is disabled")
+    if not settings.SHOPIFY_CLIENT_ID or not settings.SHOPIFY_CLIENT_SECRET:
+        raise HTTPException(status_code=500, detail="Shopify OAuth credentials are not configured")
+    shop_domain = _normalize_shop_domain(shop)
+    now = datetime.now(timezone.utc)
+    state_payload = {
+        "nonce": secrets.token_urlsafe(16),
+        "iat_ts": now.timestamp(),
+        "exp_ts": (now + timedelta(minutes=10)).timestamp(),
+        "mode": mode,
+        "next_path": next_path if next_path.startswith("/") else "/dashboard",
+    }
+    state = _sign_state(state_payload)
+    scope = (settings.SHOPIFY_SCOPES or "").strip()
+    auth_qs = urlencode(
+        {
+            "client_id": settings.SHOPIFY_CLIENT_ID,
+            "scope": scope,
+            "redirect_uri": _callback_url(),
+            "state": state,
+        }
+    )
+    return ShopifyAuthStartResponse(authorization_url=f"https://{shop_domain}/admin/oauth/authorize?{auth_qs}")
+
+
+@router.get("/shopify/callback")
+async def shopify_callback(
+    code: str = Query(...),
+    hmac_sig: str = Query(..., alias="hmac"),
+    shop: str = Query(...),
+    state: str = Query(...),
+    timestamp: str = Query(""),
+    db: AsyncSession = Depends(get_db),
+):
+    params = {"code": code, "shop": shop, "state": state, "timestamp": timestamp}
+    sorted_query = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+    expected_hmac = hmac_sig
+    digest = hmac.new(
+        settings.SHOPIFY_CLIENT_SECRET.encode("utf-8"),
+        sorted_query.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(digest, expected_hmac):
+        raise HTTPException(status_code=400, detail="Invalid Shopify callback signature")
+
+    parsed_state = _parse_state(state)
+    shop_domain = _normalize_shop_domain(shop)
+    token_payload = await _exchange_code_for_token(shop_domain, code)
+    access_token = token_payload.get("access_token", "")
+    scope = token_payload.get("scope", "")
+    if not access_token:
+        raise HTTPException(status_code=400, detail="Missing Shopify access token")
+
+    shop_res = await _shopify_get(shop_domain, access_token, "/admin/api/2024-10/shop.json")
+    shop_info = (shop_res.json() or {}).get("shop") or {}
+
+    email = (shop_info.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Shopify shop email is required")
+    full_name = (shop_info.get("shop_owner") or shop_info.get("name") or "Shopify User").strip()
+    shop_name = (shop_info.get("name") or "Shopify Store").strip()
+    website = (shop_info.get("domain") or "").strip()
+    location = ", ".join(
+        [v for v in [shop_info.get("city"), shop_info.get("province"), shop_info.get("country_name")] if v]
+    ).strip(", ")
+
+    user_result = await db.execute(select(User).where(User.email == email))
+    user = user_result.scalar_one_or_none()
+    if not user:
+        user = User(
+            full_name=full_name,
+            email=email,
+            hashed_password=hash_password(secrets.token_urlsafe(24)),
+            country_code=(shop_info.get("country_code") or None),
+            auth_provider="shopify",
+            shopify_shop_domain=shop_domain,
+        )
+        db.add(user)
+        await db.flush()
+    else:
+        if user.auth_provider == "password":
+            user.auth_provider = "mixed"
+        user.shopify_shop_domain = shop_domain
+
+    ws_result = await db.execute(select(Workspace).where(Workspace.owner_id == user.id).order_by(Workspace.created_at.asc()))
+    workspace = ws_result.scalars().first()
+    if not workspace:
+        slug = await ensure_unique_slug(db, slugify(f"{shop_name} workspace"))
+        trial_ends = datetime.now(timezone.utc) + timedelta(days=settings.FREE_TRIAL_DAYS)
+        workspace = Workspace(
+            name=f"{shop_name} Workspace",
+            slug=slug,
+            owner_id=user.id,
+            plan="trial",
+            trial_ends_at=trial_ends,
+            payment_provider=get_payment_provider((shop_info.get("country_code") or "").upper() or None),
+        )
+        db.add(workspace)
+        await db.flush()
+        db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=WorkspaceRole.OWNER))
+
+    brand_result = await db.execute(select(Brand).where(Brand.workspace_id == workspace.id).order_by(Brand.created_at.asc()))
+    brand = brand_result.scalars().first()
+    if not brand:
+        brand = Brand(
+            workspace_id=workspace.id,
+            name=shop_name,
+            website=f"https://{website}" if website else None,
+            location=location or None,
+            description=f"{shop_name} sells products on Shopify.",
+            tone_tags=["professional", "friendly"],
+            brand_kit={},
+        )
+        db.add(brand)
+        await db.flush()
+    else:
+        brand.name = brand.name or shop_name
+        brand.website = brand.website or (f"https://{website}" if website else None)
+        brand.location = brand.location or (location or None)
+
+    theme_logo_url: str | None = None
+    try:
+        themes_res = await _shopify_get(shop_domain, access_token, "/admin/api/2024-10/themes.json")
+        themes = (themes_res.json() or {}).get("themes") or []
+        main_theme = next((t for t in themes if t.get("role") == "main"), None)
+        if main_theme:
+            assets_res = await _shopify_get(
+                shop_domain,
+                access_token,
+                f"/admin/api/2024-10/themes/{main_theme['id']}/assets.json",
+                params={"asset[key]": "config/settings_data.json"},
+            )
+            asset = ((assets_res.json() or {}).get("asset") or {}).get("value") or ""
+            if isinstance(asset, str) and "shopify://" in asset:
+                theme_logo_url = asset
+    except Exception:
+        theme_logo_url = None
+
+    if not (brand.logo_url or "").strip():
+        brand.logo_url = theme_logo_url or None
+
+    next_page = "/shopify/decision"
+    connection_result = await db.execute(select(ShopifyConnection).where(ShopifyConnection.shop_domain == shop_domain))
+    connection = connection_result.scalar_one_or_none()
+    if not connection:
+        connection = ShopifyConnection(
+            user_id=user.id,
+            workspace_id=workspace.id,
+            brand_id=brand.id,
+            shop_domain=shop_domain,
+            access_token_ref=f"shopify:{shop_domain}:{secrets.token_hex(6)}",
+            scope=scope,
+            status=ShopifyConnectionStatus.CONNECTED,
+            metadata={"shop_name": shop_name},
+            connected_at=datetime.now(timezone.utc),
+            last_sync_at=datetime.now(timezone.utc),
+        )
+        db.add(connection)
+    else:
+        connection.user_id = user.id
+        connection.workspace_id = workspace.id
+        connection.brand_id = brand.id
+        connection.scope = scope
+        connection.status = ShopifyConnectionStatus.CONNECTED
+        connection.metadata = {**(connection.metadata or {}), "shop_name": shop_name}
+        connection.last_sync_at = datetime.now(timezone.utc)
+
+    products: list[dict] = []
+    page_info: str | None = None
+    while True:
+        params = {"limit": 250, "status": "active"}
+        if page_info:
+            params = {"limit": 250, "page_info": page_info}
+        product_res = await _shopify_get(shop_domain, access_token, "/admin/api/2024-10/products.json", params=params)
+        batch = (product_res.json() or {}).get("products") or []
+        products.extend(batch)
+        link_header = product_res.headers.get("Link", "")
+        if 'rel="next"' not in link_header:
+            break
+        next_part = [p for p in link_header.split(",") if 'rel="next"' in p]
+        if not next_part:
+            break
+        match = re.search(r"[?&]page_info=([^&>]+)", next_part[0])
+        page_info = match.group(1) if match else None
+        if not page_info:
+            break
+
+    await db.execute(
+        delete(ShopifyProductSnapshot).where(
+            ShopifyProductSnapshot.workspace_id == workspace.id,
+            ShopifyProductSnapshot.brand_id == brand.id,
+            ShopifyProductSnapshot.shop_domain == shop_domain,
+        )
+    )
+    for p in products:
+        variants = p.get("variants") or []
+        prices = [str(v.get("price")) for v in variants if v.get("price") is not None]
+        img = (p.get("image") or {}).get("src")
+        tags = [t.strip() for t in str(p.get("tags") or "").split(",") if t.strip()]
+        db.add(
+            ShopifyProductSnapshot(
+                workspace_id=workspace.id,
+                brand_id=brand.id,
+                shop_domain=shop_domain,
+                product_id=str(p.get("id")),
+                title=(p.get("title") or "Untitled Product")[:255],
+                handle=p.get("handle"),
+                description=p.get("body_html"),
+                primary_image_url=img,
+                price_min=min(prices) if prices else None,
+                price_max=max(prices) if prices else None,
+                currency=(shop_info.get("currency") or None),
+                product_type=p.get("product_type"),
+                tags=tags,
+                status=p.get("status"),
+                synced_at=datetime.now(timezone.utc),
+            )
+        )
+
+    required_missing = _required_onboarding_fields(brand, len(products))
+    if required_missing:
+        next_page = "/shopify/complete-onboarding"
+    token = create_access_token(user.id)
+    await db.commit()
+    callback_target = f"{_frontend_base()}/shopify/callback"
+    destination = (
+        f"{callback_target}?token={token}&next={next_page}"
+        f"&missing={','.join(required_missing)}&mode={parsed_state.get('mode','signup')}"
+    )
+    return RedirectResponse(url=destination, status_code=status.HTTP_302_FOUND)
+
+
+@router.get("/shopify/onboarding-status", response_model=ShopifyOnboardingStatusOut)
+async def shopify_onboarding_status(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    connection = await _latest_shopify_connection_for_user(db, current_user.id)
+    if not connection or not connection.brand_id:
+        return ShopifyOnboardingStatusOut(onboarding_complete=True, missing_fields=[])
+    brand_result = await db.execute(select(Brand).where(Brand.id == connection.brand_id))
+    brand = brand_result.scalar_one_or_none()
+    if not brand:
+        return ShopifyOnboardingStatusOut(onboarding_complete=True, missing_fields=[])
+    count_result = await db.execute(
+        select(ShopifyProductSnapshot)
+        .where(
+            ShopifyProductSnapshot.workspace_id == connection.workspace_id,
+            ShopifyProductSnapshot.brand_id == connection.brand_id,
+            ShopifyProductSnapshot.shop_domain == connection.shop_domain,
+        )
+    )
+    product_count = len(count_result.scalars().all())
+    missing = _required_onboarding_fields(brand, product_count)
+    return ShopifyOnboardingStatusOut(
+        onboarding_complete=not missing,
+        missing_fields=missing,
+        brand_id=connection.brand_id,
+        workspace_id=connection.workspace_id,
+    )
+
+
+@router.post("/shopify/onboarding-complete", response_model=ShopifyOnboardingStatusOut)
+async def complete_shopify_onboarding(
+    body: ShopifyOnboardingCompleteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    connection = await _latest_shopify_connection_for_user(db, current_user.id)
+    if not connection or not connection.brand_id:
+        raise HTTPException(status_code=404, detail="No Shopify onboarding session found")
+    brand_result = await db.execute(select(Brand).where(Brand.id == connection.brand_id))
+    brand = brand_result.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+
+    if body.brand_name is not None:
+        brand.name = body.brand_name.strip()
+    if body.industry is not None:
+        brand.industry = body.industry.strip() or None
+    if body.description is not None:
+        brand.description = body.description.strip() or None
+    if body.target_audience is not None:
+        brand.target_audience = body.target_audience.strip() or None
+    if body.logo_url is not None:
+        brand.logo_url = body.logo_url.strip() or None
+    if body.primary_product_description:
+        brand.brand_kit = {
+            **(brand.brand_kit or {}),
+            "primary_product_description": body.primary_product_description.strip(),
+        }
+
+    count_result = await db.execute(
+        select(ShopifyProductSnapshot).where(
+            ShopifyProductSnapshot.workspace_id == connection.workspace_id,
+            ShopifyProductSnapshot.brand_id == connection.brand_id,
+            ShopifyProductSnapshot.shop_domain == connection.shop_domain,
+        )
+    )
+    product_count = len(count_result.scalars().all())
+    if body.primary_product_description and product_count <= 0:
+        product_count = 1
+
+    missing = _required_onboarding_fields(brand, product_count)
+    if missing:
+        raise HTTPException(status_code=400, detail={"missing_fields": missing})
+
+    await db.commit()
+    return ShopifyOnboardingStatusOut(
+        onboarding_complete=True,
+        missing_fields=[],
+        brand_id=connection.brand_id,
+        workspace_id=connection.workspace_id,
+    )
+
+
+@router.get("/post-signup-decision")
+async def get_post_signup_decision(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    connection = await _latest_shopify_connection_for_user(db, current_user.id)
+    if not connection:
+        return {"show_decision": False, "decision": None}
+    decision = (connection.metadata or {}).get("post_signup_decision")
+    return {"show_decision": decision is None, "decision": decision}
+
+
+@router.post("/post-signup-decision")
+async def set_post_signup_decision(
+    body: PostSignupDecisionRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if body.decision not in {"subscribe_now", "skip_free"}:
+        raise HTTPException(status_code=400, detail="Invalid decision")
+    connection = await _latest_shopify_connection_for_user(db, current_user.id)
+    if not connection:
+        raise HTTPException(status_code=404, detail="Shopify connection not found")
+    connection.metadata = {**(connection.metadata or {}), "post_signup_decision": body.decision}
+    await db.commit()
+    return {"ok": True, "decision": body.decision}
