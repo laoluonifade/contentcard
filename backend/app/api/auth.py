@@ -423,7 +423,7 @@ async def shopify_callback(
             access_token_ref=f"shopify:{shop_domain}:{secrets.token_hex(6)}",
             scope=scope,
             status=ShopifyConnectionStatus.CONNECTED,
-            metadata={"shop_name": shop_name},
+            connection_metadata={"shop_name": shop_name},
             connected_at=datetime.now(timezone.utc),
             last_sync_at=datetime.now(timezone.utc),
         )
@@ -434,7 +434,7 @@ async def shopify_callback(
         connection.brand_id = brand.id
         connection.scope = scope
         connection.status = ShopifyConnectionStatus.CONNECTED
-        connection.metadata = {**(connection.metadata or {}), "shop_name": shop_name}
+        connection.connection_metadata = {**(connection.connection_metadata or {}), "shop_name": shop_name}
         connection.last_sync_at = datetime.now(timezone.utc)
 
     products: list[dict] = []
@@ -594,7 +594,7 @@ async def get_post_signup_decision(
     connection = await _latest_shopify_connection_for_user(db, current_user.id)
     if not connection:
         return {"show_decision": False, "decision": None}
-    decision = (connection.metadata or {}).get("post_signup_decision")
+    decision = (connection.connection_metadata or {}).get("post_signup_decision")
     return {"show_decision": decision is None, "decision": decision}
 
 
@@ -609,6 +609,6 @@ async def set_post_signup_decision(
     connection = await _latest_shopify_connection_for_user(db, current_user.id)
     if not connection:
         raise HTTPException(status_code=404, detail="Shopify connection not found")
-    connection.metadata = {**(connection.metadata or {}), "post_signup_decision": body.decision}
+    connection.connection_metadata = {**(connection.connection_metadata or {}), "post_signup_decision": body.decision}
     await db.commit()
     return {"ok": True, "decision": body.decision}

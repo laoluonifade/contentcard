@@ -28,7 +28,7 @@ class ShopifyConnection(Base):
     status: Mapped[ShopifyConnectionStatus] = mapped_column(
         SAEnum(ShopifyConnectionStatus), default=ShopifyConnectionStatus.CONNECTED, nullable=False
     )
-    metadata: Mapped[dict | None] = mapped_column(JSON, default=dict)
+    connection_metadata: Mapped[dict | None] = mapped_column("metadata", JSON, default=dict)
     connected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     last_sync_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
