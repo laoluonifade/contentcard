@@ -165,7 +165,7 @@ export default function LandingPage() {
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.06] max-w-[14ch]">
                 Create standout social content in minutes.
               </h1>
-              <p className="mt-5 text-xl sm:text-2xl text-ink/60 leading-[1.25] max-w-[19ch]">
+              <p className="mt-5 text-lg sm:text-xl text-ink/62 leading-[1.35] max-w-[16ch] sm:max-w-[17ch]">
                 Generate beautiful visuals, captions, and publish-ready posts in ContentCard for Instagram, X, and Facebook.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
@@ -187,6 +187,35 @@ export default function LandingPage() {
           </div>
         </MarketingContainer>
       </section>
+
+      <SurfaceSection className="bg-white border-b border-fog">
+        <MarketingContainer>
+          <SectionHeader
+            eyebrow="Discover"
+            title="See what brands create with ContentCard"
+            subtitle="Explore campaign-ready social posts created for real business use cases across food, mobility, and retail."
+          />
+          <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {discoverExamples.map((item, idx) => (
+              <article
+                key={`${item.brand}-${item.platform}-${idx}`}
+                className="rounded-3xl border border-fog bg-white overflow-hidden shadow-[0_14px_36px_rgba(15,23,42,0.08)]"
+              >
+                <img src={item.image} alt={`${item.brand} ${item.platform} post design`} className="w-full h-64 object-cover bg-mist/60" />
+                <div className="p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-base font-semibold text-ink">{item.brand}</p>
+                    <span className="text-[11px] uppercase tracking-wider rounded-full px-2.5 py-1 bg-brand-50 text-brand-700 font-semibold">
+                      {item.platform}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-ink/65 leading-relaxed">{item.caption}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
 
       <section className="bg-gradient-to-b from-brand-700 via-brand-800 to-[#0f2a22] border-y border-brand-900 text-white">
         <MarketingContainer className="py-14 sm:py-16">
@@ -238,35 +267,6 @@ export default function LandingPage() {
           />
           <div className="mt-10">
             <WhyTeamsSwitchShowcase />
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <SurfaceSection className="bg-white border-b border-fog">
-        <MarketingContainer>
-          <SectionHeader
-            eyebrow="Discover"
-            title="See what brands create with ContentCard"
-            subtitle="Explore campaign-ready social posts created for real business use cases across food, mobility, and retail."
-          />
-          <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {discoverExamples.map((item, idx) => (
-              <article
-                key={`${item.brand}-${item.platform}-${idx}`}
-                className="rounded-2xl border border-fog bg-white overflow-hidden shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
-              >
-                <img src={item.image} alt={`${item.brand} ${item.platform} post design`} className="w-full h-52 object-cover bg-mist/60" />
-                <div className="p-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-ink">{item.brand}</p>
-                    <span className="text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">
-                      {item.platform}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-xs text-ink/65 leading-relaxed">{item.caption}</p>
-                </div>
-              </article>
-            ))}
           </div>
         </MarketingContainer>
       </SurfaceSection>

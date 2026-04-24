@@ -107,8 +107,8 @@ export default function MarketingLayout({ children }) {
       <main className="flex-1">{children}</main>
 
       {/* Footer */}
-      <footer className="relative overflow-hidden border-t border-fog py-14 px-4 sm:px-6 mt-24 bg-gradient-to-br from-[#7dd3fc] via-[#f0abfc] to-[#fb7185]">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_85%,rgba(251,146,60,0.9),transparent_35%),radial-gradient(circle_at_90%_20%,rgba(59,130,246,0.45),transparent_30%),radial-gradient(circle_at_55%_100%,rgba(16,185,129,0.35),transparent_38%)]" />
+      <footer className="relative overflow-hidden border-t border-fog py-14 px-4 sm:px-6 mt-24 bg-gradient-to-br from-[#064E3B] via-[#047857] to-[#10B981]">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_85%,rgba(52,211,153,0.45),transparent_35%),radial-gradient(circle_at_88%_20%,rgba(16,185,129,0.35),transparent_30%),radial-gradient(circle_at_55%_100%,rgba(110,231,183,0.28),transparent_38%)]" />
         <div className="relative max-w-7xl mx-auto rounded-3xl border border-white/50 bg-white/88 backdrop-blur-sm p-8 sm:p-10">
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
