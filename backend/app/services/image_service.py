@@ -482,7 +482,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         "visible forehead-to-chin clearance and generous headroom; never crop through foreheads, eyes, mouths, or necks at "
         "the top or sides. Keep the upper-left quadrant calmer (open tone, lower micro-detail) so downstream headline typography "
         "does not sit on busy edges. Keep the hero dish or product fully inside the frame with margin. "
-        "Post-production logo and type safe-areas must never clip the story."
+        "Post-production logo and type safe-areas must never clip the story. "
+        "Human realism guard (always): no waxy or plastic skin, no duplicated or asymmetrical clone faces, no malformed fingers or hands, "
+        "no glassy doll-like eyes, no uncanny smile geometry, no over-smoothed beauty-filter skin, and no impossible reflections. "
+        "Prefer believable documentary camera rendering with natural texture, grounded shadows, and authentic micro-imperfections."
     )
     prompt = f"{prompt.strip()}{edge_guard}"
 
