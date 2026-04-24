@@ -1,4 +1,4 @@
-import { ArrowRight, ChevronRight } from 'lucide-react'
+import { ArrowRight, ChevronRight, Facebook, Instagram, Twitter } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
 import {
   CtaBand,
@@ -8,15 +8,88 @@ import {
   SectionHeader,
   SurfaceSection,
 } from '../components/marketing/MarketingPrimitives'
-import { StripeUberHeroMockup, WhyTeamsSwitchShowcase } from '../components/marketing/AppDashboardMockups'
+import { WhyTeamsSwitchShowcase } from '../components/marketing/AppDashboardMockups'
+
+function HeroPlatformCards() {
+  const cards = [
+    {
+      platform: 'Instagram',
+      handle: '@juicyjunction_',
+      icon: Instagram,
+      image: '/marketing-examples/juicy-jollof.png',
+      status: 'Queued',
+      time: 'Today · 6:30 PM',
+      border: 'border-pink-200',
+    },
+    {
+      platform: 'X',
+      handle: '@uberlagos',
+      icon: Twitter,
+      image: '/marketing-examples/uber-ride.png',
+      status: 'Ready',
+      time: 'Today · 7:00 PM',
+      border: 'border-slate-200',
+    },
+    {
+      platform: 'Facebook',
+      handle: 'Krispy Kreme NG',
+      icon: Facebook,
+      image: '/marketing-examples/krispy-fresh.png',
+      status: 'Scheduled',
+      time: 'Tomorrow · 9:00 AM',
+      border: 'border-blue-200',
+    },
+  ]
+
+  return (
+    <div className="relative min-h-[340px] sm:min-h-[410px]">
+      {cards.map((card, idx) => {
+        const Icon = card.icon
+        return (
+          <div
+            key={card.platform}
+            className={`absolute w-[78%] sm:w-[72%] rounded-2xl border ${card.border} bg-white shadow-[0_12px_34px_rgba(15,23,42,0.14)] overflow-hidden`}
+            style={{
+              top: `${idx * 52}px`,
+              left: `${idx * 9}%`,
+              transform: `rotate(${idx === 1 ? '-2.2deg' : idx === 2 ? '2.2deg' : '-1deg'})`,
+              zIndex: 30 - idx,
+            }}
+          >
+            <div className="px-3.5 py-2.5 border-b border-fog flex items-center justify-between bg-mist/60">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-full bg-surface border border-fog flex items-center justify-center text-ink/70">
+                  <Icon size={14} />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold text-ink">{card.platform}</p>
+                  <p className="text-[10px] text-ink/45">{card.handle}</p>
+                </div>
+              </div>
+              <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{card.status}</span>
+            </div>
+            <img src={card.image} alt={`${card.platform} example post`} className="w-full h-36 sm:h-44 object-cover" />
+            <div className="px-3.5 py-2.5 border-t border-fog">
+              <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
+              <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
+                Built in ContentCard with brand-safe layout, CTA, and platform-ready copy.
+              </p>
+              <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 export default function LandingPage() {
   const metrics = [
-    ['500M+', 'AI requests per day'],
-    ['10K+', 'AI requests per second'],
-    ['150K+', 'Social actions per minute'],
+    ['30+', 'posts generated per month'],
+    ['3x', 'faster campaign turnaround'],
+    ['68%', 'lower content production cost'],
   ]
-  const logos = ['mindbody', 'JOBBER', 'substack', 'lightspeed', 'coinbase', 'shopify']
+  const logos = ['Juicy Junction', 'Novabridg', 'Axle Bank', 'OBA', 'Zenastack', 'Shopriva']
 
   return (
     <MarketingLayout>
@@ -27,11 +100,10 @@ export default function LandingPage() {
         </div>
         <MarketingContainer className="relative py-16 sm:py-20 lg:py-24">
           <div className="max-w-3xl">
-            <p className="text-xs font-semibold text-ink/55 mb-6">ContentCard social network output index: 1,641,725%</p>
             <h1 className="text-5xl sm:text-6xl font-semibold tracking-tight text-ink leading-[1.05]">
-              Social infrastructure to grow your revenue.
+              Build social campaigns that look premium and ship fast.
               <span className="block text-ink/60 mt-2">
-                Generate posts, ship campaigns, and scale audience demand from your first launch to your billionth impression.
+                Create high-quality brand visuals, captions, and platform-ready posts in ContentCard, then publish confidently across Instagram, X, and Facebook.
               </span>
             </h1>
             <div className="mt-8 flex flex-wrap gap-3">
@@ -39,8 +111,8 @@ export default function LandingPage() {
               <SecondaryCta to="/demo">Book a live demo</SecondaryCta>
             </div>
           </div>
-          <div className="mt-10 lg:mt-12 max-w-3xl">
-            <StripeUberHeroMockup className="h-[300px] sm:h-[360px]" />
+          <div className="mt-10 lg:mt-12 max-w-4xl">
+            <HeroPlatformCards />
           </div>
         </MarketingContainer>
       </section>
@@ -55,16 +127,16 @@ export default function LandingPage() {
         </MarketingContainer>
       </SurfaceSection>
 
-      <section className="bg-[#07153d] border-y border-[#1c2f6e] text-white">
+      <section className="bg-ink border-y border-ink/90 text-white">
         <MarketingContainer className="py-14 sm:py-16">
           <p className="text-3xl sm:text-4xl font-medium leading-tight max-w-4xl text-white/95">
-            Scale with confidence. Handle thousands of transactions per second with consistent speed and reliability, even during peak traffic periods.
+            Scale with confidence. Generate, review, and publish high-quality social campaigns with speed and consistency.
           </p>
-          <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-[#ff97c6] via-[#9b67ff] to-[#2d42f8] opacity-90 blur-[0.5px]" />
+          <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-brand-500/40 via-emerald-300/25 to-teal/35 border border-white/10" />
           <div className="mt-10 grid sm:grid-cols-3 gap-6">
             {metrics.map(([value, label]) => (
               <div key={label}>
-                <p className="text-5xl font-semibold tracking-tight text-[#f2a7ce]">{value}</p>
+                <p className="text-5xl font-semibold tracking-tight text-brand-300">{value}</p>
                 <p className="mt-1 text-white/75">{label}</p>
               </div>
             ))}
