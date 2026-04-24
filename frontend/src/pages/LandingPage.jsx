@@ -1,8 +1,7 @@
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, ChevronRight } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
 import {
   CtaBand,
-  HeroSection,
   MarketingContainer,
   PrimaryCta,
   SecondaryCta,
@@ -12,45 +11,87 @@ import {
 import { StripeUberHeroMockup, WhyTeamsSwitchShowcase } from '../components/marketing/AppDashboardMockups'
 
 export default function LandingPage() {
-  const stats = [
-    ['3x', 'Faster campaign cycle'],
-    ['68%', 'Lower content production cost'],
-    ['30s', 'Typical month generation start'],
-    ['Daily', 'On-brand publishing rhythm'],
+  const metrics = [
+    ['500M+', 'AI requests per day'],
+    ['10K+', 'AI requests per second'],
+    ['150K+', 'Social actions per minute'],
   ]
-  const logos = ['Stridepay', 'Novabridg', 'Axle Bank', 'OBA', 'Zenastack', 'Shopriva']
+  const logos = ['mindbody', 'JOBBER', 'substack', 'lightspeed', 'coinbase', 'shopify']
 
   return (
     <MarketingLayout>
-      <HeroSection
-        eyebrow="Built for social media teams"
-        title={<>Your social media workspace, redesigned for consistent growth.</>}
-        subtitle="Plan, generate, and ship campaign-ready social content with one shared system for strategy, visuals, and team workflow."
-        actions={
-          <>
-            <PrimaryCta to="/signup">Start free trial <ArrowRight size={14} className="ml-1" /></PrimaryCta>
-            <SecondaryCta to="/demo">See live demo</SecondaryCta>
-          </>
-        }
-        media={
-          <StripeUberHeroMockup className="h-[320px] sm:h-[380px]" />
-        }
-      />
+      <section className="relative border-b border-fog overflow-hidden">
+        <div className="absolute right-0 top-0 h-full w-[56%] hidden lg:block pointer-events-none">
+          <div className="absolute inset-0 bg-gradient-to-br from-[#d4e5ff] via-[#e6c5ff] to-[#ffbb73]" />
+          <div className="absolute inset-0 opacity-90" style={{ background: 'linear-gradient(130deg, rgba(255,255,255,0.0) 14%, rgba(255,255,255,0.75) 20%, rgba(255,255,255,0.0) 27%, rgba(255,255,255,0.0) 42%, rgba(255,255,255,0.68) 48%, rgba(255,255,255,0.0) 56%, rgba(255,255,255,0.0) 72%, rgba(255,255,255,0.58) 78%, rgba(255,255,255,0.0) 86%)' }} />
+        </div>
+        <MarketingContainer className="relative py-16 sm:py-20 lg:py-24">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold text-ink/55 mb-6">ContentCard social network output index: 1,641,725%</p>
+            <h1 className="text-5xl sm:text-6xl font-semibold tracking-tight text-ink leading-[1.05]">
+              Social infrastructure to grow your revenue.
+              <span className="block text-ink/60 mt-2">
+                Generate posts, ship campaigns, and scale audience demand from your first launch to your billionth impression.
+              </span>
+            </h1>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <PrimaryCta to="/signup">Get started <ArrowRight size={14} className="ml-1" /></PrimaryCta>
+              <SecondaryCta to="/demo">Book a live demo</SecondaryCta>
+            </div>
+          </div>
+          <div className="mt-10 lg:mt-12 max-w-3xl">
+            <StripeUberHeroMockup className="h-[300px] sm:h-[360px]" />
+          </div>
+        </MarketingContainer>
+      </section>
 
-      <SurfaceSection className="border-y border-fog bg-mist/40">
+      <SurfaceSection className="border-b border-fog py-8">
         <MarketingContainer>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            {stats.map(([value, label]) => (
-              <div key={label} className="rounded-xl border border-fog bg-surface px-4 py-5">
-                <p className="text-2xl font-bold text-ink tracking-tight">{value}</p>
-                <p className="text-xs text-ink/50 mt-1">{label}</p>
-              </div>
+          <div className="flex flex-wrap items-center gap-x-10 gap-y-3">
+            {logos.map((logo) => (
+              <span key={logo} className="text-ink/45 text-xl font-semibold tracking-tight">{logo}</span>
             ))}
           </div>
         </MarketingContainer>
       </SurfaceSection>
 
-      <SurfaceSection className="bg-gradient-to-b from-white via-[#fcfcff] to-white border-y border-fog/80">
+      <section className="bg-[#07153d] border-y border-[#1c2f6e] text-white">
+        <MarketingContainer className="py-14 sm:py-16">
+          <p className="text-3xl sm:text-4xl font-medium leading-tight max-w-4xl text-white/95">
+            Scale with confidence. Handle thousands of transactions per second with consistent speed and reliability, even during peak traffic periods.
+          </p>
+          <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-[#ff97c6] via-[#9b67ff] to-[#2d42f8] opacity-90 blur-[0.5px]" />
+          <div className="mt-10 grid sm:grid-cols-3 gap-6">
+            {metrics.map(([value, label]) => (
+              <div key={label}>
+                <p className="text-5xl font-semibold tracking-tight text-[#f2a7ce]">{value}</p>
+                <p className="mt-1 text-white/75">{label}</p>
+              </div>
+            ))}
+          </div>
+        </MarketingContainer>
+      </section>
+
+      <SurfaceSection className="border-b border-fog bg-white">
+        <MarketingContainer className="max-w-4xl text-center">
+          <img
+            src="https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=96&h=96&auto=format&fit=crop&q=80"
+            alt="Customer testimonial avatar"
+            className="w-14 h-14 rounded-full object-cover mx-auto mb-6 border border-fog"
+          />
+          <p className="text-3xl sm:text-4xl leading-tight text-ink/80">
+            “With ContentCard, we finally have a social operating partner to help our teams keep campaigns live and conversion-focused across every market.”
+          </p>
+          <p className="mt-5 text-ink/65">
+            <strong className="text-ink">Kurtis Moyer</strong>, Lead Product Manager of Payments, Mindbody
+          </p>
+          <button className="mt-4 inline-flex items-center gap-1 text-brand-700 font-semibold">
+            Read the story <ChevronRight size={15} />
+          </button>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection className="bg-gradient-to-b from-white via-[#fcfcff] to-white border-b border-fog/80">
         <MarketingContainer>
           <SectionHeader
             eyebrow="Why teams switch"
@@ -60,17 +101,6 @@ export default function LandingPage() {
           />
           <div className="mt-10">
             <WhyTeamsSwitchShowcase />
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <SurfaceSection className="border-y border-fog bg-mist/30">
-        <MarketingContainer>
-          <p className="text-xs uppercase tracking-widest font-semibold text-ink/45 text-center mb-6">Used by teams at</p>
-          <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-3">
-            {logos.map((logo) => (
-              <span key={logo} className="text-ink/60 text-sm font-semibold">{logo}</span>
-            ))}
           </div>
         </MarketingContainer>
       </SurfaceSection>
