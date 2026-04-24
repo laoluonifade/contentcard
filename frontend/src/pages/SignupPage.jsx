@@ -6,6 +6,7 @@ import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
+import Seo from '../components/seo/Seo'
 
 export const COUNTRIES_LIST = [
   { code: 'NG', name: 'Nigeria',              dial: '+234', placeholder: '801 234 5678' },
@@ -122,6 +123,12 @@ export default function SignupPage() {
 
   return (
     <div className="min-h-screen flex" style={authLightThemeVars}>
+      <Seo
+        title="Start free | ContentCard"
+        description="Create your ContentCard account and start generating on-brand social content."
+        path="/signup"
+        noindex
+      />
       {/* Left: form */}
       <div className="flex-1 lg:max-w-lg bg-mist flex flex-col justify-center px-8 py-12 lg:px-16 overflow-y-auto">
         <div className="mb-8">
