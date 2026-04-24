@@ -195,7 +195,7 @@ export default function DemoPage() {
           <CtaBand
             title="Prefer to jump straight in?"
             body="Create your workspace now and explore the dashboard before your call."
-            primary={<PrimaryCta to="/signup">Start free trial</PrimaryCta>}
+            primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
           />
         </MarketingContainer>
       </SurfaceSection>
