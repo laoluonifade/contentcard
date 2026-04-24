@@ -297,6 +297,7 @@ async def shopify_start(
 
 @router.get("/shopify/callback")
 async def shopify_callback(
+    request: Request,
     code: str = Query(...),
     hmac_sig: str = Query(..., alias="hmac"),
     shop: str = Query(...),
@@ -304,8 +305,12 @@ async def shopify_callback(
     timestamp: str = Query(""),
     db: AsyncSession = Depends(get_db),
 ):
-    params = {"code": code, "shop": shop, "state": state, "timestamp": timestamp}
-    sorted_query = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
+    signed_items = [
+        (k, v)
+        for k, v in request.query_params.multi_items()
+        if k not in {"hmac", "signature"}
+    ]
+    sorted_query = "&".join(f"{k}={v}" for k, v in sorted(signed_items))
     expected_hmac = hmac_sig
     digest = hmac.new(
         settings.SHOPIFY_CLIENT_SECRET.encode("utf-8"),

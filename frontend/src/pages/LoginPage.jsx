@@ -147,7 +147,9 @@ export default function LoginPage() {
             <h2 className="text-white text-2xl font-bold" style={{ letterSpacing: '-0.02em' }}>Your content studio</h2>
             <p className="text-white/40 text-sm mt-2">On-brand posts generated in seconds.</p>
           </div>
-          <AuthHeroCards />
+          <div className="mb-3">
+            <AuthHeroCards />
+          </div>
           <div className="flex items-center gap-2 flex-wrap justify-center">
             {SUPPORTED_ICONS.map(({ id, label, Icon, custom }) => (
               <div
