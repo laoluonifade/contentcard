@@ -355,7 +355,9 @@ export default function SignupPage() {
             <h2 className="text-white text-2xl font-bold" style={{ letterSpacing: '-0.02em' }}>Everything in one place</h2>
             <p className="text-white/40 text-sm mt-2">Plan, generate, and publish: your entire content workflow.</p>
           </div>
-          <AuthHeroCards />
+          <div className="mb-3">
+            <AuthHeroCards />
+          </div>
           <div className="flex items-center gap-2 flex-wrap justify-center">
             {SUPPORTED_ICONS.map(({ id, label, Icon, custom }) => (
               <div
