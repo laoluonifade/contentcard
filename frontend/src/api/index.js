@@ -161,6 +161,42 @@ export const contentApi = {
   delete:     (id)             => api.delete(`/content/${id}`).then(r => r.data),
 }
 
+// ─── Social Autopilot ───────────────────────────────────────────
+export const socialApi = {
+  connect: (platform, data) =>
+    api.post(`/social/connections/${encodeURIComponent(platform)}/connect`, data).then((r) => r.data),
+  disconnect: (platform, data) =>
+    api.post(`/social/connections/${encodeURIComponent(platform)}/disconnect`, data).then((r) => r.data),
+  oauthStart: (platform, data) =>
+    api.post(`/social/connections/${encodeURIComponent(platform)}/oauth/start`, data).then((r) => r.data),
+  listConnections: (brandId) =>
+    api.get('/social/connections', { params: { brand_id: brandId } }).then((r) => r.data),
+  connectionHealth: (brandId) =>
+    api.get('/social/connections/health', { params: { brand_id: brandId } }).then((r) => r.data),
+  getAutopilotConfig: (brandId) =>
+    api.get('/social/autopilot/config', { params: { brand_id: brandId } }).then((r) => r.data),
+  upsertAutopilotConfig: (data) =>
+    api.post('/social/autopilot/config', data).then((r) => r.data),
+  queuePost: (data) =>
+    api.post('/social/posts/queue', data).then((r) => r.data),
+  preflight: (data) =>
+    api.post('/social/publish/preflight', data).then((r) => r.data),
+  listPosts: (params) =>
+    api.get('/social/posts', { params }).then((r) => r.data),
+  deadLetterPosts: (brandId, limit = 100) =>
+    api.get('/social/posts/dead-letter', { params: { brand_id: brandId, limit } }).then((r) => r.data),
+  retryPost: (postId) =>
+    api.post(`/social/posts/${encodeURIComponent(postId)}/retry`).then((r) => r.data),
+  listComments: (brandId, limit = 100) =>
+    api.get('/social/comments', { params: { brand_id: brandId, limit } }).then((r) => r.data),
+  replyToComment: (commentId, data) =>
+    api.post(`/social/comments/${encodeURIComponent(commentId)}/reply`, data).then((r) => r.data),
+  metricsSummary: (brandId, windowDays = 30) =>
+    api.get('/social/metrics/summary', { params: { brand_id: brandId, window_days: windowDays } }).then((r) => r.data),
+  opsAlerts: (brandId) =>
+    api.get('/social/ops/alerts', { params: { brand_id: brandId } }).then((r) => r.data),
+}
+
 // ─── Templates ──────────────────────────────────────────────────
 export const templateApi = {
   list:   (brandId) => api.get('/templates', { params: { brand_id: brandId } }).then(r => r.data),

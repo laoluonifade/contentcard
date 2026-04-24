@@ -98,6 +98,18 @@ Open: http://localhost:5173
 | `MAX_REAL_PEOPLE_SHARE` | Cap people-photo share in monthly plan (default `0.35`) |
 | `FRONTEND_URL` | `http://localhost:5173` (dev) or your prod URL |
 | `FREE_TRIAL_DAYS` | `14` |
+| `SOCIAL_AUTOPILOT_GLOBAL_KILL_SWITCH` | Emergency global stop for all autopilot publish preflights |
+| `SOCIAL_AUTOPILOT_MIN_QUALITY_SCORE` | Minimum score allowed by social preflight quality gate |
+| `SOCIAL_DEDUPE_WINDOW_DAYS` | Duplicate content lookback window for social preflight |
+| `SOCIAL_WEBHOOK_SECRET` | Shared HMAC secret used to verify n8n publish callbacks |
+| `SOCIAL_N8N_BASE_URL` | Base URL of self-hosted n8n instance |
+| `SOCIAL_OAUTH_STATE_SECRET` | Secret for signing OAuth state payloads |
+| `SOCIAL_OAUTH_CALLBACK_BASE_URL` | Public API base used to build OAuth callback URLs |
+| `META_CLIENT_ID` | Meta app client ID (Facebook/Instagram OAuth) |
+| `META_CLIENT_SECRET` | Meta app client secret |
+| `LINKEDIN_CLIENT_ID` | LinkedIn app client ID |
+| `LINKEDIN_CLIENT_SECRET` | LinkedIn app client secret |
+| `SOCIAL_N8N_TOKEN_SINK_PATH` | n8n webhook path that receives exchanged OAuth tokens securely |
 
 ### Frontend (`frontend/.env.local`)
 
@@ -134,6 +146,36 @@ Open: http://localhost:5173
    - `BANNERBEAR_TEMPLATE_*` IDs (at minimum: cover/content/quote; optional family templates for promo/edu/testimonial/hiring/text-poster/product-hero/data-card/announcement/story/illustration-editorial)
    - `FRONTEND_URL` = your Render frontend URL (e.g. `https://contentcard-web.onrender.com`)
    - `VITE_API_URL` = your backend URL + `/api/v1`
+
+---
+
+## Staging Environment
+
+Use a dedicated `staging` branch and Render staging Blueprint so you can test safely before production.
+
+### Branch flow
+
+1. Keep `main` as production-only.
+2. Create and keep a long-lived `staging` branch:
+   - `git checkout -b staging` (first time)
+   - `git push -u origin staging`
+3. Merge feature branches into `staging` first.
+4. After validation, merge `staging` into `main`.
+
+### Render staging setup
+
+1. In Render dashboard, create a second Blueprint using `render.staging.yaml`.
+2. This staging Blueprint provisions:
+   - `contentcard-api-staging`
+   - `contentcard-web-staging`
+   - `contentcard-db-staging`
+3. Because services are pinned to `branch: staging`, staging auto-deploys from `staging` only.
+4. Set staging secrets/env vars in the staging services (same keys as prod, but staging values where applicable).
+5. Set:
+   - staging backend `FRONTEND_URL` to staging frontend URL
+   - staging frontend `VITE_API_URL` to staging backend URL + `/api/v1`
+
+Note: staging DB uses `plan: free` in `render.staging.yaml` for low-cost testing. You can raise this to `basic-256mb` if you need more capacity.
 
 ---
 
@@ -208,7 +250,33 @@ POST   /api/v1/billing/cancel/{workspace_id}
 POST   /api/v1/billing/webhook/stripe
 GET    /api/v1/billing/webhook/paystack/verify
 
+POST   /api/v1/social/connections/{platform}/connect
+POST   /api/v1/social/connections/{platform}/disconnect
+POST   /api/v1/social/connections/{platform}/oauth/start
+GET    /api/v1/social/connections/{platform}/oauth/callback
+GET    /api/v1/social/connections?brand_id=
+GET    /api/v1/social/connections/health?brand_id=
+POST   /api/v1/social/connections/{platform}/token/refresh-callback
+GET    /api/v1/social/autopilot/config?brand_id=
+POST   /api/v1/social/autopilot/config
+POST   /api/v1/social/posts/queue
+GET    /api/v1/social/posts/dead-letter?brand_id=
+POST   /api/v1/social/posts/{id}/retry
+POST   /api/v1/social/publish/preflight
+POST   /api/v1/social/publish/callback
+GET    /api/v1/social/posts?brand_id=
+GET    /api/v1/social/comments?brand_id=
+POST   /api/v1/social/comments/ingest
+POST   /api/v1/social/comments/{id}/reply
+GET    /api/v1/social/metrics/summary?brand_id=
+GET    /api/v1/social/ops/alerts?brand_id=
+
 POST   /api/v1/upload/photo
 
 GET    /health
 ```
+
+Social autopilot/n8n integration docs:
+- `docs/social-autopilot-n8n-workflow.md`
+- `docs/n8n-social-publish-workflow.template.json`
+- `docs/PRD-social-autopilot-implementation-checklist.md`

@@ -1,6 +1,14 @@
-import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Check } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
+import {
+  CtaBand,
+  MarketingContainer,
+  PrimaryCta,
+  SecondaryCta,
+  SectionHeader,
+  SoftCard,
+  SurfaceSection,
+} from '../components/marketing/MarketingPrimitives'
 
 const PLANS = [
   {
@@ -33,33 +41,32 @@ const FAQS = [
 ]
 
 export default function PricingPage() {
-  const navigate = useNavigate()
   return (
     <MarketingLayout>
-      {/* Hero */}
-      <section className="py-16 sm:py-20 px-4 sm:px-6 text-center border-b border-white/5">
-        <div className="max-w-2xl mx-auto">
-          <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Pricing</div>
-          <h1 className="text-5xl font-bold mb-5" style={{ letterSpacing: '-0.03em' }}>Simple. Transparent.<br />No surprises.</h1>
-          <p className="text-white/45 text-lg mb-3">Every plan includes a 14-day free trial. No credit card required.</p>
-          <p className="text-white/30 text-sm">Nigerian businesses pay in ₦ via Paystack · International via Stripe · Detected automatically</p>
-        </div>
-      </section>
+      <SurfaceSection className="border-b border-fog">
+        <MarketingContainer>
+          <SectionHeader
+            eyebrow="Pricing"
+            title="Simple, transparent pricing for growing teams"
+            subtitle="Every plan includes a 14-day free trial. Nigerian billing is in ₦ via Paystack; international billing is via Stripe."
+            center
+          />
+        </MarketingContainer>
+      </SurfaceSection>
 
-      {/* Plans */}
-      <section className="py-16 px-4 sm:px-6">
-        <div className="max-w-5xl mx-auto">
+      <SurfaceSection>
+        <MarketingContainer className="max-w-5xl">
           <div className="grid md:grid-cols-3 gap-5">
             {PLANS.map(p => (
-              <div key={p.name} className={`rounded-2xl p-7 flex flex-col relative ${p.featured ? 'border-2 border-brand-500 bg-brand-500/5' : 'border border-white/[0.06] bg-white/[0.02]'}`}>
+              <SoftCard key={p.name} className={`p-7 flex flex-col relative ${p.featured ? 'ring-2 ring-brand-500' : ''}`}>
                 {p.featured && <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-500 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider whitespace-nowrap">Most popular</div>}
-                <div className="text-white/50 text-xs font-bold uppercase tracking-widest mb-2">{p.name}</div>
-                <p className="text-white/35 text-xs leading-relaxed mb-5">{p.desc}</p>
-                <div className="text-4xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>{p.usd}</div>
-                <div className="text-white/25 text-xs mb-6">{p.ngn}/mo in Nigeria · billed monthly</div>
+                <div className="text-ink/50 text-xs font-bold uppercase tracking-widest mb-2">{p.name}</div>
+                <p className="text-ink/55 text-xs leading-relaxed mb-5">{p.desc}</p>
+                <div className="text-4xl font-bold text-ink mb-1 tracking-tight">{p.usd}</div>
+                <div className="text-ink/45 text-xs mb-6">{p.ngn}/mo in Nigeria · billed monthly</div>
                 <div className="flex-1 space-y-2.5 mb-7">
                   {p.features.map(f => (
-                    <div key={f} className="flex items-center gap-2.5 text-sm text-white/60">
+                    <div key={f} className="flex items-center gap-2.5 text-sm text-ink/70">
                       <div className="w-4 h-4 rounded-full bg-brand-500/15 border border-brand-500/25 flex items-center justify-center flex-shrink-0">
                         <Check size={9} className="text-brand-400" />
                       </div>
@@ -67,42 +74,38 @@ export default function PricingPage() {
                     </div>
                   ))}
                 </div>
-                <button onClick={() => navigate('/signup')}
-                  className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${p.featured ? 'bg-brand-500 hover:bg-brand-600 text-white' : 'bg-white/5 hover:bg-white/10 text-white border border-white/10'}`}>
-                  Start free trial
-                </button>
-              </div>
+                {p.featured ? <PrimaryCta to="/signup">Start free trial</PrimaryCta> : <SecondaryCta to="/signup">Start free trial</SecondaryCta>}
+              </SoftCard>
             ))}
           </div>
-          <p className="text-center text-white/25 text-xs mt-8">All plans · 14-day free trial · No credit card required · Cancel anytime</p>
+          <p className="text-center text-ink/45 text-xs mt-8">All plans · 14-day free trial · No credit card required · Cancel anytime</p>
+        </MarketingContainer>
+      </SurfaceSection>
 
-          {/* Enterprise callout */}
-          <div className="mt-12 rounded-2xl border border-brand-500/20 bg-brand-500/5 p-8 flex flex-col md:flex-row items-center justify-between gap-6">
-            <div>
-              <div className="font-bold text-white text-lg mb-1">Need a custom enterprise plan?</div>
-              <p className="text-white/45 text-sm">Unlimited brands, dedicated support, SSO, and custom onboarding for large teams.</p>
-            </div>
-            <button onClick={() => navigate('/enterprise')} className="btn-primary px-7 py-3 whitespace-nowrap">
-              Talk to sales <ArrowRight size={15} />
-            </button>
-          </div>
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section className="py-16 px-4 sm:px-6 border-t border-white/5">
-        <div className="max-w-3xl mx-auto">
-          <h2 className="text-3xl font-bold text-white mb-10 text-center" style={{ letterSpacing: '-0.02em' }}>Frequently asked questions</h2>
+      <SurfaceSection className="border-t border-fog">
+        <MarketingContainer className="max-w-3xl">
+          <h2 className="text-3xl font-bold text-ink mb-10 text-center tracking-tight">Frequently asked questions</h2>
           <div className="space-y-4">
             {FAQS.map(({ q, a }) => (
-              <div key={q} className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6">
-                <div className="font-bold text-white mb-2">{q}</div>
-                <p className="text-white/50 text-sm leading-relaxed">{a}</p>
-              </div>
+              <SoftCard key={q} className="p-6">
+                <div className="font-bold text-ink mb-2">{q}</div>
+                <p className="text-ink/65 text-sm leading-relaxed">{a}</p>
+              </SoftCard>
             ))}
           </div>
-        </div>
-      </section>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection>
+        <MarketingContainer>
+          <CtaBand
+            title="Need a custom enterprise plan?"
+            body="Get dedicated onboarding, advanced controls, and tailored commercial terms."
+            primary={<PrimaryCta to="/enterprise">Talk to sales <ArrowRight size={14} className="ml-1" /></PrimaryCta>}
+            secondary={<SecondaryCta to="/demo">Book demo</SecondaryCta>}
+          />
+        </MarketingContainer>
+      </SurfaceSection>
     </MarketingLayout>
   )
 }

@@ -78,7 +78,7 @@ export default function MarketingLayout({ children }) {
   }
 
   return (
-    <div className="bg-ink min-h-screen text-white flex flex-col" style={marketingLightThemeVars}>
+    <div className="bg-page min-h-screen text-ink flex flex-col" style={marketingLightThemeVars}>
       <Seo
         title={seo.title}
         description={seo.description}
@@ -87,17 +87,17 @@ export default function MarketingLayout({ children }) {
         keywords="ai social media content, content calendar, social media manager tools, social media content generator, brand content playbook"
       />
       {/* Nav */}
-      <nav className="sticky top-0 z-50 border-b border-white/5 bg-ink/90 backdrop-blur-xl">
+      <nav className="sticky top-0 z-50 border-b border-fog bg-page/95 backdrop-blur-xl">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link to="/"><LogoFull size={26} dark /></Link>
+          <Link to="/"><LogoFull size={26} /></Link>
           <div className="hidden md:flex items-center gap-7">
             {NAV_ITEMS.map(({ label, href }) => (
-              <Link key={label} to={href} className="text-white/45 hover:text-white text-sm font-medium transition-colors">{label}</Link>
+              <Link key={label} to={href} className="text-ink/55 hover:text-ink text-sm font-medium transition-colors">{label}</Link>
             ))}
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/login')} className="text-white/50 hover:text-white text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
-            <button onClick={() => navigate('/demo')} className="text-sm font-bold px-4 py-2 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all hidden sm:block">Get a demo</button>
+            <button onClick={() => navigate('/login')} className="text-ink/60 hover:text-ink text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
+            <button onClick={() => navigate('/demo')} className="text-sm font-bold px-4 py-2 rounded-xl border border-fog text-ink/75 hover:text-ink hover:bg-mist transition-all hidden sm:block">Get a demo</button>
             <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free trial <ArrowRight size={13} /></button>
           </div>
         </div>
@@ -107,29 +107,29 @@ export default function MarketingLayout({ children }) {
       <main className="flex-1">{children}</main>
 
       {/* Footer */}
-      <footer className="border-t border-white/5 py-12 px-4 sm:px-6 mt-24">
+      <footer className="border-t border-fog py-12 px-4 sm:px-6 mt-24 bg-mist/50">
         <div className="max-w-7xl mx-auto">
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
-              <LogoFull size={24} dark />
-              <p className="text-white/30 text-sm mt-4 leading-relaxed">Build consistent, on-brand social content at scale: without expanding your team.</p>
+              <LogoFull size={24} />
+              <p className="text-ink/50 text-sm mt-4 leading-relaxed">Build consistent, on-brand social content at scale without expanding your team.</p>
             </div>
             {Object.entries(FOOTER_LINKS).map(([heading, links]) => (
               <div key={heading}>
-                <div className="text-white/60 text-xs font-bold uppercase tracking-widest mb-4">{heading}</div>
+                <div className="text-ink/60 text-xs font-bold uppercase tracking-widest mb-4">{heading}</div>
                 <div className="space-y-2.5">
                   {links.map(({ label, href }) => (
-                    <Link key={label} to={href} className="block text-white/30 hover:text-white/60 text-sm transition-colors">{label}</Link>
+                    <Link key={label} to={href} className="block text-ink/45 hover:text-ink/75 text-sm transition-colors">{label}</Link>
                   ))}
                 </div>
               </div>
             ))}
           </div>
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-8 border-t border-white/5">
-            <p className="text-white/20 text-xs">© 2025 ContentCard. All rights reserved.</p>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-8 border-t border-fog">
+            <p className="text-ink/35 text-xs">© 2025 ContentCard. All rights reserved.</p>
             <div className="flex gap-6">
               {LEGAL_LINKS.map(({ label, href }) => (
-                <Link key={label} to={href} className="text-white/25 hover:text-white/50 text-xs transition-colors">{label}</Link>
+                <Link key={label} to={href} className="text-ink/40 hover:text-ink/65 text-xs transition-colors">{label}</Link>
               ))}
             </div>
           </div>

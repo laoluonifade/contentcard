@@ -559,15 +559,59 @@ function getBannerbearUrl(post, slideIndex) {
   return null
 }
 
+// ── Export: 1080 square with inset so previews/downloads never clip edges ──
+
+const EXPORT_OUT = 1080
+const EXPORT_INSET_FRAC = 0.035
+
+async function normalizeSocialSquarePng(blob) {
+  const objUrl = URL.createObjectURL(blob)
+  try {
+    const img = await loadImage(objUrl)
+    const w = img.naturalWidth || img.width
+    const h = img.naturalHeight || img.height
+    if (!w || !h) throw new Error('bad dimensions')
+    const inner = EXPORT_OUT * (1 - 2 * EXPORT_INSET_FRAC)
+    const scale = Math.min(inner / w, inner / h, 1)
+    const dw = Math.round(w * scale)
+    const dh = Math.round(h * scale)
+    const canvas = document.createElement('canvas')
+    canvas.width = EXPORT_OUT
+    canvas.height = EXPORT_OUT
+    const ctx = canvas.getContext('2d')
+    if (!ctx) throw new Error('no canvas')
+    ctx.fillStyle = '#0a0a0a'
+    ctx.fillRect(0, 0, EXPORT_OUT, EXPORT_OUT)
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(img, (EXPORT_OUT - dw) / 2, (EXPORT_OUT - dh) / 2, dw, dh)
+    return await new Promise((resolve, reject) => {
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob'))), 'image/png', 0.95)
+    })
+  } finally {
+    URL.revokeObjectURL(objUrl)
+  }
+}
+
 // ── Helper: download a URL as a file ─────────────────────────────────────
 
 async function downloadUrl(url, filename) {
   const resp = await fetch(url)
+  if (!resp.ok) throw new Error(`Download failed: ${resp.status}`)
   const blob = await resp.blob()
+  let out = blob
+  try {
+    out = await normalizeSocialSquarePng(blob)
+  } catch {
+    /* CORS, decode, or tiny assets: fall back to original bytes */
+  }
+  const href = URL.createObjectURL(out)
   const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
+  a.href = href
   a.download = filename
+  a.rel = 'noopener'
   a.click()
+  setTimeout(() => URL.revokeObjectURL(href), 5000)
 }
 
 // ── PostCard component ─────────────────────────────────────────────────────
@@ -599,8 +643,14 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
         const zip = new JSZip()
         await Promise.all(bbUrls.map(async (url, i) => {
           const resp = await fetch(url)
-          const buf = await resp.arrayBuffer()
-          zip.file(`slide-${i+1}.png`, buf)
+          const blob = await resp.blob()
+          let out = blob
+          try {
+            out = await normalizeSocialSquarePng(blob)
+          } catch {
+            /* keep original */
+          }
+          zip.file(`slide-${i + 1}.png`, await out.arrayBuffer())
         }))
         const blob = await zip.generateAsync({ type: 'blob' })
         const a = document.createElement('a'); a.href = URL.createObjectURL(blob)
@@ -620,8 +670,15 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
       for (let i = 0; i < count; i++) {
         const bbUrl = getBannerbearUrl(post, i)
         if (bbUrl) {
-          const resp = await fetch(bbUrl); const buf = await resp.arrayBuffer()
-          zip.file(`slide-${i+1}.png`, buf)
+          const resp = await fetch(bbUrl)
+          const blob = await resp.blob()
+          let out = blob
+          try {
+            out = await normalizeSocialSquarePng(blob)
+          } catch {
+            /* keep original */
+          }
+          zip.file(`slide-${i + 1}.png`, await out.arrayBuffer())
         } else {
           const c = document.createElement('canvas')
           await renderSlideToCanvas(c, post, brand, i)
@@ -654,7 +711,10 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
           style={{
             position: 'absolute', inset: 0,
             width: size, height: size,
-            objectFit: 'cover', borderRadius: 12,
+            objectFit: 'contain',
+            objectPosition: 'center',
+            backgroundColor: '#0a0a0a',
+            borderRadius: 12,
             zIndex: 1,
           }}
         />
