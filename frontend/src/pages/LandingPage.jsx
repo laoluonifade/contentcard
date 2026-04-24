@@ -95,6 +95,7 @@ function HeroPlatformCards() {
 }
 
 export default function LandingPage() {
+  const [pricingCurrency, setPricingCurrency] = useState('USD')
   const metrics = [
     ['30+', 'posts generated per month'],
     ['3x', 'faster campaign turnaround'],
@@ -160,6 +161,26 @@ export default function LandingPage() {
       a: 'You can start free, then upgrade to a paid plan when you need more volume, advanced workflows, or multi-brand support.',
     },
   ]
+  const pricingPlans = [
+    { name: 'Starter', usd: 25, ngn: 20000, blurb: 'For growing businesses ready to show up daily.' },
+    { name: 'Business', usd: 50, ngn: 50000, blurb: 'For teams serious about social as a revenue channel.' },
+    { name: 'Enterprise', usd: 100, ngn: 200000, blurb: 'For agencies and multi-brand organisations.' },
+  ]
+
+  useEffect(() => {
+    let detected = 'USD'
+    try {
+      const locales = [navigator.language, ...(navigator.languages || [])].filter(Boolean)
+      const localeHint = locales.join(' ').toUpperCase()
+      const timezone = (Intl.DateTimeFormat().resolvedOptions().timeZone || '').toUpperCase()
+      if (localeHint.includes('-NG') || localeHint.includes('_NG') || timezone.includes('AFRICA/LAGOS')) {
+        detected = 'NGN'
+      }
+    } catch {
+      detected = 'USD'
+    }
+    setPricingCurrency(detected)
+  }, [])
 
   return (
     <MarketingLayout>
@@ -227,8 +248,14 @@ export default function LandingPage() {
                 <div className="p-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-base font-semibold text-ink">{item.brand}</p>
-                    <span className="text-[11px] uppercase tracking-wider rounded-full px-2.5 py-1 bg-brand-50 text-brand-700 font-semibold">
-                      {item.platform}
+                    <span className="rounded-full w-7 h-7 bg-brand-50 text-brand-700 border border-brand-100 inline-flex items-center justify-center">
+                      {item.platform === 'Instagram' ? (
+                        <Instagram size={13} />
+                      ) : item.platform === 'Facebook' ? (
+                        <Facebook size={13} />
+                      ) : (
+                        <Twitter size={13} />
+                      )}
                     </span>
                   </div>
                   <p className="mt-2 text-sm text-ink/65 leading-relaxed">{item.caption}</p>
@@ -256,10 +283,39 @@ export default function LandingPage() {
         </MarketingContainer>
       </section>
 
+      <SurfaceSection className="bg-white border-b border-fog">
+        <MarketingContainer>
+          <SectionHeader
+            eyebrow="Pricing preview"
+            title="Plans shown in your local currency"
+            subtitle={
+              pricingCurrency === 'NGN'
+                ? 'Showing estimated monthly pricing in ₦ based on your location.'
+                : 'Showing estimated monthly pricing in $.'
+            }
+          />
+          <div className="mt-8 grid md:grid-cols-3 gap-5">
+            {pricingPlans.map((plan) => (
+              <article key={plan.name} className="rounded-2xl border border-fog bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+                <p className="text-[11px] uppercase tracking-widest text-ink/45 font-semibold">{plan.name}</p>
+                <p className="mt-2 text-4xl font-semibold text-ink tracking-tight">
+                  {pricingCurrency === 'NGN' ? `₦${plan.ngn.toLocaleString()}` : `$${plan.usd}`}
+                </p>
+                <p className="text-xs text-ink/45 mt-1">Billed monthly</p>
+                <p className="mt-3 text-sm text-ink/65 leading-relaxed">{plan.blurb}</p>
+              </article>
+            ))}
+          </div>
+          <div className="mt-6">
+            <SecondaryCta to="/pricing">View full pricing</SecondaryCta>
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
+
       <SurfaceSection className="border-b border-fog bg-white">
         <MarketingContainer className="max-w-4xl text-center">
           <img
-            src="https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=96&h=96&auto=format&fit=crop&q=80"
+            src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=96&h=96&auto=format&fit=crop&q=80"
             alt="Customer testimonial avatar"
             className="w-14 h-14 rounded-full object-cover mx-auto mb-6 border border-fog"
           />
