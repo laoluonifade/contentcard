@@ -34,7 +34,9 @@ export default function AdminMemesPage() {
   const filtered = items.filter((m) => {
     const q = search.trim().toLowerCase()
     if (!q) return true
-    return `${m.title} ${(m.tags || []).join(' ')}`.toLowerCase().includes(q)
+    const terms = q.split(/\s+/).filter(Boolean)
+    const hay = `${m.title} ${(m.tags || []).join(' ')} ${m.media_type || ''} ${m.source || ''}`.toLowerCase()
+    return terms.every((term) => hay.includes(term))
   })
 
   const submit = async (e) => {
@@ -158,7 +160,7 @@ export default function AdminMemesPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search…"
+          placeholder="Search title, tags, type, source…"
           className="w-full max-w-sm px-3 py-2 rounded-xl bg-white/[0.05] border border-white/10 text-white text-sm placeholder-white/25"
         />
       </div>

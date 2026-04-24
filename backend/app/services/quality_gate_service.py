@@ -133,13 +133,13 @@ def _score_human_realism_proxy(img: Image.Image, visual_type: str) -> float:
         mx, mn = max(r, g, b), min(r, g, b)
         sat.append((mx - mn) / max(mx, 1))
     avg_sat = sum(sat) / len(sat)
-    sat_score = _clamp01(1.0 - max(0.0, avg_sat - 0.45) / 0.4)
+    sat_score = _clamp01(1.0 - max(0.0, avg_sat - 0.40) / 0.36)
     # Texture proxy via edge variance
     g = s.convert("L").filter(ImageFilter.FIND_EDGES)
     e = list(g.getdata())
     mean_e = sum(e) / max(1, len(e))
     var_e = sum((x - mean_e) ** 2 for x in e) / max(1, len(e))
-    tex = _clamp01((var_e - 120.0) / 600.0)
+    tex = _clamp01((var_e - 135.0) / 560.0)
     return _clamp01(0.55 * sat_score + 0.45 * tex)
 
 
@@ -337,9 +337,9 @@ async def score_visual_quality(
 
     reasons: list[str] = []
     hints: list[str] = []
-    if s_human < 0.5 and vt == "real_people":
+    if s_human < 0.58 and vt == "real_people":
         reasons.append("Human realism below threshold")
-        hints.append("Use tighter documentary casting and less synthetic gloss")
+        hints.append("Use documentary realism: natural skin texture, realistic hands, believable eyes, and less synthetic smoothing")
     if s_hier < 0.5 or s_read < 0.5:
         reasons.append("Weak visual hierarchy/readability")
         hints.append("Increase contrast and simplify focal composition")

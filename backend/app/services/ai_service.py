@@ -294,7 +294,9 @@ def _industry_quality_playbook_block(industry: str | None) -> str:
     return (
         "Benchmark quality target:\n"
         "• Produce campaign-grade social visuals with clear system consistency and deliberate variety.\n"
-        "• Avoid generic stock outputs; every post should have a specific art-directed scene and composition logic."
+        "• Avoid generic stock outputs; every post should have a specific art-directed scene and composition logic.\n"
+        "• Human realism requirement: avoid uncanny AI cues such as waxy skin, over-smoothed pores, symmetrical clone faces, malformed hands, plastic highlights, and impossible reflections.\n"
+        "• Prefer believable camera behavior: natural dynamic range, slight environmental imperfections, and authentic depth, not hyper-clean CGI polish."
     )
 
 
@@ -307,7 +309,8 @@ def _image_prompt_ending_for_style(ips: str) -> str:
         return (
             'Must end with: "No large text overlays, no watermarks, no typography blocks, no UI elements, no illustration. '
             + _logo_reserve
-            + 'Photorealistic photograph; subjects must match the post topic (people only when the idea truly needs faces)."'
+            + 'Photorealistic photograph; subjects must match the post topic (people only when the idea truly needs faces). '
+            + 'No uncanny AI traits: no waxy skin, no duplicate faces, no malformed fingers, no glassy eyes, no over-sharpened skin, no plastic CGI lighting."'
         )
     if ips == "illustration":
         return (
@@ -1246,6 +1249,7 @@ async def _generate_for_platform(
             "• ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
             "• People are the default subject style: photoreal campaign/documentary humans with authentic local casting, natural skin texture, realistic hands, true facial anatomy, and candid expressions\n"
             "• Avoid plastic AI faces, duplicated faces, malformed hands, and generic smiling stock-pose crowds\n"
+            "• Add real-camera authenticity: natural micro-contrast, slight lens falloff or grain where appropriate, believable shadows, and non-perfect staging\n"
             "• Many posts should have zero people: use product, environment, macro detail, hands-at-work, or abstract texture when the idea allows\n"
             "• NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", or \"modern design\""
         ).format(bn=brand_name)
@@ -1352,6 +1356,8 @@ HARD RULES:
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
 • If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning
 • Ensure monthly composition variety: include at least one product/device hero, one lifestyle context scene, one abstract/graphic metaphor, and one trust-proof frame where batch size allows
+• Realism QA for human photos: reject and rewrite prompts that would likely create uncanny outputs (waxy skin, duplicated faces, malformed hands, doll-like eyes, over-airbrushed complexion, impossible lighting reflections)
+• Prefer believable editorial camera realism over synthetic polish: natural skin pores, realistic texture, grounded shadows, and candid body language
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""

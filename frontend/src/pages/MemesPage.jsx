@@ -134,8 +134,9 @@ export default function MemesPage() {
   const filtered = items.filter((m) => {
     const q = search.trim().toLowerCase()
     if (!q) return true
-    const hay = `${m.title} ${(m.tags || []).join(' ')}`.toLowerCase()
-    return hay.includes(q)
+    const terms = q.split(/\s+/).filter(Boolean)
+    const hay = `${m.title} ${(m.tags || []).join(' ')} ${m.media_type || ''} ${m.source || ''}`.toLowerCase()
+    return terms.every((term) => hay.includes(term))
   })
 
   const submit = async (e) => {
@@ -270,7 +271,7 @@ export default function MemesPage() {
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search title or tags…"
+          placeholder="Search title, tags, type, source…"
           className="text-sm border border-fog rounded-xl px-3 py-2 bg-surface text-ink focus:outline-none focus:ring-2 focus:ring-brand-500/20 flex-1 min-w-[200px]"
         />
         {filtered.length > 0 && (
