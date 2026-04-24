@@ -102,7 +102,7 @@ export default function PricingPage() {
           <SectionHeader
             eyebrow="Product screenshots"
             title="See what your team gets on day one"
-            subtitle="Stripe-style reporting clarity meets Uber-style operational flow inside ContentCard."
+            subtitle="Uber-style operational dashboard visuals, adapted to ContentCard's growth workflow."
             center
           />
           <div className="mt-8">
