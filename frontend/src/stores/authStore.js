@@ -2,6 +2,19 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { authApi } from '../api'
 
+function formatApiErrorDetail(err) {
+  const d = err?.response?.data?.detail
+  if (typeof d === 'string' && d.trim()) return d.trim()
+  if (Array.isArray(d) && d.length) {
+    const parts = d
+      .map((x) => (typeof x?.msg === 'string' ? x.msg : typeof x === 'string' ? x : ''))
+      .filter(Boolean)
+    if (parts.length) return parts.join(' ')
+  }
+  if (d && typeof d === 'object' && typeof d.message === 'string' && d.message.trim()) return d.message.trim()
+  return null
+}
+
 const useAuthStore = create(
   persist(
     (set) => ({
@@ -19,9 +32,9 @@ const useAuthStore = create(
           return res
         } catch (err) {
           const msg =
-            err.response?.data?.detail ||
+            formatApiErrorDetail(err) ||
             (err.code === 'ERR_NETWORK' || err.message === 'Network Error'
-              ? 'Cannot reach the server. Check your connection or try again in a moment.'
+              ? 'Cannot reach the API server. Hard refresh (Cmd+Shift+R), wait a minute after deploy, or try without VPN/ad blockers.'
               : err.message) ||
             'Signup failed'
           set({ error: msg, isLoading: false })
@@ -37,9 +50,9 @@ const useAuthStore = create(
           return res
         } catch (err) {
           const msg =
-            err.response?.data?.detail ||
+            formatApiErrorDetail(err) ||
             (err.code === 'ERR_NETWORK' || err.message === 'Network Error'
-              ? 'Cannot reach the server. Check your connection or try again in a moment.'
+              ? 'Cannot reach the API server. Hard refresh (Cmd+Shift+R), wait a minute after deploy, or try without VPN/ad blockers.'
               : err.message) ||
             'Login failed'
           set({ error: msg, isLoading: false })

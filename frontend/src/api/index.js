@@ -57,6 +57,35 @@ function joinApiUrl(base, path) {
   return `${b}${norm}`
 }
 
+/** One retry after a short delay for cold Render / flaky TLS (same URL only). */
+async function axiosPostWithRetry(url, data, headers) {
+  try {
+    return await axios.post(url, data, { headers }).then((r) => r.data)
+  } catch (err) {
+    const transient =
+      !err?.response && /^https:\/\/contentcard-backend\.onrender\.com/i.test(String(url))
+    if (transient) {
+      await new Promise((r) => setTimeout(r, 900))
+      return axios.post(url, data, { headers }).then((r) => r.data)
+    }
+    throw err
+  }
+}
+
+async function axiosGetWithRetry(url, params, headers) {
+  try {
+    return await axios.get(url, { params, headers }).then((r) => r.data)
+  } catch (err) {
+    const transient =
+      !err?.response && /^https:\/\/contentcard-backend\.onrender\.com/i.test(String(url))
+    if (transient) {
+      await new Promise((r) => setTimeout(r, 900))
+      return axios.get(url, { params, headers }).then((r) => r.data)
+    }
+    throw err
+  }
+}
+
 /**
  * Unauthenticated auth calls use absolute URLs + optional fallback so the browser
  * never hits the static site for `/api/v1/auth/*` (shows as "login" / preflight failed).
@@ -65,12 +94,11 @@ function postPublicAuth(path, data) {
   const primaryUrl = joinApiUrl(resolveContentCardApiBase(), path)
   const fallbackUrl = joinApiUrl(CONTENTCARD_RENDER_API_BASE, path)
   const headers = { 'Content-Type': 'application/json' }
-  const send = (url) => axios.post(url, data, { headers }).then((r) => r.data)
-  return send(primaryUrl).catch((err) => {
+  return axiosPostWithRetry(primaryUrl, data, headers).catch((err) => {
     const networkFailure = !err?.response
     const canFallback =
       networkFailure && primaryUrl !== fallbackUrl && /^https?:\/\//i.test(String(primaryUrl))
-    if (canFallback) return send(fallbackUrl)
+    if (canFallback) return axiosPostWithRetry(fallbackUrl, data, headers)
     throw err
   })
 }
@@ -79,12 +107,11 @@ function getPublicAuth(path, params) {
   const primaryUrl = joinApiUrl(resolveContentCardApiBase(), path)
   const fallbackUrl = joinApiUrl(CONTENTCARD_RENDER_API_BASE, path)
   const headers = { 'Content-Type': 'application/json' }
-  const send = (url) => axios.get(url, { params, headers }).then((r) => r.data)
-  return send(primaryUrl).catch((err) => {
+  return axiosGetWithRetry(primaryUrl, params, headers).catch((err) => {
     const networkFailure = !err?.response
     const canFallback =
       networkFailure && primaryUrl !== fallbackUrl && /^https?:\/\//i.test(String(primaryUrl))
-    if (canFallback) return send(fallbackUrl)
+    if (canFallback) return axiosGetWithRetry(fallbackUrl, params, headers)
     throw err
   })
 }
