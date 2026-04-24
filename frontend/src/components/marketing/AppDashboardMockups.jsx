@@ -119,17 +119,27 @@ export function WhyTeamsSwitchShowcase() {
       tone: 'from-[#b8f2db] via-[#c6e9ff] to-[#f4d9ff]',
       visual: (
         <div className="rounded-2xl border border-fog bg-surface p-3">
-          <div className="space-y-2">
-            {[
-              ['Lagos airport push', 'Approved'],
-              ['Abuja commute burst', 'Rendering'],
-              ['PH Eats promo', 'Scheduled'],
-            ].map(([label, status]) => (
-              <div key={label} className="flex items-center justify-between rounded-lg border border-fog px-2.5 py-2">
-                <span className="text-[11px] text-ink/70">{label}</span>
-                <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{status}</span>
+          <div className="flex items-center justify-between mb-2.5">
+            <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">ContentCard post preview</p>
+            <span className="text-[10px] rounded-full px-2 py-0.5 bg-emerald-50 text-emerald-700 font-semibold">
+              Ready to post
+            </span>
+          </div>
+          <div className="rounded-xl overflow-hidden border border-fog mb-2.5">
+            <div className="h-28 bg-gradient-to-br from-[#0a1221] via-[#183250] to-[#2e6f8c] p-3 flex flex-col justify-end">
+              <div className="inline-flex items-center gap-1.5 w-fit rounded-full bg-white/15 text-white text-[10px] px-2 py-0.5 font-semibold mb-2">
+                Uber Lagos
               </div>
-            ))}
+              <p className="text-white text-sm font-semibold leading-tight max-w-[18ch]">
+                Move smarter through evening traffic in Lagos.
+              </p>
+            </div>
+          </div>
+          <div className="rounded-lg border border-fog bg-mist/50 p-2.5">
+            <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold mb-1">Caption</p>
+            <p className="text-[11px] text-ink/75 leading-relaxed">
+              Lagos evenings move fast. Book your ride in two taps, track your driver in real time, and get to your destination with confidence. Tap to ride now. #UberLagos #MoveBetter
+            </p>
           </div>
         </div>
       ),
