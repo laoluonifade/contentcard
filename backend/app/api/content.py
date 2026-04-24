@@ -71,6 +71,7 @@ from app.services.billing_entitlements import (
 )
 from app.services.billing_service import PLANS, charge_saved_authorization
 from datetime import date
+from calendar import monthrange
 import logging
 import re
 from pydantic import BaseModel, Field
@@ -2225,6 +2226,90 @@ async def delete_content(
     await db.commit()
 
 
+async def _existing_platform_dates_in_month(
+    db: AsyncSession, brand_id: str, month: int, year: int
+) -> set[tuple[str, str]]:
+    """(platform value, scheduled_date ISO) pairs already on the calendar for this month."""
+    last = monthrange(year, month)[1]
+    start = date(year, month, 1)
+    end = date(year, month, last)
+    r = await db.execute(
+        select(ContentItem.platform, ContentItem.scheduled_date).where(
+            ContentItem.brand_id == brand_id,
+            ContentItem.scheduled_date.isnot(None),
+            ContentItem.scheduled_date >= start,
+            ContentItem.scheduled_date <= end,
+        )
+    )
+    occupied: set[tuple[str, str]] = set()
+    for row in r.all():
+        platform, sd = row[0], row[1]
+        if sd is not None:
+            pv = platform.value if isinstance(platform, ContentPlatform) else str(platform)
+            occupied.add((str(pv).lower(), sd.isoformat()))
+    return occupied
+
+
+def _weekday_isos_in_month(year: int, month: int) -> list[str]:
+    last = monthrange(year, month)[1]
+    acc: list[str] = []
+    for day in range(1, last + 1):
+        d = date(year, month, day)
+        if d.weekday() < 5:
+            acc.append(d.isoformat())
+    return acc
+
+
+def _shift_posts_avoid_calendar_collisions(
+    posts: list[dict],
+    occupied: set[tuple[str, str]],
+    month: int,
+    year: int,
+) -> list[dict]:
+    """No two saved posts for the same brand may share (platform, scheduled_date).
+
+    Fills weekdays in-order when the model or a prior run already claimed a slot.
+    """
+    pool = _weekday_isos_in_month(year, month)
+    pool_set = set(pool)
+    working = set(occupied)
+    out: list[dict] = []
+    for raw in posts:
+        if not isinstance(raw, dict):
+            continue
+        post = dict(raw)
+        pv = str(post.get("platform", "instagram")).lower()
+        try:
+            dstr = date.fromisoformat(str(post.get("date", "")).strip()).isoformat()
+        except Exception:
+            dstr = ""
+        if dstr not in pool_set:
+            dstr = ""
+        if not dstr:
+            cand = next((c for c in pool if (pv, c) not in working), None)
+            if not cand:
+                logger.warning("Skipping post: no free weekday slot for platform %s", pv)
+                continue
+            post["date"] = cand
+            dstr = cand
+        key = (pv, dstr)
+        if key in working:
+            cand = next((c for c in pool if (pv, c) not in working), None)
+            if not cand:
+                logger.warning(
+                    "Skipping post: no free weekday left for %s in %s/%s (duplicate slot)",
+                    pv,
+                    month,
+                    year,
+                )
+                continue
+            post["date"] = cand
+            dstr = cand
+            key = (pv, dstr)
+        working.add(key)
+        out.append(post)
+    return out
+
 
 # ── Background task ─────────────────────────────────────────────────
 
@@ -2316,6 +2401,16 @@ async def _do_generate_month(
                 return
             if template_contract:
                 posts = [_apply_template_contract_to_post(p, template_contract) for p in posts]
+            occupied_dates = await _existing_platform_dates_in_month(db, brand_id, month, year)
+            posts = _shift_posts_avoid_calendar_collisions(posts, occupied_dates, month, year)
+            if not posts:
+                logger.warning(
+                    "No posts to save after calendar collision shift for brand %s %s/%s",
+                    brand_id,
+                    month,
+                    year,
+                )
+                return
             saved_items = []
             for post in posts:
                 try:

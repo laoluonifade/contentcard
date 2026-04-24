@@ -1060,6 +1060,58 @@ def _playbook_assignment_text(plan: list[dict]) -> str:
     )
 
 
+def _unique_dates_per_platform_batch(
+    posts: list[dict],
+    posting_dates: list[str],
+    playbook_plan: list[dict] | None,
+) -> list[dict]:
+    """At most one post per scheduled date per platform batch.
+
+    The model sometimes returns two rows for the same assignment date; that
+    produces duplicate calendar tiles. Re-map duplicates onto the next free
+    canonical posting date, then re-apply playbook layout for those dates.
+    """
+    if not posts:
+        return posts
+    canonical: list[str] = []
+    seen_order: set[str] = set()
+    for d in posting_dates:
+        ds = str(d or "").strip()
+        if ds and ds not in seen_order:
+            canonical.append(ds)
+            seen_order.add(ds)
+    if not canonical:
+        return posts
+    canon_set = set(canonical)
+    used: set[str] = set()
+    out: list[dict] = []
+    for post in posts:
+        if not isinstance(post, dict):
+            continue
+        d = str(post.get("date") or "").strip()
+        if d not in canon_set:
+            d = next((x for x in canonical if x not in used), "")
+            if not d:
+                logger.warning(
+                    "Dropping post with date outside schedule; no free canonical slot (topic=%s)",
+                    post.get("content_idea") or post.get("topic"),
+                )
+                continue
+        if d in used:
+            d = next((x for x in canonical if x not in used), "")
+            if not d:
+                logger.warning(
+                    "Dropping duplicate-date post; no reassignment slots (topic=%s)",
+                    post.get("content_idea") or post.get("topic"),
+                )
+                continue
+        fixed = dict(post)
+        fixed["date"] = d
+        used.add(d)
+        out.append(fixed)
+    return _enforce_playbook_assignments(out, playbook_plan or [])
+
+
 def _enforce_playbook_assignments(posts: list[dict], plan: list[dict]) -> list[dict]:
     if not posts or not plan:
         return posts
@@ -1241,6 +1293,7 @@ HARD RULES:
 • Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely
 • Use "gif" for selected high-energy moments (product reveal, testimonial proof pulse, quick before/after) when motion would improve scroll-stopping impact, without requiring full video
 • topic must equal content_idea exactly
+• CRITICAL: each date in the assignment map must appear exactly once in your JSON for this platform — never return two posts with the same "date" value
 {_hard_visual_type_rule(ips)}
 • image_prompt must never ask for text, titles, captions, prices, currency, hashtags, or watermarks, or for any drawn logo or wordmark; reserve logo_safe_zone only
 • message_architecture carries every headline, subhead, and CTA line meant to be read on the graphic; the raster image stays photo or illustration only
@@ -1324,6 +1377,10 @@ Return a JSON object with a single key "posts" containing the array:
             )
             if len(validated) == 0:
                 raise ValueError("All posts failed validation")
+
+            validated = _unique_dates_per_platform_batch(validated, posting_dates, playbook_plan)
+            if len(validated) == 0:
+                raise ValueError("All posts dropped during unique-date dedupe")
 
             logger.info(f"Platform {platform}: {len(validated)} posts validated (attempt {attempt + 1})")
             return validated
