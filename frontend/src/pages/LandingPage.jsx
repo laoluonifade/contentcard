@@ -63,7 +63,7 @@ function HeroPlatformCards() {
               top: `${idx * 48}px`,
               left: `${idx * 9}%`,
               transform: `translateY(${isActive ? '-8px' : '0px'}) rotate(${idx === 1 ? '-2.2deg' : idx === 2 ? '2.2deg' : '-1deg'}) scale(${isActive ? 1.02 : 1})`,
-              zIndex: 30 - idx,
+              zIndex: isActive ? 50 : 30 - idx,
               boxShadow: isActive ? '0 18px 45px rgba(16,185,129,0.25)' : undefined,
             }}
           >
@@ -83,7 +83,7 @@ function HeroPlatformCards() {
             <div className="px-3.5 py-2.5 border-t border-fog">
               <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
               <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
-                Built in ContentCard with brand-safe layout, CTA, and platform-ready copy.
+                Created in ContentCard with brand-safe design and ready-to-post copy.
               </p>
               <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
             </div>
@@ -100,6 +100,56 @@ export default function LandingPage() {
     ['3x', 'faster campaign turnaround'],
     ['68%', 'lower content production cost'],
   ]
+  const discoverExamples = [
+    {
+      brand: 'Juicy Junction',
+      platform: 'Instagram',
+      image: '/marketing-examples/juicy-wrap.png',
+      caption: 'Lunch hour campaign creative generated and scheduled in minutes.',
+    },
+    {
+      brand: 'Uber Lagos',
+      platform: 'X',
+      image: '/marketing-examples/uber-ride.png',
+      caption: 'City mobility promo designed with clear CTA and platform-ready format.',
+    },
+    {
+      brand: 'Krispy Kreme NG',
+      platform: 'Facebook',
+      image: '/marketing-examples/krispy-fresh.png',
+      caption: 'Offer-driven post with conversion-focused copy and timing controls.',
+    },
+    {
+      brand: 'Juicy Junction',
+      platform: 'Instagram',
+      image: '/marketing-examples/juicy-jollof.png',
+      caption: 'Seasonal food promo with strong visual hierarchy and brand consistency.',
+    },
+    {
+      brand: 'Nike Campaign',
+      platform: 'Instagram',
+      image: '/marketing-examples/nike-campaign.png',
+      caption: 'High-impact launch visual built for mobile-first social engagement.',
+    },
+    {
+      brand: 'Uber Lagos',
+      platform: 'Facebook',
+      image: '/marketing-examples/uber-ride.png',
+      caption: 'Route-aware campaign post adapted for broader audience targeting.',
+    },
+    {
+      brand: 'Krispy Kreme NG',
+      platform: 'Instagram',
+      image: '/marketing-examples/krispy-fresh.png',
+      caption: 'Limited-time offer creative with polished copy and clear call-to-action.',
+    },
+    {
+      brand: 'Juicy Junction',
+      platform: 'X',
+      image: '/marketing-examples/juicy-wrap.png',
+      caption: 'Quick snack push optimized for fast publishing and consistent quality.',
+    },
+  ]
 
   return (
     <MarketingLayout>
@@ -111,15 +161,15 @@ export default function LandingPage() {
         <MarketingContainer className="relative py-14 sm:py-18 lg:py-20">
           <div className="grid lg:grid-cols-[1.02fr_0.98fr] gap-12 items-center">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-5">Made for social media operators</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-5">Built for fast-moving teams</p>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.06] max-w-[14ch]">
-                Build social campaigns that look premium and ship fast.
+                Create standout social content in minutes.
               </h1>
               <p className="mt-5 text-xl sm:text-2xl text-ink/60 leading-[1.25] max-w-[19ch]">
-                Create visuals, captions, and platform-ready posts in ContentCard, then publish confidently across Instagram, X, and Facebook.
+                Generate beautiful visuals, captions, and publish-ready posts in ContentCard for Instagram, X, and Facebook.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <PrimaryCta to="/signup">Get started <ArrowRight size={14} className="ml-1" /></PrimaryCta>
+                <PrimaryCta to="/signup">Start free <ArrowRight size={14} className="ml-1" /></PrimaryCta>
                 <SecondaryCta to="/demo">Book a live demo</SecondaryCta>
               </div>
             </div>
@@ -141,7 +191,7 @@ export default function LandingPage() {
       <section className="bg-gradient-to-b from-brand-700 via-brand-800 to-[#0f2a22] border-y border-brand-900 text-white">
         <MarketingContainer className="py-14 sm:py-16">
           <p className="text-3xl sm:text-4xl font-medium leading-tight max-w-4xl text-white/95">
-            Scale with confidence. Generate, review, and publish high-quality social campaigns with speed and consistency.
+            Plan, create, and publish high-quality campaigns with speed and confidence.
           </p>
           <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-emerald-300/35 via-lime-200/30 to-teal-200/30 border border-white/20" />
           <div className="mt-10 grid sm:grid-cols-3 gap-6">
@@ -163,7 +213,7 @@ export default function LandingPage() {
             className="w-14 h-14 rounded-full object-cover mx-auto mb-6 border border-fog"
           />
           <p className="text-3xl sm:text-4xl leading-tight text-ink/80">
-            “Before ContentCard, we spent hours trying to design one post. Now we plan a full week of beautiful content in minutes and stay focused on running the business.”
+            “We used to spend hours on one post. Now we schedule a full week of quality content in under 30 minutes.”
           </p>
           <p className="mt-5 text-ink/65">
             <strong className="text-ink">Amaka Eze</strong>, Founder, Fresh Basket Mart
@@ -192,12 +242,41 @@ export default function LandingPage() {
         </MarketingContainer>
       </SurfaceSection>
 
+      <SurfaceSection className="bg-white border-b border-fog">
+        <MarketingContainer>
+          <SectionHeader
+            eyebrow="Discover"
+            title="See what brands create with ContentCard"
+            subtitle="Explore campaign-ready social posts created for real business use cases across food, mobility, and retail."
+          />
+          <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            {discoverExamples.map((item, idx) => (
+              <article
+                key={`${item.brand}-${item.platform}-${idx}`}
+                className="rounded-2xl border border-fog bg-white overflow-hidden shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
+              >
+                <img src={item.image} alt={`${item.brand} ${item.platform} post design`} className="w-full h-52 object-cover bg-mist/60" />
+                <div className="p-3.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-ink">{item.brand}</p>
+                    <span className="text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">
+                      {item.platform}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-ink/65 leading-relaxed">{item.caption}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
+
       <SurfaceSection>
         <MarketingContainer>
           <CtaBand
             title="Ready to run social like a high-performing team?"
             body="Start free and launch your first campaign month in minutes."
-            primary={<PrimaryCta to="/signup">Get started</PrimaryCta>}
+            primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
             secondary={<SecondaryCta to="/pricing">View pricing</SecondaryCta>}
           />
         </MarketingContainer>
