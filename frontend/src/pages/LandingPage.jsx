@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { ArrowRight, ChevronRight, Facebook, Instagram, Twitter } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
 import {
@@ -11,6 +12,7 @@ import {
 import { WhyTeamsSwitchShowcase } from '../components/marketing/AppDashboardMockups'
 
 function HeroPlatformCards() {
+  const [flippedCard, setFlippedCard] = useState(0)
   const cards = [
     {
       platform: 'Instagram',
@@ -41,40 +43,63 @@ function HeroPlatformCards() {
     },
   ]
 
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setFlippedCard((prev) => (prev + 1) % cards.length)
+    }, 3000)
+    return () => clearInterval(iv)
+  }, [cards.length])
+
   return (
-    <div className="relative min-h-[340px] sm:min-h-[410px]">
+    <div className="relative min-h-[330px] sm:min-h-[390px]">
       {cards.map((card, idx) => {
         const Icon = card.icon
+        const isFlipped = flippedCard === idx
         return (
           <div
             key={card.platform}
-            className={`absolute w-[78%] sm:w-[72%] rounded-2xl border ${card.border} bg-white shadow-[0_12px_34px_rgba(15,23,42,0.14)] overflow-hidden`}
+            className={`absolute w-[82%] sm:w-[76%] rounded-2xl border ${card.border} bg-white shadow-[0_12px_34px_rgba(15,23,42,0.14)] overflow-hidden transition-transform duration-700 [transform-style:preserve-3d]`}
             style={{
-              top: `${idx * 52}px`,
+              top: `${idx * 48}px`,
               left: `${idx * 9}%`,
-              transform: `rotate(${idx === 1 ? '-2.2deg' : idx === 2 ? '2.2deg' : '-1deg'})`,
+              transform: `perspective(1200px) rotateY(${isFlipped ? '180deg' : '0deg'}) rotate(${idx === 1 ? '-2.2deg' : idx === 2 ? '2.2deg' : '-1deg'})`,
               zIndex: 30 - idx,
             }}
           >
-            <div className="px-3.5 py-2.5 border-b border-fog flex items-center justify-between bg-mist/60">
-              <div className="flex items-center gap-2">
-                <span className="w-7 h-7 rounded-full bg-surface border border-fog flex items-center justify-center text-ink/70">
-                  <Icon size={14} />
-                </span>
-                <div>
-                  <p className="text-xs font-semibold text-ink">{card.platform}</p>
-                  <p className="text-[10px] text-ink/45">{card.handle}</p>
+            <div className="[backface-visibility:hidden]">
+              <div className="px-3.5 py-2.5 border-b border-fog flex items-center justify-between bg-mist/60">
+                <div className="flex items-center gap-2">
+                  <span className="w-7 h-7 rounded-full bg-surface border border-fog flex items-center justify-center text-ink/70">
+                    <Icon size={14} />
+                  </span>
+                  <div>
+                    <p className="text-xs font-semibold text-ink">{card.platform}</p>
+                    <p className="text-[10px] text-ink/45">{card.handle}</p>
+                  </div>
                 </div>
+                <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{card.status}</span>
               </div>
-              <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{card.status}</span>
+              <img src={card.image} alt={`${card.platform} example post`} className="w-full h-36 sm:h-44 object-cover" />
+              <div className="px-3.5 py-2.5 border-t border-fog">
+                <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
+                <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
+                  Built in ContentCard with brand-safe layout, CTA, and platform-ready copy.
+                </p>
+                <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
+              </div>
             </div>
-            <img src={card.image} alt={`${card.platform} example post`} className="w-full h-36 sm:h-44 object-cover" />
-            <div className="px-3.5 py-2.5 border-t border-fog">
-              <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
-              <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
-                Built in ContentCard with brand-safe layout, CTA, and platform-ready copy.
-              </p>
-              <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
+            <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] bg-ink text-white flex flex-col justify-between p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] uppercase tracking-widest text-white/60 font-semibold">{card.platform} ready</p>
+                <span className="text-[10px] rounded-full px-2 py-0.5 bg-white/10 border border-white/20">{card.status}</span>
+              </div>
+              <div>
+                <p className="text-sm font-semibold leading-tight mb-2">Post approved and ready to publish.</p>
+                <p className="text-xs text-white/70 leading-relaxed">
+                  Scheduled from ContentCard with final creative, caption, and CTA mapped to {card.platform}.
+                </p>
+              </div>
+              <p className="text-[10px] text-white/60">{card.time}</p>
             </div>
           </div>
         )
@@ -93,35 +118,38 @@ export default function LandingPage() {
 
   return (
     <MarketingLayout>
-      <section className="relative border-b border-fog overflow-hidden">
-        <div className="absolute right-0 top-0 h-full w-[56%] hidden lg:block pointer-events-none">
-          <div className="absolute inset-0 bg-gradient-to-br from-[#d4e5ff] via-[#e6c5ff] to-[#ffbb73]" />
-          <div className="absolute inset-0 opacity-90" style={{ background: 'linear-gradient(130deg, rgba(255,255,255,0.0) 14%, rgba(255,255,255,0.75) 20%, rgba(255,255,255,0.0) 27%, rgba(255,255,255,0.0) 42%, rgba(255,255,255,0.68) 48%, rgba(255,255,255,0.0) 56%, rgba(255,255,255,0.0) 72%, rgba(255,255,255,0.58) 78%, rgba(255,255,255,0.0) 86%)' }} />
+      <section className="relative border-b border-fog overflow-hidden bg-gradient-to-b from-white via-[#fbfcff] to-white">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-28 -right-10 w-[440px] h-[440px] rounded-full bg-brand-100/60 blur-3xl" />
+          <div className="absolute top-24 right-28 w-[320px] h-[320px] rounded-full bg-violet-100/55 blur-3xl hidden lg:block" />
         </div>
-        <MarketingContainer className="relative py-16 sm:py-20 lg:py-24">
-          <div className="max-w-3xl">
-            <h1 className="text-5xl sm:text-6xl font-semibold tracking-tight text-ink leading-[1.05]">
-              Build social campaigns that look premium and ship fast.
-              <span className="block text-ink/60 mt-2">
-                Create high-quality brand visuals, captions, and platform-ready posts in ContentCard, then publish confidently across Instagram, X, and Facebook.
-              </span>
-            </h1>
-            <div className="mt-8 flex flex-wrap gap-3">
-              <PrimaryCta to="/signup">Get started <ArrowRight size={14} className="ml-1" /></PrimaryCta>
-              <SecondaryCta to="/demo">Book a live demo</SecondaryCta>
+        <MarketingContainer className="relative py-14 sm:py-18 lg:py-20">
+          <div className="grid lg:grid-cols-[1.02fr_0.98fr] gap-12 items-center">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-5">Made for social media operators</p>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.06] max-w-[14ch]">
+                Build social campaigns that look premium and ship fast.
+              </h1>
+              <p className="mt-5 text-xl sm:text-2xl text-ink/60 leading-[1.25] max-w-[19ch]">
+                Create visuals, captions, and platform-ready posts in ContentCard, then publish confidently across Instagram, X, and Facebook.
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <PrimaryCta to="/signup">Get started <ArrowRight size={14} className="ml-1" /></PrimaryCta>
+                <SecondaryCta to="/demo">Book a live demo</SecondaryCta>
+              </div>
             </div>
-          </div>
-          <div className="mt-10 lg:mt-12 max-w-4xl">
-            <HeroPlatformCards />
+            <div className="lg:pl-4">
+              <HeroPlatformCards />
+            </div>
           </div>
         </MarketingContainer>
       </section>
 
       <SurfaceSection className="border-b border-fog py-8">
         <MarketingContainer>
-          <div className="flex flex-wrap items-center gap-x-10 gap-y-3">
+          <div className="flex flex-wrap items-center gap-x-9 gap-y-3">
             {logos.map((logo) => (
-              <span key={logo} className="text-ink/45 text-xl font-semibold tracking-tight">{logo}</span>
+              <span key={logo} className="text-ink/40 text-lg font-semibold tracking-tight">{logo}</span>
             ))}
           </div>
         </MarketingContainer>
@@ -152,10 +180,10 @@ export default function LandingPage() {
             className="w-14 h-14 rounded-full object-cover mx-auto mb-6 border border-fog"
           />
           <p className="text-3xl sm:text-4xl leading-tight text-ink/80">
-            “With ContentCard, we finally have a social operating partner to help our teams keep campaigns live and conversion-focused across every market.”
+            “With ContentCard, our team now ships consistent campaign creative every week without losing brand quality or momentum.”
           </p>
           <p className="mt-5 text-ink/65">
-            <strong className="text-ink">Kurtis Moyer</strong>, Lead Product Manager of Payments, Mindbody
+            <strong className="text-ink">Adaeze Okonkwo</strong>, Managing Director, Blaze Digital Agency
           </p>
           <button className="mt-4 inline-flex items-center gap-1 text-brand-700 font-semibold">
             Read the story <ChevronRight size={15} />
