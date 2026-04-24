@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle, BarChart3 } from 'lucide-react'
+import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle, BarChart3, Share2, Eye, MousePointerClick, Activity } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
-import { trendsApi } from '../api'
+import { trendsApi, socialApi } from '../api'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
@@ -46,6 +46,8 @@ export default function DashboardPage() {
   const [stats, setStats]       = useState({ total: 0, ready: 0, drafts: 0, ig: 0, fb: 0, tw: 0, li: 0, scheduledWeek: 0 })
   const [upcoming, setUpcoming] = useState([])
   const [loading, setLoading]   = useState(true)
+  const [socialSummary, setSocialSummary] = useState({ totals: { posted: 0, impressions: 0, reach: 0, engagement: 0, clicks: 0 }, connected: 0 })
+  const [socialLoading, setSocialLoading] = useState(false)
 
   // Trends refresh
   const [refreshing, setRefreshing] = useState(false)
@@ -91,6 +93,29 @@ export default function DashboardPage() {
       fetchTrends().catch(() => {})
     }
   }, [activeBrandId, activeWorkspace?.plan])
+
+  useEffect(() => {
+    if (!activeBrandId) return
+    let cancelled = false
+    setSocialLoading(true)
+    Promise.all([
+      socialApi.metricsSummary(activeBrandId, 30).catch(() => null),
+      socialApi.listConnections(activeBrandId).catch(() => []),
+    ])
+      .then(([metrics, connections]) => {
+        if (cancelled) return
+        setSocialSummary({
+          totals: metrics?.totals || { posted: 0, impressions: 0, reach: 0, engagement: 0, clicks: 0 },
+          connected: Array.isArray(connections) ? connections.length : 0,
+        })
+      })
+      .finally(() => {
+        if (!cancelled) setSocialLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeBrandId])
 
   useEffect(() => {
     if (!activeBrandId) return
@@ -286,6 +311,33 @@ export default function DashboardPage() {
           <StatCard icon={Clock}       val={stats.drafts} lbl="Drafts"         loading={loading} />
           <StatCard icon={Calendar}    val={stats.scheduledWeek} lbl="Due this week" loading={loading} />
           <StatCard icon={BarChart3}   val={stats.total ? `${Math.round((stats.ready / Math.max(1, stats.total)) * 100)}%` : '0%'} lbl="Readiness" loading={loading} />
+        </div>
+      )}
+
+      {activeBrandId && (
+        <div className="bg-surface border border-fog rounded-2xl p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Share2 size={15} className="text-ink/40" />
+              <h3 className="text-sm font-semibold text-ink">Social momentum (last 30 days)</h3>
+            </div>
+            <button
+              onClick={() => navigate('/dashboard/social')}
+              className="text-xs text-brand-500 hover:text-brand-600 font-medium flex items-center gap-1 transition-colors"
+            >
+              Open social hub <ArrowRight size={12} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-3">
+            <StatCard icon={Activity} val={socialSummary.totals.posted || 0} lbl="Published" loading={socialLoading} />
+            <StatCard icon={Eye} val={Number(socialSummary.totals.impressions || 0).toLocaleString()} lbl="Impressions" loading={socialLoading} />
+            <StatCard icon={BarChart3} val={Number(socialSummary.totals.reach || 0).toLocaleString()} lbl="Reach" loading={socialLoading} />
+            <StatCard icon={TrendingUp} val={Number(socialSummary.totals.engagement || 0).toLocaleString()} lbl="Engagement" loading={socialLoading} />
+            <StatCard icon={MousePointerClick} val={Number(socialSummary.totals.clicks || 0).toLocaleString()} lbl="Link clicks" loading={socialLoading} />
+          </div>
+          <div className="text-xs text-ink/45">
+            {socialLoading ? 'Refreshing social analytics…' : `${socialSummary.connected} connected page${socialSummary.connected === 1 ? '' : 's'} tracked.`}
+          </div>
         </div>
       )}
 

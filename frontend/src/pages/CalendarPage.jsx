@@ -556,6 +556,7 @@ export default function CalendarPage() {
   const [slideIdx, setSlideIdx] = useState(0)
   const [editCaption, setEditCaption]   = useState('')
   const [editHashtags, setEditHashtags] = useState([])
+  const [visualPrompt, setVisualPrompt] = useState('')
   const [saving, setSaving]   = useState(false)
   const [regen, setRegen]     = useState(false)
   const [regenVis, setRegenVis] = useState(false)
@@ -764,7 +765,12 @@ export default function CalendarPage() {
   }, [prepMessages, prepSending])
 
   useEffect(() => {
-    if (modal) { setEditCaption(modal.caption||''); setEditHashtags(modal.hashtags||[]); setSlideIdx(0) }
+    if (modal) {
+      setEditCaption(modal.caption || '')
+      setEditHashtags(modal.hashtags || [])
+      setVisualPrompt(modal.image_prompt || modal.visual_direction || '')
+      setSlideIdx(0)
+    }
   }, [modal?.id])
 
   // Lock body scroll when modal is open so background page doesn't scroll
@@ -837,6 +843,30 @@ export default function CalendarPage() {
       toast('Visuals regenerated')
     } catch (e) {
       toast(e.response?.data?.detail || 'Visual regen failed', 'error')
+    } finally {
+      setRegenVis(false)
+    }
+  }
+
+  const regenerateVisualFromPrompt = async () => {
+    if (!modal) return
+    const prompt = String(visualPrompt || '').trim()
+    if (!prompt) {
+      toast('Enter a prompt first.', 'error')
+      return
+    }
+    setRegenVis(true)
+    try {
+      const updated = await contentApi.regenerateVisual(modal.id, {
+        mode: 'same_archetype',
+        new_archetype: null,
+        prompt_text: prompt,
+      })
+      setPosts((ps) => ps.map((p) => (p.id === updated.id ? updated : p)))
+      setModal(updated)
+      toast('Visual generated from prompt')
+    } catch (e) {
+      toast(e.response?.data?.detail || 'Prompt visual generation failed', 'error')
     } finally {
       setRegenVis(false)
     }
@@ -2161,8 +2191,37 @@ export default function CalendarPage() {
                     </details>
                   )}
 
+                  <div>
+                    <p className="label">Generate image with AI prompt</p>
+                    <textarea
+                      value={visualPrompt}
+                      onChange={(e) => setVisualPrompt(e.target.value)}
+                      rows={3}
+                      className="input resize-none text-xs"
+                      placeholder="Describe the exact image style you want, then generate. You can switch layout archetype after."
+                    />
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={regenerateVisualFromPrompt}
+                        disabled={regenVis}
+                        className="btn-secondary text-xs px-3 py-2"
+                      >
+                        {regenVis ? 'Generating…' : 'Generate from prompt'}
+                      </button>
+                      <span className="text-[11px] text-ink/35">Pick a new layout archetype after generation if needed.</span>
+                    </div>
+                  </div>
+
                   {/* Actions */}
                   <div className="flex gap-2 flex-wrap pt-1">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/dashboard/calendar/editor/${encodeURIComponent(modal.id)}`)}
+                      className="btn-secondary text-xs px-3 py-2"
+                    >
+                      Mini full-page editor
+                    </button>
                     <button onClick={saveEdits} disabled={saving}
                       className="btn-primary text-xs px-4 py-2">
                       <Check size={12}/>{saving?'Saving…':'Save changes'}

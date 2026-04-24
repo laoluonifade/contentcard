@@ -2163,6 +2163,13 @@ async def _regenerate_visual_core(
         if na not in ARCHETYPE_IDS:
             raise HTTPException(status_code=400, detail=f"Invalid archetype. Use one of: {', '.join(ARCHETYPE_IDS)}")
         post["visual_archetype"] = na
+    if body.prompt_text is not None:
+        prompt = str(body.prompt_text).strip()
+        if prompt:
+            post["image_prompt"] = prompt
+            post["visual_direction"] = prompt
+            item.image_prompt = prompt
+            item.image_prompt_explanation = "User provided this prompt in Calendar visual regeneration."
 
     sab = build_art_brief(post, brand_dict)
     post["art_brief"] = sab

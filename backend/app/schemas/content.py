@@ -132,6 +132,7 @@ class RegenerateVisualRequest(BaseModel):
 
     mode: str = "same_archetype"  # same_archetype | new_archetype
     new_archetype: str | None = None  # one of art_brief_service.ARCHETYPE_IDS when mode=new_archetype
+    prompt_text: str | None = None
 
 
 class RegenerateMonthVisualsRequest(BaseModel):
