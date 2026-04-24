@@ -186,14 +186,25 @@ export default function SignupPage() {
             <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Create your account</h1>
             <p className="text-ink/50 mb-6 text-sm">Start free · No credit card required.</p>
             {shopifyEnabled && (
-              <button
-                type="button"
-                onClick={handleShopifyClick}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#95BF47] hover:bg-[#7ca43b] text-white font-semibold py-3 transition-colors mb-5"
-              >
-                <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-white text-[#95BF47] text-xs font-extrabold">S</span>
-                Continue with Shopify
-              </button>
+              <div className="mb-5">
+                <button
+                  type="button"
+                  onClick={handleShopifyClick}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#95BF47] hover:bg-[#7ca43b] text-white font-semibold py-3 transition-colors"
+                >
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-white/15" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" className="h-4 w-4 fill-white">
+                      <path d="M17.62 6.28c-.03 0-.06 0-.09.01-.33-1.02-.92-1.84-1.76-2.42-.92-.64-2.05-.86-3.34-.66-2.5.4-4.3 2.77-5.06 5.9l-2.34.73c-.69.22-.71.24-.8.89L2.5 22.94l18.99 1.06V6.19l-3.87.09Zm-6.5-1.89c.62-.1 1.15.02 1.57.36.5.4.86 1.05 1.08 1.93l-4.38.14c.55-1.32 1.34-2.29 1.73-2.43Zm-2.19 3.24 5.21-.16c.03.56.02 1.16-.03 1.8l-5.67 1.77c.11-1.2.3-2.36.49-3.41Zm4.94 9.33c-1.59 0-2.43-.9-2.81-1.55l.96-1.29c.39.56 1.04 1.12 1.9 1.12.72 0 1.14-.45 1.14-1.03 0-.7-.58-1.11-1.34-1.57-.97-.58-2.1-1.26-2.1-2.73 0-1.67 1.19-2.84 3.01-2.84 1.17 0 2.03.44 2.58.98l-.85 1.34c-.43-.39-1.01-.72-1.73-.72-.7 0-1.09.41-1.09.95 0 .61.55.97 1.28 1.4 1 .6 2.2 1.32 2.2 2.9 0 1.78-1.27 3.04-3.15 3.04Z" />
+                    </svg>
+                  </span>
+                  Continue with Shopify
+                </button>
+                <div className="mt-4 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-fog" />
+                  <span className="text-xs uppercase tracking-wide text-ink/40 font-semibold">or</span>
+                  <div className="h-px flex-1 bg-fog" />
+                </div>
+              </div>
             )}
             <form onSubmit={nextStep} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
