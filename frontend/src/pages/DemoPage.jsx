@@ -5,6 +5,7 @@ import MarketingLayout from '../components/layout/MarketingLayout'
 import { marketingApi } from '../api'
 import { toast } from '../components/ui/Toast'
 import {
+  CtaBand,
   HeroSection,
   MarketingContainer,
   PrimaryCta,
@@ -12,6 +13,7 @@ import {
   SoftCard,
   SurfaceSection,
 } from '../components/marketing/MarketingPrimitives'
+import { DashboardShotGrid, StripeUberHeroMockup } from '../components/marketing/AppDashboardMockups'
 
 const TEAM_SIZES = ['Just me', '2 to 5', '6 to 20', '21 to 100', '100+']
 const ROLES = ['Founder / CEO', 'CMO / Marketing Director', 'Social Media Manager', 'Agency Owner', 'Brand Manager', 'Other']
@@ -168,6 +170,33 @@ export default function DemoPage() {
               Prefer email? <Link className="text-brand-600 hover:underline" to="/contact">Contact the team</Link>
             </p>
           </SoftCard>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection className="border-t border-fog bg-mist/30">
+        <MarketingContainer>
+          <SectionHeader
+            eyebrow="Product screenshots"
+            title="What the live walkthrough looks like"
+            subtitle="Preview the Stripe + Uber-inspired ContentCard dashboard you’ll see during your demo."
+            center
+          />
+          <div className="mt-8">
+            <StripeUberHeroMockup className="h-[310px] sm:h-[360px]" />
+          </div>
+          <div className="mt-5">
+            <DashboardShotGrid />
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection>
+        <MarketingContainer>
+          <CtaBand
+            title="Prefer to jump straight in?"
+            body="Create your workspace now and explore the dashboard before your call."
+            primary={<PrimaryCta to="/signup">Start free trial</PrimaryCta>}
+          />
         </MarketingContainer>
       </SurfaceSection>
     </MarketingLayout>
