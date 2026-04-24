@@ -1,4 +1,5 @@
 import { SoftCard } from './MarketingPrimitives'
+import { ArrowUpRight } from 'lucide-react'
 
 function MacHeader({ label }) {
   return (
@@ -102,6 +103,93 @@ export function DashboardShotGrid() {
               </div>
               <p className="text-xs font-semibold text-white">{title}</p>
               <p className="text-[11px] text-white/65 mt-1 leading-relaxed">{caption}</p>
+            </div>
+          </div>
+        </SoftCard>
+      ))}
+    </div>
+  )
+}
+
+export function WhyTeamsSwitchShowcase() {
+  const cards = [
+    {
+      title: 'Run always-on city campaigns with zero content bottlenecks',
+      desc: 'Plan and launch high-volume social campaigns with queue visibility, approvals, and delivery confidence in one workspace.',
+      tone: 'from-[#b8f2db] via-[#c6e9ff] to-[#f4d9ff]',
+      visual: (
+        <div className="rounded-2xl border border-fog bg-surface p-3">
+          <div className="space-y-2">
+            {[
+              ['Lagos airport push', 'Approved'],
+              ['Abuja commute burst', 'Rendering'],
+              ['PH Eats promo', 'Scheduled'],
+            ].map(([label, status]) => (
+              <div key={label} className="flex items-center justify-between rounded-lg border border-fog px-2.5 py-2">
+                <span className="text-[11px] text-ink/70">{label}</span>
+                <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{status}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'Keep performance and creative strategy in the same operating view',
+      desc: 'Track growth metrics and campaign mix side-by-side so your social team ships what actually drives conversions.',
+      tone: 'from-[#ffd8f2] via-[#ffd8cc] to-[#f7f0ff]',
+      visual: (
+        <div className="rounded-2xl border border-fog bg-surface p-4">
+          <div className="h-28 rounded-xl bg-gradient-to-br from-[#ffa0df] via-[#caa8ff] to-[#ffd39f] mb-3" />
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ['CTR', '4.8%'],
+              ['CVR', '2.1%'],
+              ['CAC', '₦1,980'],
+            ].map(([k, v]) => (
+              <div key={k} className="rounded-lg border border-fog bg-mist/50 p-2">
+                <p className="text-[10px] text-ink/45 uppercase tracking-widest">{k}</p>
+                <p className="text-xs font-semibold text-ink mt-0.5">{v}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ),
+    },
+    {
+      title: 'Scale multi-market growth with cleaner reporting and faster decisions',
+      desc: 'Get a single, elegant dashboard for operational status, market demand signals, and next-best campaign actions.',
+      tone: 'from-[#d8e3ff] via-[#ece8ff] to-[#ffdff5]',
+      visual: (
+        <div className="rounded-2xl border border-fog bg-surface p-4">
+          <div className="h-36 rounded-xl border border-fog bg-gradient-to-br from-[#f3f7ff] to-[#fff8fb] p-3 flex items-end gap-1">
+            {[16, 20, 24, 31, 28, 35, 39, 34, 30, 36, 42, 46].map((h, i) => (
+              <span key={i} className="flex-1 rounded-t bg-brand-300/80" style={{ height: `${h}%` }} />
+            ))}
+          </div>
+          <p className="text-[11px] text-ink/55 mt-2">Demand trend across active markets</p>
+        </div>
+      ),
+    },
+  ]
+
+  return (
+    <div className="grid lg:grid-cols-3 gap-5">
+      {cards.map((card) => (
+        <SoftCard key={card.title} className="overflow-hidden border-fog/90">
+          <div className={`h-1.5 bg-gradient-to-r ${card.tone}`} />
+          <div className="p-5 sm:p-6">
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <h3 className="text-[1.65rem] leading-[1.15] font-semibold tracking-tight text-ink max-w-[20ch]">
+                {card.title}
+              </h3>
+              <span className="w-7 h-7 rounded-lg border border-fog bg-mist flex items-center justify-center text-ink/45 flex-shrink-0">
+                <ArrowUpRight size={14} />
+              </span>
+            </div>
+            <p className="text-sm text-ink/65 leading-relaxed mb-5">{card.desc}</p>
+            <div className={`rounded-2xl p-3 bg-gradient-to-br ${card.tone}`}>
+              {card.visual}
             </div>
           </div>
         </SoftCard>
