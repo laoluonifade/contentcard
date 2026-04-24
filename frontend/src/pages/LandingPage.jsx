@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ArrowRight, ChevronRight, Facebook, Instagram, Sparkles, Star, Twitter } from 'lucide-react'
+import { ArrowRight, ChevronRight, Facebook, Instagram, Twitter } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
 import {
   CtaBand,
@@ -115,112 +115,37 @@ export default function LandingPage() {
     ['68%', 'lower content production cost'],
   ]
   const logos = ['Juicy Junction', 'Novabridg', 'Axle Bank', 'OBA', 'Zenastack', 'Shopriva']
-  const discoverExamples = [
-    {
-      brand: 'Juicy Junction',
-      platform: 'Instagram',
-      image: '/marketing-examples/juicy-wrap.png',
-      caption: 'Lunch rush solved. Fresh wraps delivered fast across Victoria Island.',
-    },
-    {
-      brand: 'Uber Lagos',
-      platform: 'X',
-      image: '/marketing-examples/uber-ride.png',
-      caption: 'Move through evening traffic smarter with live ETAs and safer pickups.',
-    },
-    {
-      brand: 'Krispy Kreme NG',
-      platform: 'Facebook',
-      image: '/marketing-examples/krispy-fresh.png',
-      caption: 'Freshly glazed this morning. Limited boxes now available in-store.',
-    },
-    {
-      brand: 'Juicy Junction',
-      platform: 'Instagram',
-      image: '/marketing-examples/juicy-jollof.png',
-      caption: 'Weekend jollof drop now live. Reserve your tray before 4PM.',
-    },
-    {
-      brand: 'Nike Campaign',
-      platform: 'Instagram',
-      image: '/marketing-examples/nike-campaign.png',
-      caption: 'Own your next run with lightweight drops engineered for city pace.',
-    },
-    {
-      brand: 'Axle Bank',
-      platform: 'LinkedIn',
-      image: '/marketing-examples/discover-tech-launch.svg',
-      caption: 'A launch-ready fintech campaign, generated and scheduled in one flow.',
-    },
-    {
-      brand: 'NovaWear',
-      platform: 'Instagram',
-      image: '/marketing-examples/discover-fashion-drop.svg',
-      caption: 'Editorial social creative with clear pricing and a direct shop CTA.',
-    },
-    {
-      brand: 'Juicy Junction',
-      platform: 'Facebook',
-      image: '/marketing-examples/discover-food-special.svg',
-      caption: 'Campaign-ready food promo with offer framing and conversion-first copy.',
-    },
-  ]
-  const notionStyleSteps = [
-    {
-      title: 'Create in one brief',
-      body: 'Drop campaign intent, audience, and offer once. ContentCard generates platform-native design directions and caption variants instantly.',
-    },
-    {
-      title: 'Polish with brand guardrails',
-      body: 'Your visual style, tone, CTAs, and safe-zone formatting are enforced automatically so every output stays on-brand.',
-    },
-    {
-      title: 'Publish with confidence',
-      body: 'Queue final creatives across Instagram, X, and Facebook from one workflow with status tracking and performance feedback.',
-    },
-  ]
 
   return (
     <MarketingLayout>
-      <section className="relative border-b border-fog overflow-hidden bg-[#fafafa]">
-        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_20%_10%,rgba(34,197,94,0.1),transparent_35%),radial-gradient(circle_at_85%_20%,rgba(59,130,246,0.08),transparent_35%)]" />
+      <section className="relative border-b border-fog overflow-hidden bg-gradient-to-b from-white via-[#fbfcff] to-white">
+        <div className="absolute inset-0 pointer-events-none">
+          <div className="absolute -top-28 -right-10 w-[440px] h-[440px] rounded-full bg-brand-100/60 blur-3xl" />
+          <div className="absolute top-24 right-28 w-[320px] h-[320px] rounded-full bg-violet-100/55 blur-3xl hidden lg:block" />
+        </div>
         <MarketingContainer className="relative py-14 sm:py-18 lg:py-20">
-          <div className="grid lg:grid-cols-[1fr_1fr] gap-12 items-center">
+          <div className="grid lg:grid-cols-[1.02fr_0.98fr] gap-12 items-center">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-fog bg-white px-3 py-1.5 text-xs font-semibold text-ink/70">
-                <Sparkles size={12} className="text-brand-700" /> Notion-style clarity, ContentCard execution
-              </div>
-              <h1 className="mt-6 text-5xl sm:text-6xl lg:text-7xl font-semibold tracking-tight text-ink leading-[0.98] max-w-[12ch]">
-                Social campaigns that feel iconic, not generic.
+              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-5">Made for social media operators</p>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.06] max-w-[14ch]">
+                Build social campaigns that look premium and ship fast.
               </h1>
-              <p className="mt-6 text-lg sm:text-xl text-ink/65 leading-relaxed max-w-[20.5ch]">
-                Design, caption, approve, and ship platform-ready content from one elegant workspace built for high-output marketing teams.
+              <p className="mt-5 text-xl sm:text-2xl text-ink/60 leading-[1.25] max-w-[19ch]">
+                Create visuals, captions, and platform-ready posts in ContentCard, then publish confidently across Instagram, X, and Facebook.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <PrimaryCta to="/signup">Get started <ArrowRight size={14} className="ml-1" /></PrimaryCta>
                 <SecondaryCta to="/demo">Book a live demo</SecondaryCta>
               </div>
-              <div className="mt-8 flex items-center gap-5 text-sm text-ink/55">
-                <span className="inline-flex items-center gap-1.5"><Star size={14} className="text-amber-500" /> Loved by growth teams</span>
-                <span>30+ posts/month per brand</span>
-              </div>
             </div>
-            <div className="relative lg:pl-2">
-              <div className="absolute -top-12 -right-6 w-28 h-28 rounded-3xl border border-fog bg-white shadow-sm hidden md:block">
-                <img src="/marketing-examples/meme-mascot-rocket.svg" alt="Meme rocket mascot" className="w-full h-full object-cover rounded-3xl" />
-              </div>
-              <div className="absolute -bottom-10 -left-8 w-28 h-28 rounded-3xl border border-fog bg-white shadow-sm hidden md:block">
-                <img src="/marketing-examples/meme-mascot-hype.svg" alt="Meme hype mascot" className="w-full h-full object-cover rounded-3xl" />
-              </div>
-              <div className="rounded-3xl border border-fog bg-white p-3 shadow-[0_24px_70px_rgba(15,23,42,0.12)]">
-                <HeroPlatformCards />
-              </div>
+            <div className="lg:pl-4">
+              <HeroPlatformCards />
             </div>
           </div>
         </MarketingContainer>
       </section>
 
-      <SurfaceSection className="border-b border-fog py-8 bg-white">
+      <SurfaceSection className="border-b border-fog py-8">
         <MarketingContainer>
           <div className="flex flex-wrap items-center gap-x-9 gap-y-3">
             {logos.map((logo) => (
@@ -230,14 +155,15 @@ export default function LandingPage() {
         </MarketingContainer>
       </SurfaceSection>
 
-      <section className="bg-[#0f172a] border-y border-[#111827] text-white">
+      <section className="bg-ink border-y border-ink/90 text-white">
         <MarketingContainer className="py-14 sm:py-16">
           <p className="text-3xl sm:text-4xl font-medium leading-tight max-w-4xl text-white/95">
-            Beautiful workflows should still drive hard numbers.
+            Scale with confidence. Generate, review, and publish high-quality social campaigns with speed and consistency.
           </p>
+          <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-brand-500/40 via-emerald-300/25 to-teal/35 border border-white/10" />
           <div className="mt-10 grid sm:grid-cols-3 gap-6">
             {metrics.map(([value, label]) => (
-              <div key={label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+              <div key={label}>
                 <p className="text-5xl font-semibold tracking-tight text-brand-300">{value}</p>
                 <p className="mt-1 text-white/75">{label}</p>
               </div>
@@ -265,7 +191,7 @@ export default function LandingPage() {
         </MarketingContainer>
       </SurfaceSection>
 
-      <SurfaceSection className="bg-white border-b border-fog/80">
+      <SurfaceSection className="bg-gradient-to-b from-white via-[#fcfcff] to-white border-b border-fog/80">
         <MarketingContainer>
           <SectionHeader
             eyebrow="Why teams switch"
@@ -275,54 +201,6 @@ export default function LandingPage() {
           />
           <div className="mt-10">
             <WhyTeamsSwitchShowcase />
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <SurfaceSection className="border-b border-fog bg-[#fafafa]">
-        <MarketingContainer>
-          <SectionHeader
-            eyebrow="How it works"
-            title="A simple, Notion-like flow for social operations"
-            subtitle="Minimal, structured, and collaborative. Teams move from idea to publish without losing creative quality."
-          />
-          <div className="mt-8 grid lg:grid-cols-3 gap-5">
-            {notionStyleSteps.map((step, idx) => (
-              <article key={step.title} className="rounded-2xl border border-fog bg-white p-5 shadow-sm">
-                <p className="text-[11px] uppercase tracking-widest text-brand-700 font-semibold">Step {idx + 1}</p>
-                <h3 className="mt-2 text-xl font-semibold text-ink leading-tight">{step.title}</h3>
-                <p className="mt-2 text-sm text-ink/65 leading-relaxed">{step.body}</p>
-              </article>
-            ))}
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <SurfaceSection className="bg-white border-b border-fog">
-        <MarketingContainer>
-          <SectionHeader
-            eyebrow="Discover"
-            title="See 8 examples brands created with ContentCard"
-            subtitle="From food to fintech, these are social-ready campaign posts generated and prepared for publishing in ContentCard."
-          />
-          <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {discoverExamples.map((item) => (
-              <article
-                key={`${item.brand}-${item.image}`}
-                className="rounded-2xl border border-fog bg-white overflow-hidden shadow-[0_10px_30px_rgba(15,23,42,0.06)]"
-              >
-                <img src={item.image} alt={`${item.brand} ${item.platform} post design`} className="w-full h-52 object-cover bg-mist/60" />
-                <div className="p-3.5">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-ink">{item.brand}</p>
-                    <span className="text-[10px] uppercase tracking-wider rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">
-                      {item.platform}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-xs text-ink/65 leading-relaxed">{item.caption}</p>
-                </div>
-              </article>
-            ))}
           </div>
         </MarketingContainer>
       </SurfaceSection>
