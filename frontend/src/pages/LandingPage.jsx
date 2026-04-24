@@ -6,11 +6,11 @@ import {
   HeroSection,
   MarketingContainer,
   PrimaryCta,
-  ScreenshotFrame,
   SecondaryCta,
   SectionHeader,
   SurfaceSection,
 } from '../components/marketing/MarketingPrimitives'
+import { DashboardShotGrid, StripeUberHeroMockup } from '../components/marketing/AppDashboardMockups'
 
 export default function LandingPage() {
   const featureItems = [
@@ -42,11 +42,7 @@ export default function LandingPage() {
           </>
         }
         media={
-          <ScreenshotFrame
-            src="https://images.unsplash.com/photo-1553877522-43269d4ea984?w=1200&auto=format&fit=crop&q=80"
-            alt="ContentCard workspace overview"
-            className="h-[320px] sm:h-[380px]"
-          />
+          <StripeUberHeroMockup className="h-[320px] sm:h-[380px]" />
         }
       />
 
@@ -73,6 +69,9 @@ export default function LandingPage() {
           />
           <div className="mt-8">
             <FeatureGrid items={featureItems} />
+          </div>
+          <div className="mt-8">
+            <DashboardShotGrid />
           </div>
         </MarketingContainer>
       </SurfaceSection>

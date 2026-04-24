@@ -9,6 +9,7 @@ import {
   SoftCard,
   SurfaceSection,
 } from '../components/marketing/MarketingPrimitives'
+import { DashboardShotGrid, StripeUberHeroMockup } from '../components/marketing/AppDashboardMockups'
 
 const PLANS = [
   {
@@ -92,6 +93,23 @@ export default function PricingPage() {
                 <p className="text-ink/65 text-sm leading-relaxed">{a}</p>
               </SoftCard>
             ))}
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection className="border-t border-fog bg-mist/30">
+        <MarketingContainer>
+          <SectionHeader
+            eyebrow="Product screenshots"
+            title="See what your team gets on day one"
+            subtitle="Stripe-style reporting clarity meets Uber-style operational flow inside ContentCard."
+            center
+          />
+          <div className="mt-8">
+            <StripeUberHeroMockup className="h-[310px] sm:h-[360px]" />
+          </div>
+          <div className="mt-5">
+            <DashboardShotGrid />
           </div>
         </MarketingContainer>
       </SurfaceSection>

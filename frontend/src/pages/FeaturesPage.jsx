@@ -6,11 +6,11 @@ import {
   HeroSection,
   MarketingContainer,
   PrimaryCta,
-  ScreenshotFrame,
   SecondaryCta,
   SectionHeader,
   SurfaceSection,
 } from '../components/marketing/MarketingPrimitives'
+import { DashboardShotGrid, StripeUberHeroMockup } from '../components/marketing/AppDashboardMockups'
 
 export default function FeaturesPage() {
   const features = [
@@ -34,11 +34,7 @@ export default function FeaturesPage() {
           </>
         }
         media={
-          <ScreenshotFrame
-            src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=1000&auto=format&fit=crop&q=80"
-            alt="Feature dashboard"
-            className="h-[300px] sm:h-[360px]"
-          />
+          <StripeUberHeroMockup className="h-[300px] sm:h-[360px]" />
         }
       />
       <SurfaceSection>
@@ -51,6 +47,9 @@ export default function FeaturesPage() {
           />
           <div className="mt-8">
             <FeatureGrid items={features} />
+          </div>
+          <div className="mt-8">
+            <DashboardShotGrid />
           </div>
         </MarketingContainer>
       </SurfaceSection>
