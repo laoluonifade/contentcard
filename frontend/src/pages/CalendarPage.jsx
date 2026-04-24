@@ -27,6 +27,14 @@ function prepChatCacheKey(userId, brandId, month, year) {
   return `${PREP_CHAT_CACHE_PREFIX}:${userId}:${brandId}:${year}-${month}`
 }
 
+/** Session flag so "Finishing designs" survives full page reload while async renders finish. */
+const VISUAL_PENDING_SESSION_PREFIX = 'contentcard.calendar.visualPending'
+
+function visualPendingSessionKey(userId, brandId, month, year) {
+  if (!userId || !brandId || !month || !year) return ''
+  return `${VISUAL_PENDING_SESSION_PREFIX}:${userId}:${brandId}:${year}-${month}`
+}
+
 const PLATFORM_LOGO = {
   instagram: (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -477,6 +485,8 @@ export default function CalendarPage() {
   const [usedPrepCtaKeys, setUsedPrepCtaKeys] = useState(() => new Set())
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
   const [generationBaseline, setGenerationBaseline] = useState({ with: 0, total: 0 })
+  /** Last /content/status snapshot when resuming after reload (strict server counts). */
+  const [renderStatusPoll, setRenderStatusPoll] = useState(null)
   const [prepMinimized, setPrepMinimized] = useState(() => {
     try {
       const persisted = localStorage.getItem(PREP_ASSISTANT_MIN_KEY)
@@ -654,6 +664,65 @@ export default function CalendarPage() {
     usedPrepCtaKeys,
     generationBaseline,
   ])
+
+  const lastRenderStatusSigRef = useRef('')
+
+  useEffect(() => {
+    const vpKey = visualPendingSessionKey(user?.id, activeBrandId, month, year)
+    if (!vpKey || loading || !activeBrandId) return
+    lastRenderStatusSigRef.current = ''
+    let cancelled = false
+    const tick = async () => {
+      let raw = ''
+      try {
+        raw = sessionStorage.getItem(vpKey) || ''
+      } catch {
+        return
+      }
+      if (raw !== '1') {
+        if (!cancelled) setRenderStatusPoll(null)
+        return
+      }
+      try {
+        const st = await contentApi.getStatus(activeBrandId, year, month)
+        if (cancelled) return
+        const snap = {
+          count: Number(st.count || 0),
+          total: Number(st.total || 0),
+          with_visuals: Number(st.with_visuals ?? 0),
+          pending_assets: Number(st.pending_assets ?? 0),
+          ready: !!st.ready,
+        }
+        setRenderStatusPoll(snap)
+        if (snap.ready && snap.total > 0) {
+          try {
+            sessionStorage.removeItem(vpKey)
+          } catch {
+            /* ignore */
+          }
+          if (!cancelled) setRenderStatusPoll(null)
+          lastRenderStatusSigRef.current = ''
+          const items = await fetchMonthContent(month, year)
+          if (!cancelled) setPosts(items)
+          return
+        }
+        const sig = `${snap.with_visuals}|${snap.count}|${snap.total}|0`
+        if (sig !== lastRenderStatusSigRef.current) {
+          lastRenderStatusSigRef.current = sig
+          const items = await fetchMonthContent(month, year)
+          if (!cancelled) setPosts(items)
+        }
+      } catch {
+        /* ignore transient network errors */
+      }
+    }
+    tick()
+    const iv = setInterval(tick, 4000)
+    return () => {
+      cancelled = true
+      clearInterval(iv)
+    }
+  }, [activeBrandId, month, year, user?.id, loading, fetchMonthContent])
 
   useEffect(() => {
     if (!generatingMonth || !generationStartedAt) {
@@ -1189,11 +1258,23 @@ export default function CalendarPage() {
         setPosts(items)
         const after = platformReadyCounts(items, genPlatform)
         const platformLabel = PLATFORMS.find((p) => p.id === genPlatform)?.label || genPlatform
+        const vpKey = visualPendingSessionKey(user?.id, activeBrandId, month, year)
         if (after.ready > before.ready) {
+          try {
+            if (vpKey) sessionStorage.removeItem(vpKey)
+          } catch {
+            /* ignore */
+          }
+          setRenderStatusPoll(null)
           toast(`${platformLabel} generation is done — posts are ready with finished designs.`)
           setPrepMinimizedPersist(false)
           await requestPrepGenerationUpdate('completed', { platformLabel, before, after })
         } else {
+          try {
+            if (vpKey) sessionStorage.setItem(vpKey, '1')
+          } catch {
+            /* ignore */
+          }
           toast(`${platformLabel} generation started. New posts will appear once rendering finishes.`)
           setPrepMinimizedPersist(false)
           await requestPrepGenerationUpdate('in_progress', { platformLabel, before, after })
@@ -1217,6 +1298,12 @@ export default function CalendarPage() {
       }
       const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
       if (msg.toLowerCase().includes('taking longer than expected')) {
+        try {
+          const vpKey = visualPendingSessionKey(user?.id, activeBrandId, month, year)
+          if (vpKey) sessionStorage.setItem(vpKey, '1')
+        } catch {
+          /* ignore */
+        }
         toast(msg)
         setShowGenPanel(false)
         return false
@@ -1262,8 +1349,17 @@ export default function CalendarPage() {
   const postCountLabel = loading ? 'Loading…' : `${posts.length} post${posts.length === 1 ? '' : 's'}`
   const withVisuals = posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length
   const pendingVisuals = Math.max(0, posts.length - withVisuals)
-  const batchReady = Math.max(0, Number(generationProgress?.with || 0) - Number(generationBaseline?.with || 0))
-  const batchTotal = Math.max(0, Number(generationProgress?.total || 0) - Number(generationBaseline?.total || 0))
+  const finishingBannerActive =
+    generatingMonth ||
+    Boolean(renderStatusPoll && !renderStatusPoll.ready && Number(renderStatusPoll.total) > 0)
+  const prog = generationProgress
+  const finishingReady = generatingMonth
+    ? Number(prog?.with ?? 0)
+    : Number(renderStatusPoll?.with_visuals ?? 0)
+  const finishingTotal = generatingMonth
+    ? Number(prog?.total ?? 0)
+    : Number(renderStatusPoll?.total ?? 0)
+  const showFinishingCounts = finishingBannerActive && finishingTotal > 0
 
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
@@ -1326,12 +1422,12 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {generatingMonth && (
+      {finishingBannerActive && (
         <div className="mb-4 rounded-xl border border-fog bg-mist px-4 py-3 text-sm text-ink/70">
-          {generationProgress && batchTotal > 0 ? (
+          {showFinishingCounts ? (
             <>
-              Finishing designs… <strong className="text-ink">{batchReady}</strong> of{' '}
-              <strong className="text-ink">{batchTotal}</strong> posts are ready.
+              Finishing designs… <strong className="text-ink">{finishingReady}</strong> of{' '}
+              <strong className="text-ink">{finishingTotal}</strong> posts have finished visuals.
               This page refreshes automatically when they are all done — you do not need to reload manually.
             </>
           ) : (
@@ -1340,7 +1436,7 @@ export default function CalendarPage() {
               (poll #{generationPollCount}).
             </>
           )}
-          {generationElapsedSec >= 45 && (
+          {(generationElapsedSec >= 45 || renderStatusPoll) && (
             <p className="mt-2 text-xs text-ink/55">
               Rendering can take longer than usual. Check back in about a minute; this calendar updates automatically as visuals finish.
             </p>
