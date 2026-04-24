@@ -7,7 +7,14 @@ import axios from 'axios'
  */
 export function normalizeViteApiBaseUrl(v) {
   const s = (v || '').trim().replace(/\/+$/, '')
-  if (!s) return '/api/v1'
+  if (!s) {
+    // Production safety fallback for Render deploys when VITE_API_URL is missing.
+    if (typeof window !== 'undefined') {
+      const host = String(window.location?.hostname || '').toLowerCase()
+      if (host === 'contentcard-1.onrender.com') return 'https://contentcard-backend.onrender.com/api/v1'
+    }
+    return '/api/v1'
+  }
   if (s.endsWith('/api/v1')) return s
   if (/^https?:\/\/[^/]+$/i.test(s)) return `${s}/api/v1`
   return s
