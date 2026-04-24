@@ -19,6 +19,8 @@ function HeroPlatformCards() {
       handle: '@juicyjunction_',
       icon: Instagram,
       image: '/marketing-examples/juicy-jollof.png',
+      caption:
+        'Dinner plans sorted. Fresh smoky jollof, grilled protein, and fast doorstep delivery. Tap to order now. #JuicyJunction #LagosFood',
       status: 'Queued',
       time: 'Today · 6:30 PM',
       border: 'border-pink-200',
@@ -28,6 +30,8 @@ function HeroPlatformCards() {
       handle: '@uberlagos',
       icon: Twitter,
       image: '/marketing-examples/uber-ride.png',
+      caption:
+        'Beat evening traffic with smarter ETAs and safer pickups. Open Uber and get moving in minutes. #UberLagos #MoveBetter',
       status: 'Ready',
       time: 'Today · 7:00 PM',
       border: 'border-slate-200',
@@ -37,6 +41,8 @@ function HeroPlatformCards() {
       handle: 'Krispy Kreme NG',
       icon: Facebook,
       image: '/marketing-examples/krispy-fresh.png',
+      caption:
+        'Freshly glazed and ready for your team treat. Order a box today and share the joy in every bite.',
       status: 'Scheduled',
       time: 'Tomorrow · 9:00 AM',
       border: 'border-blue-200',
@@ -83,7 +89,7 @@ function HeroPlatformCards() {
             <div className="px-3.5 py-2.5 border-t border-fog">
               <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
               <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
-                Created in ContentCard with brand-safe design and ready-to-post copy.
+                {card.caption}
               </p>
               <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
             </div>
