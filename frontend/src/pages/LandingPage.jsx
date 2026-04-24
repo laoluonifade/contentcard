@@ -95,6 +95,7 @@ function HeroPlatformCards() {
 }
 
 export default function LandingPage() {
+  const [openFaqIdx, setOpenFaqIdx] = useState(0)
   const [pricingCurrency, setPricingCurrency] = useState('USD')
   const metrics = [
     ['30+', 'posts generated per month'],
@@ -350,14 +351,21 @@ export default function LandingPage() {
             subtitle="Everything you need to know before you start creating with ContentCard."
           />
           <div className="mt-8 space-y-3">
-            {faqs.map((item) => (
-              <details key={item.q} className="group rounded-2xl border border-fog bg-white p-5">
-                <summary className="list-none cursor-pointer flex items-center justify-between gap-4">
+            {faqs.map((item, idx) => (
+              <div key={item.q} className="rounded-2xl border border-fog bg-white p-5">
+                <button
+                  type="button"
+                  onClick={() => setOpenFaqIdx(idx)}
+                  className="w-full text-left flex items-center justify-between gap-4"
+                  aria-expanded={openFaqIdx === idx}
+                >
                   <p className="text-base font-semibold text-ink">{item.q}</p>
-                  <span className="text-ink/45 group-open:rotate-45 transition-transform text-xl leading-none">+</span>
-                </summary>
-                <p className="mt-3 text-sm text-ink/65 leading-relaxed">{item.a}</p>
-              </details>
+                  <span className={`text-ink/45 transition-transform text-xl leading-none ${openFaqIdx === idx ? 'rotate-45' : ''}`}>+</span>
+                </button>
+                {openFaqIdx === idx && (
+                  <p className="mt-3 text-sm text-ink/65 leading-relaxed">{item.a}</p>
+                )}
+              </div>
             ))}
           </div>
         </MarketingContainer>
