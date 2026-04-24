@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRight, Check, Mail } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
+import Seo from '../components/seo/Seo'
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('')
@@ -18,6 +19,12 @@ export default function ForgotPasswordPage() {
   if (sent) {
     return (
       <div className="min-h-screen flex" style={authLightThemeVars}>
+        <Seo
+          title="Reset password | ContentCard"
+          description="Reset your ContentCard password."
+          path="/forgot-password"
+          noindex
+        />
         <div className="flex-1 lg:max-w-lg bg-mist flex items-center justify-center px-6">
           <div className="w-full max-w-sm text-center">
             <div className="w-14 h-14 rounded-full bg-brand-500/10 border border-brand-500/20 flex items-center justify-center mx-auto mb-6">
@@ -47,6 +54,12 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="min-h-screen flex" style={authLightThemeVars}>
+      <Seo
+        title="Reset password | ContentCard"
+        description="Reset your ContentCard password."
+        path="/forgot-password"
+        noindex
+      />
       <div className="flex-1 lg:max-w-lg bg-mist flex items-center justify-center px-6">
         <div className="w-full max-w-sm">
           <div className="mb-10"><LogoFull size={28} /></div>

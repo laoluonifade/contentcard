@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { downloadContentCardLogoPng, BRAND_KIT_LOGO_PX } from '../../lib/contentcardLogoDownload'
 import { LogoMark } from '../ui/Logo'
+import Seo from '../seo/Seo'
 
 const NAV = [
   { to: '/admindash',            icon: LayoutDashboard, label: 'Overview'   },
@@ -46,6 +47,12 @@ export default function AdminLayout({ children }) {
 
   return (
     <div className="flex h-screen bg-[#0A0914] text-white overflow-hidden">
+      <Seo
+        title="ContentCard Admin"
+        description="Private admin area."
+        path="/admindash"
+        noindex
+      />
       {/* Sidebar */}
       <aside className="w-56 flex-shrink-0 border-r border-white/5 flex flex-col">
         {/* Logo */}

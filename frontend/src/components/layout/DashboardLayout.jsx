@@ -5,6 +5,7 @@ import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
+import Seo from '../seo/Seo'
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
@@ -190,6 +191,12 @@ export default function DashboardLayout() {
 
   return (
     <div className="flex h-screen bg-mist overflow-hidden">
+      <Seo
+        title="ContentCard Dashboard"
+        description="Private workspace for ContentCard users."
+        path={location.pathname}
+        noindex
+      />
       {newWsOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
           <div className="bg-surface rounded-2xl border border-fog shadow-xl max-w-md w-full p-6">

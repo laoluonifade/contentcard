@@ -31,37 +31,213 @@ const LEGAL_LINKS = [
   { label: 'Support',  href: '/support' },
 ]
 
-const SEO_BY_PATH = {
-  '/features': {
-    title: 'ContentCard Features | AI Content Playbook, Calendar, and Team Workflow',
+const SITE_URL = (import.meta.env.VITE_SITE_URL || 'https://www.contentcard.co').replace(/\/+$/, '')
+const DEFAULT_IMAGE = '/og-image.svg'
+
+function websiteSchema() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'ContentCard',
+    url: SITE_URL,
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: `${SITE_URL}/blog?search={search_term_string}`,
+      'query-input': 'required name=search_term_string',
+    },
+  }
+}
+
+function organizationSchema() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: 'ContentCard',
+    url: SITE_URL,
+    logo: `${SITE_URL}/contentcard-logo-mark.svg`,
+    sameAs: [
+      'https://www.linkedin.com',
+      'https://x.com',
+      'https://www.instagram.com',
+      'https://www.facebook.com',
+    ],
+  }
+}
+
+function softwareApplicationSchema() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'ContentCard',
+    applicationCategory: 'BusinessApplication',
+    operatingSystem: 'Web',
+    url: SITE_URL,
+    offers: {
+      '@type': 'Offer',
+      price: '25',
+      priceCurrency: 'USD',
+    },
+  }
+}
+
+function faqSchema() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: [
+      {
+        '@type': 'Question',
+        name: 'How quickly can I start creating with ContentCard?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'Most teams start creating their first campaign in under 10 minutes. You can set your brand basics, choose a direction, and generate ready-to-publish content immediately.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Which social platforms does ContentCard support?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'ContentCard supports Instagram, X, and Facebook workflows out of the box, with post-ready formats, captions, and scheduling support.',
+        },
+      },
+      {
+        '@type': 'Question',
+        name: 'Can I keep every post on-brand?',
+        acceptedAnswer: {
+          '@type': 'Answer',
+          text: 'Yes. ContentCard applies your brand voice, visual preferences, and content guardrails so every output stays consistent across campaigns.',
+        },
+      },
+    ],
+  }
+}
+
+function buildSeo(pathname) {
+  const path = pathname || '/'
+  const byPath = {
+    '/': {
+      title: 'ContentCard | AI Social Media Content Platform for Small Businesses',
+      description:
+        'Create social content that drives sales. ContentCard helps teams generate on-brand visuals, captions, and campaign workflows for Instagram, X, and Facebook.',
+      includeFaqSchema: true,
+    },
+    '/features': {
+      title: 'ContentCard Features | AI Content Playbook, Calendar, and Team Workflow',
+      description:
+        'Explore ContentCard features for social media teams: playbook-driven generation, campaign calendar workflow, and approval-ready collaboration.',
+    },
+    '/pricing': {
+      title: 'ContentCard Pricing | Social Content Plans for Teams and Brands',
+      description:
+        'Choose a ContentCard plan for your team. Generate social content faster with on-brand visuals, captions, and workflow controls built for growth.',
+    },
+    '/enterprise': {
+      title: 'ContentCard Enterprise | Social Content Operations at Scale',
+      description:
+        'ContentCard Enterprise helps multi-brand teams manage approvals, consistency, and campaign velocity across regions and business units.',
+    },
+    '/demo': {
+      title: 'ContentCard Product Tour | AI Social Content Workflow',
+      description:
+        'See how ContentCard helps social media managers and business owners plan, generate, and publish high-performing social content.',
+    },
+    '/about': {
+      title: 'About ContentCard | Built for Social Teams and Business Owners',
+      description:
+        'Learn how ContentCard helps businesses scale social content production with on-brand AI workflows and campaign operations.',
+    },
+    '/contact': {
+      title: 'Contact ContentCard | Sales, Support, and Partnerships',
+      description:
+        'Get in touch with ContentCard for support, sales, partnerships, and onboarding help.',
+    },
+    '/blog': {
+      title: 'ContentCard Blog | Social Media Strategy and Content Playbooks',
+      description:
+        'Read practical guides on social media growth, AI content workflows, and campaign strategy from the ContentCard team.',
+    },
+    '/careers': {
+      title: 'Careers at ContentCard | Build the Future of Social Content',
+      description:
+        'Join ContentCard and help build the AI platform powering social content teams across growth-stage and enterprise brands.',
+    },
+    '/changelog': {
+      title: 'ContentCard Changelog | Product Updates and Improvements',
+      description:
+        'Track ContentCard product updates, feature releases, and improvements across content generation, workflow, and publishing.',
+    },
+    '/roadmap': {
+      title: 'ContentCard Roadmap | What We Are Building Next',
+      description:
+        'See what is next on the ContentCard roadmap across AI generation quality, workflow automation, and publishing integrations.',
+    },
+    '/pitch-deck': {
+      title: 'ContentCard Pitch Deck | Product and Company Overview',
+      description:
+        'Explore the ContentCard pitch deck for an overview of the product, market opportunity, and social content infrastructure vision.',
+    },
+    '/product-guide': {
+      title: 'ContentCard Product Guide | Setup, Workflows, and Best Practices',
+      description:
+        'Get a practical guide to setting up ContentCard, running campaign workflows, and improving your social content output quality.',
+    },
+    '/privacy': {
+      title: 'ContentCard Privacy Policy',
+      description:
+        'Review how ContentCard collects, uses, and protects data across account management, content workflows, and platform operations.',
+    },
+    '/terms': {
+      title: 'ContentCard Terms of Service',
+      description:
+        'Read the terms governing your use of ContentCard, including billing, service scope, and account responsibilities.',
+    },
+    '/security': {
+      title: 'ContentCard Security',
+      description:
+        'Learn how ContentCard secures data with encrypted transport, access controls, and cloud infrastructure best practices.',
+    },
+    '/support': {
+      title: 'ContentCard Support',
+      description:
+        'Contact ContentCard support for help with setup, billing, account issues, and social content workflow troubleshooting.',
+    },
+  }
+
+  const solutionMeta = {
+    '/solutions/agencies': {
+      title: 'ContentCard for Agencies | Scale Client Content Production',
+      description:
+        'Manage multiple client brands, approvals, and campaign output from one system built for agency content operations.',
+    },
+    '/solutions/startups': {
+      title: 'ContentCard for Startups | Build Daily Social Momentum',
+      description:
+        'Move from zero to daily posting with AI-assisted workflows that keep startup social content fast, consistent, and on-brand.',
+    },
+    '/solutions/corporate': {
+      title: 'ContentCard for Corporate Teams | Govern Social Content at Scale',
+      description:
+        'Keep multi-team and multi-market social content aligned with brand standards and governance workflows.',
+    },
+  }
+
+  const pageMeta = solutionMeta[path] || byPath[path] || {
+    title: 'ContentCard | AI Social Media Content Platform',
     description:
-      'Explore ContentCard features for social media managers: playbook-driven content generation, prep assistant, calendar workflow, and approval-ready collaboration.',
-  },
-  '/pricing': {
-    title: 'ContentCard Pricing | Social Content Plans for Teams and Brands',
-    description:
-      'Choose a ContentCard plan for your team. Generate social content faster with on-brand visuals, captions, and workflow controls built for growth.',
-  },
-  '/enterprise': {
-    title: 'ContentCard Enterprise | Social Content Operations at Scale',
-    description:
-      'ContentCard Enterprise helps multi-brand teams manage approvals, consistency, and campaign velocity across regions and business units.',
-  },
-  '/demo': {
-    title: 'Book a ContentCard Demo | See AI Social Content Workflow Live',
-    description:
-      'Book a live demo to see how ContentCard helps social media managers and business owners plan, generate, and publish high-performing content.',
-  },
+      'ContentCard helps social media managers and business owners create on-brand social content with playbook-driven AI generation and publishing workflows.',
+  }
+
+  const structuredData = [organizationSchema(), websiteSchema(), softwareApplicationSchema()]
+  if (pageMeta.includeFaqSchema) structuredData.push(faqSchema())
+
+  return { ...pageMeta, structuredData }
 }
 
 export default function MarketingLayout({ children }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const seo = SEO_BY_PATH[location.pathname] || {
-    title: 'ContentCard | AI Social Media Content Platform',
-    description:
-      'ContentCard helps social media managers and business owners create on-brand social content with playbook-driven AI generation and publishing workflows.',
-  }
+  const seo = buildSeo(location.pathname)
   const marketingLightThemeVars = {
     '--cc-ink-rgb': '15 23 42',
     '--cc-fog-rgb': '229 231 235',
@@ -76,8 +252,9 @@ export default function MarketingLayout({ children }) {
         title={seo.title}
         description={seo.description}
         path={location.pathname}
-        image="/og-image.svg"
+        image={DEFAULT_IMAGE}
         keywords="ai social media content, content calendar, social media manager tools, social media content generator, brand content playbook"
+        structuredData={seo.structuredData}
       />
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-fog bg-page/95 backdrop-blur-xl">
