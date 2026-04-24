@@ -1,0 +1,15 @@
+<svg width="640" height="640" viewBox="0 0 640 640" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="640" height="640" rx="120" fill="#F8FAFC"/>
+  <ellipse cx="320" cy="560" rx="200" ry="40" fill="#E2E8F0"/>
+  <path d="M378 116C486 186 500 330 410 442L300 550L220 470L330 360C420 248 394 146 378 116Z" fill="#0F172A"/>
+  <path d="M360 132C452 194 466 320 390 420L300 518L244 462L334 364C410 264 386 160 360 132Z" fill="#22C55E"/>
+  <circle cx="344" cy="256" r="46" fill="#0B1220"/>
+  <circle cx="344" cy="256" r="28" fill="#93C5FD"/>
+  <path d="M226 474L170 560L268 528L226 474Z" fill="#F97316"/>
+  <path d="M248 452L194 534L286 506L248 452Z" fill="#FB923C"/>
+  <circle cx="164" cy="212" r="82" fill="#FEF08A"/>
+  <circle cx="136" cy="198" r="12" fill="#0F172A"/>
+  <circle cx="190" cy="198" r="12" fill="#0F172A"/>
+  <path d="M132 240C148 258 178 258 194 240" stroke="#0F172A" stroke-width="10" stroke-linecap="round"/>
+  <text x="92" y="110" fill="#0F172A" font-family="Arial, sans-serif" font-size="48" font-weight="800">Go viral =€</text>
+</svg>
