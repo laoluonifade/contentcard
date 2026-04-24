@@ -262,8 +262,6 @@ def _sync_visual_direction_layout_typography(post: dict, brand: dict | None) -> 
     if need_strat:
         parts.append(strat_sentence)
     post["visual_direction"] = (vd + " " + " ".join(parts)).strip()
-
-
 VISUAL_DIRECTION_DESIGN_TOKENS = (
     "foreground",
     "midground",
