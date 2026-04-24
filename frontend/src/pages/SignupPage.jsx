@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, ArrowRight, Check } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Check, Instagram, Facebook, Twitter, Linkedin } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
 import ShopifyIcon from '../components/ui/ShopifyIcon'
 import { toast } from '../components/ui/Toast'
@@ -9,6 +9,14 @@ import useAppStore from '../stores/appStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
 import { authApi } from '../api'
+
+const SUPPORTED_ICONS = [
+  { id: 'shopify', label: 'Shopify', custom: true },
+  { id: 'instagram', label: 'Instagram', Icon: Instagram },
+  { id: 'facebook', label: 'Facebook', Icon: Facebook },
+  { id: 'twitter', label: 'X', Icon: Twitter },
+  { id: 'linkedin', label: 'LinkedIn', Icon: Linkedin },
+]
 
 export const COUNTRIES_LIST = [
   { code: 'NG', name: 'Nigeria',              dial: '+234', placeholder: '801 234 5678' },
@@ -348,16 +356,17 @@ export default function SignupPage() {
             <p className="text-white/40 text-sm mt-2">Plan, generate, and publish: your entire content workflow.</p>
           </div>
           <AuthHeroCards />
-          <div className="flex items-center gap-2">
-            {[
-              'LinkedIn posts',
-              'Instagram carousels',
-              'Twitter threads',
-              'Brand kit',
-            ].map((tag) => (
-              <span key={tag} className="text-[10px] font-medium text-white/40 bg-white/5 border border-white/10 rounded-full px-3 py-1">
-                {tag}
-              </span>
+          <div className="flex items-center gap-2 flex-wrap justify-center">
+            {SUPPORTED_ICONS.map(({ id, label, Icon, custom }) => (
+              <div
+                key={id}
+                className="h-8 px-2.5 rounded-full border border-white/15 bg-white/5 inline-flex items-center gap-1.5"
+                title={label}
+                aria-label={label}
+              >
+                {custom ? <ShopifyIcon className="h-4 w-4" /> : <Icon size={14} className="text-white/80" />}
+                <span className="text-[10px] font-medium text-white/60">{label}</span>
+              </div>
             ))}
           </div>
         </div>
