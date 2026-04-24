@@ -30,7 +30,7 @@ export default function FeaturesPage() {
         actions={
           <>
             <PrimaryCta to="/signup">Start free <ArrowRight size={14} className="ml-1" /></PrimaryCta>
-            <SecondaryCta to="/demo">Request a demo</SecondaryCta>
+            <SecondaryCta to="/pricing">View pricing</SecondaryCta>
           </>
         }
         media={
@@ -59,7 +59,7 @@ export default function FeaturesPage() {
             title="Ready to see the workflow in action?"
             body="Book a live walkthrough or start your own workspace."
             primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
-            secondary={<SecondaryCta to="/demo">Book demo</SecondaryCta>}
+            secondary={<SecondaryCta to="/pricing">View pricing</SecondaryCta>}
           />
         </MarketingContainer>
       </SurfaceSection>

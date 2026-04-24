@@ -76,7 +76,7 @@ export default function SolutionsPage() {
         actions={
           <>
             <PrimaryCta to="/signup">Start free <ArrowRight size={14} className="ml-1" /></PrimaryCta>
-            <SecondaryCta to="/demo">Book a demo</SecondaryCta>
+            <SecondaryCta to="/pricing">View pricing</SecondaryCta>
           </>
         }
         media={<ScreenshotFrame src={sol.img} alt={sol.badge} className="h-[320px]" />}
