@@ -3,6 +3,7 @@ import useAppStore from '../stores/appStore'
 import { socialApi } from '../api'
 import { toast } from '../components/ui/Toast'
 
+const SOCIAL_AUTOPILOT_UI_ENABLED = false
 const PLATFORM_OPTIONS = ['instagram', 'facebook', 'linkedin']
 const MODE_OPTIONS = ['manual_only', 'approval_required', 'smart_autopilot']
 
@@ -11,6 +12,33 @@ const inputCls = 'w-full px-3 py-2.5 bg-mist border border-fog rounded-xl text-s
 export default function SocialAutopilotPage() {
   const { activeBrandId, brands } = useAppStore()
   const activeBrand = useMemo(() => brands.find((b) => b.id === activeBrandId) || null, [brands, activeBrandId])
+
+  if (!SOCIAL_AUTOPILOT_UI_ENABLED) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 max-w-4xl mx-auto">
+        <div className="bg-surface border border-fog rounded-2xl p-8">
+          <h1 className="text-2xl font-bold text-ink mb-2" style={{ letterSpacing: '-0.02em' }}>
+            Social Autopilot — Coming Soon
+          </h1>
+          <p className="text-ink/55 text-sm mb-5">
+            The feature is implemented in code but intentionally hidden in production until external integrations are fully ready.
+          </p>
+          <div className="space-y-2 text-sm text-ink/70">
+            <p>Before launch, complete these non-code steps:</p>
+            <ul className="list-disc pl-5 space-y-1">
+              <li>Meta and LinkedIn app approval + OAuth scopes</li>
+              <li>Self-hosted n8n deployment (queue mode + workers + Redis)</li>
+              <li>Live n8n publish and token-refresh workflows</li>
+              <li>Secrets, alert routing, and operational runbooks</li>
+            </ul>
+          </div>
+          <p className="text-xs text-ink/40 mt-6">
+            To enable when ready, set <code>SOCIAL_AUTOPILOT_UI_ENABLED</code> to <code>true</code> in this page.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   const [loading, setLoading] = useState(false)
   const [savingConfig, setSavingConfig] = useState(false)
