@@ -165,7 +165,7 @@ export default function LandingPage() {
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.06] max-w-[14ch]">
                 Create standout social content in minutes.
               </h1>
-              <p className="mt-5 text-xl sm:text-2xl text-ink/60 leading-[1.25] max-w-[19ch]">
+              <p className="mt-5 text-lg sm:text-xl text-ink/62 leading-[1.35] max-w-[16ch] sm:max-w-[17ch]">
                 Generate beautiful visuals, captions, and publish-ready posts in ContentCard for Instagram, X, and Facebook.
               </p>
               <div className="mt-8 flex flex-wrap gap-3">
