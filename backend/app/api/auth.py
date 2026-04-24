@@ -343,6 +343,7 @@ async def shopify_callback(
 
     user_result = await db.execute(select(User).where(User.email == email))
     user = user_result.scalar_one_or_none()
+    user_already_existed = user is not None
     if not user:
         user = User(
             full_name=full_name,
@@ -359,9 +360,24 @@ async def shopify_callback(
             user.auth_provider = "mixed"
         user.shopify_shop_domain = shop_domain
 
+    connection_result = await db.execute(select(ShopifyConnection).where(ShopifyConnection.shop_domain == shop_domain))
+    connection = connection_result.scalar_one_or_none()
+
+    workspace = None
+    brand = None
+    if connection:
+        ws_existing_result = await db.execute(select(Workspace).where(Workspace.id == connection.workspace_id))
+        workspace = ws_existing_result.scalar_one_or_none()
+        if connection.brand_id:
+            brand_existing_result = await db.execute(select(Brand).where(Brand.id == connection.brand_id))
+            brand = brand_existing_result.scalar_one_or_none()
+
     ws_result = await db.execute(select(Workspace).where(Workspace.owner_id == user.id).order_by(Workspace.created_at.asc()))
-    workspace = ws_result.scalars().first()
-    if not workspace:
+    owned_workspaces = ws_result.scalars().all()
+    should_create_shopify_workspace = (
+        workspace is None and (not owned_workspaces or user_already_existed)
+    )
+    if should_create_shopify_workspace:
         slug = await ensure_unique_slug(db, slugify(f"{shop_name} workspace"))
         trial_ends = datetime.now(timezone.utc) + timedelta(days=settings.FREE_TRIAL_DAYS)
         workspace = Workspace(
@@ -375,9 +391,9 @@ async def shopify_callback(
         db.add(workspace)
         await db.flush()
         db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=WorkspaceRole.OWNER))
+    elif workspace is None:
+        workspace = owned_workspaces[0]
 
-    brand_result = await db.execute(select(Brand).where(Brand.workspace_id == workspace.id).order_by(Brand.created_at.asc()))
-    brand = brand_result.scalars().first()
     if not brand:
         brand = Brand(
             workspace_id=workspace.id,
@@ -417,8 +433,6 @@ async def shopify_callback(
         brand.logo_url = theme_logo_url or None
 
     next_page = "/shopify/decision"
-    connection_result = await db.execute(select(ShopifyConnection).where(ShopifyConnection.shop_domain == shop_domain))
-    connection = connection_result.scalar_one_or_none()
     if not connection:
         connection = ShopifyConnection(
             user_id=user.id,
