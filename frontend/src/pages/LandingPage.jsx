@@ -12,7 +12,7 @@ import {
 import { WhyTeamsSwitchShowcase } from '../components/marketing/AppDashboardMockups'
 
 function HeroPlatformCards() {
-  const [flippedCard, setFlippedCard] = useState(0)
+  const [activeCard, setActiveCard] = useState(0)
   const cards = [
     {
       platform: 'Instagram',
@@ -45,7 +45,7 @@ function HeroPlatformCards() {
 
   useEffect(() => {
     const iv = setInterval(() => {
-      setFlippedCard((prev) => (prev + 1) % cards.length)
+      setActiveCard((prev) => (prev + 1) % cards.length)
     }, 3000)
     return () => clearInterval(iv)
   }, [cards.length])
@@ -54,52 +54,38 @@ function HeroPlatformCards() {
     <div className="relative min-h-[330px] sm:min-h-[390px]">
       {cards.map((card, idx) => {
         const Icon = card.icon
-        const isFlipped = flippedCard === idx
+        const isActive = activeCard === idx
         return (
           <div
             key={card.platform}
-            className={`absolute w-[82%] sm:w-[76%] rounded-2xl border ${card.border} bg-white shadow-[0_12px_34px_rgba(15,23,42,0.14)] overflow-hidden transition-transform duration-700 [transform-style:preserve-3d]`}
+            className={`absolute w-[82%] sm:w-[76%] rounded-2xl border ${card.border} bg-white shadow-[0_12px_34px_rgba(15,23,42,0.14)] overflow-hidden transition-all duration-700`}
             style={{
               top: `${idx * 48}px`,
               left: `${idx * 9}%`,
-              transform: `perspective(1200px) rotateY(${isFlipped ? '180deg' : '0deg'}) rotate(${idx === 1 ? '-2.2deg' : idx === 2 ? '2.2deg' : '-1deg'})`,
+              transform: `translateY(${isActive ? '-8px' : '0px'}) rotate(${idx === 1 ? '-2.2deg' : idx === 2 ? '2.2deg' : '-1deg'}) scale(${isActive ? 1.02 : 1})`,
               zIndex: 30 - idx,
+              boxShadow: isActive ? '0 18px 45px rgba(16,185,129,0.25)' : undefined,
             }}
           >
-            <div className="[backface-visibility:hidden]">
-              <div className="px-3.5 py-2.5 border-b border-fog flex items-center justify-between bg-mist/60">
-                <div className="flex items-center gap-2">
-                  <span className="w-7 h-7 rounded-full bg-surface border border-fog flex items-center justify-center text-ink/70">
-                    <Icon size={14} />
-                  </span>
-                  <div>
-                    <p className="text-xs font-semibold text-ink">{card.platform}</p>
-                    <p className="text-[10px] text-ink/45">{card.handle}</p>
-                  </div>
+            <div className="px-3.5 py-2.5 border-b border-fog flex items-center justify-between bg-mist/60">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-full bg-surface border border-fog flex items-center justify-center text-ink/70">
+                  <Icon size={14} />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold text-ink">{card.platform}</p>
+                  <p className="text-[10px] text-ink/45">{card.handle}</p>
                 </div>
-                <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{card.status}</span>
               </div>
-              <img src={card.image} alt={`${card.platform} example post`} className="w-full h-36 sm:h-44 object-cover" />
-              <div className="px-3.5 py-2.5 border-t border-fog">
-                <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
-                <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
-                  Built in ContentCard with brand-safe layout, CTA, and platform-ready copy.
-                </p>
-                <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
-              </div>
+              <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{card.status}</span>
             </div>
-            <div className="absolute inset-0 [backface-visibility:hidden] [transform:rotateY(180deg)] bg-ink text-white flex flex-col justify-between p-4">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] uppercase tracking-widest text-white/60 font-semibold">{card.platform} ready</p>
-                <span className="text-[10px] rounded-full px-2 py-0.5 bg-white/10 border border-white/20">{card.status}</span>
-              </div>
-              <div>
-                <p className="text-sm font-semibold leading-tight mb-2">Post approved and ready to publish.</p>
-                <p className="text-xs text-white/70 leading-relaxed">
-                  Scheduled from ContentCard with final creative, caption, and CTA mapped to {card.platform}.
-                </p>
-              </div>
-              <p className="text-[10px] text-white/60">{card.time}</p>
+            <img src={card.image} alt={`${card.platform} example post`} className="w-full h-36 sm:h-44 object-cover" />
+            <div className="px-3.5 py-2.5 border-t border-fog">
+              <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
+              <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
+                Built in ContentCard with brand-safe layout, CTA, and platform-ready copy.
+              </p>
+              <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
             </div>
           </div>
         )
@@ -114,7 +100,6 @@ export default function LandingPage() {
     ['3x', 'faster campaign turnaround'],
     ['68%', 'lower content production cost'],
   ]
-  const logos = ['Juicy Junction', 'Novabridg', 'Axle Bank', 'OBA', 'Zenastack', 'Shopriva']
 
   return (
     <MarketingLayout>
@@ -139,32 +124,30 @@ export default function LandingPage() {
               </div>
             </div>
             <div className="lg:pl-4">
-              <HeroPlatformCards />
+              <div className="relative">
+                <div className="absolute -top-10 -right-8 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
+                  <img src="/marketing-examples/meme-wow-badge.svg" alt="Meme wow sticker" className="w-full h-full rounded-2xl object-cover" />
+                </div>
+                <div className="absolute -bottom-8 -left-8 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
+                  <img src="/marketing-examples/cartoon-creator-mascot.svg" alt="Cartoon creator mascot" className="w-full h-full rounded-2xl object-cover" />
+                </div>
+                <HeroPlatformCards />
+              </div>
             </div>
           </div>
         </MarketingContainer>
       </section>
 
-      <SurfaceSection className="border-b border-fog py-8">
-        <MarketingContainer>
-          <div className="flex flex-wrap items-center gap-x-9 gap-y-3">
-            {logos.map((logo) => (
-              <span key={logo} className="text-ink/40 text-lg font-semibold tracking-tight">{logo}</span>
-            ))}
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <section className="bg-ink border-y border-ink/90 text-white">
+      <section className="bg-gradient-to-b from-brand-700 via-brand-800 to-[#0f2a22] border-y border-brand-900 text-white">
         <MarketingContainer className="py-14 sm:py-16">
           <p className="text-3xl sm:text-4xl font-medium leading-tight max-w-4xl text-white/95">
             Scale with confidence. Generate, review, and publish high-quality social campaigns with speed and consistency.
           </p>
-          <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-brand-500/40 via-emerald-300/25 to-teal/35 border border-white/10" />
+          <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-emerald-300/35 via-lime-200/30 to-teal-200/30 border border-white/20" />
           <div className="mt-10 grid sm:grid-cols-3 gap-6">
             {metrics.map(([value, label]) => (
-              <div key={label}>
-                <p className="text-5xl font-semibold tracking-tight text-brand-300">{value}</p>
+              <div key={label} className="rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-sm">
+                <p className="text-5xl font-semibold tracking-tight text-emerald-200">{value}</p>
                 <p className="mt-1 text-white/75">{label}</p>
               </div>
             ))}
@@ -180,14 +163,18 @@ export default function LandingPage() {
             className="w-14 h-14 rounded-full object-cover mx-auto mb-6 border border-fog"
           />
           <p className="text-3xl sm:text-4xl leading-tight text-ink/80">
-            “With ContentCard, our team now ships consistent campaign creative every week without losing brand quality or momentum.”
+            “Before ContentCard, we spent hours trying to design one post. Now we plan a full week of beautiful content in minutes and stay focused on running the business.”
           </p>
           <p className="mt-5 text-ink/65">
-            <strong className="text-ink">Adaeze Okonkwo</strong>, Managing Director, Blaze Digital Agency
+            <strong className="text-ink">Amaka Eze</strong>, Founder, Fresh Basket Mart
           </p>
-          <button className="mt-4 inline-flex items-center gap-1 text-brand-700 font-semibold">
-            Read the story <ChevronRight size={15} />
-          </button>
+          <a
+            href="/blog"
+            className="mt-4 inline-flex items-center gap-1 text-brand-700 font-semibold hover:text-brand-800 transition-colors"
+            aria-label="Read small business customer stories"
+          >
+            Read more customer stories <ChevronRight size={15} />
+          </a>
         </MarketingContainer>
       </SurfaceSection>
 
@@ -209,7 +196,7 @@ export default function LandingPage() {
         <MarketingContainer>
           <CtaBand
             title="Ready to run social like a high-performing team?"
-            body="Start your free trial and launch your first campaign month in minutes."
+            body="Start free and launch your first campaign month in minutes."
             primary={<PrimaryCta to="/signup">Get started</PrimaryCta>}
             secondary={<SecondaryCta to="/pricing">View pricing</SecondaryCta>}
           />

@@ -197,7 +197,7 @@ export default function SignupPage() {
         {step === 1 && (
           <>
             <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Create your account</h1>
-            <p className="text-ink/50 mb-6 text-sm">14-day free trial · No credit card required.</p>
+            <p className="text-ink/50 mb-6 text-sm">Start free · No credit card required.</p>
             <form onSubmit={nextStep} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>

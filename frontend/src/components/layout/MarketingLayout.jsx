@@ -98,7 +98,7 @@ export default function MarketingLayout({ children }) {
           <div className="flex items-center gap-3">
             <button onClick={() => navigate('/login')} className="text-ink/60 hover:text-ink text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
             <button onClick={() => navigate('/demo')} className="text-sm font-bold px-4 py-2 rounded-xl border border-fog text-ink/75 hover:text-ink hover:bg-mist transition-all hidden sm:block">Get a demo</button>
-            <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free trial <ArrowRight size={13} /></button>
+            <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free <ArrowRight size={13} /></button>
           </div>
         </div>
       </nav>

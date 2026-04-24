@@ -75,7 +75,7 @@ export default function SolutionsPage() {
         subtitle={sol.sub}
         actions={
           <>
-            <PrimaryCta to="/signup">Start free trial <ArrowRight size={14} className="ml-1" /></PrimaryCta>
+            <PrimaryCta to="/signup">Start free <ArrowRight size={14} className="ml-1" /></PrimaryCta>
             <SecondaryCta to="/demo">Book a demo</SecondaryCta>
           </>
         }
@@ -128,7 +128,7 @@ export default function SolutionsPage() {
           <CtaBand
             title="Ready to get started?"
             body={`${sol.stat.n} ${sol.stat.l.toLowerCase()} with the right workflow and setup.`}
-            primary={<PrimaryCta to="/signup">Start free trial</PrimaryCta>}
+            primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
             secondary={<SecondaryCta to="/pricing">View pricing</SecondaryCta>}
           />
         </MarketingContainer>

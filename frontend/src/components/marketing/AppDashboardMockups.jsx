@@ -126,14 +126,11 @@ export function WhyTeamsSwitchShowcase() {
             </span>
           </div>
           <div className="rounded-xl overflow-hidden border border-fog mb-2.5">
-            <div className="h-28 bg-gradient-to-br from-[#0a1221] via-[#183250] to-[#2e6f8c] p-3 flex flex-col justify-end">
-              <div className="inline-flex items-center gap-1.5 w-fit rounded-full bg-white/15 text-white text-[10px] px-2 py-0.5 font-semibold mb-2">
-                Uber Lagos
-              </div>
-              <p className="text-white text-sm font-semibold leading-tight max-w-[18ch]">
-                Move smarter through evening traffic in Lagos.
-              </p>
-            </div>
+            <img
+              src="/marketing-examples/uber-ride.png"
+              alt="Uber Lagos ready-to-post creative preview"
+              className="h-36 w-full object-cover"
+            />
           </div>
           <div className="rounded-lg border border-fog bg-mist/50 p-2.5">
             <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold mb-1">Caption</p>
