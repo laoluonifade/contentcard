@@ -371,7 +371,7 @@ adminAxios.interceptors.response.use(
 )
 
 export const adminApi = {
-  login:              (data)    => axios.create({ baseURL: API_BASE }).post('/auth/login', data).then(r => r.data),
+  login:              (data)    => postPublicAuth('/auth/login', data),
   stats:              ()        => adminAxios.get('/admin/stats').then(r => r.data),
   users:              (params)  => adminAxios.get('/admin/users', { params }).then(r => r.data),
   bootstrapSalesSandbox: (data) => adminAxios.post('/admin/sales-sandbox/bootstrap', data).then(r => r.data),
