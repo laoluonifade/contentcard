@@ -39,6 +39,13 @@ const useAuthStore = create(
 
       logout: () => set({ user: null, token: null, isAuthenticated: false }),
 
+      setSession: ({ token, user }) =>
+        set({
+          token: token || null,
+          user: user || null,
+          isAuthenticated: Boolean(token),
+        }),
+
       updateUser: (updates) => set(s => ({ user: { ...s.user, ...updates } })),
 
       fetchMe: async () => {

@@ -96,6 +96,15 @@ class Settings(BaseSettings):
     LINKEDIN_CLIENT_SECRET: str = ""
     SOCIAL_N8N_TOKEN_SINK_PATH: str = "/webhook/contentcard/social/oauth-token"
 
+    SHOPIFY_CLIENT_ID: str = ""
+    SHOPIFY_CLIENT_SECRET: str = ""
+    SHOPIFY_SCOPES: str = "read_products,read_themes,read_content"
+    SHOPIFY_OAUTH_STATE_SECRET: str = ""
+    SHOPIFY_OAUTH_CALLBACK_URL: str = ""
+    APP_BASE_URL: str = "http://localhost:5173"
+    API_BASE_URL: str = "http://localhost:8000"
+    SHOPIFY_AUTH_ENABLED: bool = True
+
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -34,6 +34,7 @@ from app.models.social import (
     SocialWebhookEvent,
     SocialComment,
 )
+from app.models.shopify import ShopifyConnectionStatus, ShopifyConnection, ShopifyProductSnapshot
 
 __all__ = [
     "User",
@@ -50,4 +51,5 @@ __all__ = [
     "DesignPlaybookIndustry", "DesignPlaybookContentType", "DesignPlaybookVisualDirection",
     "SocialPlatform", "SocialConnectionStatus", "SocialAutopilotMode", "SocialPostStatus", "SocialReplyStatus",
     "SocialConnection", "SocialAutopilotConfig", "SocialPost", "SocialWebhookEvent", "SocialComment",
+    "ShopifyConnectionStatus", "ShopifyConnection", "ShopifyProductSnapshot",
 ]

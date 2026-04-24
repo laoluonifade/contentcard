@@ -33,6 +33,9 @@ import BillingPage          from './pages/BillingPage'
 import DirectoryPage        from './pages/DirectoryPage'
 import MemesPage            from './pages/MemesPage'
 import SocialAutopilotPage  from './pages/SocialAutopilotPage'
+import ShopifyAuthCallbackPage from './pages/ShopifyAuthCallbackPage'
+import ShopifyOnboardingCompletionPage from './pages/ShopifyOnboardingCompletionPage'
+import ShopifyPostSignupDecisionPage from './pages/ShopifyPostSignupDecisionPage'
 
 // Admin
 import AdminLogin           from './pages/AdminLogin'
@@ -96,6 +99,9 @@ export default function App() {
         <Route path="/forgot-password"       element={<ForgotPasswordPage />} />
         <Route path="/accept-invite"         element={<AcceptInvite />} />
         <Route path="/onboarding"            element={<PrivateRoute><OnboardingPage /></PrivateRoute>} />
+        <Route path="/shopify/callback"      element={<ShopifyAuthCallbackPage />} />
+        <Route path="/shopify/complete-onboarding" element={<PrivateRoute><ShopifyOnboardingCompletionPage /></PrivateRoute>} />
+        <Route path="/shopify/decision"      element={<PrivateRoute><ShopifyPostSignupDecisionPage /></PrivateRoute>} />
 
         {/* Dashboard */}
         <Route path="/dashboard" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>

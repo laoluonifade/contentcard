@@ -6,12 +6,15 @@ import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
+import { authApi } from '../api'
 
 export default function LoginPage() {
   const [form, setForm] = useState({ email: '', password: '' })
   const [showPw, setShowPw] = useState(false)
+  const [shopDomain, setShopDomain] = useState('')
   const { login, isLoading } = useAuthStore()
   const navigate = useNavigate()
+  const shopifyEnabled = String(import.meta.env.VITE_SHOPIFY_AUTH_ENABLED || 'false') === 'true'
   const authLightThemeVars = {
     '--cc-ink-rgb': '15 23 42',
     '--cc-fog-rgb': '229 231 235',
@@ -28,6 +31,20 @@ export default function LoginPage() {
       navigate('/dashboard')
     } catch (err) {
       toast.error(err.message || 'Sign in failed. Please check your credentials.')
+    }
+  }
+
+  const startShopify = async () => {
+    const candidate = shopDomain.trim().toLowerCase()
+    if (!candidate.endsWith('.myshopify.com')) {
+      toast.error('Enter your Shopify domain, e.g. yourstore.myshopify.com')
+      return
+    }
+    try {
+      const res = await authApi.shopifyStart({ shop: candidate, mode: 'login', next_path: '/dashboard' })
+      window.location.href = res.authorization_url
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Could not start Shopify login.')
     }
   }
 
@@ -49,6 +66,22 @@ export default function LoginPage() {
         <p className="text-ink/60 mb-8 text-sm">Sign in to your ContentCard account.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {shopifyEnabled && (
+            <div className="rounded-xl border border-fog p-3 bg-white">
+              <label className="label">Sign in with Shopify</label>
+              <div className="flex gap-2">
+                <input
+                  value={shopDomain}
+                  onChange={(e) => setShopDomain(e.target.value)}
+                  placeholder="yourstore.myshopify.com"
+                  className="input"
+                />
+                <button type="button" className="btn-secondary whitespace-nowrap" onClick={startShopify}>
+                  Continue
+                </button>
+              </div>
+            </div>
+          )}
           <div>
             <label className="label">Email address</label>
             <input type="email" required value={form.email}

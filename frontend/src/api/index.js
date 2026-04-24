@@ -58,6 +58,11 @@ export const authApi = {
   me:             ()     => api.get('/auth/me').then(r => r.data),
   updateProfile:  (data) => api.put('/auth/me', data).then(r => r.data),
   changePassword: (data) => api.post('/auth/change-password', data).then(r => r.data),
+  shopifyStart:   (params) => api.get('/auth/shopify/start', { params }).then(r => r.data),
+  shopifyOnboardingStatus: () => api.get('/auth/shopify/onboarding-status').then(r => r.data),
+  completeShopifyOnboarding: (data) => api.post('/auth/shopify/onboarding-complete', data).then(r => r.data),
+  getPostSignupDecision: () => api.get('/auth/post-signup-decision').then(r => r.data),
+  setPostSignupDecision: (decision) => api.post('/auth/post-signup-decision', { decision }).then(r => r.data),
 }
 
 // ─── Workspaces ─────────────────────────────────────────────────
