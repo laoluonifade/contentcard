@@ -178,7 +178,7 @@ export default function DemoPage() {
           <SectionHeader
             eyebrow="Product screenshots"
             title="What the live walkthrough looks like"
-            subtitle="Preview the Stripe + Uber-inspired ContentCard dashboard you’ll see during your demo."
+            subtitle="Preview the Uber-style ContentCard dashboard view you’ll see during your demo."
             center
           />
           <div className="mt-8">
