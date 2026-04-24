@@ -9,7 +9,7 @@ import clsx from 'clsx'
 import { COUNTRIES_LIST } from './SignupPage'
 import { useTheme } from '../hooks/useTheme'
 
-const TABS = ['Profile', 'Company', 'Team', 'Appearance']
+const TABS = ['Profile', 'Company', 'Team', 'Social', 'Appearance']
 
 /** Matches billing tiers; `plan` on a workspace row can lag behind pooled subscription. Prefer `effective_plan`. */
 const PLAN_LABELS = { trial: 'Trial', starter: 'Starter', smb: 'Growth', pro: 'Pro' }
@@ -52,6 +52,13 @@ export default function SettingsPage() {
   const [lastInviteLink, setLastInviteLink] = useState(null)
   const [workspaceName, setWorkspaceName] = useState('')
   const [renamingWorkspace, setRenamingWorkspace] = useState(false)
+  const [socialForm, setSocialForm] = useState({
+    postingMode: 'approval_required',
+    postsPerDay: 2,
+    quietStart: '22:00',
+    quietEnd: '07:00',
+    autoReply: false,
+  })
 
   useEffect(() => {
     setWorkspaceName(activeWorkspace?.name || '')
@@ -161,6 +168,10 @@ export default function SettingsPage() {
     } finally {
       setRenamingWorkspace(false)
     }
+  }
+
+  const saveSocialSettings = () => {
+    toast('Coming soon')
   }
 
   return (
@@ -413,6 +424,75 @@ export default function SettingsPage() {
               <p className="text-ink/30 text-xs mt-5">
                 Email-based notification preferences are not available until outbound email is enabled.
               </p>
+            </div>
+          )}
+
+          {tab === 'Social' && (
+            <div className="bg-surface border border-fog rounded-2xl p-6">
+              <h3 className="text-ink font-bold text-sm mb-1">Social settings</h3>
+              <p className="text-ink/40 text-xs mb-5">
+                Keep this simple: choose how often we post and when we stay quiet. Advanced rules stay behind the scenes.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Posting style</label>
+                  <select
+                    value={socialForm.postingMode}
+                    onChange={(e) => setSocialForm((p) => ({ ...p, postingMode: e.target.value }))}
+                    className={`${inputCls} cursor-pointer`}
+                  >
+                    <option value="manual_only">I post manually</option>
+                    <option value="approval_required">I approve before posting</option>
+                    <option value="smart_autopilot">Auto-post approved content</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Max posts per day</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={socialForm.postsPerDay}
+                    onChange={(e) => setSocialForm((p) => ({ ...p, postsPerDay: Number(e.target.value || 1) }))}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Quiet hours start</label>
+                  <input
+                    value={socialForm.quietStart}
+                    onChange={(e) => setSocialForm((p) => ({ ...p, quietStart: e.target.value }))}
+                    placeholder="22:00"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Quiet hours end</label>
+                  <input
+                    value={socialForm.quietEnd}
+                    onChange={(e) => setSocialForm((p) => ({ ...p, quietEnd: e.target.value }))}
+                    placeholder="07:00"
+                    className={inputCls}
+                  />
+                </div>
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm text-ink/70 cursor-pointer mb-5">
+                <input
+                  type="checkbox"
+                  checked={socialForm.autoReply}
+                  onChange={(e) => setSocialForm((p) => ({ ...p, autoReply: e.target.checked }))}
+                />
+                Suggest replies automatically for customer comments
+              </label>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={saveSocialSettings}
+                  className="px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-xl transition-colors"
+                >
+                  Save social settings
+                </button>
+              </div>
             </div>
           )}
         </div>
