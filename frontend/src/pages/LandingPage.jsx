@@ -2,7 +2,6 @@ import { ArrowRight } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
 import {
   CtaBand,
-  FeatureGrid,
   HeroSection,
   MarketingContainer,
   PrimaryCta,
@@ -10,17 +9,9 @@ import {
   SectionHeader,
   SurfaceSection,
 } from '../components/marketing/MarketingPrimitives'
-import { DashboardShotGrid, StripeUberHeroMockup } from '../components/marketing/AppDashboardMockups'
+import { StripeUberHeroMockup, WhyTeamsSwitchShowcase } from '../components/marketing/AppDashboardMockups'
 
 export default function LandingPage() {
-  const featureItems = [
-    { title: 'Playbook-led generation', body: 'Generate campaign-ready monthly content from strategy lanes you define once.' },
-    { title: 'Prep assistant context', body: 'Collect launch context and proof before generation so posts stay commercially relevant.' },
-    { title: 'Calendar operations', body: 'Run approvals, edits, and exports in one flow built for social teams.' },
-    { title: 'Brand-safe creative system', body: 'Keep color, tone, and visual consistency while rotating layouts for freshness.' },
-    { title: 'Trend-aware planning', body: 'Bring active topics into production before the moment cools.' },
-    { title: 'Team-ready governance', body: 'Use workspace roles and shared context to scale output without chaos.' },
-  ]
   const stats = [
     ['3x', 'Faster campaign cycle'],
     ['68%', 'Lower content production cost'],
@@ -59,19 +50,16 @@ export default function LandingPage() {
         </MarketingContainer>
       </SurfaceSection>
 
-      <SurfaceSection>
+      <SurfaceSection className="bg-gradient-to-b from-white via-[#fcfcff] to-white border-y border-fog/80">
         <MarketingContainer>
           <SectionHeader
             eyebrow="Why teams switch"
-            title="A cleaner, faster operating system for social content"
-            subtitle="Keep the velocity of modern AI while preserving your campaign strategy and brand consistency."
+            title="Flexible growth workflows for every social operating model"
+            subtitle="Scale your brand system with clean, high-clarity campaign operations designed to work independently or together."
             center
           />
-          <div className="mt-8">
-            <FeatureGrid items={featureItems} />
-          </div>
-          <div className="mt-8">
-            <DashboardShotGrid />
+          <div className="mt-10">
+            <WhyTeamsSwitchShowcase />
           </div>
         </MarketingContainer>
       </SurfaceSection>
