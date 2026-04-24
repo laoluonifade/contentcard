@@ -49,18 +49,50 @@ export function resolveContentCardApiBase() {
 
 const API_BASE = resolveContentCardApiBase()
 
-const SHOULD_USE_RENDER_FALLBACK =
-  typeof window !== 'undefined' && isRenderStaticFrontendHostname(window.location.hostname)
+/** Join API root (absolute URL or path) with path like `/auth/login`. */
+function joinApiUrl(base, path) {
+  const b = String(base || '').replace(/\/+$/, '')
+  const p = String(path || '')
+  const norm = p.startsWith('/') ? p : `/${p}`
+  return `${b}${norm}`
+}
 
-async function withRenderFallback(requestFn, fallbackFn) {
-  try {
-    return await requestFn()
-  } catch (err) {
+/**
+ * Unauthenticated auth calls use absolute URLs + optional fallback so the browser
+ * never hits the static site for `/api/v1/auth/*` (shows as "login" / preflight failed).
+ */
+function postPublicAuth(path, data) {
+  const primaryUrl = joinApiUrl(resolveContentCardApiBase(), path)
+  const fallbackUrl = joinApiUrl(CONTENTCARD_RENDER_API_BASE, path)
+  const headers = { 'Content-Type': 'application/json' }
+  const send = (url) => axios.post(url, data, { headers }).then((r) => r.data)
+  return send(primaryUrl).catch((err) => {
     const networkFailure = !err?.response
-    const canRetry = SHOULD_USE_RENDER_FALLBACK && API_BASE !== CONTENTCARD_RENDER_API_BASE
-    if (!networkFailure || !canRetry) throw err
-    return fallbackFn()
-  }
+    const canFallback =
+      networkFailure && primaryUrl !== fallbackUrl && /^https?:\/\//i.test(String(primaryUrl))
+    if (canFallback) return send(fallbackUrl)
+    throw err
+  })
+}
+
+function getPublicAuth(path, params) {
+  const primaryUrl = joinApiUrl(resolveContentCardApiBase(), path)
+  const fallbackUrl = joinApiUrl(CONTENTCARD_RENDER_API_BASE, path)
+  const headers = { 'Content-Type': 'application/json' }
+  const send = (url) => axios.get(url, { params, headers }).then((r) => r.data)
+  return send(primaryUrl).catch((err) => {
+    const networkFailure = !err?.response
+    const canFallback =
+      networkFailure && primaryUrl !== fallbackUrl && /^https?:\/\//i.test(String(primaryUrl))
+    if (canFallback) return send(fallbackUrl)
+    throw err
+  })
+}
+
+function isPublicAuthRequest(err) {
+  const cfg = err.config || {}
+  const combined = `${cfg.baseURL || ''}${cfg.url || ''}`
+  return /auth\/(login|signup)(\?|$|\/)/i.test(combined) || /auth\/shopify\/start/i.test(combined)
 }
 
 const api = axios.create({
@@ -87,10 +119,7 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      const path = String(err.config?.url || '')
-      if (path.includes('/auth/login') || path.includes('/auth/signup')) {
-        return Promise.reject(err)
-      }
+      if (isPublicAuthRequest(err)) return Promise.reject(err)
       localStorage.removeItem('contentcard-auth')
       localStorage.removeItem('contentcard-app')
       window.location.href = '/login'
@@ -105,21 +134,12 @@ export const marketingApi = {
 }
 
 export const authApi = {
-  signup:         (data) => withRenderFallback(
-    () => api.post('/auth/signup', data).then(r => r.data),
-    () => axios.post(`${CONTENTCARD_RENDER_API_BASE}/auth/signup`, data, { headers: { 'Content-Type': 'application/json' } }).then(r => r.data),
-  ),
-  login:          (data) => withRenderFallback(
-    () => api.post('/auth/login', data).then(r => r.data),
-    () => axios.post(`${CONTENTCARD_RENDER_API_BASE}/auth/login`, data, { headers: { 'Content-Type': 'application/json' } }).then(r => r.data),
-  ),
+  signup:         (data) => postPublicAuth('/auth/signup', data),
+  login:          (data) => postPublicAuth('/auth/login', data),
   me:             ()     => api.get('/auth/me').then(r => r.data),
   updateProfile:  (data) => api.put('/auth/me', data).then(r => r.data),
   changePassword: (data) => api.post('/auth/change-password', data).then(r => r.data),
-  shopifyStart:   (params) => withRenderFallback(
-    () => api.get('/auth/shopify/start', { params }).then(r => r.data),
-    () => axios.get(`${CONTENTCARD_RENDER_API_BASE}/auth/shopify/start`, { params, headers: { 'Content-Type': 'application/json' } }).then(r => r.data),
-  ),
+  shopifyStart:   (params) => getPublicAuth('/auth/shopify/start', params),
   shopifyOnboardingStatus: () => api.get('/auth/shopify/onboarding-status').then(r => r.data),
   completeShopifyOnboarding: (data) => api.post('/auth/shopify/onboarding-complete', data).then(r => r.data),
   getPostSignupDecision: () => api.get('/auth/post-signup-decision').then(r => r.data),
