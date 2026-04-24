@@ -87,9 +87,9 @@ export default function LoginPage() {
             <button
               type="button"
               onClick={handleShopifyClick}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#95BF47] hover:bg-[#7ca43b] text-white font-semibold py-3 transition-colors"
+              className="shopify-oauth-button w-full"
             >
-              <ShopifyIcon className="h-5 w-5" />
+              <ShopifyIcon className="w-4 h-4" monochrome />
               Continue with Shopify
             </button>
             <div className="mt-4 flex items-center gap-3">
@@ -147,7 +147,7 @@ export default function LoginPage() {
             <h2 className="text-white text-2xl font-bold" style={{ letterSpacing: '-0.02em' }}>Your content studio</h2>
             <p className="text-white/40 text-sm mt-2">On-brand posts generated in seconds.</p>
           </div>
-          <div className="mb-3">
+          <div className="mb-3 w-full">
             <AuthHeroCards />
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-center">
