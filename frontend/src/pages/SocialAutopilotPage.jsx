@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Instagram, Facebook, Linkedin } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { socialApi } from '../api'
 import { toast } from '../components/ui/Toast'
 
 const SOCIAL_AUTOPILOT_SHOWCASE_MODE = true
 const PLATFORMS = ['instagram', 'facebook', 'linkedin']
+
+const PLATFORM_ICONS = {
+  instagram: Instagram,
+  facebook: Facebook,
+  linkedin: Linkedin,
+}
 
 function badgeTone(status) {
   if (status === 'connected') return 'bg-emerald-50 text-emerald-700 border-emerald-200'
@@ -113,10 +120,14 @@ export default function SocialAutopilotPage() {
               {PLATFORMS.map((platform) => {
                 const conn = connections.find((x) => x.platform === platform)
                 const h = health.find((x) => x.platform === platform)
+                const Icon = PLATFORM_ICONS[platform]
                 return (
                   <div key={platform} className="rounded-xl border border-fog bg-mist/70 p-4">
                     <div className="flex items-center justify-between">
-                      <p className="font-semibold text-ink capitalize">{platform}</p>
+                      <div className="w-9 h-9 rounded-lg bg-surface border border-fog flex items-center justify-center text-ink">
+                        <Icon size={18} />
+                        <span className="sr-only">{platform}</span>
+                      </div>
                       <span className={`text-[11px] px-2 py-1 rounded-full border ${badgeTone(conn?.status)}`}>
                         {conn?.status || 'not connected'}
                       </span>
@@ -166,7 +177,13 @@ export default function SocialAutopilotPage() {
                   {posts.map((p) => (
                     <div key={p.id} className="border border-fog rounded-lg p-2.5 bg-mist/60">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-ink capitalize">{p.platform}</p>
+                        <div className="w-8 h-8 rounded-lg bg-surface border border-fog flex items-center justify-center text-ink">
+                          {(() => {
+                            const Icon = PLATFORM_ICONS[p.platform] || Instagram
+                            return <Icon size={16} />
+                          })()}
+                          <span className="sr-only">{p.platform}</span>
+                        </div>
                         <span className="text-[11px] px-2 py-0.5 rounded-full border bg-surface border-fog text-ink/70">{p.status}</span>
                       </div>
                       <p className="text-xs text-ink/45 truncate mt-1">{p.status_reason || 'No note yet'}</p>
