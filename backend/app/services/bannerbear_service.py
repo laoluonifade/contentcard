@@ -66,6 +66,35 @@ def _clean_inline(text: str | None, max_len: int) -> str:
     return t[:max_len].strip()
 
 
+def _stack_headline_for_safe_area(text: str | None, max_len: int) -> str:
+    """Split long hooks across two lines so overlay text boxes clip less at the frame edge."""
+    raw = " ".join(str(text or "").strip().split())
+    if not raw:
+        return ""
+    if "\n" in raw or len(raw) <= 26 or max_len < 18:
+        return raw[:max_len].strip()
+    words = raw.split()
+    if len(words) < 2:
+        return raw[:max_len].strip()
+    mid = max(1, min(len(words) - 1, (len(words) + 1) // 2))
+    line1 = " ".join(words[:mid])
+    line2 = " ".join(words[mid:])
+    merged = f"{line1}\n{line2}"
+    if len(line1) + len(line2) <= max_len:
+        return merged.strip()
+    return raw[:max_len].strip()
+
+
+def _background_image_modification(image_url: str) -> dict:
+    """Fit AI art inside the template photo box without fill-crop; disable smart-crop surprises."""
+    return {
+        "name": "background_image",
+        "image_url": image_url,
+        "fill_type": "fit",
+        "disable_smart_crop": True,
+    }
+
+
 def _split_caption_sentences(caption: str) -> list[str]:
     parts = [p.strip() for p in caption.replace("!", ".").replace("?", ".").split(".")]
     return [p for p in parts if p]
@@ -366,6 +395,8 @@ def _cover_mods(
             )
         else:
             subtitle = "Swipe for details"
+    hlimit = _copy_limit(fam, "headline", 68)
+    headline = _stack_headline_for_safe_area(headline, hlimit)
     mods = [
         {"name": "headline",   "text": headline},
         {"name": "subtitle",   "text": subtitle},
@@ -375,7 +406,7 @@ def _cover_mods(
     # Inject DALL-E background into Bannerbear template image layer if present.
     # The template must have a layer named "background_image" for this to apply.
     if background_image_url:
-        mods.append({"name": "background_image", "image_url": background_image_url})
+        mods.append(_background_image_modification(background_image_url))
     return mods
 
 
@@ -397,7 +428,7 @@ def _content_mods(
         {"name": "accent",     "color": accent},
     ]
     if background_image_url:
-        mods.append({"name": "background_image", "image_url": background_image_url})
+        mods.append(_background_image_modification(background_image_url))
     return mods
 
 
@@ -418,7 +449,7 @@ def _quote_mods(
         {"name": "background", "color": bg},
     ]
     if background_image_url:
-        mods.append({"name": "background_image", "image_url": background_image_url})
+        mods.append(_background_image_modification(background_image_url))
     return mods
 
 

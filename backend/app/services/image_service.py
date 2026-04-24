@@ -475,6 +475,17 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         if qg_retry > 0:
             prompt += " Retry mode: cleaner composition, fewer objects, stronger focal hierarchy, campaign-grade realism."
 
+    edge_guard = (
+        " Composition guard (always): treat the full square as intentional campaign art with roughly eight to ten percent "
+        "clear breathing room between every important subject edge and the canvas border—never flush-bleed faces, food rims, "
+        "or packaging to the frame line. If any people appear (including soft background talent), show complete heads with "
+        "visible forehead-to-chin clearance and generous headroom; never crop through foreheads, eyes, mouths, or necks at "
+        "the top or sides. Keep the upper-left quadrant calmer (open tone, lower micro-detail) so downstream headline typography "
+        "does not sit on busy edges. Keep the hero dish or product fully inside the frame with margin. "
+        "Post-production logo and type safe-areas must never clip the story."
+    )
+    prompt = f"{prompt.strip()}{edge_guard}"
+
     return prompt.strip()
 
 
