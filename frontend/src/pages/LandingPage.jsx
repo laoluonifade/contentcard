@@ -137,17 +137,27 @@ export default function LandingPage() {
       image: '/marketing-examples/uber-ride.png',
       caption: 'Route-aware campaign post adapted for broader audience targeting.',
     },
+  ]
+  const faqs = [
     {
-      brand: 'Krispy Kreme NG',
-      platform: 'Instagram',
-      image: '/marketing-examples/krispy-fresh.png',
-      caption: 'Limited-time offer creative with polished copy and clear call-to-action.',
+      q: 'How quickly can I start creating with ContentCard?',
+      a: 'Most teams start creating their first campaign in under 10 minutes. You can set your brand basics, choose a direction, and generate ready-to-publish content immediately.',
     },
     {
-      brand: 'Juicy Junction',
-      platform: 'X',
-      image: '/marketing-examples/juicy-wrap.png',
-      caption: 'Quick snack push optimized for fast publishing and consistent quality.',
+      q: 'Which social platforms does ContentCard support?',
+      a: 'ContentCard supports Instagram, X, and Facebook workflows out of the box, with post-ready formats, captions, and scheduling support.',
+    },
+    {
+      q: 'Can I keep every post on-brand?',
+      a: 'Yes. ContentCard applies your brand voice, visual preferences, and content guardrails so every output stays consistent across campaigns.',
+    },
+    {
+      q: 'Do I need a designer or large team to use it?',
+      a: 'No. ContentCard is built for lean teams and business owners who need high-quality social content without adding design headcount.',
+    },
+    {
+      q: 'How does pricing work?',
+      a: 'You can start free, then upgrade to a paid plan when you need more volume, advanced workflows, or multi-brand support.',
     },
   ]
 
@@ -163,7 +173,7 @@ export default function LandingPage() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-4">Built for small businesses</p>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.03] max-w-[12ch]">
-                Start creating social content for free.
+                Create social content that drives sales.
               </h1>
               <p className="mt-5 text-lg text-ink/65 leading-relaxed max-w-[28ch]">
                 ContentCard helps you design, caption, and publish brand-ready posts in minutes across Instagram, X, and Facebook.
@@ -259,13 +269,6 @@ export default function LandingPage() {
           <p className="mt-5 text-ink/65">
             <strong className="text-ink">Amaka Eze</strong>, Founder, Fresh Basket Mart
           </p>
-          <a
-            href="/blog"
-            className="mt-4 inline-flex items-center gap-1 text-brand-700 font-semibold hover:text-brand-800 transition-colors"
-            aria-label="Read small business customer stories"
-          >
-            Read more customer stories <ChevronRight size={15} />
-          </a>
         </MarketingContainer>
       </SurfaceSection>
 
@@ -279,6 +282,27 @@ export default function LandingPage() {
           />
           <div className="mt-10">
             <WhyTeamsSwitchShowcase />
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection className="bg-white border-b border-fog">
+        <MarketingContainer className="max-w-5xl">
+          <SectionHeader
+            eyebrow="FAQ"
+            title="Frequently asked questions"
+            subtitle="Everything you need to know before you start creating with ContentCard."
+          />
+          <div className="mt-8 space-y-3">
+            {faqs.map((item) => (
+              <details key={item.q} className="group rounded-2xl border border-fog bg-white p-5">
+                <summary className="list-none cursor-pointer flex items-center justify-between gap-4">
+                  <p className="text-base font-semibold text-ink">{item.q}</p>
+                  <span className="text-ink/45 group-open:rotate-45 transition-transform text-xl leading-none">+</span>
+                </summary>
+                <p className="mt-3 text-sm text-ink/65 leading-relaxed">{item.a}</p>
+              </details>
+            ))}
           </div>
         </MarketingContainer>
       </SurfaceSection>
