@@ -1273,14 +1273,6 @@ async def generate_month(
             month=body.month,
             year=body.year,
         )
-        await _enforce_generation_billing_gate(
-            db=db,
-            workspace=workspace,
-            current_user=current_user,
-            brand_id=brand.id,
-            month=body.month,
-            year=body.year,
-        )
 
     missing = _validate_brand_readiness(brand)
     if missing:
@@ -1394,6 +1386,14 @@ async def generate_month_v2(
                     "Delete existing posts or upgrade your plan."
                 ),
             )
+        await _enforce_generation_billing_gate(
+            db=db,
+            workspace=workspace,
+            current_user=current_user,
+            brand_id=brand.id,
+            month=body.month,
+            year=body.year,
+        )
     missing = _validate_brand_readiness(brand)
     if missing:
         raise HTTPException(
