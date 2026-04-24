@@ -153,32 +153,44 @@ export default function LandingPage() {
 
   return (
     <MarketingLayout>
-      <section className="relative border-b border-fog overflow-hidden bg-gradient-to-b from-white via-[#fbfcff] to-white">
+      <section className="relative border-b border-fog overflow-hidden bg-[#f3f4f2]">
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute -top-28 -right-10 w-[440px] h-[440px] rounded-full bg-brand-100/60 blur-3xl" />
-          <div className="absolute top-24 right-28 w-[320px] h-[320px] rounded-full bg-violet-100/55 blur-3xl hidden lg:block" />
+          <div className="absolute -right-16 top-12 w-[340px] h-[340px] rounded-full border border-ink/10" />
+          <div className="absolute right-24 top-28 w-[420px] h-[420px] rounded-full border border-ink/5 hidden lg:block" />
         </div>
-        <MarketingContainer className="relative py-14 sm:py-18 lg:py-20">
-          <div className="grid lg:grid-cols-[1.02fr_0.98fr] gap-12 items-center">
+        <MarketingContainer className="relative py-12 sm:py-16 lg:py-20">
+          <div className="grid lg:grid-cols-[0.92fr_1.08fr] gap-12 items-center">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-5">Built for fast-moving teams</p>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.06] max-w-[14ch]">
-                Create standout social content in minutes.
+              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-4">Built for small businesses</p>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.03] max-w-[12ch]">
+                Start creating social content for free.
               </h1>
-              <p className="mt-5 text-lg sm:text-xl text-ink/62 leading-[1.35] max-w-[16ch] sm:max-w-[17ch]">
-                Generate beautiful visuals, captions, and publish-ready posts in ContentCard for Instagram, X, and Facebook.
+              <p className="mt-5 text-lg text-ink/65 leading-relaxed max-w-[28ch]">
+                ContentCard helps you design, caption, and publish brand-ready posts in minutes across Instagram, X, and Facebook.
               </p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <PrimaryCta to="/signup">Start free <ArrowRight size={14} className="ml-1" /></PrimaryCta>
-                <SecondaryCta to="/demo">Book a live demo</SecondaryCta>
+              <div className="mt-7 flex flex-col sm:flex-row gap-3 max-w-[520px]">
+                <input
+                  type="email"
+                  placeholder="Enter your email address"
+                  className="h-12 sm:flex-1 rounded-xl border border-fog bg-white px-4 text-sm text-ink placeholder:text-ink/45 focus:outline-none focus:ring-2 focus:ring-brand-300/60"
+                />
+                <PrimaryCta to="/signup" className="h-12 px-6 justify-center whitespace-nowrap">
+                  Start creating <ArrowRight size={14} className="ml-1" />
+                </PrimaryCta>
+              </div>
+              <div className="mt-3 text-xs text-ink/45">
+                No credit card required to start.
+              </div>
+              <div className="mt-5">
+                <SecondaryCta to="/pricing">View pricing</SecondaryCta>
               </div>
             </div>
             <div className="lg:pl-4">
               <div className="relative">
-                <div className="absolute -top-10 -right-8 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
+                <div className="absolute -top-8 -right-6 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
                   <img src="/marketing-examples/meme-wow-badge.svg" alt="Meme wow sticker" className="w-full h-full rounded-2xl object-cover" />
                 </div>
-                <div className="absolute -bottom-8 -left-8 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
+                <div className="absolute -bottom-6 -left-6 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
                   <img src="/marketing-examples/cartoon-creator-mascot.svg" alt="Cartoon creator mascot" className="w-full h-full rounded-2xl object-cover" />
                 </div>
                 <HeroPlatformCards />

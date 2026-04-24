@@ -120,7 +120,7 @@ export default function PricingPage() {
             title="Need a custom enterprise plan?"
             body="Get dedicated onboarding, advanced controls, and tailored commercial terms."
             primary={<PrimaryCta to="/enterprise">Talk to sales <ArrowRight size={14} className="ml-1" /></PrimaryCta>}
-            secondary={<SecondaryCta to="/demo">Book demo</SecondaryCta>}
+            secondary={<SecondaryCta to="/contact">Contact sales</SecondaryCta>}
           />
         </MarketingContainer>
       </SurfaceSection>

@@ -56,7 +56,7 @@ export default function ProductGuidePage() {
           <CtaBand
             title="Need help with your rollout?"
             body="Book a guided onboarding session for your team and campaign workflow."
-            primary={<PrimaryCta to="/demo">Book onboarding demo <ArrowRight size={14} className="ml-1" /></PrimaryCta>}
+            primary={<PrimaryCta to="/signup">Start free <ArrowRight size={14} className="ml-1" /></PrimaryCta>}
             secondary={<Link to="/contact" className="inline-flex items-center justify-center rounded-xl border border-fog bg-surface hover:bg-mist text-ink/80 font-semibold text-sm px-5 py-3 transition-colors">Talk to support</Link>}
           />
         </MarketingContainer>

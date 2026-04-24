@@ -66,7 +66,7 @@ export default function ContactPage() {
               </div>
             </SoftCard>
             <p className="text-sm text-ink/55">
-              Want a faster walkthrough? <Link to="/demo" className="text-brand-600 hover:underline">Book a live demo</Link>.
+              Want a faster walkthrough? <Link to="/signup" className="text-brand-600 hover:underline">Start free</Link>.
             </p>
           </div>
 

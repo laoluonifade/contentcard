@@ -36,7 +36,7 @@ export default function EnterprisePage() {
         subtitle="Scale social output across regions and teams while keeping governance, quality, and brand consistency intact."
         actions={
           <>
-            <PrimaryCta to="/demo">Talk to enterprise <ArrowRight size={14} className="ml-1" /></PrimaryCta>
+            <PrimaryCta to="/contact">Talk to enterprise <ArrowRight size={14} className="ml-1" /></PrimaryCta>
             <SecondaryCta to="/pricing">View pricing</SecondaryCta>
           </>
         }
@@ -93,7 +93,7 @@ export default function EnterprisePage() {
           <CtaBand
             title="Let's plan your enterprise rollout"
             body="Book a tailored walkthrough for your teams, brands, and governance requirements."
-            primary={<PrimaryCta to="/demo">Book enterprise demo</PrimaryCta>}
+            primary={<PrimaryCta to="/contact">Contact enterprise sales</PrimaryCta>}
             secondary={<SecondaryCta to="/contact">Contact sales</SecondaryCta>}
           />
         </MarketingContainer>
