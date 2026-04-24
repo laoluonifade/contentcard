@@ -55,6 +55,7 @@ export default function SignupPage() {
   const [quickFillEnabled, setQuickFillEnabled] = useState(false)
   const [showPw, setShowPw] = useState(false)
   const [shopDomain, setShopDomain] = useState('')
+  const [showShopifyPrompt, setShowShopifyPrompt] = useState(false)
   const { signup, isLoading } = useAuthStore()
   const { fetchWorkspaces } = useAppStore()
   const navigate = useNavigate()
@@ -115,18 +116,29 @@ export default function SignupPage() {
     }
   }
 
-  const startShopify = async () => {
-    const candidate = shopDomain.trim().toLowerCase()
+  const startShopify = async (domainOverride = '') => {
+    const candidate = String(domainOverride || shopDomain).trim().toLowerCase()
     if (!candidate.endsWith('.myshopify.com')) {
       toast('Enter your Shopify domain, e.g. yourstore.myshopify.com', 'error')
       return
     }
     try {
+      localStorage.setItem('contentcard.shopify.domain', candidate)
       const res = await authApi.shopifyStart({ shop: candidate, mode: 'signup', next_path: '/onboarding' })
       window.location.href = res.authorization_url
     } catch (err) {
       toast(err?.response?.data?.detail || 'Could not start Shopify signup.', 'error')
     }
+  }
+
+  const handleShopifyClick = () => {
+    const saved = (localStorage.getItem('contentcard.shopify.domain') || '').trim().toLowerCase()
+    if (saved.endsWith('.myshopify.com')) {
+      setShopDomain(saved)
+      startShopify(saved)
+      return
+    }
+    setShowShopifyPrompt(true)
   }
 
   const pwStrength = () => {
@@ -174,20 +186,14 @@ export default function SignupPage() {
             <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Create your account</h1>
             <p className="text-ink/50 mb-6 text-sm">Start free · No credit card required.</p>
             {shopifyEnabled && (
-              <div className="rounded-xl border border-fog p-3 bg-white mb-5">
-                <p className="label">Sign up with Shopify</p>
-                <div className="flex gap-2">
-                  <input
-                    value={shopDomain}
-                    onChange={(e) => setShopDomain(e.target.value)}
-                    placeholder="yourstore.myshopify.com"
-                    className="input"
-                  />
-                  <button type="button" className="btn-secondary whitespace-nowrap" onClick={startShopify}>
-                    Continue
-                  </button>
-                </div>
-              </div>
+              <button
+                type="button"
+                onClick={handleShopifyClick}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-[#95BF47] hover:bg-[#7ca43b] text-white font-semibold py-3 transition-colors mb-5"
+              >
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded bg-white text-[#95BF47] text-xs font-extrabold">S</span>
+                Continue with Shopify
+              </button>
             )}
             <form onSubmit={nextStep} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -352,6 +358,25 @@ export default function SignupPage() {
           </div>
         </div>
       </div>
+      {showShopifyPrompt && (
+        <div className="fixed inset-0 bg-black/35 flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-md bg-white rounded-2xl border border-fog p-5">
+            <h3 className="text-lg font-bold text-ink mb-1">Enter your Shopify store</h3>
+            <p className="text-sm text-ink/60 mb-3">We will redirect you to Shopify to continue sign-up.</p>
+            <input
+              value={shopDomain}
+              onChange={(e) => setShopDomain(e.target.value)}
+              placeholder="yourstore.myshopify.com"
+              className="input"
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setShowShopifyPrompt(false)}>Cancel</button>
+              <button type="button" className="btn-primary" onClick={() => startShopify()}>Continue</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
