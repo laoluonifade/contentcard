@@ -1,4 +1,5 @@
 import MarketingLayout from '../components/layout/MarketingLayout'
+import { MarketingContainer, SectionHeader, SoftCard, SurfaceSection } from '../components/marketing/MarketingPrimitives'
 
 const COLUMNS = [
   {
@@ -19,7 +20,7 @@ const COLUMNS = [
     ],
   },
   {
-    label: 'Under consideration', color: 'text-white/40', dot: 'bg-white/30',
+    label: 'Under consideration', color: 'text-ink/45', dot: 'bg-ink/30',
     items: [
       { title: 'WhatsApp broadcast content', desc: 'Generate content tailored for WhatsApp channels.' },
       { title: 'Video thumbnail generation', desc: 'YouTube and TikTok thumbnail creation.' },
@@ -31,15 +32,18 @@ const COLUMNS = [
 export default function RoadmapPage() {
   return (
     <MarketingLayout>
-      <section className="py-16 px-6 border-b border-white/5 text-center">
-        <div className="max-w-2xl mx-auto">
-          <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Roadmap</div>
-          <h1 className="text-4xl font-bold mb-4" style={{ letterSpacing: '-0.03em' }}>Where ContentCard is going</h1>
-          <p className="text-white/45">Our public roadmap: what we're building now, what's coming next, and what we're thinking about.</p>
-        </div>
-      </section>
-      <section className="py-16 px-6">
-        <div className="max-w-7xl mx-auto grid md:grid-cols-3 gap-6">
+      <SurfaceSection className="border-b border-fog">
+        <MarketingContainer className="max-w-2xl">
+          <SectionHeader
+            eyebrow="Roadmap"
+            title="Where ContentCard is going"
+            subtitle="What we're building now, what's next, and what we're evaluating."
+            center
+          />
+        </MarketingContainer>
+      </SurfaceSection>
+      <SurfaceSection>
+        <MarketingContainer className="grid md:grid-cols-3 gap-6">
           {COLUMNS.map(({ label, color, dot, items }) => (
             <div key={label}>
               <div className={`flex items-center gap-2 mb-5 font-bold text-sm ${color}`}>
@@ -47,16 +51,16 @@ export default function RoadmapPage() {
               </div>
               <div className="space-y-3">
                 {items.map(({ title, desc }) => (
-                  <div key={title} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-5">
-                    <div className="font-semibold text-white text-sm mb-1">{title}</div>
-                    <p className="text-white/35 text-xs leading-relaxed">{desc}</p>
-                  </div>
+                  <SoftCard key={title} className="rounded-xl p-5">
+                    <div className="font-semibold text-ink text-sm mb-1">{title}</div>
+                    <p className="text-ink/45 text-xs leading-relaxed">{desc}</p>
+                  </SoftCard>
                 ))}
               </div>
             </div>
           ))}
-        </div>
-      </section>
+        </MarketingContainer>
+      </SurfaceSection>
     </MarketingLayout>
   )
 }

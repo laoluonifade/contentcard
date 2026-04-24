@@ -70,7 +70,7 @@ from app.services.billing_entitlements import (
     total_free_generations_used_by_owner,
 )
 from app.services.billing_service import PLANS, charge_saved_authorization
-from datetime import date
+from datetime import date, timedelta
 from calendar import monthrange
 import logging
 import re
@@ -1274,14 +1274,6 @@ async def generate_month(
             month=body.month,
             year=body.year,
         )
-        await _enforce_generation_billing_gate(
-            db=db,
-            workspace=workspace,
-            current_user=current_user,
-            brand_id=brand.id,
-            month=body.month,
-            year=body.year,
-        )
 
     missing = _validate_brand_readiness(brand)
     if missing:
@@ -1395,6 +1387,14 @@ async def generate_month_v2(
                     "Delete existing posts or upgrade your plan."
                 ),
             )
+        await _enforce_generation_billing_gate(
+            db=db,
+            workspace=workspace,
+            current_user=current_user,
+            brand_id=brand.id,
+            month=body.month,
+            year=body.year,
+        )
     missing = _validate_brand_readiness(brand)
     if missing:
         raise HTTPException(
@@ -2311,6 +2311,195 @@ def _shift_posts_avoid_calendar_collisions(
     return out
 
 
+async def _existing_platform_dates_in_month(
+    db: AsyncSession, brand_id: str, month: int, year: int
+) -> set[tuple[str, str]]:
+    """(platform value, scheduled_date ISO) pairs already on the calendar for this month."""
+    last = monthrange(year, month)[1]
+    start = date(year, month, 1)
+    end = date(year, month, last)
+    r = await db.execute(
+        select(ContentItem.platform, ContentItem.scheduled_date).where(
+            ContentItem.brand_id == brand_id,
+            ContentItem.scheduled_date.isnot(None),
+            ContentItem.scheduled_date >= start,
+            ContentItem.scheduled_date <= end,
+        )
+    )
+    occupied: set[tuple[str, str]] = set()
+    for row in r.all():
+        platform, sd = row[0], row[1]
+        if sd is not None:
+            pv = platform.value if isinstance(platform, ContentPlatform) else str(platform)
+            occupied.add((str(pv).lower(), sd.isoformat()))
+    return occupied
+
+
+def _weekday_isos_in_month(year: int, month: int) -> list[str]:
+    last = monthrange(year, month)[1]
+    acc: list[str] = []
+    for day in range(1, last + 1):
+        d = date(year, month, day)
+        if d.weekday() < 5:
+            acc.append(d.isoformat())
+    return acc
+
+
+def _shift_posts_avoid_calendar_collisions(
+    posts: list[dict],
+    occupied: set[tuple[str, str]],
+    month: int,
+    year: int,
+) -> list[dict]:
+    """No two saved posts for the same brand may share (platform, scheduled_date).
+
+    Fills weekdays in-order when the model or a prior run already claimed a slot.
+    """
+    pool = _weekday_isos_in_month(year, month)
+    pool_set = set(pool)
+    working = set(occupied)
+    out: list[dict] = []
+    for raw in posts:
+        if not isinstance(raw, dict):
+            continue
+        post = dict(raw)
+        pv = str(post.get("platform", "instagram")).lower()
+        try:
+            dstr = date.fromisoformat(str(post.get("date", "")).strip()).isoformat()
+        except Exception:
+            dstr = ""
+        if dstr not in pool_set:
+            dstr = ""
+        if not dstr:
+            cand = next((c for c in pool if (pv, c) not in working), None)
+            if not cand:
+                logger.warning("Skipping post: no free weekday slot for platform %s", pv)
+                continue
+            post["date"] = cand
+            dstr = cand
+        key = (pv, dstr)
+        if key in working:
+            cand = next((c for c in pool if (pv, c) not in working), None)
+            if not cand:
+                logger.warning(
+                    "Skipping post: no free weekday left for %s in %s/%s (duplicate slot)",
+                    pv,
+                    month,
+                    year,
+                )
+                continue
+            post["date"] = cand
+            dstr = cand
+            key = (pv, dstr)
+        working.add(key)
+        out.append(post)
+    return out
+
+
+def _normalize_topic_signature(text: str | None) -> str:
+    s = (text or "").lower().strip()
+    s = re.sub(r"\s+", " ", s)
+    return s[:200]
+
+
+def _topic_slug(text: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "", (text or "").lower())[:64]
+
+
+async def _load_prior_cross_month_memory(
+    db: AsyncSession, brand_id: str, year: int, month: int
+) -> tuple[set[str], set[str], str]:
+    """Topics and image-brief snippets from earlier calendar months (same brand).
+
+    Feeds the planner so a new month does not recycle the same hero scene, and
+    returns signature sets for post-save raster differentiation.
+    """
+    month_start = date(year, month, 1)
+    prior_end = month_start - timedelta(days=1)
+    lookback_start = month_start - timedelta(days=150)
+    if prior_end < lookback_start:
+        return set(), set(), ""
+    r = await db.execute(
+        select(
+            ContentItem.scheduled_date,
+            ContentItem.platform,
+            ContentItem.topic,
+            ContentItem.content_idea,
+            ContentItem.image_prompt,
+        )
+        .where(
+            ContentItem.brand_id == brand_id,
+            ContentItem.scheduled_date.isnot(None),
+            ContentItem.scheduled_date >= lookback_start,
+            ContentItem.scheduled_date <= prior_end,
+        )
+        .order_by(ContentItem.scheduled_date.desc())
+        .limit(45)
+    )
+    sigs: set[str] = set()
+    slugs: set[str] = set()
+    lines: list[str] = []
+    for row in r.all():
+        sd, plat, topic, idea, ip = row[0], row[1], row[2], row[3], row[4]
+        pv = plat.value if isinstance(plat, ContentPlatform) else str(plat)
+        pv = str(pv).lower()
+        for raw in (idea, topic):
+            raw_s = str(raw or "")
+            sig = _normalize_topic_signature(raw_s)
+            if sig and len(sig) > 3:
+                sigs.add(sig)
+            slug = _topic_slug(raw_s)
+            if slug and len(slug) >= 8:
+                slugs.add(slug)
+        label = str(idea or topic or "").strip()[:72]
+        ip_snip = re.sub(r"\s+", " ", (ip or "")[:200]).strip() if ip else ""
+        date_s = sd.isoformat() if sd else ""
+        if label or ip_snip:
+            lines.append(f"- {date_s} {pv}: «{label}» — prior raster brief: {ip_snip}".strip())
+    if not lines:
+        return set(), set(), ""
+    brief = (
+        "=== PRIOR RECENT POSTS (already published or drafted on this brand in earlier months) ===\n"
+        "Do NOT recycle the same hero dish, same single-colour studio sweep, same prop cluster, or same "
+        "camera/framing as any row below. Each new post needs a clearly different scene: change surface, "
+        "lighting recipe, background hue, distance, plating format, or tell the story through environment "
+        "instead of repeating an isolated hero duplicate.\n\n"
+        + "\n".join(lines[:38])
+    )
+    return sigs, slugs, brief
+
+
+def _differentiate_if_topic_reused(
+    post: dict,
+    prior_sigs: set[str],
+    prior_slugs: set[str],
+    target_year: int,
+    target_month: int,
+) -> dict:
+    idea = str(post.get("content_idea") or post.get("topic") or "")
+    sig = _normalize_topic_signature(idea)
+    slug = _topic_slug(idea)
+    reused = (sig and sig in prior_sigs and len(sig) >= 5) or (
+        slug and len(slug) >= 8 and slug in prior_slugs
+    )
+    if not reused:
+        return post
+    ym = f"{target_year}-{target_month:02d}"
+    suffix = (
+        f"\n\nMANDATORY VISUAL DIFFERENTIATION (new month {ym}; this headline/topic already ran before): "
+        "Do not repeat the same food plate, sandwich/pita hero, monochrome studio field, or identical prop stack "
+        "from the prior execution. Use a new composition: different surface (linen, stone, timber, concrete), "
+        "different lighting (soft window vs hard side light vs overhead), different camera distance/angle, "
+        "different garnish/accent colours, or shift to contextual/lifestyle framing instead of an isolated duplicate hero."
+    )
+    out = dict(post)
+    if str(out.get("image_prompt") or "").strip():
+        out["image_prompt"] = str(out["image_prompt"]).rstrip() + suffix
+    if str(out.get("visual_direction") or "").strip():
+        out["visual_direction"] = str(out["visual_direction"]).rstrip() + suffix
+    return out
+
+
 # ── Background task ─────────────────────────────────────────────────
 
 async def _do_generate_month(
@@ -2354,6 +2543,9 @@ async def _do_generate_month(
                 month,
                 include_holidays=include_holidays_in_content,
             )
+            prior_topic_sigs, prior_topic_slugs, prior_months_brief = await _load_prior_cross_month_memory(
+                db, brand_id, year, month
+            )
             brief_parts: list[str] = []
             if generation_brief and generation_brief.strip():
                 brief_parts.append(generation_brief.strip())
@@ -2362,6 +2554,8 @@ async def _do_generate_month(
                 brief_parts.append(contract_text)
             if website_grounding_text and website_grounding_text.strip():
                 brief_parts.append(website_grounding_text.strip())
+            if prior_months_brief:
+                brief_parts.append(prior_months_brief)
             try:
                 meme_addon = await _meme_catalog_brief_addon(db)
             except Exception:
@@ -2411,6 +2605,10 @@ async def _do_generate_month(
                     year,
                 )
                 return
+            posts = [
+                _differentiate_if_topic_reused(p, prior_topic_sigs, prior_topic_slugs, year, month)
+                for p in posts
+            ]
             saved_items = []
             for post in posts:
                 try:

@@ -220,6 +220,48 @@ def _ensure_message_architecture(post: dict, brand: dict | None) -> None:
     }
 
 
+def _sync_visual_direction_layout_typography(post: dict, brand: dict | None) -> None:
+    """
+    Ensure visual_direction names the layout headline and subhead (Bannerbear typography)
+    and ties the story to strategy_note before image generation consumes the brief.
+    """
+    ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else None
+    hook = str(ma.get("hook") or "").strip() if ma else ""
+    support = str(ma.get("support") or "").strip() if ma else ""
+    if not hook:
+        return
+    vd = str(post.get("visual_direction") or "").strip()
+    low = vd.lower()
+    sn = str((brand or {}).get("strategy_note") or "").strip()
+    goals = (brand or {}).get("content_goals") if isinstance((brand or {}).get("content_goals"), list) else []
+    goal_hint = ""
+    if goals:
+        g0 = str(goals[0] or "").strip()
+        if g0:
+            goal_hint = f" Content goal this should advance: {g0[:160]}."
+    strat_sentence = (f"Strategy bridge from strategy_note: {sn[:240].strip()}.{goal_hint}" if sn else goal_hint).strip()
+
+    need_head = "headline for layout:" not in low
+    need_sub = bool(support) and "subhead for layout:" not in low
+    need_strat = bool(strat_sentence) and "strategy bridge from strategy_note" not in low
+    if not need_head and not need_sub and not need_strat:
+        return
+
+    hook_q = hook.replace('"', "'")
+    support_q = support.replace('"', "'") if support else ""
+    parts: list[str] = []
+    if need_head:
+        parts.append(f'Headline for layout: "{hook_q}" (must match message_architecture.hook exactly).')
+    if need_sub and support_q:
+        parts.append(f'Subhead for layout: "{support_q}" (must match message_architecture.support exactly).')
+    if need_head or need_sub:
+        parts.append(
+            "Compose the raster scene so contrast, reading order, and negative space clearly host those lines; "
+            "never paint tiny or illegible lettering inside the generated photo pixels."
+        )
+    if need_strat:
+        parts.append(strat_sentence)
+    post["visual_direction"] = (vd + " " + " ".join(parts)).strip()
 VISUAL_DIRECTION_DESIGN_TOKENS = (
     "foreground",
     "midground",
@@ -232,6 +274,9 @@ VISUAL_DIRECTION_DESIGN_TOKENS = (
     "lighting",
     "depth",
     "layer",
+    "headline",
+    "subhead",
+    "strategy",
 )
 
 
@@ -545,8 +590,8 @@ def _enforce_designer_visual_direction(post: dict) -> None:
             "iconic graphic shape system, product cut-in, or textured scene component, so it never looks like plain text on flat background."
         )
     in_frame_message_rule = (
-        "The image itself must communicate the core message at a glance in under one second, "
-        "using a bold headline module, offer/value callout, and clear focal subject before caption is read."
+        "The combined frame (raster plus typography layout) must communicate the core message at a glance in under one second, "
+        "using a bold headline module on the layout layer, offer or value callout, and clear focal subject before the caption is read."
     )
     story_rule = (
         "Build one explicit story beat in-frame (hook -> context -> proof -> action): "
@@ -790,6 +835,10 @@ def _validate_posts(
 
     valid = _apply_style_mix_targets(valid, brand)
     valid = _enforce_design_mode_rotation(valid, brand)
+    for p in valid:
+        _ensure_message_architecture(p, brand)
+        _sync_visual_direction_layout_typography(p, brand)
+        _sanitize_post_copy_fields(p)
     return valid
 
 
@@ -1263,7 +1312,7 @@ For EACH post return ALL these fields:
 4. caption: full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
 5. cta: REQUIRED non-empty string, standalone imperative, max 12 words. Must ask for ONE clear action: order food or book a table, visit the website or tap link in bio, or engage (comment, DM, save, share). Never omit, never use placeholders.
 6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction: 3-4 sentences for a designer, MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster. Plan composition knowing headline and subcopy are rendered by the layout tool from message_architecture (leave readable headline-safe negative space when the scene is very busy).
+7. visual_direction: 4-7 sentences as a single design brief. MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster, (f) two sentences that quote the on-card copy using these exact prefixes so layout and raster stay aligned: Headline for layout: \"...hook...\" and Subhead for layout: \"...support...\" where the quoted strings are identical to message_architecture.hook and message_architecture.support from field 16, (g) one sentence that ties this post to strategy_note and the first content goal in BRAND CONTEXT so the scene advances commercial strategy, not random decoration. Plan composition so headline and subcopy read before the caption (leave headline-safe negative space when the scene is busy).
 8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable letters, numbers, prices, hashtags, titles, or watermarks and must NOT ask the raster model to paint any logo, wordmark, or trademark. On-image story copy belongs in message_architecture only.
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
@@ -1287,6 +1336,7 @@ HARD RULES:
 • Include human/lifestyle context in some posts (especially mixed mode), not only abstract or illustration outputs
 • Vary typography behavior between posts: change alignment, scale contrast, and structure (stacked, split, overlay)
 • If a draft visual direction resembles a previous pattern in this batch, rewrite it to be clearly different before returning
+• When USER / STRATEGIST add-ons include the section "PRIOR RECENT POSTS", never reuse the same hero dish, same monochrome studio backdrop, or same prop cluster described there—each new post must use an obviously different raster scene while staying on brand
 • NEVER use words from the words_to_avoid list
 • NEVER produce generic AI-sounding captions
 • If format is "single", "gif", or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next"
@@ -1297,6 +1347,7 @@ HARD RULES:
 {_hard_visual_type_rule(ips)}
 • image_prompt must never ask for text, titles, captions, prices, currency, hashtags, or watermarks, or for any drawn logo or wordmark; reserve logo_safe_zone only
 • message_architecture carries every headline, subhead, and CTA line meant to be read on the graphic; the raster image stays photo or illustration only
+• visual_direction must include the literal prefix Headline for layout: with quoted copy matching message_architecture.hook exactly; when message_architecture.support is non-empty, also include Subhead for layout: with quoted support matching exactly; when strategy_note or content goals exist in BRAND CONTEXT, include one strategy bridge sentence; field 7 and field 16 must never contradict each other
 • visual_direction should plan final logo lockup placement and breathing room for compositing after generation, not an in-model logo
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
 • If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning

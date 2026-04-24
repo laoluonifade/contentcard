@@ -30,6 +30,7 @@ from app.api.upload import router as upload_router
 from app.api.holidays import router as holidays_router
 from app.api.admin import router as admin_router
 from app.api.public import router as public_router
+from app.api.social import router as social_router
 
 
 async def seed_trends(db):
@@ -169,6 +170,15 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS next_payment_date TIMESTAMPTZ",
             "ALTER TABLE design_playbook_industries ADD COLUMN IF NOT EXISTS parent_key VARCHAR(80)",
             "ALTER TABLE design_playbook_industries ADD COLUMN IF NOT EXISTS sub_industry VARCHAR(120)",
+            "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS hashtag_cap INTEGER DEFAULT 12",
+            "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS forbidden_hashtags JSON",
+            "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS allowed_domains JSON",
+            "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS require_disclaimer BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS required_disclaimer_text VARCHAR(255)",
+            "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_failure_threshold INTEGER DEFAULT 5",
+            "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_window_minutes INTEGER DEFAULT 30",
+            "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_cooldown_minutes INTEGER DEFAULT 30",
+            "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_until TIMESTAMPTZ",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))
@@ -216,6 +226,7 @@ app.include_router(upload_router, prefix="/api/v1")
 app.include_router(holidays_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(public_router, prefix="/api/v1")
+app.include_router(social_router, prefix="/api/v1")
 
 
 @app.get("/health")

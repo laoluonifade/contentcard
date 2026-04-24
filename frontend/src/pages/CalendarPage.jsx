@@ -140,7 +140,7 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
       )}
       <div className="relative" style={{ aspectRatio:'1' }}>
         {imageUrl
-          ? <img src={imageUrl} alt={post.topic} style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
+          ? <img src={imageUrl} alt={post.topic} style={{ width:'100%', height:'100%', objectFit:'contain', objectPosition:'center', backgroundColor:'#0a0a0a', display:'block' }} />
           : (
             <div className="flex h-full w-full min-h-[120px] items-center justify-center bg-mist px-2 text-center text-[10px] font-medium text-ink/35">
               Finishing design…

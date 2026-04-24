@@ -1,6 +1,15 @@
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowRight, Check, TrendingUp } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
+import {
+  CtaBand,
+  HeroSection,
+  MarketingContainer,
+  PrimaryCta,
+  ScreenshotFrame,
+  SecondaryCta,
+  SurfaceSection,
+} from '../components/marketing/MarketingPrimitives'
 
 const SOLUTIONS = {
   agencies: {
@@ -60,83 +69,70 @@ export default function SolutionsPage() {
 
   return (
     <MarketingLayout>
-      {/* Hero */}
-      <section className="relative overflow-hidden border-b border-white/5">
-        <div className="max-w-7xl mx-auto px-6 grid lg:grid-cols-2 gap-12 items-center py-16">
-          <div>
-            <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-6">{sol.badge}</div>
-            <h1 className="text-4xl lg:text-5xl font-bold mb-6 leading-tight" style={{ letterSpacing: '-0.03em' }}>{sol.headline}</h1>
-            <p className="text-white/50 text-lg leading-relaxed mb-10">{sol.sub}</p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button onClick={() => navigate('/signup')} className="btn-primary px-8 py-3.5">Start free trial <ArrowRight size={15} /></button>
-              <button onClick={() => navigate('/demo')} className="px-8 py-3.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">Book a demo</button>
-            </div>
-          </div>
-          <div className="relative">
-            <img src={sol.img} alt="" className="rounded-2xl w-full h-72 object-cover border border-white/10" />
-            <div className="absolute -bottom-4 -left-4 bg-[#13121F] border border-white/10 rounded-2xl px-5 py-4 shadow-2xl">
-              <div className="text-3xl font-bold text-brand-400">{sol.stat.n}</div>
-              <div className="text-white/50 text-xs mt-0.5">{sol.stat.l}</div>
-            </div>
-          </div>
-        </div>
-      </section>
+      <HeroSection
+        eyebrow={sol.badge}
+        title={<>{sol.headline}</>}
+        subtitle={sol.sub}
+        actions={
+          <>
+            <PrimaryCta to="/signup">Start free trial <ArrowRight size={14} className="ml-1" /></PrimaryCta>
+            <SecondaryCta to="/demo">Book a demo</SecondaryCta>
+          </>
+        }
+        media={<ScreenshotFrame src={sol.img} alt={sol.badge} className="h-[320px]" />}
+      />
 
-      {/* Tab nav */}
-      <section className="border-b border-white/5 bg-white/[0.015]">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex gap-1 py-2">
+      <SurfaceSection className="border-y border-fog bg-mist/40 py-3">
+        <MarketingContainer>
+          <div className="flex gap-1 overflow-x-auto">
             {[['agencies', 'Agencies'], ['startups', 'Startups'], ['corporate', 'Corporate']].map(([k, l]) => (
               <button key={k} onClick={() => navigate(`/solutions/${k}`)}
-                className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all ${type === k ? 'bg-brand-500/15 text-brand-400 border border-brand-500/20' : 'text-white/40 hover:text-white/70'}`}>
+                className={`px-5 py-2.5 rounded-lg text-sm font-semibold transition-all whitespace-nowrap ${type === k ? 'bg-brand-500/15 text-brand-600 border border-brand-500/20' : 'text-ink/45 hover:text-ink hover:bg-surface'}`}>
                 {l}
               </button>
             ))}
           </div>
-        </div>
-      </section>
+        </MarketingContainer>
+      </SurfaceSection>
 
-      {/* Benefits */}
-      <section className="py-24 px-6">
-        <div className="max-w-7xl mx-auto">
+      <SurfaceSection>
+        <MarketingContainer>
           <div className="grid md:grid-cols-2 gap-5">
             {sol.benefits.map(({ title, desc }) => (
-              <div key={title} className="bg-white/[0.03] border border-white/[0.06] hover:border-brand-500/25 rounded-2xl p-7 transition-all">
+              <div key={title} className="bg-surface border border-fog hover:border-brand-500/25 rounded-2xl p-7 transition-all">
                 <div className="w-2 h-2 rounded-full bg-brand-500 mb-5" />
-                <h3 className="font-bold text-white text-lg mb-3">{title}</h3>
-                <p className="text-white/45 text-sm leading-relaxed">{desc}</p>
+                <h3 className="font-bold text-ink text-lg mb-3">{title}</h3>
+                <p className="text-ink/65 text-sm leading-relaxed">{desc}</p>
               </div>
             ))}
           </div>
-        </div>
-      </section>
+        </MarketingContainer>
+      </SurfaceSection>
 
-      {/* Quote */}
-      <section className="py-16 px-6 border-t border-white/5 bg-white/[0.01]">
-        <div className="max-w-3xl mx-auto text-center">
+      <SurfaceSection className="border-y border-fog bg-mist/30">
+        <MarketingContainer className="max-w-3xl text-center">
           <div className="text-5xl text-brand-500/30 font-serif mb-4">"</div>
-          <p className="text-white/70 text-xl leading-relaxed italic mb-8">{sol.quote}</p>
+          <p className="text-ink/70 text-xl leading-relaxed italic mb-8">{sol.quote}</p>
           <div className="flex items-center justify-center gap-3">
-            <img src={sol.quoteImg} alt={sol.quoteName} className="w-11 h-11 rounded-full object-cover border-2 border-white/10" />
+            <img src={sol.quoteImg} alt={sol.quoteName} className="w-11 h-11 rounded-full object-cover border-2 border-fog" />
             <div className="text-left">
-              <div className="text-white font-bold text-sm">{sol.quoteName}</div>
-              <div className="text-white/35 text-xs">{sol.quoteRole}</div>
+              <div className="text-ink font-bold text-sm">{sol.quoteName}</div>
+              <div className="text-ink/45 text-xs">{sol.quoteRole}</div>
             </div>
           </div>
-        </div>
-      </section>
+        </MarketingContainer>
+      </SurfaceSection>
 
-      {/* CTA */}
-      <section className="py-24 px-6 border-t border-white/5 text-center">
-        <div className="max-w-2xl mx-auto">
-          <h2 className="text-4xl font-bold text-white mb-5" style={{ letterSpacing: '-0.02em' }}>Ready to get started?</h2>
-          <p className="text-white/45 mb-8">14-day free trial. No credit card. Cancel anytime.</p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <button onClick={() => navigate('/signup')} className="btn-primary px-8 py-3.5">Start free trial <ArrowRight size={15} /></button>
-            <button onClick={() => navigate('/pricing')} className="px-8 py-3.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">View pricing</button>
-          </div>
-        </div>
-      </section>
+      <SurfaceSection>
+        <MarketingContainer>
+          <CtaBand
+            title="Ready to get started?"
+            body={`${sol.stat.n} ${sol.stat.l.toLowerCase()} with the right workflow and setup.`}
+            primary={<PrimaryCta to="/signup">Start free trial</PrimaryCta>}
+            secondary={<SecondaryCta to="/pricing">View pricing</SecondaryCta>}
+          />
+        </MarketingContainer>
+      </SurfaceSection>
     </MarketingLayout>
   )
 }

@@ -22,6 +22,18 @@ from app.models.website_intelligence import (
     WebsiteOpportunity,
     WebsiteOpportunityStatus,
 )
+from app.models.social import (
+    SocialPlatform,
+    SocialConnectionStatus,
+    SocialAutopilotMode,
+    SocialPostStatus,
+    SocialReplyStatus,
+    SocialConnection,
+    SocialAutopilotConfig,
+    SocialPost,
+    SocialWebhookEvent,
+    SocialComment,
+)
 
 __all__ = [
     "User",
@@ -36,4 +48,6 @@ __all__ = [
     "WebsiteSnapshot", "WebsiteEntity", "WebsiteChangeEvent", "WebsiteOpportunity", "WebsiteOpportunityStatus",
     "StyleFingerprint", "CampaignPlan", "RenderVariant",
     "DesignPlaybookIndustry", "DesignPlaybookContentType", "DesignPlaybookVisualDirection",
+    "SocialPlatform", "SocialConnectionStatus", "SocialAutopilotMode", "SocialPostStatus", "SocialReplyStatus",
+    "SocialConnection", "SocialAutopilotConfig", "SocialPost", "SocialWebhookEvent", "SocialComment",
 ]

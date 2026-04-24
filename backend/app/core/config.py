@@ -83,6 +83,19 @@ class Settings(BaseSettings):
     AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.005
     AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.015
 
+    SOCIAL_AUTOPILOT_GLOBAL_KILL_SWITCH: bool = False
+    SOCIAL_AUTOPILOT_MIN_QUALITY_SCORE: float = 0.66
+    SOCIAL_DEDUPE_WINDOW_DAYS: int = 30
+    SOCIAL_WEBHOOK_SECRET: str = ""
+    SOCIAL_N8N_BASE_URL: str = ""
+    SOCIAL_OAUTH_STATE_SECRET: str = ""
+    SOCIAL_OAUTH_CALLBACK_BASE_URL: str = ""
+    META_CLIENT_ID: str = ""
+    META_CLIENT_SECRET: str = ""
+    LINKEDIN_CLIENT_ID: str = ""
+    LINKEDIN_CLIENT_SECRET: str = ""
+    SOCIAL_N8N_TOKEN_SINK_PATH: str = "/webhook/contentcard/social/oauth-token"
+
     class Config:
         env_file = ".env"
         case_sensitive = True

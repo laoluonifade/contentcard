@@ -87,12 +87,23 @@ export default function SettingsPage() {
 
   const changePw = async () => {
     if (!pwForm.current_password || !pwForm.new_password) { toast('Fill in both password fields', 'error'); return }
+    if ((pwForm.new_password || '').length < 8) { toast('New password must be at least 8 characters', 'error'); return }
     setSaving(true)
     try {
       await authApi.changePassword(pwForm)
       setPwForm({ current_password: '', new_password: '' })
       toast('Password updated!')
-    } catch (err) { toast(err.message, 'error') }
+    } catch (err) {
+      const detail = err?.response?.data?.detail
+      if (Array.isArray(detail) && detail.length > 0) {
+        const msg = detail[0]?.msg || detail[0]?.message || 'Password update failed'
+        toast(msg, 'error')
+      } else if (typeof detail === 'string' && detail.trim()) {
+        toast(detail, 'error')
+      } else {
+        toast(err.message || 'Password update failed', 'error')
+      }
+    }
     finally { setSaving(false) }
   }
 

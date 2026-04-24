@@ -32,6 +32,7 @@ import SettingsPage         from './pages/SettingsPage'
 import BillingPage          from './pages/BillingPage'
 import DirectoryPage        from './pages/DirectoryPage'
 import MemesPage            from './pages/MemesPage'
+import SocialAutopilotPage  from './pages/SocialAutopilotPage'
 
 // Admin
 import AdminLogin           from './pages/AdminLogin'
@@ -107,6 +108,7 @@ export default function App() {
           <Route path="billing"    element={<BillingPage />} />
           <Route path="directory"  element={<DirectoryPage />} />
           <Route path="memes"      element={<MemesPage />} />
+          <Route path="social"     element={<SocialAutopilotPage />} />
         </Route>
 
         {/* Admin */}
