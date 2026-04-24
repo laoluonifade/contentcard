@@ -18,7 +18,12 @@ const useAuthStore = create(
           set({ user: res.user, token: res.access_token, isAuthenticated: true, isLoading: false })
           return res
         } catch (err) {
-          const msg = err.response?.data?.detail || err.message || 'Signup failed'
+          const msg =
+            err.response?.data?.detail ||
+            (err.code === 'ERR_NETWORK' || err.message === 'Network Error'
+              ? 'Cannot reach the server. Check your connection or try again in a moment.'
+              : err.message) ||
+            'Signup failed'
           set({ error: msg, isLoading: false })
           throw new Error(msg)
         }
@@ -31,7 +36,12 @@ const useAuthStore = create(
           set({ user: res.user, token: res.access_token, isAuthenticated: true, isLoading: false })
           return res
         } catch (err) {
-          const msg = err.response?.data?.detail || err.message || 'Login failed'
+          const msg =
+            err.response?.data?.detail ||
+            (err.code === 'ERR_NETWORK' || err.message === 'Network Error'
+              ? 'Cannot reach the server. Check your connection or try again in a moment.'
+              : err.message) ||
+            'Login failed'
           set({ error: msg, isLoading: false })
           throw new Error(msg)
         }

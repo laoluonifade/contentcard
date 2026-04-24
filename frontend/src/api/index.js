@@ -1,5 +1,8 @@
 import axios from 'axios'
 
+/** Production API on Render (static site cannot serve /api/v1). */
+export const CONTENTCARD_RENDER_API_BASE = 'https://contentcard-backend.onrender.com/api/v1'
+
 /**
  * FastAPI mounts all routes under /api/v1. If VITE_API_URL is a bare host
  * (e.g. https://app.onrender.com), requests would hit /admin/... at the root
@@ -7,20 +10,58 @@ import axios from 'axios'
  */
 export function normalizeViteApiBaseUrl(v) {
   const s = (v || '').trim().replace(/\/+$/, '')
-  if (!s) {
-    // Production safety fallback for Render deploys when VITE_API_URL is missing.
-    if (typeof window !== 'undefined') {
-      const host = String(window.location?.hostname || '').toLowerCase()
-      if (host === 'contentcard-1.onrender.com') return 'https://contentcard-backend.onrender.com/api/v1'
-    }
-    return '/api/v1'
-  }
+  if (!s) return '/api/v1'
   if (s.endsWith('/api/v1')) return s
   if (/^https?:\/\/[^/]+$/i.test(s)) return `${s}/api/v1`
   return s
 }
 
-const API_BASE = normalizeViteApiBaseUrl(import.meta.env.VITE_API_URL)
+function isRenderStaticFrontendHostname(hostname) {
+  const h = String(hostname || '').toLowerCase()
+  if (!h.endsWith('.onrender.com')) return false
+  return h !== 'contentcard-backend.onrender.com'
+}
+
+/**
+ * Resolves axios baseURL. On Render *static* sites, relative /api/v1 hits the CDN (network error).
+ * Also corrects common misconfigs: VITE_API_URL pointing at the frontend origin, or http on an https page.
+ */
+export function resolveContentCardApiBase() {
+  const rawEnv = (import.meta.env.VITE_API_URL || '').trim()
+  let base = normalizeViteApiBaseUrl(import.meta.env.VITE_API_URL)
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname
+    if (isRenderStaticFrontendHostname(host)) {
+      if (!rawEnv || base === '/api/v1') return CONTENTCARD_RENDER_API_BASE
+      try {
+        const resolved = base.startsWith('http') ? base : `${window.location.origin}${base.startsWith('/') ? '' : '/'}${base}`
+        if (new URL(resolved).origin === window.location.origin) return CONTENTCARD_RENDER_API_BASE
+      } catch {
+        /* keep base */
+      }
+      if (window.location.protocol === 'https:' && /^http:\/\//i.test(rawEnv)) return CONTENTCARD_RENDER_API_BASE
+    }
+  }
+
+  return base
+}
+
+const API_BASE = resolveContentCardApiBase()
+
+const SHOULD_USE_RENDER_FALLBACK =
+  typeof window !== 'undefined' && isRenderStaticFrontendHostname(window.location.hostname)
+
+async function withRenderFallback(requestFn, fallbackFn) {
+  try {
+    return await requestFn()
+  } catch (err) {
+    const networkFailure = !err?.response
+    const canRetry = SHOULD_USE_RENDER_FALLBACK && API_BASE !== CONTENTCARD_RENDER_API_BASE
+    if (!networkFailure || !canRetry) throw err
+    return fallbackFn()
+  }
+}
 
 const api = axios.create({
   baseURL: API_BASE,
@@ -46,6 +87,10 @@ api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
+      const path = String(err.config?.url || '')
+      if (path.includes('/auth/login') || path.includes('/auth/signup')) {
+        return Promise.reject(err)
+      }
       localStorage.removeItem('contentcard-auth')
       localStorage.removeItem('contentcard-app')
       window.location.href = '/login'
@@ -60,12 +105,21 @@ export const marketingApi = {
 }
 
 export const authApi = {
-  signup:         (data) => api.post('/auth/signup', data).then(r => r.data),
-  login:          (data) => api.post('/auth/login', data).then(r => r.data),
+  signup:         (data) => withRenderFallback(
+    () => api.post('/auth/signup', data).then(r => r.data),
+    () => axios.post(`${CONTENTCARD_RENDER_API_BASE}/auth/signup`, data, { headers: { 'Content-Type': 'application/json' } }).then(r => r.data),
+  ),
+  login:          (data) => withRenderFallback(
+    () => api.post('/auth/login', data).then(r => r.data),
+    () => axios.post(`${CONTENTCARD_RENDER_API_BASE}/auth/login`, data, { headers: { 'Content-Type': 'application/json' } }).then(r => r.data),
+  ),
   me:             ()     => api.get('/auth/me').then(r => r.data),
   updateProfile:  (data) => api.put('/auth/me', data).then(r => r.data),
   changePassword: (data) => api.post('/auth/change-password', data).then(r => r.data),
-  shopifyStart:   (params) => api.get('/auth/shopify/start', { params }).then(r => r.data),
+  shopifyStart:   (params) => withRenderFallback(
+    () => api.get('/auth/shopify/start', { params }).then(r => r.data),
+    () => axios.get(`${CONTENTCARD_RENDER_API_BASE}/auth/shopify/start`, { params, headers: { 'Content-Type': 'application/json' } }).then(r => r.data),
+  ),
   shopifyOnboardingStatus: () => api.get('/auth/shopify/onboarding-status').then(r => r.data),
   completeShopifyOnboarding: (data) => api.post('/auth/shopify/onboarding-complete', data).then(r => r.data),
   getPostSignupDecision: () => api.get('/auth/post-signup-decision').then(r => r.data),
