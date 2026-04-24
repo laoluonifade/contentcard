@@ -57,7 +57,7 @@ export default function FeaturesPage() {
         <MarketingContainer>
           <CtaBand
             title="Ready to see the workflow in action?"
-            body="Book a live walkthrough or start your own trial environment."
+            body="Book a live walkthrough or start your own workspace."
             primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
             secondary={<SecondaryCta to="/demo">Book demo</SecondaryCta>}
           />

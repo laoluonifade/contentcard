@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, ArrowRight, Check, BarChart2, Calendar, Layers, Zap } from 'lucide-react'
-import { LogoFull, LogoMark } from '../components/ui/Logo'
+import { Eye, EyeOff, ArrowRight, Check } from 'lucide-react'
+import { LogoFull } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
+import AuthHeroCards from '../components/auth/AuthHeroCards'
 
 export const COUNTRIES_LIST = [
   { code: 'NG', name: 'Nigeria',              dial: '+234', placeholder: '801 234 5678' },
@@ -44,56 +45,6 @@ export const COUNTRIES_LIST = [
   { code: 'AR', name: 'Argentina',            dial: '+54',  placeholder: '11 1234-5678' },
   { code: 'CO', name: 'Colombia',             dial: '+57',  placeholder: '310 123 4567' },
 ]
-
-function AppPreview() {
-  return (
-    <div className="w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl border border-white/10">
-      <div className="flex h-72">
-        {/* Sidebar */}
-        <div className="w-14 bg-white/5 border-r border-white/10 flex flex-col items-center py-3 gap-3">
-          <LogoMark size={28} className="mb-1" />
-          {[BarChart2, Zap, Calendar, Layers].map((Icon, i) => (
-            <div key={i} className={`w-8 h-8 rounded-lg flex items-center justify-center ${i === 1 ? 'bg-[#10A37F]/20' : ''}`}>
-              <Icon size={14} className={i === 1 ? 'text-[#10A37F]' : 'text-white/30'} />
-            </div>
-          ))}
-        </div>
-        {/* Main */}
-        <div className="flex-1 bg-[#0c1220] p-3 space-y-2">
-          <div className="rounded-xl h-14 bg-gradient-to-r from-[#10A37F] to-[#0d8f6e] p-3 flex items-center justify-between">
-            <div>
-              <div className="text-white text-[9px] font-bold">Generate content</div>
-              <div className="text-white/70 text-[7px] mt-0.5">Start with a topic or prompt</div>
-            </div>
-            <div className="w-5 h-5 rounded-lg bg-white/20 flex items-center justify-center">
-              <Zap size={9} className="text-white" />
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {[['48', 'Posts'], ['12.4k', 'Reach'], ['94%', 'On-brand']].map(([val, lbl]) => (
-              <div key={lbl} className="bg-white/5 rounded-lg p-2">
-                <div className="text-white text-[10px] font-bold">{val}</div>
-                <div className="text-white/40 text-[7px]">{lbl}</div>
-              </div>
-            ))}
-          </div>
-          <div className="space-y-1">
-            {[
-              { dot: '#10A37F', text: 'LinkedIn: Product launch thread' },
-              { dot: '#f59e0b', text: 'Instagram: Brand story carousel' },
-              { dot: '#6366f1', text: 'Twitter: Weekly insights post' },
-            ].map(({ dot, text }) => (
-              <div key={text} className="flex items-center gap-2 bg-white/3 rounded-lg px-2 py-1.5">
-                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dot }} />
-                <span className="text-white/60 text-[8px] truncate">{text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export default function SignupPage() {
   const [step, setStep]     = useState(1)
@@ -346,7 +297,7 @@ export default function SignupPage() {
             <h2 className="text-white text-2xl font-bold" style={{ letterSpacing: '-0.02em' }}>Everything in one place</h2>
             <p className="text-white/40 text-sm mt-2">Plan, generate, and publish: your entire content workflow.</p>
           </div>
-          <AppPreview />
+          <AuthHeroCards />
           <div className="flex items-center gap-2">
             {[
               'LinkedIn posts',
