@@ -484,9 +484,11 @@ async def generate_post_images(
             fam = "product_hero"
         elif fam == "testimonial":
             fam = "promo"
-    # For carousel quality, always keep one shared visual background thread
-    # from the AI-generated hero across every slide.
-    use_photo_bg = (fmt == "carousel") or fam in ("promo", "product_hero", "testimonial", "hiring", "default")
+    # Always use the AI-generated background image on the cover slide when one
+    # is available — this ensures every post gets a unique campaign visual
+    # instead of falling back to the template's fixed stock illustration.
+    # Only quote posts skip the background (they are typography-only by design).
+    use_photo_bg = bool(background_image_url)
     cover_bg_url = background_image_url if use_photo_bg else None
 
     # ── Quote post — single slide

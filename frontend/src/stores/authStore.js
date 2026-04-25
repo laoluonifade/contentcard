@@ -62,6 +62,19 @@ const useAuthStore = create(
 
       logout: () => set({ user: null, token: null, isAuthenticated: false }),
 
+      deleteAccount: async (password) => {
+        set({ isLoading: true, error: null })
+        try {
+          await authApi.deleteAccount({ password })
+          set({ user: null, token: null, isAuthenticated: false, isLoading: false })
+        } catch (err) {
+          const msg =
+            formatApiErrorDetail(err) || err.message || 'Could not delete account'
+          set({ error: msg, isLoading: false })
+          throw new Error(msg)
+        }
+      },
+
       setSession: ({ token, user }) =>
         set({
           token: token || null,

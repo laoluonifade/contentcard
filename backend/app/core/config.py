@@ -73,8 +73,8 @@ class Settings(BaseSettings):
     AI_CHAT_SUMMARY_TRIGGER_MESSAGES: int = 14
     AI_CHAT_SUMMARY_KEEP_LAST_MESSAGES: int = 10
 
-    AI_CACHE_TTL_CHAT_SEC: int = 900
-    AI_CACHE_TTL_DETERMINISTIC_SEC: int = 14400
+    AI_CACHE_TTL_CHAT_SEC: int = 900          # 15 min — text generation dedup window
+    AI_CACHE_TTL_DETERMINISTIC_SEC: int = 1800 # 30 min — image generation dedup window (was 4 h)
     AI_TRANSIENT_RETRY_MAX: int = 1
 
     # Rough cost modelling for telemetry (USD / 1K tokens)

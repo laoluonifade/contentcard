@@ -150,6 +150,96 @@ async def update_profile(
     return UserOut.model_validate(current_user)
 
 
+@router.delete("/me", status_code=204)
+async def delete_account(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Permanently delete the authenticated user's account.
+
+    Requires `password` in the request body to confirm intent.
+    Shopify OAuth users may omit password (no hashed_password set).
+
+    What happens:
+    - All active Paystack subscriptions are cancelled.
+    - All saved payment / card data is wiped from owned workspaces.
+    - Workspaces owned solely by this user are deactivated and anonymised.
+    - The user row is hard-deleted; JWT tokens become invalid immediately
+      because the user no longer exists in the DB.
+    """
+    from app.services.billing_service import cancel_paystack_subscription
+
+    # Password confirmation — skip for OAuth-only accounts (no password set)
+    password = str(body.get("password") or "").strip()
+    has_local_password = bool(current_user.hashed_password)
+    if has_local_password:
+        if not password:
+            raise HTTPException(status_code=400, detail="Password is required to delete your account.")
+        if not verify_password(password, current_user.hashed_password):
+            raise HTTPException(status_code=400, detail="Incorrect password.")
+
+    # Collect all workspace memberships for this user
+    memberships = (
+        await db.execute(
+            select(WorkspaceMember).where(WorkspaceMember.user_id == current_user.id)
+        )
+    ).scalars().all()
+
+    for mem in memberships:
+        ws_id = mem.workspace_id
+        ws = (
+            await db.execute(select(Workspace).where(Workspace.id == ws_id))
+        ).scalar_one_or_none()
+        if not ws:
+            continue
+
+        # Cancel active Paystack subscription and wipe all billing data
+        if ws.subscription_id:
+            try:
+                await cancel_paystack_subscription(ws.subscription_id)
+            except Exception:
+                pass  # best-effort; never block account deletion on billing API errors
+
+        ws.subscription_id = None
+        ws.customer_id = None
+        ws.paystack_authorization_code = None
+        ws.card_last4 = None
+        ws.card_type = None
+        ws.card_bank = None
+        ws.card_exp_month = None
+        ws.card_exp_year = None
+        ws.next_payment_date = None
+        ws.plan = "trial"
+
+        # If this user is the sole owner, deactivate and anonymise the workspace
+        other_owners = (
+            await db.execute(
+                select(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == ws_id,
+                    WorkspaceMember.user_id != current_user.id,
+                    WorkspaceMember.role == WorkspaceRole.owner,
+                )
+            )
+        ).scalars().all()
+
+        if mem.role == WorkspaceRole.owner and not other_owners:
+            ws.name = "[Deleted workspace]"
+            ws.is_active = False
+            # Remove remaining members so they are not silently orphaned
+            await db.execute(
+                delete(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == ws_id,
+                    WorkspaceMember.user_id != current_user.id,
+                )
+            )
+
+    # Hard-delete the user — membership cascade handles the rest
+    await db.delete(current_user)
+    await db.commit()
+
+
 @router.post("/change-password", status_code=204)
 async def change_password(
     body: PasswordChangeRequest,

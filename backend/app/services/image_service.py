@@ -13,6 +13,11 @@ from app.services.ai_cost_service import cache_get, cache_set, telemetry_record,
 
 logger = logging.getLogger(__name__)
 
+# Bump this whenever image prompt logic or design system changes significantly.
+# It is included in the cache key so existing cached image URLs are invalidated
+# automatically on deploy without needing to flush any external store.
+_IMAGE_PROMPT_VERSION = "v3"
+
 IMAGES_API_URL = "https://api.openai.com/v1/images/generations"
 
 PLATFORM_FORMAT = {
@@ -1066,7 +1071,7 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
     model = settings.IMAGE_MODEL
     cache_key = hashlib.sha256(
         (
-            f"{model}|{n}|{prompt}|{post.get('platform','')}|{post.get('format','')}|"
+            f"{_IMAGE_PROMPT_VERSION}|{model}|{n}|{prompt}|{post.get('platform','')}|{post.get('format','')}|"
             f"{post.get('content_type','')}|{post.get('date','')}|{brand.get('id','')}|{brand.get('name','')}"
         ).encode("utf-8")
     ).hexdigest()
