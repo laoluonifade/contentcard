@@ -313,18 +313,28 @@ function CalendarPrepBody({
                       <p className="text-[11px] font-semibold text-ink/70 mb-1">
                         {q.prompt}
                       </p>
-                      <select
-                        value={answer.value || ''}
-                        onChange={(e) => onQuestionPick(q, e.target.value)}
-                        className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
-                      >
-                        <option value="">Select answer…</option>
-                        {(q.options || []).map((opt) => (
-                          <option key={opt} value={opt}>
-                            {opt}
-                          </option>
-                        ))}
-                      </select>
+                      {(q.options || []).length > 0 ? (
+                        <select
+                          value={answer.value || ''}
+                          onChange={(e) => onQuestionPick(q, e.target.value)}
+                          className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
+                        >
+                          <option value="">Select answer…</option>
+                          {(q.options || []).map((opt) => (
+                            <option key={opt} value={opt}>
+                              {opt}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <textarea
+                          value={answer.value || ''}
+                          onChange={(e) => onQuestionPick(q, e.target.value)}
+                          placeholder="Type your answer…"
+                          rows={2}
+                          className="w-full rounded-md border border-fog bg-surface px-2 py-1.5 text-[11px] text-ink/70 resize-none focus:outline-none focus:ring-1 focus:ring-brand-400/50"
+                        />
+                      )}
                     </div>
                   )
                 })}

@@ -2515,6 +2515,7 @@ Use choices for quick follow-ups (yes/no, pick a focus, confirm a date range).
 Rules for questions:
 - 0 to 3 question objects per response.
 - Prefer input_type "select" with 2-6 options so users can answer quickly.
+- CRITICAL: if input_type is "select" you MUST always include at least 2 strings in the options array. Never send a select question with an empty or missing options array — it renders a broken blank dropdown. If you cannot think of specific options, write 2-3 generic ones that fit the context (e.g. ["Product quality", "Ease of use", "Customer support"]).
 - Use input_type "upload" when screenshot or screen recording is needed for clarity.
 - For upload questions, set accept to image, recording, or either, and keep options empty.
 - Keep field_key short snake_case and stable per topic (e.g. cta_offer, product_screen, proof_asset).
@@ -2637,6 +2638,9 @@ async def run_generation_prep_chat(
         options = []
         if it == "select":
             options = [str(o).strip() for o in (q.get("options") or []) if str(o).strip()][:6]
+            # Guard: a select with no options renders a broken blank dropdown — skip it
+            if not options:
+                continue
         acc = q.get("accept")
         acc = str(acc).strip().lower() if isinstance(acc, str) and str(acc).strip() else None
         if acc not in (None, "image", "recording", "either"):

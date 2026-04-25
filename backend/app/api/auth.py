@@ -157,17 +157,19 @@ async def delete_account(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Permanently delete the authenticated user's account.
+    Soft-archive the authenticated user's account.
 
-    Requires `password` in the request body to confirm intent.
-    Shopify OAuth users may omit password (no hashed_password set).
+    The user row is NOT hard-deleted — all posts, brands, and workspace data
+    are retained in the database for audit / recovery purposes.  What happens:
 
-    What happens:
     - All active Paystack subscriptions are cancelled.
     - All saved payment / card data is wiped from owned workspaces.
-    - Workspaces owned solely by this user are deactivated and anonymised.
-    - The user row is hard-deleted; JWT tokens become invalid immediately
-      because the user no longer exists in the DB.
+    - The user's PII (email, name, phone, password hash) is anonymised in-place
+      so the row carries no personal data.
+    - `is_active` is set to False and `deleted_at` is stamped — the JWT becomes
+      invalid immediately (get_current_user filters on is_active=True).
+    - Workspace content items, brands, and calendar posts are archived (kept)
+      so they remain visible internally and can be recovered if needed.
     """
     from app.services.billing_service import cancel_paystack_subscription
 
@@ -179,6 +181,9 @@ async def delete_account(
             raise HTTPException(status_code=400, detail="Password is required to delete your account.")
         if not verify_password(password, current_user.hashed_password):
             raise HTTPException(status_code=400, detail="Incorrect password.")
+
+    now = datetime.now(timezone.utc)
+    uid_short = str(current_user.id)[:8]
 
     # Collect all workspace memberships for this user
     memberships = (
@@ -213,7 +218,8 @@ async def delete_account(
         ws.next_payment_date = None
         ws.plan = "trial"
 
-        # If this user is the sole owner, deactivate and anonymise the workspace
+        # Sole-owned workspaces: keep data intact but mark them inactive so
+        # other members (if any) can no longer log in to them.
         other_owners = (
             await db.execute(
                 select(WorkspaceMember).where(
@@ -225,9 +231,9 @@ async def delete_account(
         ).scalars().all()
 
         if mem.role == WorkspaceRole.owner and not other_owners:
-            ws.name = "[Deleted workspace]"
+            ws.name = f"[Archived workspace – {uid_short}]"
             ws.is_active = False
-            # Remove remaining members so they are not silently orphaned
+            # Revoke other members' access — content rows are intentionally kept
             await db.execute(
                 delete(WorkspaceMember).where(
                     WorkspaceMember.workspace_id == ws_id,
@@ -235,8 +241,16 @@ async def delete_account(
                 )
             )
 
-    # Hard-delete the user — membership cascade handles the rest
-    await db.delete(current_user)
+    # Soft-archive: anonymise PII and deactivate — row is retained in DB
+    current_user.email = f"deleted_{uid_short}@deleted.internal"
+    current_user.full_name = "[Deleted Account]"
+    current_user.phone = None
+    current_user.hashed_password = hash_password(secrets.token_hex(32))  # random unusable hash
+    current_user.shopify_shop_domain = None
+    current_user.shopify_customer_id = None
+    current_user.is_active = False
+    current_user.deleted_at = now
+
     await db.commit()
 
 

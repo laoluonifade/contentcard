@@ -556,18 +556,17 @@ export default function SettingsPage() {
             </div>
             <div>
               <h3 className="text-ink font-bold text-base">Delete your account</h3>
-              <p className="text-ink/45 text-xs mt-0.5">This action is permanent and cannot be reversed.</p>
+              <p className="text-ink/45 text-xs mt-0.5">Your access will be revoked immediately. Contact support to recover your account.</p>
             </div>
           </div>
 
           <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-5 text-xs text-rose-700 leading-relaxed space-y-1">
-            <p className="font-semibold">What will be deleted:</p>
+            <p className="font-semibold">What happens when you delete:</p>
             <ul className="list-disc list-inside space-y-0.5 text-rose-600">
-              <li>Your profile and login credentials</li>
-              <li>All brands, content, and calendar posts</li>
-              <li>Active subscription — cancelled immediately</li>
-              <li>All saved payment and card data</li>
-              <li>Workspaces you solely own</li>
+              <li>Your profile and login access are removed immediately</li>
+              <li>Active subscription is cancelled immediately</li>
+              <li>All saved payment and card data is wiped</li>
+              <li>Workspaces you solely own are deactivated</li>
             </ul>
           </div>
 
@@ -584,7 +583,7 @@ export default function SettingsPage() {
                 autoComplete="off"
               />
             </div>
-            {user?.auth_provider === 'password' && (
+            {(user?.auth_provider === 'password' || user?.auth_provider === 'mixed') && (
               <div>
                 <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">
                   Confirm your password
