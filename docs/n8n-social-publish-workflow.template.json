@@ -1,0 +1,167 @@
+{
+  "name": "ContentCard Social Publish (Template)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        180,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CONTENTCARD_API_BASE_URL}}/api/v1/social/publish/preflight",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{$env.CONTENTCARD_API_TOKEN}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{$json.preflight_payload}}"
+      },
+      "id": "preflight",
+      "name": "Preflight",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        430,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.allowed}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-allowed",
+      "name": "Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        650,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "publish_result",
+              "value": "={\"provider\":\"n8n\",\"event_type\":\"publish_result\",\"brand_id\":$json.preflight_payload.brand_id,\"platform\":$json.preflight_payload.platform,\"idempotency_key\":$json.idempotency_key,\"content_item_id\":$json.preflight_payload.content_item_id,\"status\":\"posted\",\"status_reason\":\"published by n8n\",\"provider_post_id\":\"provider-post-id-placeholder\",\"metrics\":{\"impressions\":0,\"reach\":0,\"engagement\":0,\"clicks\":0}}",
+              "type": "json"
+            }
+          ]
+        }
+      },
+      "id": "mock-publish-step",
+      "name": "Publish Step (replace with real connector)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.CONTENTCARD_API_BASE_URL}}/api/v1/social/publish/callback",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-social-signature",
+              "value": "{{$json.callback_signature}}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyContentType": "json",
+        "jsonBody": "={{$json.publish_result}}"
+      },
+      "id": "callback",
+      "name": "Publish Callback",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1150,
+        200
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Preflight",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preflight": {
+      "main": [
+        [
+          {
+            "node": "Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Publish Step (replace with real connector)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Publish Step (replace with real connector)": {
+      "main": [
+        [
+          {
+            "node": "Publish Callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "active": false,
+  "meta": {
+    "templateNote": "Set CONTENTCARD_API_BASE_URL and CONTENTCARD_API_TOKEN in n8n. Compute callback_signature as HMAC SHA-256 of raw JSON body using SOCIAL_WEBHOOK_SECRET."
+  }
+}

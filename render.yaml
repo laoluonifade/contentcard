@@ -40,26 +40,64 @@ services:
         sync: false
       - key: FRONTEND_URL
         sync: false
+      - key: BANNERBEAR_API_KEY
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_COVER
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_CONTENT
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_QUOTE
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_HOOK
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_PROMO
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_EDU
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_TESTIMONIAL
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_HIRING
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_TEXT_POSTER
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_PRODUCT_HERO
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_DATA_CARD
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_ANNOUNCEMENT
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_STORY_CAROUSEL
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL
+        sync: false
+      - key: QUALITY_GATE_ENABLED
+        value: "true"
+      - key: QUALITY_GATE_MIN_SCORE
+        value: "0.66"
+      - key: QUALITY_GATE_MAX_RETRIES
+        value: "2"
+      - key: MAX_REAL_PEOPLE_SHARE
+        value: "0.35"
       - key: FREE_TRIAL_DAYS
         value: "14"
 
   # ── Frontend ─────────────────────────────────────────────────────
-  - type: web
-    name: contentcard-web
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: VITE_API_URL
-        sync: false
+  # - type: web
+  #   name: contentcard-web
+  #   runtime: static
+  #   rootDir: frontend
+  #   buildCommand: npm install && npm run build
+  #   staticPublishPath: dist
+  #   routes:
+  #     - type: rewrite
+  #       source: /*
+  #       destination: /index.html
+  #   envVars:
+  #     - key: VITE_API_URL
+  #       sync: false
 
 databases:
   - name: contentcard-db
     databaseName: contentcard
     user: contentcard
-    plan: starter
+    plan: basic-256mb

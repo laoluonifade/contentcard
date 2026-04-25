@@ -1,10 +1,22 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, ArrowRight, Check, BarChart2, Calendar, Layers, Zap } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Check, Instagram, Facebook, Twitter, Linkedin } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
+import ShopifyIcon from '../components/ui/ShopifyIcon'
 import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
+import AuthHeroCards from '../components/auth/AuthHeroCards'
+import Seo from '../components/seo/Seo'
+import { authApi } from '../api'
+
+const SUPPORTED_ICONS = [
+  { id: 'shopify', label: 'Shopify', custom: true },
+  { id: 'instagram', label: 'Instagram', Icon: Instagram },
+  { id: 'facebook', label: 'Facebook', Icon: Facebook },
+  { id: 'twitter', label: 'X', Icon: Twitter },
+  { id: 'linkedin', label: 'LinkedIn', Icon: Linkedin },
+]
 
 export const COUNTRIES_LIST = [
   { code: 'NG', name: 'Nigeria',              dial: '+234', placeholder: '801 234 5678' },
@@ -45,65 +57,25 @@ export const COUNTRIES_LIST = [
   { code: 'CO', name: 'Colombia',             dial: '+57',  placeholder: '310 123 4567' },
 ]
 
-function AppPreview() {
-  return (
-    <div className="w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl border border-white/10">
-      <div className="flex h-72">
-        {/* Sidebar */}
-        <div className="w-14 bg-white/5 border-r border-white/10 flex flex-col items-center py-3 gap-3">
-          <div className="w-7 h-7 rounded-lg bg-[#10A37F] flex items-center justify-center mb-1">
-            <span className="text-white font-bold text-xs">C</span>
-          </div>
-          {[BarChart2, Zap, Calendar, Layers].map((Icon, i) => (
-            <div key={i} className={`w-8 h-8 rounded-lg flex items-center justify-center ${i === 1 ? 'bg-[#10A37F]/20' : ''}`}>
-              <Icon size={14} className={i === 1 ? 'text-[#10A37F]' : 'text-white/30'} />
-            </div>
-          ))}
-        </div>
-        {/* Main */}
-        <div className="flex-1 bg-[#0c1220] p-3 space-y-2">
-          <div className="rounded-xl h-14 bg-gradient-to-r from-[#10A37F] to-[#0d8f6e] p-3 flex items-center justify-between">
-            <div>
-              <div className="text-white text-[9px] font-bold">Generate content</div>
-              <div className="text-white/70 text-[7px] mt-0.5">Start with a topic or prompt</div>
-            </div>
-            <div className="w-5 h-5 rounded-lg bg-white/20 flex items-center justify-center">
-              <Zap size={9} className="text-white" />
-            </div>
-          </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {[['48', 'Posts'], ['12.4k', 'Reach'], ['94%', 'On-brand']].map(([val, lbl]) => (
-              <div key={lbl} className="bg-white/5 rounded-lg p-2">
-                <div className="text-white text-[10px] font-bold">{val}</div>
-                <div className="text-white/40 text-[7px]">{lbl}</div>
-              </div>
-            ))}
-          </div>
-          <div className="space-y-1">
-            {[
-              { dot: '#10A37F', text: 'LinkedIn — Product launch thread' },
-              { dot: '#f59e0b', text: 'Instagram — Brand story carousel' },
-              { dot: '#6366f1', text: 'Twitter — Weekly insights post' },
-            ].map(({ dot, text }) => (
-              <div key={text} className="flex items-center gap-2 bg-white/3 rounded-lg px-2 py-1.5">
-                <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: dot }} />
-                <span className="text-white/60 text-[8px] truncate">{text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export default function SignupPage() {
   const [step, setStep]     = useState(1)
   const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '' })
+  const [quickFillWebsite, setQuickFillWebsite] = useState('')
+  const [quickFillEnabled, setQuickFillEnabled] = useState(false)
   const [showPw, setShowPw] = useState(false)
+  const [shopDomain, setShopDomain] = useState('')
+  const [showShopifyPrompt, setShowShopifyPrompt] = useState(false)
   const { signup, isLoading } = useAuthStore()
   const { fetchWorkspaces } = useAppStore()
   const navigate = useNavigate()
+  const authLightThemeVars = {
+    '--cc-ink-rgb': '15 23 42',
+    '--cc-fog-rgb': '229 231 235',
+    '--cc-mist-rgb': '247 247 248',
+    '--cc-surface-rgb': '255 255 255',
+    '--cc-page-rgb': '255 255 255',
+  }
+  const shopifyEnabled = String(import.meta.env.VITE_SHOPIFY_AUTH_ENABLED || 'false') === 'true'
 
   const selectedCountry = COUNTRIES_LIST.find(c => c.code === form.country_code)
 
@@ -138,10 +110,40 @@ export default function SignupPage() {
         country_code: form.country_code || undefined,
       })
       await fetchWorkspaces().catch(() => {})
+      try {
+        if (quickFillEnabled && quickFillWebsite.trim()) {
+          localStorage.setItem('contentcard.signup.quickFillWebsite', quickFillWebsite.trim())
+        } else {
+          localStorage.removeItem('contentcard.signup.quickFillWebsite')
+        }
+      } catch {
+        /* ignore */
+      }
       navigate('/onboarding')
     } catch (err) {
       toast(err.message || 'Account creation failed. Please try again.', 'error')
     }
+  }
+
+  const startShopify = async (domainOverride = '') => {
+    const candidate = String(domainOverride || shopDomain).trim().toLowerCase()
+    if (!candidate.endsWith('.myshopify.com')) {
+      toast('Enter your Shopify domain, e.g. yourstore.myshopify.com', 'error')
+      return
+    }
+    try {
+      localStorage.setItem('contentcard.shopify.domain', candidate)
+      const res = await authApi.shopifyStart({ shop: candidate, mode: 'signup', next_path: '/onboarding' })
+      window.location.href = res.authorization_url
+    } catch (err) {
+      toast(err?.response?.data?.detail || 'Could not start Shopify signup.', 'error')
+    }
+  }
+
+  const handleShopifyClick = () => {
+    const saved = (localStorage.getItem('contentcard.shopify.domain') || '').trim().toLowerCase()
+    if (saved.endsWith('.myshopify.com')) setShopDomain(saved)
+    setShowShopifyPrompt(true)
   }
 
   const pwStrength = () => {
@@ -154,8 +156,14 @@ export default function SignupPage() {
   const strength = pwStrength()
 
   return (
-    <div className="min-h-screen flex">
-      {/* Left — form */}
+    <div className="min-h-screen flex" style={authLightThemeVars}>
+      <Seo
+        title="Start free | ContentCard"
+        description="Create your ContentCard account and start generating on-brand social content."
+        path="/signup"
+        noindex
+      />
+      {/* Left: form */}
       <div className="flex-1 lg:max-w-lg bg-mist flex flex-col justify-center px-8 py-12 lg:px-16 overflow-y-auto">
         <div className="mb-8">
           <LogoFull size={32} />
@@ -181,7 +189,24 @@ export default function SignupPage() {
         {step === 1 && (
           <>
             <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Create your account</h1>
-            <p className="text-ink/50 mb-6 text-sm">14-day free trial · No credit card required.</p>
+            <p className="text-ink/50 mb-6 text-sm">Start free · No credit card required.</p>
+            {shopifyEnabled && (
+              <div className="mb-5">
+                <button
+                  type="button"
+                  onClick={handleShopifyClick}
+                  className="shopify-oauth-button w-full"
+                >
+                  <ShopifyIcon className="w-4 h-4" monochrome />
+                  Continue with Shopify
+                </button>
+                <div className="mt-4 flex items-center gap-3">
+                  <div className="h-px flex-1 bg-fog" />
+                  <span className="text-xs uppercase tracking-wide text-ink/40 font-semibold">or</span>
+                  <div className="h-px flex-1 bg-fog" />
+                </div>
+              </div>
+            )}
             <form onSubmit={nextStep} className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -250,6 +275,32 @@ export default function SignupPage() {
                   </div>
                 </div>
               </div>
+              <div className="rounded-2xl border border-fog bg-surface p-3">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-xs font-semibold text-ink">Quick fill</p>
+                  <button
+                    type="button"
+                    onClick={() => setQuickFillEnabled((v) => !v)}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors ${
+                      quickFillEnabled
+                        ? 'border-brand-500 bg-brand-500/10 text-brand-700'
+                        : 'border-fog text-ink/50 hover:text-ink'
+                    }`}
+                  >
+                    {quickFillEnabled ? 'Enabled' : 'Quick fill'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-ink/50 mb-2">
+                  Add your website and we will prefill your Brand Kit to full strength. Logo upload stays as the final step.
+                </p>
+                <input
+                  value={quickFillWebsite}
+                  onChange={(e) => setQuickFillWebsite(e.target.value)}
+                  placeholder="https://yourwebsite.com"
+                  className="input"
+                  disabled={!quickFillEnabled}
+                />
+              </div>
               <button type="submit" className="btn-primary w-full justify-center py-3 text-sm mt-2">
                 Continue <ArrowRight size={15} />
               </button>
@@ -260,8 +311,8 @@ export default function SignupPage() {
         {step === 2 && (
           <>
             <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Almost there</h1>
-            <p className="text-ink/50 mb-6 text-sm">Review your details, then create your account.</p>
-            <div className="bg-white border border-fog rounded-2xl p-5 mb-6 space-y-3">
+            <p className="text-ink/60 mb-6 text-sm">Review your details, then create your account.</p>
+            <div className="bg-surface border border-fog rounded-2xl p-5 mb-6 space-y-3">
               {[
                 { label: 'Name',    val: `${form.first_name} ${form.last_name}` },
                 { label: 'Email',   val: form.email },
@@ -269,7 +320,7 @@ export default function SignupPage() {
                 { label: 'Phone',   val: form.phone ? `${selectedCountry?.dial || ''} ${form.phone}`.trim() : 'Not provided' },
               ].map(({ label, val }) => (
                 <div key={label} className="flex items-center justify-between">
-                  <span className="text-ink/40 text-sm">{label}</span>
+                  <span className="text-ink/55 text-sm">{label}</span>
                   <span className="text-ink text-sm font-semibold">{val}</span>
                 </div>
               ))}
@@ -283,42 +334,64 @@ export default function SignupPage() {
               </button>
             </form>
             <button type="button" onClick={() => setStep(1)}
-              className="w-full mt-3 text-ink/40 hover:text-ink text-sm transition-colors">
+              className="w-full mt-3 text-ink/55 hover:text-ink text-sm transition-colors">
               ← Edit details
             </button>
           </>
         )}
 
-        <p className="text-center text-ink/40 text-sm mt-6">
+        <p className="text-center text-ink/55 text-sm mt-6">
           Already have an account?{' '}
           <Link to="/login" className="text-brand-500 hover:text-brand-600 font-semibold transition-colors">Sign in</Link>
         </p>
       </div>
 
-      {/* Right — app preview */}
+      {/* Right: app preview */}
       <div className="hidden lg:flex flex-1 bg-[#0F172A] items-center justify-center p-12 relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_60%_40%,rgba(16,163,127,0.15)_0%,transparent_70%)]" />
         <div className="relative z-10 flex flex-col items-center gap-8">
           <div className="text-center">
             <p className="text-white/50 text-sm font-medium mb-1">ContentCard</p>
             <h2 className="text-white text-2xl font-bold" style={{ letterSpacing: '-0.02em' }}>Everything in one place</h2>
-            <p className="text-white/40 text-sm mt-2">Plan, generate, and publish — your entire content workflow.</p>
+            <p className="text-white/40 text-sm mt-2">Plan, generate, and publish: your entire content workflow.</p>
           </div>
-          <AppPreview />
-          <div className="flex items-center gap-2">
-            {[
-              'LinkedIn posts',
-              'Instagram carousels',
-              'Twitter threads',
-              'Brand kit',
-            ].map((tag) => (
-              <span key={tag} className="text-[10px] font-medium text-white/40 bg-white/5 border border-white/10 rounded-full px-3 py-1">
-                {tag}
-              </span>
+          <div className="mb-3 w-full">
+            <AuthHeroCards />
+          </div>
+          <div className="flex items-center gap-2 flex-wrap justify-center">
+            {SUPPORTED_ICONS.map(({ id, label, Icon, custom }) => (
+              <div
+                key={id}
+                className="h-8 px-2.5 rounded-full border border-white/15 bg-white/5 inline-flex items-center gap-1.5"
+                title={label}
+                aria-label={label}
+              >
+                {custom ? <ShopifyIcon className="h-4 w-4" /> : <Icon size={14} className="text-white/80" />}
+                <span className="text-[10px] font-medium text-white/60">{label}</span>
+              </div>
             ))}
           </div>
         </div>
       </div>
+      {showShopifyPrompt && (
+        <div className="fixed inset-0 bg-black/35 flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-md bg-white rounded-2xl border border-fog p-5">
+            <h3 className="text-lg font-bold text-ink mb-1">Enter your Shopify store</h3>
+            <p className="text-sm text-ink/60 mb-3">We will redirect you to Shopify to continue sign-up.</p>
+            <input
+              value={shopDomain}
+              onChange={(e) => setShopDomain(e.target.value)}
+              placeholder="yourstore.myshopify.com"
+              className="input"
+              autoFocus
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" className="btn-secondary" onClick={() => setShowShopifyPrompt(false)}>Cancel</button>
+              <button type="button" className="btn-primary" onClick={() => startShopify()}>Continue</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

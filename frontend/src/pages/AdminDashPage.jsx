@@ -1,5 +1,19 @@
 import { useState, useEffect } from 'react'
-import { Users, Layers, Zap, TrendingUp, TrendingDown, Building2, DollarSign } from 'lucide-react'
+import {
+  Users,
+  Layers,
+  Zap,
+  TrendingUp,
+  TrendingDown,
+  Building2,
+  DollarSign,
+  Banknote,
+  Sparkles,
+  CreditCard,
+  CalendarDays,
+  BarChart2,
+  ShieldCheck,
+} from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
 import { adminApi } from '../api'
 
@@ -25,6 +39,21 @@ const STATUS_STYLE = {
   churned: 'bg-red-500/10 text-red-400 border border-red-500/20',
 }
 
+/** `ngn_price` in API is stored in minor units (kobo); 100 kobo = ₦1 */
+function ngnFromKobo(kobo) {
+  const n = Number(kobo)
+  if (!Number.isFinite(n)) return 0
+  return n / 100
+}
+
+function formatNgn(naira) {
+  return new Intl.NumberFormat('en-NG', {
+    style: 'currency',
+    currency: 'NGN',
+    maximumFractionDigits: 0,
+  }).format(naira)
+}
+
 function Stat({ label, value, delta, up, icon: Icon, color, bg }) {
   return (
     <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-5">
@@ -46,16 +75,98 @@ export default function AdminDashPage() {
   const [stats, setStats] = useState(null)
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
+  const [fixingDepth, setFixingDepth] = useState(false)
+  const [depthActionNote, setDepthActionNote] = useState('')
+  const [repairingTaxonomy, setRepairingTaxonomy] = useState(false)
+  const [taxonomyActionNote, setTaxonomyActionNote] = useState('')
+  const [checkingCompleteness, setCheckingCompleteness] = useState(false)
+  const [completenessActionNote, setCompletenessActionNote] = useState('')
 
-  useEffect(() => {
-    Promise.all([
-      adminApi.stats(),
-      adminApi.users({ limit: 10 }),
-    ]).then(([s, u]) => {
+  const loadDashboard = async () => {
+    setLoading(true)
+    try {
+      const [s, u] = await Promise.all([
+        adminApi.stats(),
+        adminApi.users({ limit: 10 }),
+      ])
       setStats(s)
       setUsers(u.users || [])
-    }).catch(() => {}).finally(() => setLoading(false))
+    } catch {
+      // keep silent in dashboard for now
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadDashboard()
   }, [])
+
+  const fixAllPlaybookDepth = async () => {
+    setFixingDepth(true)
+    setDepthActionNote('')
+    try {
+      const res = await adminApi.fillDesignPlaybookDepth()
+      const created = Number(res?.created_visual_directions || 0)
+      await loadDashboard()
+      setDepthActionNote(
+        created > 0
+          ? `Depth autofill complete: added ${created} visual directions.`
+          : 'Depth autofill complete: no missing directions found.'
+      )
+    } catch {
+      setDepthActionNote('Depth autofill failed. Please retry.')
+    } finally {
+      setFixingDepth(false)
+    }
+  }
+
+  const repairBrandTaxonomy = async () => {
+    setRepairingTaxonomy(true)
+    setTaxonomyActionNote('')
+    try {
+      const preview = await adminApi.repairBrandTaxonomy({ apply_changes: false, limit: 5000 })
+      const previewCount = Number(preview?.changed || 0)
+      if (previewCount <= 0) {
+        setTaxonomyActionNote('Brand taxonomy check complete: no legacy rows need repair.')
+        return
+      }
+      const applied = await adminApi.repairBrandTaxonomy({ apply_changes: true, limit: 5000 })
+      await loadDashboard()
+      setTaxonomyActionNote(
+        `Brand taxonomy repair complete: fixed ${Number(applied?.changed || 0)} row(s).`
+      )
+    } catch {
+      setTaxonomyActionNote('Brand taxonomy repair failed. Please retry.')
+    } finally {
+      setRepairingTaxonomy(false)
+    }
+  }
+
+  const checkPlaybookCompleteness = async () => {
+    setCheckingCompleteness(true)
+    setCompletenessActionNote('')
+    try {
+      const res = await adminApi.designPlaybookCompleteness({ limit_failures: 20 })
+      const summary = res?.summary || {}
+      const total = Number(summary?.total_rows || 0)
+      const passing = Number(summary?.passing_rows || 0)
+      const failing = Number(summary?.failing_rows || 0)
+      if (failing <= 0) {
+        setCompletenessActionNote(`Completeness check passed: ${passing}/${total} rows are fully compliant.`)
+      } else {
+        const first = Array.isArray(res?.failures) && res.failures.length ? res.failures[0] : null
+        const hint = first
+          ? ` First failing row: ${first.industry_name} -> ${first.content_type_name} (single ${first.single_count}, carousel ${first.carousel_count}).`
+          : ''
+        setCompletenessActionNote(`Completeness check found ${failing}/${total} failing rows.${hint}`)
+      }
+    } catch {
+      setCompletenessActionNote('Completeness check failed. Please retry.')
+    } finally {
+      setCheckingCompleteness(false)
+    }
+  }
 
   if (loading) {
     return (
@@ -68,6 +179,9 @@ export default function AdminDashPage() {
   }
 
   const s = stats || {}
+  const impliedMrrNgn = ngnFromKobo(s.implied_mrr_kobo)
+  const impliedArrNgn = ngnFromKobo(s.implied_arr_kobo)
+  const byPlan = s.workspaces_by_plan || {}
 
   const statCards = [
     {
@@ -80,9 +194,21 @@ export default function AdminDashPage() {
       bg: 'bg-brand-500/10',
     },
     {
+      label: 'Users (30d)',
+      value: s.users_last_30_days?.toLocaleString?.() ?? `${s.users_last_30_days ?? 0}`,
+      delta: 'new signups',
+      up: true,
+      icon: CalendarDays,
+      color: 'text-sky-400',
+      bg: 'bg-sky-500/10',
+    },
+    {
       label: 'Workspaces',
       value: s.total_workspaces?.toLocaleString() || '0',
-      delta: null,
+      delta:
+        s.paying_workspace_count != null
+          ? `${s.paying_workspace_count} on paid plan · ${s.trial_workspace_count ?? 0} trial`
+          : null,
       up: true,
       icon: Building2,
       color: 'text-teal-400',
@@ -98,6 +224,15 @@ export default function AdminDashPage() {
       bg: 'bg-amber-500/10',
     },
     {
+      label: 'Posts (30d)',
+      value: s.content_last_30_days?.toLocaleString?.() ?? `${s.content_last_30_days ?? 0}`,
+      delta: 'created in last 30 days',
+      up: true,
+      icon: BarChart2,
+      color: 'text-yellow-400',
+      bg: 'bg-yellow-500/10',
+    },
+    {
       label: 'Brands',
       value: s.total_brands?.toLocaleString() || '0',
       delta: null,
@@ -107,13 +242,70 @@ export default function AdminDashPage() {
       bg: 'bg-pink-500/10',
     },
     {
-      label: 'Avg Spend / Company',
+      label: 'Implied MRR (catalog)',
+      value: formatNgn(impliedMrrNgn),
+      delta: '₦ list price × paid workspaces in DB',
+      up: true,
+      icon: Banknote,
+      color: 'text-emerald-400',
+      bg: 'bg-emerald-500/10',
+    },
+    {
+      label: 'Implied ARR (catalog)',
+      value: formatNgn(impliedArrNgn),
+      delta: 'MRR × 12 · not cash collected',
+      up: true,
+      icon: Banknote,
+      color: 'text-green-400',
+      bg: 'bg-green-500/10',
+    },
+    {
+      label: 'Paystack subs (rows)',
+      value: `${s.workspaces_with_paystack_subscription ?? 0}`,
+      delta:
+        s.paystack_distinct_customers != null
+          ? `${s.paystack_distinct_customers} distinct customer codes`
+          : null,
+      up: true,
+      icon: CreditCard,
+      color: 'text-violet-400',
+      bg: 'bg-violet-500/10',
+    },
+    {
+      label: 'Est. OpenAI spend',
+      value: typeof s.estimated_openai_spend_usd === 'number' ? `$${s.estimated_openai_spend_usd.toFixed(2)}` : '—',
+      delta:
+        typeof s.avg_openai_spend_per_workspace_usd === 'number'
+          ? `~$${s.avg_openai_spend_per_workspace_usd.toFixed(3)} / workspace`
+          : null,
+      up: true,
+      icon: Sparkles,
+      color: 'text-orange-400',
+      bg: 'bg-orange-500/10',
+    },
+    {
+      label: 'Playbook depth health',
+      value:
+        s.playbook_depth_total_rows != null
+          ? `${s.playbook_depth_passing_rows ?? 0}/${s.playbook_depth_total_rows ?? 0}`
+          : '—',
+      delta:
+        s.playbook_depth_failing_rows != null
+          ? `${s.playbook_depth_failing_rows} failing rows`
+          : null,
+      up: (s.playbook_depth_failing_rows || 0) === 0,
+      icon: ShieldCheck,
+      color: (s.playbook_depth_failing_rows || 0) === 0 ? 'text-emerald-400' : 'text-amber-400',
+      bg: (s.playbook_depth_failing_rows || 0) === 0 ? 'bg-emerald-500/10' : 'bg-amber-500/10',
+    },
+    {
+      label: 'Legacy model est. (Haiku)',
       value: s.avg_spend_per_workspace != null ? `$${s.avg_spend_per_workspace.toFixed(3)}` : '—',
       delta: s.total_estimated_spend != null ? `$${s.total_estimated_spend.toFixed(3)} total` : null,
       up: true,
       icon: DollarSign,
-      color: 'text-orange-400',
-      bg: 'bg-orange-500/10',
+      color: 'text-white/50',
+      bg: 'bg-white/5',
     },
   ]
 
@@ -121,11 +313,67 @@ export default function AdminDashPage() {
     <AdminLayout>
       <div className="mb-6">
         <h1 className="text-xl font-bold text-white">Overview</h1>
-        <p className="text-white/35 text-sm mt-0.5">ContentCard platform at a glance</p>
+        <p className="text-white/35 text-sm mt-0.5">
+          Revenue figures are catalog MRR from workspace plan fields (not Paystack cash). OpenAI totals are heuristics
+          from post volume + stored images — see Analytics for the breakdown.
+        </p>
+        <div className="mt-3 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={fixAllPlaybookDepth}
+            disabled={fixingDepth}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-brand-500/40 text-brand-200 hover:text-white hover:border-brand-500 disabled:opacity-60 text-xs font-semibold"
+          >
+            {fixingDepth ? 'Fixing playbook depth…' : 'Fix all failing playbook rows'}
+          </button>
+          <button
+            type="button"
+            onClick={repairBrandTaxonomy}
+            disabled={repairingTaxonomy}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-sky-500/40 text-sky-200 hover:text-white hover:border-sky-500 disabled:opacity-60 text-xs font-semibold"
+          >
+            {repairingTaxonomy ? 'Repairing brand taxonomy…' : 'Repair legacy brand taxonomy'}
+          </button>
+          <button
+            type="button"
+            onClick={checkPlaybookCompleteness}
+            disabled={checkingCompleteness}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-white/20 text-white/80 hover:text-white hover:border-white/40 disabled:opacity-60 text-xs font-semibold"
+          >
+            {checkingCompleteness ? 'Checking completeness…' : 'Run completeness check'}
+          </button>
+          {depthActionNote && <span className="text-xs text-white/45">{depthActionNote}</span>}
+          {taxonomyActionNote && <span className="text-xs text-white/45">{taxonomyActionNote}</span>}
+          {completenessActionNote && <span className="text-xs text-white/45">{completenessActionNote}</span>}
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
         {statCards.map(card => <Stat key={card.label} {...card} />)}
+      </div>
+
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-5 mb-6">
+        <div className="text-white font-semibold text-sm mb-3">Workspaces by plan</div>
+        <div className="flex flex-wrap gap-2">
+          {['trial', 'starter', 'smb', 'pro'].map(key => (
+            <span
+              key={key}
+              className="text-xs font-medium px-2.5 py-1 rounded-lg bg-white/[0.06] text-white/70 border border-white/[0.08]"
+            >
+              {key}: <span className="text-white">{byPlan[key] ?? 0}</span>
+            </span>
+          ))}
+          {Object.entries(byPlan)
+            .filter(([k]) => !['trial', 'starter', 'smb', 'pro'].includes(k))
+            .map(([k, v]) => (
+              <span
+                key={k}
+                className="text-xs font-medium px-2.5 py-1 rounded-lg bg-white/[0.06] text-white/70 border border-white/[0.08]"
+              >
+                {k}: <span className="text-white">{v}</span>
+              </span>
+            ))}
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-4 mb-6">
@@ -180,7 +428,7 @@ export default function AdminDashPage() {
                     <div className="text-white text-sm font-medium">{u.full_name}</div>
                     <div className="text-white/35 text-xs">{u.email}</div>
                   </td>
-                  <td className="px-5 py-3 text-white/50 text-sm">{u.country_code || '—'}</td>
+                  <td className="px-5 py-3 text-white/50 text-sm">{u.country_code || 'Not set'}</td>
                   <td className="px-5 py-3">
                     <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${u.is_active ? STATUS_STYLE.active : STATUS_STYLE.churned}`}>
                       {u.is_active ? 'active' : 'inactive'}

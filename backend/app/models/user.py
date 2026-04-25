@@ -14,6 +14,11 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     country_code: Mapped[str | None] = mapped_column(String(10), nullable=True)  # e.g. "NG", "US"
+    # When True, user may own multiple workspaces (e.g. agency managing client companies).
+    agency_mode: Mapped[bool] = mapped_column(Boolean, default=False)
+    auth_provider: Mapped[str] = mapped_column(String(30), default="password")
+    shopify_shop_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    shopify_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

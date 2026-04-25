@@ -1,0 +1,105 @@
+services:
+  # ── Backend (Staging) ──────────────────────────────────────────────
+  - type: web
+    name: contentcard-api-staging
+    runtime: python
+    rootDir: backend
+    branch: staging
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: APP_ENV
+        value: staging
+      - key: DATABASE_URL
+        fromDatabase:
+          name: contentcard-db-staging
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_STARTER
+        sync: false
+      - key: STRIPE_PRICE_SMB
+        sync: false
+      - key: STRIPE_PRICE_PRO
+        sync: false
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: PAYSTACK_PUBLIC_KEY
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: BANNERBEAR_API_KEY
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_COVER
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_CONTENT
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_QUOTE
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_HOOK
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_PROMO
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_EDU
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_TESTIMONIAL
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_HIRING
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_TEXT_POSTER
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_PRODUCT_HERO
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_DATA_CARD
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_ANNOUNCEMENT
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_STORY_CAROUSEL
+        sync: false
+      - key: BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL
+        sync: false
+      - key: QUALITY_GATE_ENABLED
+        value: "true"
+      - key: QUALITY_GATE_MIN_SCORE
+        value: "0.66"
+      - key: QUALITY_GATE_MAX_RETRIES
+        value: "2"
+      - key: MAX_REAL_PEOPLE_SHARE
+        value: "0.35"
+      - key: FREE_TRIAL_DAYS
+        value: "14"
+
+  # ── Frontend (Staging) ─────────────────────────────────────────────
+  - type: web
+    name: contentcard-web-staging
+    runtime: static
+    rootDir: frontend
+    branch: staging
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+
+databases:
+  - name: contentcard-db-staging
+    databaseName: contentcard_staging
+    user: contentcard_staging
+    plan: free

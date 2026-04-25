@@ -59,27 +59,31 @@ function GenerationMeter({ used }) {
   const pct = Math.min(100, (used / 2) * 100)
   const exhausted = used >= 2
   return (
-    <div className={`rounded-2xl p-5 border ${exhausted ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}`}>
+    <div
+      className={`rounded-2xl p-5 border border-fog bg-mist ${
+        exhausted ? 'border-l-4 border-l-red-500' : 'border-l-4 border-l-amber-500'
+      }`}
+    >
       <div className="flex items-start gap-3">
         <AlertCircle size={18} className={`flex-shrink-0 mt-0.5 ${exhausted ? 'text-red-500' : 'text-amber-500'}`} />
         <div className="flex-1">
-          <p className={`text-sm font-semibold mb-0.5 ${exhausted ? 'text-red-800' : 'text-amber-800'}`}>
+          <p className="text-sm font-semibold mb-0.5 text-ink">
             {exhausted ? 'Free generations used up' : `${remaining} free generation${remaining !== 1 ? 's' : ''} remaining`}
           </p>
-          <p className={`text-xs mb-3 ${exhausted ? 'text-red-600' : 'text-amber-600'}`}>
+          <p className="text-xs mb-3 text-ink/60">
             {exhausted
               ? 'Subscribe to unlock unlimited content generation.'
               : `You've used ${used} of 2 free generations. Subscribe for unlimited access.`}
           </p>
-          <div className="h-1.5 bg-white/70 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-fog/80 rounded-full overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${exhausted ? 'bg-red-500' : 'bg-amber-500'}`}
               style={{ width: `${pct}%` }}
             />
           </div>
           <div className="flex justify-between mt-1.5">
-            <span className={`text-[10px] ${exhausted ? 'text-red-400' : 'text-amber-400'}`}>{used} used</span>
-            <span className={`text-[10px] ${exhausted ? 'text-red-400' : 'text-amber-400'}`}>2 free</span>
+            <span className="text-[10px] text-ink/45">{used} used</span>
+            <span className="text-[10px] text-ink/45">2 free</span>
           </div>
         </div>
       </div>
@@ -90,7 +94,7 @@ function GenerationMeter({ used }) {
 function SavedCard({ card, onRemove, removing }) {
   const typeLabel = (card.card_type || 'Card').charAt(0).toUpperCase() + (card.card_type || 'Card').slice(1)
   return (
-    <div className="rounded-2xl border border-fog bg-white p-5 flex items-center justify-between gap-4">
+    <div className="rounded-2xl border border-fog bg-surface p-5 flex items-center justify-between gap-4">
       <div className="flex items-center gap-4">
         {/* Card chip visual */}
         <div className="w-12 h-8 rounded-md bg-gradient-to-br from-ink/80 to-ink flex items-center justify-center flex-shrink-0">
@@ -122,7 +126,7 @@ function SavedCard({ card, onRemove, removing }) {
 function ConfirmModal({ title, body, confirmLabel, confirmClass, onConfirm, onClose, loading }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-2xl">
+      <div className="bg-surface border border-fog rounded-2xl p-6 max-w-sm w-full shadow-2xl">
         <div className="flex items-start justify-between mb-3">
           <h3 className="text-ink font-semibold">{title}</h3>
           <button onClick={onClose} className="text-ink/30 hover:text-ink transition-colors">
@@ -174,7 +178,7 @@ export default function BillingPage() {
   useEffect(() => {
     fetchSubscription().catch(() => {})
     if (searchParams.get('success')) {
-      toast('Payment confirmed — your plan is now active!')
+      toast('Payment confirmed: your plan is now active!')
       fetchSubscription().catch(() => {})
     }
   }, [])
@@ -186,7 +190,7 @@ export default function BillingPage() {
       const { checkout_url } = await createCheckout(planId)
       window.location.href = checkout_url
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Checkout failed — please try again', 'error')
+      toast(err.response?.data?.detail || err.message || 'Checkout failed: please try again', 'error')
       setLoading(null)
     }
   }
@@ -196,7 +200,7 @@ export default function BillingPage() {
     try {
       await cancelSubscription()
       setShowCancelModal(false)
-      toast('Subscription cancelled. Your card stays saved — re-subscribe anytime.')
+      toast('Subscription cancelled. Your card stays saved: re-subscribe anytime.')
     } catch (err) {
       toast(err.response?.data?.detail || 'Cancellation failed', 'error')
     } finally {
@@ -233,13 +237,20 @@ export default function BillingPage() {
         <p className="text-ink/40 text-sm">Manage your subscription and saved payment method.</p>
       </div>
 
+      {subscription?.subscription_covers_owned_workspaces && (
+        <div className="mb-5 rounded-xl border border-fog bg-mist border-l-4 border-l-brand-500 px-4 py-3 text-sm text-ink/80 leading-relaxed">
+          Your subscription applies to <strong className="text-ink">every workspace you own</strong> (including agency
+          client workspaces). Payment method and plan changes are managed once and shared across them.
+        </div>
+      )}
+
       {/* ── Active subscription status ── */}
       {isSubscribed && (
-        <div className="rounded-2xl bg-white border border-fog p-5 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="rounded-2xl bg-surface border border-fog p-5 mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-ink/40 mb-1">Active plan</p>
             <p className="text-xl font-bold text-ink" style={{ letterSpacing: '-0.01em' }}>
-              {currentPlan?.name} — {currentPlan?.price}<span className="text-ink/40 font-normal text-sm">/mo</span>
+              {currentPlan?.name}: {currentPlan?.price}<span className="text-ink/40 font-normal text-sm">/mo</span>
             </p>
             {subscription?.next_payment_date && (
               <p className="text-xs text-ink/40 mt-1">
@@ -248,7 +259,7 @@ export default function BillingPage() {
             )}
           </div>
           <div className="flex items-center gap-3 flex-shrink-0">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-brand-50 text-brand-600 border border-brand-100">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-brand-500/15 text-brand-600 border border-brand-500/25">
               <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse" />
               Active
             </span>
@@ -292,8 +303,8 @@ export default function BillingPage() {
                 key={plan.id}
                 className={`rounded-2xl p-6 flex flex-col relative transition-all ${
                   plan.featured
-                    ? 'border-2 border-brand-400 bg-brand-500/5'
-                    : 'border border-fog bg-white'
+                    ? 'border-2 border-brand-400 bg-surface shadow-sm shadow-brand-500/10'
+                    : 'border border-fog bg-surface'
                 } ${isCurrent ? 'ring-2 ring-brand-500/20' : ''}`}
               >
                 {plan.featured && !isCurrent && (
@@ -302,7 +313,7 @@ export default function BillingPage() {
                   </div>
                 )}
                 {isCurrent && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-ink text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-semibold px-3 py-1 rounded-full whitespace-nowrap">
                     Current plan
                   </div>
                 )}
@@ -333,7 +344,7 @@ export default function BillingPage() {
                       ? 'bg-mist text-ink/40 cursor-default'
                       : plan.featured
                         ? 'bg-brand-500 hover:bg-brand-600 text-white shadow-sm shadow-brand-500/30'
-                        : 'bg-white hover:bg-mist text-ink border border-fog'
+                        : 'bg-mist hover:bg-fog/40 text-ink border border-fog'
                   } disabled:opacity-60`}
                 >
                   {isLoading ? (
@@ -360,7 +371,7 @@ export default function BillingPage() {
       {showCancelModal && (
         <ConfirmModal
           title="Cancel subscription?"
-          body={`Your plan stays active until the end of the billing period. Your saved card remains on file — re-subscribe with one click anytime.`}
+          body={`Your plan stays active until the end of the billing period. Your saved card remains on file: re-subscribe with one click anytime.`}
           confirmLabel="Yes, cancel"
           confirmClass="bg-red-500 hover:bg-red-600"
           onConfirm={handleCancel}

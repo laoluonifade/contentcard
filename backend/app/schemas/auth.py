@@ -41,6 +41,8 @@ class UserOut(BaseModel):
     full_name: str
     phone: str | None
     country_code: str | None
+    agency_mode: bool = False
+    auth_provider: str = "password"
 
     model_config = {"from_attributes": True}
 
@@ -55,3 +57,27 @@ class PasswordChangeRequest(BaseModel):
         if len(v) < 8:
             raise ValueError("Password must be at least 8 characters")
         return v
+
+
+class ShopifyAuthStartResponse(BaseModel):
+    authorization_url: str
+
+
+class ShopifyOnboardingStatusOut(BaseModel):
+    onboarding_complete: bool
+    missing_fields: list[str]
+    brand_id: str | None = None
+    workspace_id: str | None = None
+
+
+class ShopifyOnboardingCompleteRequest(BaseModel):
+    brand_name: str | None = None
+    industry: str | None = None
+    description: str | None = None
+    target_audience: str | None = None
+    logo_url: str | None = None
+    primary_product_description: str | None = None
+
+
+class PostSignupDecisionRequest(BaseModel):
+    decision: str

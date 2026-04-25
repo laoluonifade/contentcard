@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
@@ -6,6 +6,9 @@ from app.db.database import get_db
 from app.models.trend import TrendingTopic
 from app.core.dependencies import get_current_user
 from app.models.user import User
+from app.models.workspace import Workspace, WorkspaceMember
+from app.services.billing_service import plan_includes_trending_topics
+from app.services.billing_entitlements import effective_plan_for_owner
 from datetime import datetime, timezone, timedelta
 import logging
 
@@ -16,14 +19,47 @@ router = APIRouter(prefix="/trends", tags=["trends"])
 CACHE_TTL_HOURS = 6
 
 
+async def _workspace_for_member(db: AsyncSession, user_id: str, workspace_id: str) -> Workspace | None:
+    r = await db.execute(
+        select(Workspace)
+        .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
+        .where(
+            WorkspaceMember.user_id == user_id,
+            WorkspaceMember.workspace_id == workspace_id,
+            Workspace.is_active == True,
+        )
+    )
+    return r.scalar_one_or_none()
+
+
+async def _require_trending_topics_plan(db: AsyncSession, user_id: str, workspace_id: str) -> Workspace:
+    ws = await _workspace_for_member(db, user_id, workspace_id)
+    if not ws:
+        raise HTTPException(status_code=403, detail="Not a member of this workspace")
+    effective = await effective_plan_for_owner(db, ws.owner_id)
+    if not plan_includes_trending_topics(effective):
+        raise HTTPException(
+            status_code=403,
+            detail="AI trending topics are available on Growth and Pro. Upgrade your plan to use this feature.",
+        )
+    return ws
+
+
 async def _refresh_trends(db: AsyncSession, industry: str | None, country_code: str | None):
     from app.services.ai_service import generate_fresh_trends
-    fresh = await generate_fresh_trends(industry=industry, country_code=country_code)
+    cc = (country_code or "NG").strip().upper()[:2]
+    fresh = await generate_fresh_trends(industry=industry, country_code=cc)
     if not fresh:
         return False
 
-    # Delete old AI-generated topics (keep any that are sort_order < 0 sentinel for manual)
-    await db.execute(delete(TrendingTopic).where(TrendingTopic.is_active == True))
+    # Keep cache country-scoped so users see local trends.
+    await db.execute(
+        delete(TrendingTopic).where(
+            TrendingTopic.is_active == True,
+            TrendingTopic.country_code == cc,
+            TrendingTopic.industry == industry,
+        )
+    )
 
     for i, t in enumerate(fresh):
         topic = TrendingTopic(
@@ -32,6 +68,7 @@ async def _refresh_trends(db: AsyncSession, industry: str | None, country_code: 
             volume=t.get("volume", ""),
             badge=t.get("badge", "rising"),
             industry=industry,
+            country_code=cc,
             sort_order=i,
             is_active=True,
         )
@@ -42,11 +79,15 @@ async def _refresh_trends(db: AsyncSession, industry: str | None, country_code: 
 
 @router.get("")
 async def list_trends(
+    workspace_id: str = Query(..., description="Active workspace (plan gates trending topics)"),
     industry: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
-    conditions = [TrendingTopic.is_active == True]
+    await _require_trending_topics_plan(db, current_user.id, workspace_id)
+    cc = (getattr(current_user, "country_code", None) or "NG").strip().upper()[:2]
+
+    conditions = [TrendingTopic.is_active == True, TrendingTopic.country_code == cc]
     if industry:
         from sqlalchemy import or_
         conditions.append(or_(TrendingTopic.industry == industry, TrendingTopic.industry == None))
@@ -68,12 +109,12 @@ async def list_trends(
         should_refresh = (datetime.now(timezone.utc) - oldest) > timedelta(hours=CACHE_TTL_HOURS)
 
     if should_refresh:
-        country_code = getattr(current_user, "country_code", None)
+        country_code = getattr(current_user, "country_code", None) or cc
         refreshed = await _refresh_trends(db, industry, country_code)
         if refreshed:
             result = await db.execute(
                 select(TrendingTopic)
-                .where(TrendingTopic.is_active == True)
+                .where(TrendingTopic.is_active == True, TrendingTopic.country_code == cc)
                 .order_by(TrendingTopic.sort_order)
                 .limit(20)
             )
@@ -87,6 +128,7 @@ async def list_trends(
             "volume": t.volume,
             "badge": t.badge,
             "industry": t.industry,
+            "country_code": t.country_code,
         }
         for t in topics
     ]
@@ -94,10 +136,13 @@ async def list_trends(
 
 @router.post("/refresh")
 async def force_refresh_trends(
+    workspace_id: str = Query(..., description="Active workspace (plan gates trending topics)"),
     industry: str | None = None,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    await _require_trending_topics_plan(db, current_user.id, workspace_id)
+
     country_code = getattr(current_user, "country_code", None)
     success = await _refresh_trends(db, industry, country_code)
     return {"success": success, "message": "Trends refreshed" if success else "Failed to refresh"}
@@ -131,8 +176,24 @@ async def generate_post_from_trend(
     if not member_r.scalar_one_or_none():
         raise HTTPException(status_code=403, detail="Access denied")
 
+    ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
+    ws = ws_r.scalar_one_or_none()
+    eff = await effective_plan_for_owner(db, ws.owner_id) if ws else "trial"
+    if not ws or not plan_includes_trending_topics(eff):
+        raise HTTPException(
+            status_code=403,
+            detail="AI trending topics are available on Growth and Pro. Upgrade your plan to use this feature.",
+        )
+
+    kit = brand.brand_kit if isinstance(brand.brand_kit, dict) else {}
+    cta_style = str(kit.get("cta_style") or "").strip()
+
     brand_dict = {
         "name": brand.name,
+        "industry": brand.industry or "",
+        "sub_industry": getattr(brand, "sub_industry", None) or "",
+        "website": brand.website or "",
+        "cta_style": cta_style,
         "tone_tags": brand.tone_tags or [],
         "language_style": brand.language_style or "english",
         "personality_score": brand.personality_score or 50,
@@ -142,13 +203,18 @@ async def generate_post_from_trend(
     }
 
     try:
+        cc = (getattr(current_user, "country_code", None) or "NG").strip().upper()[:2]
         result = await generate_single_caption(
             brand=brand_dict,
             topic=body.trend_topic,
             platform=body.platform,
-            description=f"Trending in Nigeria right now: {body.trend_topic}. Make it timely and culturally relevant.",
+            description=f"Trending in {cc} right now: {body.trend_topic}. Make it timely and culturally relevant for that location.",
         )
-        return {"caption": result.get("caption", ""), "hashtags": result.get("hashtags", [])}
+        return {
+            "caption": result.get("caption", ""),
+            "cta": result.get("cta") or "",
+            "hashtags": result.get("hashtags", []),
+        }
     except Exception as e:
         logger.error(f"Trend post generation error: {e}")
-        raise HTTPException(status_code=502, detail="AI generation failed — please try again")
+        raise HTTPException(status_code=502, detail="AI generation failed. Please try again.")

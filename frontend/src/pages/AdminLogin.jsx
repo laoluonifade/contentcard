@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Shield, ArrowRight } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { adminApi } from '../api'
+import { LogoMark } from '../components/ui/Logo'
 
-const ADMIN_EMAILS = ['laoluonifade@gmail.com', 'hellovoya@gmail.com']
+const ADMIN_EMAILS = ['laoluonifade@gmail.com', 'hellovoya@gmail.com', 'admin@contentcard.io']
 
 export default function AdminLogin() {
   const navigate = useNavigate()
@@ -23,7 +24,7 @@ export default function AdminLogin() {
         setLoading(false)
         return
       }
-      // Store admin token separately — never touches contentcard-auth
+      // Store admin token separately: never touches contentcard-auth
       localStorage.setItem('contentcard-admin-token', res.access_token)
       localStorage.setItem('contentcard-admin', JSON.stringify({ email, role: 'super_admin' }))
       navigate('/admindash')
@@ -38,9 +39,7 @@ export default function AdminLogin() {
     <div className="min-h-screen bg-[#0A0914] flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-3 mb-10 justify-center">
-          <div className="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center">
-            <Shield size={20} className="text-white" />
-          </div>
+          <LogoMark size={40} />
           <div>
             <div className="text-white font-bold">ContentCard</div>
             <div className="text-white/30 text-xs">Admin Console</div>

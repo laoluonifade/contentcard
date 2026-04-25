@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Sparkles, CalendarDays,
-  Palette, LogOut, Zap, Menu, X
+  Palette, LogOut, Menu, X
 } from 'lucide-react'
 import useAuthStore from '../../stores/authStore'
+import { LogoMark } from '../ui/Logo'
 
 const NAV = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
@@ -29,9 +30,7 @@ function Sidebar({ onClose }) {
       {/* Logo */}
       <div className="px-6 py-6 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center shadow-lg shadow-brand-500/30">
-            <Zap size={16} className="text-white" fill="white" />
-          </div>
+          <LogoMark size={32} />
           <span className="text-white font-bold text-lg tracking-tight">ContentCard</span>
         </div>
         {onClose && (
@@ -119,9 +118,7 @@ export default function Layout() {
             <Menu size={22} />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-brand-500 rounded-lg flex items-center justify-center">
-              <Zap size={13} className="text-white" fill="white" />
-            </div>
+            <LogoMark size={28} />
             <span className="text-white font-bold text-base tracking-tight">ContentCard</span>
           </div>
         </div>

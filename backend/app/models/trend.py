@@ -14,6 +14,7 @@ class TrendingTopic(Base):
     volume: Mapped[str | None] = mapped_column(String(50), nullable=True)  # e.g. "2.1M posts"
     badge: Mapped[str] = mapped_column(String(20), default="rising")  # viral | rising | steady
     industry: Mapped[str | None] = mapped_column(String(100), nullable=True)  # null = global
+    country_code: Mapped[str | None] = mapped_column(String(2), nullable=True)  # ISO-3166 alpha-2
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

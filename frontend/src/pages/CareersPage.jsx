@@ -1,6 +1,15 @@
-import { useNavigate } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import MarketingLayout from '../components/layout/MarketingLayout'
+import {
+  CtaBand,
+  FeatureGrid,
+  HeroSection,
+  MarketingContainer,
+  PrimaryCta,
+  ScreenshotFrame,
+  SurfaceSection,
+  SoftCard,
+} from '../components/marketing/MarketingPrimitives'
 
 const ROLES = [
   { title: 'Senior Full-Stack Engineer',  team: 'Engineering', location: 'Lagos / Remote', type: 'Full-time' },
@@ -13,7 +22,7 @@ const ROLES = [
 
 const PERKS = [
   { title: 'Remote-friendly',       desc: 'Most roles can be done from anywhere in Africa or beyond.' },
-  { title: 'Competitive salary',    desc: 'We pay at or above market — in USD or NGN, your choice.' },
+  { title: 'Competitive salary',    desc: 'We pay at or above market: in USD or NGN, your choice.' },
   { title: 'Equity for everyone',   desc: 'Every full-time hire gets meaningful equity in ContentCard.' },
   { title: 'Health & wellness',     desc: 'Full health insurance for you and your immediate family.' },
   { title: 'Learning budget',       desc: '₦500k / $500 per year for courses, books, and conferences.' },
@@ -21,63 +30,54 @@ const PERKS = [
 ]
 
 export default function CareersPage() {
-  const navigate = useNavigate()
   return (
     <MarketingLayout>
-      {/* Hero */}
-      <section className="py-20 px-6 border-b border-white/5">
-        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
-          <div>
-            <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-6">Careers</div>
-            <h1 className="text-5xl font-bold mb-5" style={{ letterSpacing: '-0.03em' }}>Build the future of content with us.</h1>
-            <p className="text-white/50 text-lg leading-relaxed">We're a small, ambitious team building AI infrastructure for brand content across Africa and beyond. Every hire matters and every role has real impact.</p>
-          </div>
-          <img src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=700&auto=format&fit=crop&q=80" alt="Team" className="rounded-2xl h-72 w-full object-cover border border-white/10" />
-        </div>
-      </section>
+      <HeroSection
+        eyebrow="Careers"
+        title={<>Build the future of content with us.</>}
+        subtitle="We're a focused team building AI infrastructure for brand content across Africa and beyond."
+        media={<ScreenshotFrame src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=1000&auto=format&fit=crop&q=80" alt="Team" className="h-[320px]" />}
+      />
 
-      {/* Perks */}
-      <section className="py-16 px-6 border-b border-white/5 bg-white/[0.01]">
-        <div className="max-w-7xl mx-auto">
-          <h2 className="text-2xl font-bold text-white mb-8 text-center">Why ContentCard?</h2>
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {PERKS.map(({ title, desc }) => (
-              <div key={title} className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-6">
-                <div className="font-bold text-white mb-2">{title}</div>
-                <p className="text-white/40 text-sm leading-relaxed">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <SurfaceSection className="border-y border-fog bg-mist/30">
+        <MarketingContainer>
+          <h2 className="text-2xl font-bold text-ink mb-8 text-center">Why ContentCard?</h2>
+          <FeatureGrid items={PERKS.map((p) => ({ title: p.title, body: p.desc }))} />
+        </MarketingContainer>
+      </SurfaceSection>
 
-      {/* Open roles */}
-      <section className="py-16 px-6">
-        <div className="max-w-4xl mx-auto">
-          <h2 className="text-2xl font-bold text-white mb-8">Open roles</h2>
+      <SurfaceSection>
+        <MarketingContainer className="max-w-4xl">
+          <h2 className="text-2xl font-bold text-ink mb-8">Open roles</h2>
           <div className="space-y-3">
             {ROLES.map(({ title, team, location, type }) => (
-              <div key={title} className="flex items-center justify-between bg-white/[0.03] border border-white/[0.06] hover:border-brand-500/30 rounded-2xl px-6 py-5 transition-all cursor-pointer group">
+              <SoftCard key={title} className="flex items-center justify-between hover:border-brand-500/30 rounded-2xl px-6 py-5 transition-all cursor-pointer group">
                 <div>
-                  <div className="font-bold text-white">{title}</div>
+                  <div className="font-bold text-ink">{title}</div>
                   <div className="flex items-center gap-3 mt-1">
-                    <span className="text-white/35 text-xs">{team}</span>
-                    <span className="text-white/20">·</span>
-                    <span className="text-white/35 text-xs">{location}</span>
-                    <span className="text-white/20">·</span>
-                    <span className="text-white/35 text-xs">{type}</span>
+                    <span className="text-ink/45 text-xs">{team}</span>
+                    <span className="text-ink/25">·</span>
+                    <span className="text-ink/45 text-xs">{location}</span>
+                    <span className="text-ink/25">·</span>
+                    <span className="text-ink/45 text-xs">{type}</span>
                   </div>
                 </div>
-                <ArrowRight size={16} className="text-white/20 group-hover:text-brand-400 transition-colors" />
-              </div>
+                <ArrowRight size={16} className="text-ink/25 group-hover:text-brand-500 transition-colors" />
+              </SoftCard>
             ))}
           </div>
-          <div className="mt-8 text-center">
-            <p className="text-white/35 text-sm mb-4">Don't see your role? We're always open to exceptional people.</p>
-            <button onClick={() => navigate('/contact')} className="btn-primary px-7 py-3">Send us your CV <ArrowRight size={14} /></button>
-          </div>
-        </div>
-      </section>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection className="border-t border-fog">
+        <MarketingContainer>
+          <CtaBand
+            title="Don't see your role yet?"
+            body="We're always open to exceptional operators, designers, and engineers."
+            primary={<PrimaryCta to="/contact">Send us your CV <ArrowRight size={14} className="ml-1" /></PrimaryCta>}
+          />
+        </MarketingContainer>
+      </SurfaceSection>
     </MarketingLayout>
   )
 }

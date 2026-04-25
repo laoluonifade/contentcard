@@ -1,5 +1,5 @@
 /**
- * useBrandPrefs — stores brand font + compliance preferences in localStorage.
+ * useBrandPrefs: stores brand font + compliance preferences in localStorage.
  * Keyed by brand ID so each brand has independent settings.
  */
 import { useState, useEffect, useCallback } from 'react'

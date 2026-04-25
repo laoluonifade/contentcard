@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle } from 'lucide-react'
+import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle, BarChart3, Share2, Eye, MousePointerClick, Activity } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
-import { trendsApi } from '../api'
+import { trendsApi, socialApi } from '../api'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
+import { planIncludesTrendingTopics } from '../utils/planFeatures'
 
 const PLATFORMS = ['instagram', 'twitter', 'linkedin', 'facebook']
+const PLATFORM_LABELS = {
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+  twitter: 'Twitter/X',
+  linkedin: 'LinkedIn',
+}
 
 
 function parseLocalDate(str) {
@@ -17,7 +24,7 @@ function parseLocalDate(str) {
 
 function StatCard({ icon: Icon, val, lbl, loading }) {
   return (
-    <div className="bg-white border border-fog rounded-2xl p-5">
+    <div className="bg-surface border border-fog rounded-2xl p-5">
       <div className="w-8 h-8 rounded-xl bg-mist flex items-center justify-center mb-4">
         <Icon size={15} className="text-ink/40" />
       </div>
@@ -32,13 +39,15 @@ function StatCard({ icon: Icon, val, lbl, loading }) {
 export default function DashboardPage() {
   const navigate  = useNavigate()
   const { user }  = useAuthStore()
-  const { activeBrandId, brands, trends, fetchTrends, fetchMonthContent, refreshTrends } = useAppStore()
+  const { activeBrandId, activeWorkspace, brands, trends, templates, fetchTemplates, fetchTrends, fetchMonthContent, refreshTrends } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
   const now = new Date()
-  const [stats, setStats]       = useState({ total: 0, ready: 0, drafts: 0, ig: 0, fb: 0, tw: 0 })
+  const [stats, setStats]       = useState({ total: 0, ready: 0, drafts: 0, ig: 0, fb: 0, tw: 0, li: 0, scheduledWeek: 0 })
   const [upcoming, setUpcoming] = useState([])
   const [loading, setLoading]   = useState(true)
+  const [socialSummary, setSocialSummary] = useState({ totals: { posted: 0, impressions: 0, reach: 0, engagement: 0, clicks: 0 }, connected: 0 })
+  const [socialLoading, setSocialLoading] = useState(false)
 
   // Trends refresh
   const [refreshing, setRefreshing] = useState(false)
@@ -54,6 +63,13 @@ export default function DashboardPage() {
     setLoading(true)
     fetchMonthContent(now.getMonth() + 1, now.getFullYear())
       .then(items => {
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        const weekAhead = new Date(today)
+        weekAhead.setDate(today.getDate() + 7)
+        const scheduledWeek = items.filter((i) => {
+          const d = parseLocalDate(i.scheduled_date)
+          return d && d >= today && d < weekAhead
+        }).length
         setStats({
           total:  items.length,
           ready:  items.filter(i => i.status === 'ready').length,
@@ -61,18 +77,49 @@ export default function DashboardPage() {
           ig:     items.filter(i => i.platform === 'instagram').length,
           fb:     items.filter(i => i.platform === 'facebook').length,
           tw:     items.filter(i => i.platform === 'twitter').length,
+          li:     items.filter(i => i.platform === 'linkedin').length,
+          scheduledWeek,
         })
-        const today = now.getDate()
         setUpcoming(
           items.filter(i => {
             const d = parseLocalDate(i.scheduled_date)
-            return d && d.getDate() >= today && d.getDate() <= today + 6
+            return d && d >= today && d < weekAhead
           }).slice(0, 5)
         )
         setLoading(false)
       })
       .catch(() => setLoading(false))
-    if (!trends.length) fetchTrends().catch(() => {})
+    if (planIncludesTrendingTopics(activeWorkspace?.plan) && !trends.length) {
+      fetchTrends().catch(() => {})
+    }
+  }, [activeBrandId, activeWorkspace?.plan])
+
+  useEffect(() => {
+    if (!activeBrandId) return
+    let cancelled = false
+    setSocialLoading(true)
+    Promise.all([
+      socialApi.metricsSummary(activeBrandId, 30).catch(() => null),
+      socialApi.listConnections(activeBrandId).catch(() => []),
+    ])
+      .then(([metrics, connections]) => {
+        if (cancelled) return
+        setSocialSummary({
+          totals: metrics?.totals || { posted: 0, impressions: 0, reach: 0, engagement: 0, clicks: 0 },
+          connected: Array.isArray(connections) ? connections.length : 0,
+        })
+      })
+      .finally(() => {
+        if (!cancelled) setSocialLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeBrandId])
+
+  useEffect(() => {
+    if (!activeBrandId) return
+    fetchTemplates().catch(() => {})
   }, [activeBrandId])
 
   const greet = () => {
@@ -121,7 +168,8 @@ export default function DashboardPage() {
       setGenResult(result)
     } catch (e) {
       console.error('Generate from trend failed:', e)
-      setGenResult({ error: 'Generation failed — please try again.' })
+      const msg = e.response?.data?.detail || 'Generation failed. Please try again.'
+      setGenResult({ error: typeof msg === 'string' ? msg : 'Generation failed. Please try again.' })
     } finally {
       setGenLoading(false)
     }
@@ -155,7 +203,7 @@ export default function DashboardPage() {
             {loading ? 'Loading…' :
              !activeBrandId ? 'Set up your brand to get started.' :
              stats.total > 0 ? `${stats.total} posts generated for ${now.toLocaleString('default', { month: 'long' })}` :
-             `No content yet for ${now.toLocaleString('default', { month: 'long' })} — generate your first month.`}
+             `No content yet for ${now.toLocaleString('default', { month: 'long' })}. Generate your first month.`}
           </p>
         </div>
         <button onClick={() => navigate('/dashboard/calendar')}
@@ -169,8 +217,9 @@ export default function DashboardPage() {
         const missing = getMissingFields(activeBrand)
         const brandReady = missing.length === 0
         const hasContent = stats.total > 0
+        const readyTemplates = (templates || []).filter(t => t.is_active)
 
-        // Brand kit incomplete — show what to fill in
+        // Brand kit incomplete: show what to fill in
         if (!brandReady) return (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6">
             <div className="flex items-start gap-3">
@@ -179,7 +228,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-amber-600 mb-0.5">Onboarding Tip</p>
-                <h4 className="text-ink font-semibold text-sm mb-1.5">Complete your brand kit to unlock AI generation</h4>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Complete your brand kit to unlock generation</h4>
                 <p className="text-ink/50 text-xs mb-3">
                   Fill in {missing.length} required {missing.length === 1 ? 'field' : 'fields'} so ContentCard can create on-brand content for you:
                 </p>
@@ -199,7 +248,7 @@ export default function DashboardPage() {
           </div>
         )
 
-        // Brand ready, no content yet — nudge to generate
+        // Brand ready, templates ready, no content yet: nudge to generate
         if (brandReady && !hasContent) return (
           <div className="bg-brand-500/8 border border-brand-400/30 rounded-2xl p-5 mb-6">
             <div className="flex items-start gap-3">
@@ -208,7 +257,7 @@ export default function DashboardPage() {
               </div>
               <div className="flex-1">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-brand-600 mb-0.5">Onboarding Tip</p>
-                <h4 className="text-ink font-semibold text-sm mb-1.5">Your brand is ready — generate your first month of content</h4>
+                <h4 className="text-ink font-semibold text-sm mb-1.5">Your brand is ready: generate your first month of content</h4>
                 <p className="text-ink/50 text-xs mb-3">
                   ContentCard knows your brand voice. Hit Generate to create a full month of posts in under a minute.
                 </p>
@@ -227,7 +276,7 @@ export default function DashboardPage() {
       {/* No brand CTA */}
       {!activeBrandId && !loading && (
         <div className="bg-mist border border-fog rounded-2xl p-10 text-center mb-8">
-          <div className="w-10 h-10 bg-white border border-fog rounded-xl flex items-center justify-center mx-auto mb-4">
+          <div className="w-10 h-10 bg-surface border border-fog rounded-xl flex items-center justify-center mx-auto mb-4">
             <Sparkles size={18} className="text-brand-500" />
           </div>
           <h2 className="text-ink font-semibold text-base mb-2">Set up your brand</h2>
@@ -240,7 +289,7 @@ export default function DashboardPage() {
 
       {/* Month summary bar */}
       {activeBrandId && (
-        <div className="flex items-center justify-between bg-white border border-fog rounded-2xl px-5 py-4 mb-6">
+        <div className="flex items-center justify-between bg-surface border border-fog rounded-2xl px-5 py-4 mb-6">
           <div>
             <p className="text-xs text-ink/40 font-medium mb-0.5">{monthLabel}</p>
             <p className="text-ink font-semibold text-sm">
@@ -256,11 +305,39 @@ export default function DashboardPage() {
 
       {/* Stats */}
       {activeBrandId && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <StatCard icon={FileText}    val={stats.total}  lbl="Total posts"    loading={loading} />
           <StatCard icon={CheckCircle} val={stats.ready}  lbl="Ready to post"  loading={loading} />
           <StatCard icon={Clock}       val={stats.drafts} lbl="Drafts"         loading={loading} />
-          <StatCard icon={Calendar}    val={stats.ig}     lbl="Instagram"      loading={loading} />
+          <StatCard icon={Calendar}    val={stats.scheduledWeek} lbl="Due this week" loading={loading} />
+          <StatCard icon={BarChart3}   val={stats.total ? `${Math.round((stats.ready / Math.max(1, stats.total)) * 100)}%` : '0%'} lbl="Readiness" loading={loading} />
+        </div>
+      )}
+
+      {activeBrandId && (
+        <div className="bg-surface border border-fog rounded-2xl p-6 mb-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Share2 size={15} className="text-ink/40" />
+              <h3 className="text-sm font-semibold text-ink">Social momentum (last 30 days)</h3>
+            </div>
+            <button
+              onClick={() => navigate('/dashboard/social')}
+              className="text-xs text-brand-500 hover:text-brand-600 font-medium flex items-center gap-1 transition-colors"
+            >
+              Open social hub <ArrowRight size={12} />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-3">
+            <StatCard icon={Activity} val={socialSummary.totals.posted || 0} lbl="Published" loading={socialLoading} />
+            <StatCard icon={Eye} val={Number(socialSummary.totals.impressions || 0).toLocaleString()} lbl="Impressions" loading={socialLoading} />
+            <StatCard icon={BarChart3} val={Number(socialSummary.totals.reach || 0).toLocaleString()} lbl="Reach" loading={socialLoading} />
+            <StatCard icon={TrendingUp} val={Number(socialSummary.totals.engagement || 0).toLocaleString()} lbl="Engagement" loading={socialLoading} />
+            <StatCard icon={MousePointerClick} val={Number(socialSummary.totals.clicks || 0).toLocaleString()} lbl="Link clicks" loading={socialLoading} />
+          </div>
+          <div className="text-xs text-ink/45">
+            {socialLoading ? 'Refreshing social analytics…' : `${socialSummary.connected} connected page${socialSummary.connected === 1 ? '' : 's'} tracked.`}
+          </div>
         </div>
       )}
 
@@ -268,7 +345,7 @@ export default function DashboardPage() {
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
 
           {/* Platform breakdown */}
-          <div className="bg-white border border-fog rounded-2xl p-6">
+          <div className="bg-surface border border-fog rounded-2xl p-6">
             <h3 className="text-sm font-semibold text-ink mb-5">Platform breakdown</h3>
             {loading || stats.total === 0
               ? <p className="text-ink/30 text-sm">{loading ? 'Loading…' : 'Generate content to see breakdown.'}</p>
@@ -278,6 +355,7 @@ export default function DashboardPage() {
                     { id: 'instagram', label: 'Instagram', count: stats.ig },
                     { id: 'facebook',  label: 'Facebook',  count: stats.fb },
                     { id: 'twitter',   label: 'Twitter/X', count: stats.tw },
+                    { id: 'linkedin',  label: 'LinkedIn',  count: stats.li },
                   ].map(({ label, count }) => (
                     <div key={label}>
                       <div className="flex justify-between mb-1.5">
@@ -292,10 +370,22 @@ export default function DashboardPage() {
                   ))}
                 </div>
               )}
+            {!loading && stats.total > 0 && (
+              <div className="mt-5 pt-4 border-t border-fog flex flex-wrap gap-2">
+                {PLATFORMS.map((p) => {
+                  const count = p === 'instagram' ? stats.ig : p === 'facebook' ? stats.fb : p === 'twitter' ? stats.tw : stats.li
+                  return (
+                    <span key={p} className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-fog bg-mist text-ink/60">
+                      {PLATFORM_LABELS[p]}: {count}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Upcoming posts */}
-          <div className="bg-white border border-fog rounded-2xl p-6">
+          <div className="bg-surface border border-fog rounded-2xl p-6">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-sm font-semibold text-ink">Upcoming posts</h3>
               <button onClick={() => navigate('/dashboard/calendar')}
@@ -309,16 +399,21 @@ export default function DashboardPage() {
                 ? <p className="text-ink/30 text-sm">No upcoming posts in the next 7 days.</p>
                 : upcoming.map(post => {
                     const d = parseLocalDate(post.scheduled_date)
+                    const cover = post.image_url || post.image_urls?.[0]
                     return (
                       <div key={post.id}
                         className="flex items-center gap-3 py-2.5 border-b border-fog last:border-0 cursor-pointer hover:opacity-70 transition-opacity"
                         onClick={() => navigate('/dashboard/calendar')}>
+                        {cover ? (
+                          <img src={cover} alt="" className="w-11 h-11 rounded-xl object-cover border border-fog flex-shrink-0 bg-mist" />
+                        ) : (
                         <div className="w-9 h-9 rounded-xl flex flex-col items-center justify-center flex-shrink-0 bg-mist">
                           {d && <>
                             <span className="text-ink/40 text-[8px] font-semibold uppercase">{d.toLocaleString('default', { month: 'short' })}</span>
                             <span className="text-ink text-xs font-bold leading-none">{d.getDate()}</span>
                           </>}
                         </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="text-ink text-xs font-medium truncate">{post.topic}</p>
                           <p className="text-ink/40 text-[10px] mt-0.5 capitalize">{post.platform} · {post.format}</p>
@@ -336,25 +431,41 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Trending topics */}
-      <div className="bg-white border border-fog rounded-2xl p-6">
+      {/* Trending topics: Growth + Pro only */}
+      <div className="bg-surface border border-fog rounded-2xl p-6">
         <div className="flex items-center justify-between gap-3 mb-5">
           <div className="flex items-center gap-2">
             <TrendingUp size={15} className="text-ink/40" />
             <h3 className="text-sm font-semibold text-ink">Trending in Nigeria</h3>
-            <span className="text-xs text-ink/30 hidden sm:inline">· Powered by AI</span>
+            <span className="text-xs text-ink/30 hidden sm:inline">· Live signals</span>
           </div>
-          <button
-            onClick={handleRefreshTrends}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-fog text-xs font-medium text-ink/50 hover:bg-mist hover:text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
-            <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
-            {refreshing ? 'Refreshing…' : 'Refresh trends'}
-          </button>
+          {planIncludesTrendingTopics(activeWorkspace?.plan) && (
+            <button
+              onClick={handleRefreshTrends}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-fog text-xs font-medium text-ink/50 hover:bg-mist hover:text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0">
+              <RefreshCw size={11} className={refreshing ? 'animate-spin' : ''} />
+              {refreshing ? 'Refreshing…' : 'Refresh trends'}
+            </button>
+          )}
         </div>
 
-        {trends.length === 0
-          ? (
+        {!planIncludesTrendingTopics(activeWorkspace?.plan) ? (
+          <div className="text-center py-8 px-4">
+            <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
+            <p className="text-ink/50 text-sm mb-1 max-w-md mx-auto">
+              Trending topics are included on <span className="font-semibold text-ink/70">Growth</span> and{' '}
+              <span className="font-semibold text-ink/70">Pro</span>. Upgrade to see what&apos;s trending and spin up quick posts.
+            </p>
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard/billing')}
+              className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors"
+            >
+              View plans <ArrowRight size={14} />
+            </button>
+          </div>
+        ) : trends.length === 0 ? (
             <div className="text-center py-8">
               <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
               <p className="text-ink/30 text-sm mb-3">No trends loaded yet.</p>
@@ -363,8 +474,7 @@ export default function DashboardPage() {
                 <Sparkles size={14} /> {refreshing ? 'Fetching trends…' : 'Fetch trending topics'}
               </button>
             </div>
-          )
-          : (
+          ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {trends.slice(0, 6).map((t, i) => (
                 <div key={t.id} className="flex flex-col gap-2 p-3 rounded-xl border border-fog hover:border-ink/20 hover:bg-mist transition-all group">
@@ -405,7 +515,7 @@ export default function DashboardPage() {
       {/* Generate-post modal */}
       {genModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={closeGenModal}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+          <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-fog" onClick={e => e.stopPropagation()}>
             {/* Modal header */}
             <div className="flex items-start justify-between p-5 pb-0">
               <div>

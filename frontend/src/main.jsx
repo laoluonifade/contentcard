@@ -4,9 +4,9 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import './index.css'
 
-// Apply saved theme before first render to avoid flash
-const savedTheme = localStorage.getItem('cc-theme') || 'dark'
-document.documentElement.setAttribute('data-theme', savedTheme)
+// Force light theme globally.
+localStorage.setItem('cc-theme', 'light')
+document.documentElement.setAttribute('data-theme', 'light')
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

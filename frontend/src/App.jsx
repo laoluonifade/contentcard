@@ -21,13 +21,22 @@ import ChangelogPage        from './pages/ChangelogPage'
 import RoadmapPage          from './pages/RoadmapPage'
 import LegalPage            from './pages/LegalPage'
 import PitchDeckPage        from './pages/PitchDeckPage'
+import ProductGuidePage     from './pages/ProductGuidePage'
 import DashboardLayout      from './components/layout/DashboardLayout'
 import DashboardPage        from './pages/DashboardPage'
 import CalendarPage         from './pages/CalendarPage'
+import GeneratePage         from './pages/GeneratePage'
 import BrandKitPage         from './pages/BrandKitPage'
 import TemplatesPage        from './pages/TemplatesPage'
 import SettingsPage         from './pages/SettingsPage'
 import BillingPage          from './pages/BillingPage'
+import DirectoryPage        from './pages/DirectoryPage'
+import MemesPage            from './pages/MemesPage'
+import SocialAutopilotPage  from './pages/SocialAutopilotPage'
+import DesignEditorPage from './pages/DesignEditorPage'
+import ShopifyAuthCallbackPage from './pages/ShopifyAuthCallbackPage'
+import ShopifyOnboardingCompletionPage from './pages/ShopifyOnboardingCompletionPage'
+import ShopifyPostSignupDecisionPage from './pages/ShopifyPostSignupDecisionPage'
 
 // Admin
 import AdminLogin           from './pages/AdminLogin'
@@ -41,6 +50,9 @@ import AdminAnalyticsPage   from './pages/AdminAnalyticsPage'
 import AdminTrendsPage      from './pages/AdminTrendsPage'
 import AdminTemplatesPage   from './pages/AdminTemplatesPage'
 import AdminSettingsPage    from './pages/AdminSettingsPage'
+import AdminDesignPlaybookPage from './pages/AdminDesignPlaybookPage'
+import AdminMemesPage       from './pages/AdminMemesPage'
+import AdminDemoRequestsPage from './pages/AdminDemoRequestsPage'
 
 function PrivateRoute({ children }) {
   const { isAuthenticated } = useAuthStore()
@@ -80,6 +92,7 @@ export default function App() {
         <Route path="/security"              element={<LegalPage />} />
         <Route path="/support"               element={<LegalPage />} />
         <Route path="/pitch-deck"            element={<PitchDeckPage />} />
+        <Route path="/product-guide"         element={<ProductGuidePage />} />
 
         {/* Auth */}
         <Route path="/login"                 element={<GuestRoute><LoginPage /></GuestRoute>} />
@@ -87,15 +100,23 @@ export default function App() {
         <Route path="/forgot-password"       element={<ForgotPasswordPage />} />
         <Route path="/accept-invite"         element={<AcceptInvite />} />
         <Route path="/onboarding"            element={<PrivateRoute><OnboardingPage /></PrivateRoute>} />
+        <Route path="/shopify/callback"      element={<ShopifyAuthCallbackPage />} />
+        <Route path="/shopify/complete-onboarding" element={<PrivateRoute><ShopifyOnboardingCompletionPage /></PrivateRoute>} />
+        <Route path="/shopify/decision"      element={<PrivateRoute><ShopifyPostSignupDecisionPage /></PrivateRoute>} />
 
         {/* Dashboard */}
         <Route path="/dashboard" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
           <Route index             element={<DashboardPage />} />
+          <Route path="generate"   element={<GeneratePage />} />
           <Route path="calendar"   element={<CalendarPage />} />
           <Route path="templates"  element={<TemplatesPage />} />
           <Route path="brand-kit"  element={<BrandKitPage />} />
           <Route path="settings"   element={<SettingsPage />} />
           <Route path="billing"    element={<BillingPage />} />
+          <Route path="directory"  element={<DirectoryPage />} />
+          <Route path="memes"      element={<MemesPage />} />
+          <Route path="social"     element={<SocialAutopilotPage />} />
+          <Route path="calendar/editor/:contentId" element={<DesignEditorPage />} />
         </Route>
 
         {/* Admin */}
@@ -105,10 +126,13 @@ export default function App() {
         <Route path="/admindash/workspaces"  element={<AdminRoute><AdminWorkspacesPage /></AdminRoute>} />
         <Route path="/admindash/brands"      element={<AdminRoute><AdminBrandsPage /></AdminRoute>} />
         <Route path="/admindash/content"     element={<AdminRoute><AdminContentPage /></AdminRoute>} />
+        <Route path="/admindash/demo-requests" element={<AdminRoute><AdminDemoRequestsPage /></AdminRoute>} />
         <Route path="/admindash/billing"     element={<AdminRoute><AdminBillingPage /></AdminRoute>} />
         <Route path="/admindash/analytics"   element={<AdminRoute><AdminAnalyticsPage /></AdminRoute>} />
         <Route path="/admindash/trends"      element={<AdminRoute><AdminTrendsPage /></AdminRoute>} />
         <Route path="/admindash/templates"   element={<AdminRoute><AdminTemplatesPage /></AdminRoute>} />
+        <Route path="/admindash/design-playbook" element={<AdminRoute><AdminDesignPlaybookPage /></AdminRoute>} />
+        <Route path="/admindash/memes"       element={<AdminRoute><AdminMemesPage /></AdminRoute>} />
         <Route path="/admindash/settings"    element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
 
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -1,5 +1,6 @@
 import { useParams } from 'react-router-dom'
 import MarketingLayout from '../components/layout/MarketingLayout'
+import { MarketingContainer, SectionHeader, SoftCard, SurfaceSection } from '../components/marketing/MarketingPrimitives'
 
 const CONTENT = {
   privacy: {
@@ -55,23 +56,21 @@ export default function LegalPage() {
 
   return (
     <MarketingLayout>
-      <section className="py-16 px-6 border-b border-white/5">
-        <div className="max-w-3xl mx-auto">
-          <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">{page.title}</div>
-          <h1 className="text-4xl font-bold text-white mb-3" style={{ letterSpacing: '-0.02em' }}>{page.title}</h1>
-          <p className="text-white/30 text-sm">Last updated: {page.updated}</p>
-        </div>
-      </section>
-      <section className="py-12 px-6">
-        <div className="max-w-3xl mx-auto space-y-8">
+      <SurfaceSection className="border-b border-fog">
+        <MarketingContainer className="max-w-3xl">
+          <SectionHeader eyebrow={page.title} title={page.title} subtitle={`Last updated: ${page.updated}`} />
+        </MarketingContainer>
+      </SurfaceSection>
+      <SurfaceSection>
+        <MarketingContainer className="max-w-3xl space-y-5">
           {page.sections.map(({ heading, body }) => (
-            <div key={heading}>
-              <h2 className="text-white font-bold text-lg mb-3">{heading}</h2>
-              <p className="text-white/50 text-sm leading-relaxed">{body}</p>
-            </div>
+            <SoftCard key={heading} className="p-6">
+              <h2 className="text-ink font-bold text-lg mb-3">{heading}</h2>
+              <p className="text-ink/65 text-sm leading-relaxed">{body}</p>
+            </SoftCard>
           ))}
-        </div>
-      </section>
+        </MarketingContainer>
+      </SurfaceSection>
     </MarketingLayout>
   )
 }

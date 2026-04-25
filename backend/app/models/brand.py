@@ -13,6 +13,7 @@ class Brand(Base):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     industry: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sub_industry: Mapped[str | None] = mapped_column(String(120), nullable=True)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     website: Mapped[str | None] = mapped_column(String(255), nullable=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -63,3 +64,21 @@ class Brand(Base):
     workspace: Mapped["Workspace"] = relationship("Workspace", back_populates="brands")
     content_items: Mapped[list["ContentItem"]] = relationship("ContentItem", back_populates="brand", cascade="all, delete-orphan")
     templates: Mapped[list["ContentTemplate"]] = relationship("ContentTemplate", back_populates="brand", cascade="all, delete-orphan")
+    website_snapshots: Mapped[list["WebsiteSnapshot"]] = relationship(
+        "WebsiteSnapshot", back_populates="brand", cascade="all, delete-orphan"
+    )
+    website_entities: Mapped[list["WebsiteEntity"]] = relationship(
+        "WebsiteEntity", back_populates="brand", cascade="all, delete-orphan"
+    )
+    website_change_events: Mapped[list["WebsiteChangeEvent"]] = relationship(
+        "WebsiteChangeEvent", back_populates="brand", cascade="all, delete-orphan"
+    )
+    website_opportunities: Mapped[list["WebsiteOpportunity"]] = relationship(
+        "WebsiteOpportunity", back_populates="brand", cascade="all, delete-orphan"
+    )
+    style_fingerprints: Mapped[list["StyleFingerprint"]] = relationship(
+        "StyleFingerprint", back_populates="brand", cascade="all, delete-orphan"
+    )
+    campaign_plans: Mapped[list["CampaignPlan"]] = relationship(
+        "CampaignPlan", back_populates="brand", cascade="all, delete-orphan"
+    )

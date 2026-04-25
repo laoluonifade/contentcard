@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from app.db.database import get_db
 from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.models.user import User
 from app.core.dependencies import get_current_user
-from app.schemas.workspace import WorkspaceCreate, WorkspaceOut, WorkspaceMemberOut, RoleUpdateRequest
+from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceOut, WorkspaceMemberOut, RoleUpdateRequest
 from app.core.config import settings
+from app.services.billing_entitlements import effective_plan_for_owner
 from datetime import datetime, timedelta, timezone
 import re
 
@@ -15,6 +16,11 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
 def slugify(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "workspace"
+
+
+async def count_owned_workspaces(db: AsyncSession, user_id: str) -> int:
+    r = await db.execute(select(func.count()).select_from(Workspace).where(Workspace.owner_id == user_id))
+    return int(r.scalar() or 0)
 
 
 async def ensure_unique_slug(db: AsyncSession, base: str) -> str:
@@ -36,7 +42,14 @@ async def list_workspaces(
         .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
         .where(WorkspaceMember.user_id == current_user.id)
     )
-    return [WorkspaceOut.model_validate(w) for w in result.scalars().all()]
+    rows = list(result.scalars().all())
+    owner_eff = await effective_plan_for_owner(db, current_user.id)
+    out: list[WorkspaceOut] = []
+    for w in rows:
+        eff = owner_eff if w.owner_id == current_user.id else (w.plan or "trial")
+        wo = WorkspaceOut.model_validate(w)
+        out.append(wo.model_copy(update={"effective_plan": eff}))
+    return out
 
 
 @router.post("", response_model=WorkspaceOut, status_code=201)
@@ -45,6 +58,24 @@ async def create_workspace(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    owned = await count_owned_workspaces(db, current_user.id)
+    if not getattr(current_user, "agency_mode", False):
+        if owned >= 1:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Enable agency mode in Settings → Company to create additional workspaces "
+                    "for different client companies. Each workspace has its own brands and brand kits."
+                ),
+            )
+    else:
+        cap = settings.AGENCY_MAX_OWNED_WORKSPACES
+        if owned >= cap:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Maximum of {cap} owned workspaces reached. Contact support if you need more.",
+            )
+
     slug = await ensure_unique_slug(db, slugify(body.name))
     ws = Workspace(
         name=body.name,
@@ -59,7 +90,9 @@ async def create_workspace(
     db.add(WorkspaceMember(workspace_id=ws.id, user_id=current_user.id, role=WorkspaceRole.OWNER))
     await db.commit()
     await db.refresh(ws)
-    return WorkspaceOut.model_validate(ws)
+    eff = await effective_plan_for_owner(db, current_user.id)
+    wo = WorkspaceOut.model_validate(ws)
+    return wo.model_copy(update={"effective_plan": eff})
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceOut)
@@ -81,7 +114,53 @@ async def get_workspace(
     ws = result.scalar_one_or_none()
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    return WorkspaceOut.model_validate(ws)
+    eff = (
+        await effective_plan_for_owner(db, current_user.id)
+        if ws.owner_id == current_user.id
+        else (ws.plan or "trial")
+    )
+    wo = WorkspaceOut.model_validate(ws)
+    return wo.model_copy(update={"effective_plan": eff})
+
+
+@router.put("/{workspace_id}", response_model=WorkspaceOut)
+async def update_workspace(
+    workspace_id: str,
+    body: WorkspaceUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    member_check = await db.execute(
+        select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.user_id == current_user.id,
+        )
+    )
+    member = member_check.scalar_one_or_none()
+    if not member:
+        raise HTTPException(status_code=403, detail="Access denied")
+    if member.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN):
+        raise HTTPException(status_code=403, detail="Admin required")
+
+    result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+    ws = result.scalar_one_or_none()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    new_name = str(body.name or "").strip()
+    if len(new_name) < 2:
+        raise HTTPException(status_code=400, detail="Workspace name must be at least 2 characters")
+
+    ws.name = new_name
+    await db.commit()
+    await db.refresh(ws)
+    eff = (
+        await effective_plan_for_owner(db, current_user.id)
+        if ws.owner_id == current_user.id
+        else (ws.plan or "trial")
+    )
+    wo = WorkspaceOut.model_validate(ws)
+    return wo.model_copy(update={"effective_plan": eff})
 
 
 @router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberOut])

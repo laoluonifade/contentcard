@@ -1,592 +1,392 @@
-import { useNavigate, Link } from 'react-router-dom'
-import { ArrowRight, ChevronRight, Check, TrendingUp, Zap, BarChart2, Shield, Users, Calendar, Star, Play } from 'lucide-react'
-import { LogoFull } from '../components/ui/Logo'
+import { useEffect, useState } from 'react'
+import { ArrowRight, ChevronRight, Facebook, Instagram, Twitter } from 'lucide-react'
+import MarketingLayout from '../components/layout/MarketingLayout'
+import {
+  CtaBand,
+  MarketingContainer,
+  PrimaryCta,
+  SecondaryCta,
+  SectionHeader,
+  SurfaceSection,
+} from '../components/marketing/MarketingPrimitives'
+import { WhyTeamsSwitchShowcase } from '../components/marketing/AppDashboardMockups'
 
-/* ─── Data ──────────────────────────────────────────────────────── */
-
-const LOGOS = [
-  { name: 'Stridepay',    style: { color: '#FFCC00', fontWeight: 900, letterSpacing: '-0.02em' } },
-  { name: 'Wavesend',     style: { color: '#F5A623', fontWeight: 800 } },
-  { name: 'Novabridg',    style: { color: '#E63946', fontWeight: 800 } },
-  { name: 'Axle Bank',    style: { color: '#6EC1E4', fontWeight: 800 } },
-  { name: 'OBA',          style: { color: '#E63946', fontWeight: 900, letterSpacing: '0.05em' } },
-  { name: 'Zenastack',    style: { color: '#00C3F7', fontWeight: 800 } },
-  { name: 'Shopriva',     style: { color: '#FF6B35', fontWeight: 800 } },
-]
-
-const ROI_STATS = [
-  { stat: '3×',   label: 'engagement increase', company: 'Wavesend Marketing', detail: 'after switching from manual content creation to ContentCard' },
-  { stat: '68%',  label: 'reduction in content costs', company: 'Stridepay Digital Team', detail: 'vs. previous agency and in-house hybrid model' },
-  { stat: '₦4.2M', label: 'in social-driven revenue', company: 'Shopriva', detail: 'generated in Q1 2025 directly attributed to daily posting' },
-]
-
-const FEATURES = [
-  {
-    badge: 'Content Generation',
-    title: 'A full month of on-brand content.\nReady in 30 seconds.',
-    body: 'Stop paying agencies and junior staff to spend days producing content that misses the mark. ContentCard generates an entire month of graphics and captions — calibrated to your brand voice — in one click.',
-    bullets: ['Instagram, Facebook & Twitter at exact spec', 'Single posts, carousels, and quote cards', 'Brand-voice captions, every time'],
-    side: 'mockup-generate',
-  },
-  {
-    badge: 'Trend Intelligence',
-    title: 'Post on trends before\nyour competitors do.',
-    body: 'Our live trend engine monitors what your industry is talking about right now and surfaces actionable post ideas. First-mover advantage on every trending moment — built in.',
-    bullets: ['Industry-specific trend feed, updated daily', 'One click to build a post around any trend', 'AI predicts what will perform before it peaks'],
-    side: 'mockup-trends',
-  },
-  {
-    badge: 'Team & Workflow',
-    title: 'Built for enterprise teams\nand agencies.',
-    body: 'Role-based permissions, approval workflows, and multi-brand management built from the ground up for teams that need control, consistency, and accountability at scale.',
-    bullets: ['Editors, approvers, and viewer roles', 'Approval workflows before content goes live', 'Manage 10+ brands from one dashboard'],
-    side: 'mockup-team',
-  },
-]
-
-const TESTIMONIALS = [
-  {
-    quote: 'We manage social content for 14 corporate clients. ContentCard cut our production time by 80% and our team actually enjoys the work now. The ROI was visible in the first month.',
-    name: 'Adaeze Okonkwo',
-    title: 'Managing Director',
-    company: 'Blaze Digital Agency',
-    result: '80% faster production',
-    img: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=120&h=120&auto=format&fit=crop&q=80',
-  },
-  {
-    quote: 'As a CMO, I care about pipeline. Our social channels went from vanity metrics to an actual revenue channel. ContentCard made it possible to post every single day without hiring more people.',
-    name: 'Emeka Adeyemi',
-    title: 'Chief Marketing Officer',
-    company: 'Axle Bank Digital',
-    result: '3× social-driven leads',
-    img: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=120&h=120&auto=format&fit=crop&q=80',
-  },
-  {
-    quote: 'We replaced a $1,800/month agency retainer with ContentCard. The quality is better, we have more control, and our regional teams can all work from one place. It\'s a no-brainer.',
-    name: 'Fatima Al-Hassan',
-    title: 'VP, Brand & Communications',
-    company: 'Novabridg Group',
-    result: '$1,800/mo agency replaced',
-    img: 'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=120&h=120&auto=format&fit=crop&q=80',
-  },
-]
-
-const PLANS = [
-  { name: 'Starter', usd: '$25', ngn: '₦20,000', desc: 'For growing businesses ready to show up daily.', features: ['50 posts/month', 'All 3 platforms', 'Brand kit', '1 brand'], featured: false },
-  { name: 'Business', usd: '$50', ngn: '₦50,000', desc: 'For teams serious about social as a revenue channel.', features: ['Unlimited posts', 'All 3 platforms', 'Live trend engine', '3 brands', '5 seats', 'Approval workflows'], featured: true },
-  { name: 'Enterprise', usd: '$100', ngn: '₦200,000', desc: 'For agencies and multi-brand organisations.', features: ['Unlimited everything', '10 brands', 'Unlimited seats', 'Priority support', 'Dedicated CSM'], featured: false },
-]
-
-/* ─── Sub-components ─────────────────────────────────────────────── */
-
-function GenerateMockup() {
-  const posts = [
-    { plat: 'IG', color: '#E1306C', label: 'Instagram post', status: 'Ready' },
-    { plat: 'FB', color: '#1877F2', label: 'Facebook post',  status: 'Ready' },
-    { plat: 'TW', color: '#fff',    label: 'Twitter/X post', status: 'Draft' },
+function HeroPlatformCards() {
+  const [activeCard, setActiveCard] = useState(0)
+  const cards = [
+    {
+      platform: 'Instagram',
+      handle: '@juicyjunction_',
+      icon: Instagram,
+      image: '/marketing-examples/juicy-jollof.png',
+      caption:
+        'Dinner plans sorted. Fresh smoky jollof, grilled protein, and fast doorstep delivery. Tap to order now. #JuicyJunction #LagosFood',
+      status: 'Queued',
+      time: 'Today · 6:30 PM',
+      border: 'border-pink-200',
+    },
+    {
+      platform: 'X',
+      handle: '@uberlagos',
+      icon: Twitter,
+      image: '/marketing-examples/uber-ride.png',
+      caption:
+        'Beat evening traffic with smarter ETAs and safer pickups. Open Uber and get moving in minutes. #UberLagos #MoveBetter',
+      status: 'Ready',
+      time: 'Today · 7:00 PM',
+      border: 'border-slate-200',
+    },
+    {
+      platform: 'Facebook',
+      handle: 'Krispy Kreme NG',
+      icon: Facebook,
+      image: '/marketing-examples/krispy-fresh.png',
+      caption:
+        'Freshly glazed and ready for your team treat. Order a box today and share the joy in every bite.',
+      status: 'Scheduled',
+      time: 'Tomorrow · 9:00 AM',
+      border: 'border-blue-200',
+    },
   ]
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      setActiveCard((prev) => (prev + 1) % cards.length)
+    }, 3000)
+    return () => clearInterval(iv)
+  }, [cards.length])
+
   return (
-    <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
-      <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
-        {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Generate — April 2026</span>
-      </div>
-      <div className="p-4 space-y-2">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-white/50 text-xs">Brand: <span className="text-white/80 font-semibold">Axle Digital</span></span>
-          <div className="bg-brand-500 text-white text-[10px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 cursor-pointer">
-            <Zap size={9} /> Generate month
-          </div>
-        </div>
-        {posts.map(p => (
-          <div key={p.plat} className="flex items-center gap-3 bg-white/[0.04] rounded-xl p-3 border border-white/[0.06]">
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black flex-shrink-0" style={{ background: p.color + '22', color: p.color }}>{p.plat}</div>
-            <div className="flex-1">
-              <div className="text-white/70 text-xs font-medium">{p.label}</div>
-              <div className="text-white/30 text-[10px] mt-0.5">AI caption generated · On-brand graphic ready</div>
+    <div className="relative min-h-[330px] sm:min-h-[390px]">
+      {cards.map((card, idx) => {
+        const Icon = card.icon
+        const isActive = activeCard === idx
+        return (
+          <div
+            key={card.platform}
+            className={`absolute w-[82%] sm:w-[76%] rounded-2xl border ${card.border} bg-white shadow-[0_12px_34px_rgba(15,23,42,0.14)] overflow-hidden transition-all duration-700`}
+            style={{
+              top: `${idx * 48}px`,
+              left: `${idx * 9}%`,
+              transform: `translateY(${isActive ? '-8px' : '0px'}) rotate(${idx === 1 ? '-2.2deg' : idx === 2 ? '2.2deg' : '-1deg'}) scale(${isActive ? 1.02 : 1})`,
+              zIndex: isActive ? 50 : 30 - idx,
+              boxShadow: isActive ? '0 18px 45px rgba(16,185,129,0.25)' : undefined,
+            }}
+          >
+            <div className="px-3.5 py-2.5 border-b border-fog flex items-center justify-between bg-mist/60">
+              <div className="flex items-center gap-2">
+                <span className="w-7 h-7 rounded-full bg-surface border border-fog flex items-center justify-center text-ink/70">
+                  <Icon size={14} />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold text-ink">{card.platform}</p>
+                  <p className="text-[10px] text-ink/45">{card.handle}</p>
+                </div>
+              </div>
+              <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{card.status}</span>
             </div>
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${p.status === 'Ready' ? 'bg-teal/15 text-teal' : 'bg-white/10 text-white/40'}`}>{p.status}</span>
+            <img src={card.image} alt={`${card.platform} example post`} className="w-full h-36 sm:h-44 object-cover" />
+            <div className="px-3.5 py-2.5 border-t border-fog">
+              <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
+              <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
+                {card.caption}
+              </p>
+              <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
+            </div>
           </div>
-        ))}
-        <div className="mt-3 p-3 rounded-xl bg-brand-500/5 border border-brand-500/20">
-          <div className="text-white/40 text-[10px] mb-1.5 font-mono">AI caption preview</div>
-          <p className="text-white/65 text-xs leading-relaxed">"The future of banking isn't just digital — it's personal. Here's how we're redefining what service means for 2026. 🚀 #FinanceForward #AxleDigital"</p>
-        </div>
-      </div>
+        )
+      })}
     </div>
   )
 }
-
-function TrendsMockup() {
-  const trends = [
-    { topic: '#OpenBanking2026', heat: 94, posts: '12.4k posts', rising: true },
-    { topic: 'AI in fintech',    heat: 87, posts: '8.1k posts',  rising: true },
-    { topic: '#NigeriaStartups', heat: 76, posts: '5.9k posts',  rising: false },
-  ]
-  return (
-    <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
-      <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
-        {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Live Trend Engine</span>
-      </div>
-      <div className="p-4 space-y-2">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-white/40 text-xs">Trending in <span className="text-brand-400">Fintech</span> right now</span>
-          <span className="text-teal text-[10px] font-bold flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-teal animate-pulse inline-block" />LIVE</span>
-        </div>
-        {trends.map(t => (
-          <div key={t.topic} className="bg-white/[0.04] rounded-xl p-3 border border-white/[0.06] hover:border-brand-500/30 transition-colors cursor-pointer group">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-white/80 text-xs font-bold">{t.topic}</span>
-              {t.rising && <span className="text-teal text-[10px] font-bold flex items-center gap-0.5"><TrendingUp size={10} /> Rising</span>}
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 h-1.5 rounded-full bg-white/10">
-                <div className="h-full rounded-full bg-brand-500" style={{ width: `${t.heat}%` }} />
-              </div>
-              <span className="text-white/30 text-[10px]">{t.posts}</span>
-            </div>
-            <div className="mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="text-brand-400 text-[10px] font-bold flex items-center gap-1">Create post from this trend <ArrowRight size={9} /></div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function TeamMockup() {
-  const members = [
-    { name: 'Adaeze O.', role: 'Admin',    avatar: '#10A37F', action: 'Generated April content' },
-    { name: 'Emeka A.',  role: 'Approver', avatar: '#43B89C', action: 'Approved 12 posts' },
-    { name: 'Fatima H.', role: 'Editor',   avatar: '#FF6584', action: 'Edited 3 captions' },
-  ]
-  return (
-    <div className="bg-[#13121F] rounded-2xl border border-white/10 overflow-hidden shadow-2xl">
-      <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/5">
-        {['#FF5F57','#FEBC2E','#28C840'].map(c => <div key={c} className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />)}
-        <span className="text-white/20 text-xs ml-2 font-mono">Team Workspace — Novabridg</span>
-      </div>
-      <div className="p-4">
-        <div className="grid grid-cols-3 gap-2 mb-4">
-          {[['3', 'Brands'], ['10', 'Members'], ['92%', 'Approved']].map(([n, l]) => (
-            <div key={l} className="bg-white/[0.04] rounded-xl p-3 text-center border border-white/[0.06]">
-              <div className="text-brand-400 font-bold text-lg">{n}</div>
-              <div className="text-white/40 text-[10px]">{l}</div>
-            </div>
-          ))}
-        </div>
-        <div className="space-y-2">
-          {members.map(m => (
-            <div key={m.name} className="flex items-center gap-3 bg-white/[0.04] rounded-xl p-3 border border-white/[0.06]">
-              <div className="w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0" style={{ background: m.avatar }}>
-                {m.name.slice(0, 2)}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-white/70 text-xs font-semibold">{m.name}</div>
-                <div className="text-white/30 text-[10px] truncate">{m.action}</div>
-              </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/40 flex-shrink-0">{m.role}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-const MOCKUPS = { 'mockup-generate': GenerateMockup, 'mockup-trends': TrendsMockup, 'mockup-team': TeamMockup }
-
-/* ─── Page ───────────────────────────────────────────────────────── */
 
 export default function LandingPage() {
-  const navigate = useNavigate()
+  const [openFaqIdx, setOpenFaqIdx] = useState(0)
+  const [pricingCurrency, setPricingCurrency] = useState('USD')
+  const metrics = [
+    ['30+', 'posts generated per month'],
+    ['3x', 'faster campaign turnaround'],
+    ['68%', 'lower content production cost'],
+  ]
+  const discoverExamples = [
+    {
+      brand: 'Juicy Junction',
+      platform: 'Instagram',
+      image: '/marketing-examples/juicy-wrap.png',
+      caption: 'Lunch hour campaign creative generated and scheduled in minutes.',
+    },
+    {
+      brand: 'Uber Lagos',
+      platform: 'X',
+      image: '/marketing-examples/uber-ride.png',
+      caption: 'City mobility promo designed with clear CTA and platform-ready format.',
+    },
+    {
+      brand: 'Krispy Kreme NG',
+      platform: 'Facebook',
+      image: '/marketing-examples/krispy-fresh.png',
+      caption: 'Offer-driven post with conversion-focused copy and timing controls.',
+    },
+    {
+      brand: 'Juicy Junction',
+      platform: 'Instagram',
+      image: '/marketing-examples/juicy-jollof.png',
+      caption: 'Seasonal food promo with strong visual hierarchy and brand consistency.',
+    },
+    {
+      brand: 'Nike Campaign',
+      platform: 'Instagram',
+      image: '/marketing-examples/nike-campaign.png',
+      caption: 'High-impact launch visual built for mobile-first social engagement.',
+    },
+    {
+      brand: 'Uber Lagos',
+      platform: 'Facebook',
+      image: '/marketing-examples/uber-ride.png',
+      caption: 'Route-aware campaign post adapted for broader audience targeting.',
+    },
+  ]
+  const faqs = [
+    {
+      q: 'How quickly can I start creating with ContentCard?',
+      a: 'Most teams start creating their first campaign in under 10 minutes. You can set your brand basics, choose a direction, and generate ready-to-publish content immediately.',
+    },
+    {
+      q: 'Which social platforms does ContentCard support?',
+      a: 'ContentCard supports Instagram, X, and Facebook workflows out of the box, with post-ready formats, captions, and scheduling support.',
+    },
+    {
+      q: 'Can I keep every post on-brand?',
+      a: 'Yes. ContentCard applies your brand voice, visual preferences, and content guardrails so every output stays consistent across campaigns.',
+    },
+    {
+      q: 'Do I need a designer or large team to use it?',
+      a: 'No. ContentCard is built for lean teams and business owners who need high-quality social content without adding design headcount.',
+    },
+    {
+      q: 'How does pricing work?',
+      a: 'You can start free, then upgrade to a paid plan when you need more volume, advanced workflows, or multi-brand support.',
+    },
+  ]
+  const pricingPlans = [
+    { name: 'Starter', usd: 25, ngn: 20000, blurb: 'For growing businesses ready to show up daily.' },
+    { name: 'Business', usd: 50, ngn: 50000, blurb: 'For teams serious about social as a revenue channel.' },
+    { name: 'Enterprise', usd: 100, ngn: 200000, blurb: 'For agencies and multi-brand organisations.' },
+  ]
+
+  useEffect(() => {
+    let detected = 'USD'
+    try {
+      const locales = [navigator.language, ...(navigator.languages || [])].filter(Boolean)
+      const localeHint = locales.join(' ').toUpperCase()
+      const timezone = (Intl.DateTimeFormat().resolvedOptions().timeZone || '').toUpperCase()
+      if (localeHint.includes('-NG') || localeHint.includes('_NG') || timezone.includes('AFRICA/LAGOS')) {
+        detected = 'NGN'
+      }
+    } catch {
+      detected = 'USD'
+    }
+    setPricingCurrency(detected)
+  }, [])
 
   return (
-    <div className="bg-ink min-h-screen text-white overflow-x-hidden">
-
-      {/* ── Nav ── */}
-      <nav className="sticky top-0 z-50 border-b border-white/5 bg-ink/90 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          <Link to="/"><LogoFull size={26} dark /></Link>
-          <div className="hidden md:flex items-center gap-7">
-            {[['Product', '/features'], ['Solutions', '/solutions/agencies'], ['Enterprise', '/enterprise'], ['Pricing', '/pricing']].map(([l, h]) => (
-              <Link key={l} to={h} className="text-white/45 hover:text-white text-sm font-medium transition-colors">{l}</Link>
-            ))}
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/login')} className="text-white/50 hover:text-white text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
-            <button onClick={() => navigate('/demo')} className="text-sm font-bold px-4 py-2 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all hidden sm:block">Get a demo</button>
-            <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free trial <ArrowRight size={13} /></button>
-          </div>
-        </div>
-      </nav>
-
-      {/* ── Hero ── */}
-      <section className="relative overflow-hidden">
+    <MarketingLayout>
+      <section className="relative border-b border-fog overflow-hidden bg-[#f3f4f2]">
         <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute top-0 right-0 w-[700px] h-[700px] rounded-full bg-brand-600/10 blur-[160px]" />
-          <div className="absolute bottom-0 left-0 w-[400px] h-[400px] rounded-full bg-teal/5 blur-[120px]" />
+          <div className="absolute -right-16 top-12 w-[340px] h-[340px] rounded-full border border-ink/10" />
+          <div className="absolute right-24 top-28 w-[420px] h-[420px] rounded-full border border-ink/5 hidden lg:block" />
         </div>
-        <div className="relative max-w-7xl mx-auto px-6 pt-16 pb-0 grid lg:grid-cols-2 gap-12 items-center">
-
-          {/* Left */}
-          <div className="py-12 lg:py-20">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500/10 border border-brand-500/20 rounded-full text-brand-400 text-xs font-bold uppercase tracking-widest mb-8">
-              <Zap size={10} /> Trusted by 500+ enterprise marketing teams
-            </div>
-            <h1 className="text-5xl lg:text-6xl font-bold leading-[1.05] mb-6" style={{ letterSpacing: '-0.03em' }}>
-              Social content that<br />performs — generated<br />
-              <span className="text-brand-400">in seconds.</span>
-            </h1>
-            <p className="text-lg text-white/50 mb-10 leading-relaxed max-w-lg">
-              ContentCard gives marketing teams, agencies, and growing brands a complete system to plan, generate, and publish on-brand content — without the overhead of agencies or additional headcount.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 mb-10">
-              <button onClick={() => navigate('/signup')} className="btn-primary px-7 py-3.5 text-base">
-                Start your free trial <ArrowRight size={16} />
-              </button>
-              <button onClick={() => navigate('/demo')} className="flex items-center justify-center gap-2 px-7 py-3.5 rounded-xl border border-white/10 text-white/60 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
-                <Play size={13} className="fill-white/60" /> See how it works
-              </button>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex -space-x-2.5">
-                {[
-                  'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=48&h=48&auto=format&fit=crop&q=80',
-                  'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=48&h=48&auto=format&fit=crop&q=80',
-                  'https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?w=48&h=48&auto=format&fit=crop&q=80',
-                  'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=48&h=48&auto=format&fit=crop&q=80',
-                ].map((src, i) => (
-                  <img key={i} src={src} alt="" className="w-9 h-9 rounded-full border-2 border-ink object-cover" />
-                ))}
-              </div>
-              <div>
-                <div className="flex gap-0.5 mb-0.5">
-                  {Array(5).fill(0).map((_, i) => <Star key={i} size={11} className="fill-yellow-400 text-yellow-400" />)}
-                </div>
-                <p className="text-white/40 text-xs"><strong className="text-white/70">4.9/5</strong> from 300+ enterprise reviews</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Right — hero image */}
-          <div className="relative hidden lg:block">
-            <div className="relative h-[620px]">
-              <img
-                src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=700&auto=format&fit=crop&q=85"
-                alt="Marketing professional using ContentCard"
-                className="absolute inset-0 w-full h-full object-cover object-top rounded-tl-3xl rounded-tr-3xl"
-              />
-              {/* gradient fade bottom */}
-              <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-ink to-transparent" />
-
-              {/* Floating cards */}
-              <div className="absolute top-8 -left-8 bg-[#13121F] border border-white/10 rounded-2xl px-4 py-3 shadow-2xl backdrop-blur-sm">
-                <div className="text-[10px] text-white/40 mb-1">This month's reach</div>
-                <div className="text-2xl font-bold text-white">2.4M</div>
-                <div className="text-teal text-[10px] font-bold flex items-center gap-1 mt-0.5"><TrendingUp size={9} /> +31% vs last month</div>
-              </div>
-
-              <div className="absolute top-32 -right-8 bg-[#13121F] border border-white/10 rounded-2xl px-4 py-3 shadow-2xl backdrop-blur-sm">
-                <div className="text-[10px] text-white/40 mb-1">Content generated</div>
-                <div className="flex items-end gap-1">
-                  <span className="text-2xl font-bold text-white">30</span>
-                  <span className="text-white/40 text-xs mb-0.5">posts</span>
-                </div>
-                <div className="text-brand-400 text-[10px] font-bold mt-0.5">In 28 seconds ⚡</div>
-              </div>
-
-              <div className="absolute bottom-24 -left-8 bg-[#13121F] border border-white/10 rounded-2xl px-4 py-3 shadow-2xl backdrop-blur-sm">
-                <div className="text-[10px] text-white/40 mb-1.5">Team approval</div>
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-teal flex items-center justify-center">
-                    <Check size={10} className="text-ink" />
-                  </div>
-                  <span className="text-white text-xs font-semibold">12 posts approved</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Logo bar ── */}
-      <section className="border-y border-white/5 bg-white/[0.015] py-10 px-6">
-        <div className="max-w-7xl mx-auto">
-          <p className="text-white/25 text-xs font-bold uppercase tracking-widest text-center mb-8">Trusted by content teams at Africa's leading organisations</p>
-          <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-5">
-            {LOGOS.map(({ name, style }) => (
-              <span key={name} className="text-base opacity-60 hover:opacity-100 transition-opacity cursor-default" style={style}>{name}</span>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── ROI Stats (Hootsuite-style) ── */}
-      <section className="py-24 px-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Proven business impact</div>
-            <h2 className="text-4xl md:text-5xl font-bold text-white mb-4" style={{ letterSpacing: '-0.02em' }}>
-              Measurable business outcomes
-            </h2>
-            <p className="text-white/40 text-lg max-w-xl mx-auto">Real results from real organisations, across marketing, cost, and revenue.</p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {ROI_STATS.map(({ stat, label, company, detail }) => (
-              <div key={stat} className="bg-white/[0.03] border border-white/[0.06] rounded-3xl p-8 hover:border-brand-500/30 transition-all group">
-                <div className="text-6xl font-black text-brand-400 mb-3 group-hover:text-brand-300 transition-colors" style={{ letterSpacing: '-0.03em' }}>{stat}</div>
-                <div className="text-white text-lg font-bold mb-2">{label}</div>
-                <div className="text-white/30 text-sm leading-relaxed mb-5">{detail}</div>
-                <div className="flex items-center gap-2 pt-4 border-t border-white/5">
-                  <div className="w-1.5 h-1.5 rounded-full bg-teal" />
-                  <span className="text-white/40 text-xs font-medium">{company}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Features (alternating) ── */}
-      <section id="features" className="py-8 px-6 border-t border-white/5">
-        <div className="max-w-7xl mx-auto space-y-32 py-16">
-          {FEATURES.map(({ badge, title, body, bullets, side }, idx) => {
-            const Mockup = MOCKUPS[side]
-            const isEven = idx % 2 === 0
-            return (
-              <div key={badge} className={`grid lg:grid-cols-2 gap-16 items-center ${isEven ? '' : 'lg:[&>*:first-child]:order-2'}`}>
-                {/* Text */}
-                <div>
-                  <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-5">{badge}</div>
-                  <h2 className="text-4xl font-bold text-white mb-5 leading-tight" style={{ letterSpacing: '-0.02em' }}>
-                    {title.split('\n').map((line, i) => <span key={i}>{line}{i < title.split('\n').length - 1 && <br />}</span>)}
-                  </h2>
-                  <p className="text-white/45 leading-relaxed mb-8 text-lg">{body}</p>
-                  <div className="space-y-3 mb-8">
-                    {bullets.map(b => (
-                      <div key={b} className="flex items-center gap-3 text-white/65 text-sm">
-                        <div className="w-5 h-5 rounded-full bg-brand-500/15 border border-brand-500/30 flex items-center justify-center flex-shrink-0">
-                          <Check size={10} className="text-brand-400" />
-                        </div>
-                        {b}
-                      </div>
-                    ))}
-                  </div>
-                  <button onClick={() => navigate('/features')} className="flex items-center gap-2 text-brand-400 hover:text-brand-300 font-semibold text-sm transition-colors">
-                    See how it works <ChevronRight size={16} />
-                  </button>
-                </div>
-                {/* Mockup */}
-                <div className="relative">
-                  <div className="absolute -inset-4 bg-brand-500/5 rounded-3xl blur-xl" />
-                  <div className="relative">
-                    <Mockup />
-                  </div>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      </section>
-
-      {/* ── Testimonials ── */}
-      <section className="py-24 px-6 border-t border-white/5 bg-white/[0.01]">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-center mb-16">
-            <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">From the people using it</div>
-            <h2 className="text-4xl md:text-5xl font-bold text-white mb-3" style={{ letterSpacing: '-0.02em' }}>
-              The teams behind the results
-            </h2>
-            <p className="text-white/40 text-lg">CMOs, agency directors, and brand leaders share what changed after switching to ContentCard.</p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-6">
-            {TESTIMONIALS.map(({ quote, name, title, company, result, img }) => (
-              <div key={name} className="bg-white/[0.03] border border-white/[0.06] hover:border-white/10 rounded-3xl p-7 flex flex-col transition-all">
-                {/* Result badge */}
-                <div className="inline-flex items-center gap-2 bg-brand-500/10 border border-brand-500/20 rounded-full px-3 py-1.5 mb-6 self-start">
-                  <TrendingUp size={10} className="text-brand-400" />
-                  <span className="text-brand-400 text-xs font-bold">{result}</span>
-                </div>
-                {/* Stars */}
-                <div className="flex gap-0.5 mb-4">
-                  {Array(5).fill(0).map((_, i) => <Star key={i} size={12} className="fill-yellow-400 text-yellow-400" />)}
-                </div>
-                {/* Quote */}
-                <p className="text-white/60 text-sm leading-relaxed mb-7 flex-1">"{quote}"</p>
-                {/* Person */}
-                <div className="flex items-center gap-3 pt-5 border-t border-white/5">
-                  <img src={img} alt={name} className="w-11 h-11 rounded-full object-cover border-2 border-white/10" />
-                  <div>
-                    <div className="text-white font-bold text-sm">{name}</div>
-                    <div className="text-white/40 text-xs mt-0.5">{title}</div>
-                    <div className="text-brand-400 text-xs font-semibold mt-0.5">{company}</div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Enterprise ── */}
-      <section id="enterprise" className="py-24 px-6 border-t border-white/5">
-        <div className="max-w-7xl mx-auto">
-          <div className="rounded-3xl border border-brand-500/20 bg-brand-500/5 overflow-hidden">
-            <div className="grid lg:grid-cols-2 gap-0">
-              {/* Left */}
-              <div className="p-12 lg:p-16">
-                <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-6">Enterprise</div>
-                <h2 className="text-4xl font-bold text-white mb-5" style={{ letterSpacing: '-0.02em' }}>
-                  Built for complex organisations at scale
-                </h2>
-                <p className="text-white/50 leading-relaxed mb-8 text-lg">
-                  ContentCard Enterprise supports organisations managing multiple regional brands, large distributed marketing teams, and strict requirements around brand consistency and compliance.
-                </p>
-                <div className="space-y-3 mb-10">
-                  {[
-                    'Dedicated customer success manager',
-                    'Custom onboarding for your team',
-                    'SLA-backed uptime & priority support',
-                    'Nigerian ₦ and international $ billing',
-                    'SSO & advanced permissions',
-                  ].map(f => (
-                    <div key={f} className="flex items-center gap-3 text-white/65 text-sm">
-                      <div className="w-5 h-5 rounded-full bg-brand-500/20 border border-brand-500/40 flex items-center justify-center flex-shrink-0">
-                        <Check size={10} className="text-brand-400" />
-                      </div>
-                      {f}
-                    </div>
-                  ))}
-                </div>
-                <button onClick={() => navigate('/enterprise')} className="btn-primary px-7 py-3.5">
-                  Talk to our enterprise team <ArrowRight size={16} />
-                </button>
-              </div>
-              {/* Right — image */}
-              <div className="relative hidden lg:block">
-                <img
-                  src="https://images.unsplash.com/photo-1522071820081-009f0129c71c?w=800&auto=format&fit=crop&q=80"
-                  alt="Enterprise marketing team"
-                  className="absolute inset-0 w-full h-full object-cover opacity-50"
-                />
-                <div className="absolute inset-0 bg-gradient-to-r from-[#0F0E17] via-transparent to-transparent" />
-                <div className="absolute bottom-10 right-10 grid grid-cols-2 gap-3">
-                  {[['10+', 'Brand profiles'], ['∞', 'Team seats'], ['∞', 'Monthly posts'], ['24/7', 'Priority support']].map(([n, l]) => (
-                    <div key={l} className="bg-ink/80 backdrop-blur-sm border border-white/10 rounded-2xl p-4">
-                      <div className="text-2xl font-bold text-brand-400">{n}</div>
-                      <div className="text-white/50 text-xs mt-0.5">{l}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Pricing ── */}
-      <section id="pricing" className="py-24 px-6 border-t border-white/5">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-14">
-            <div className="text-brand-400 text-xs font-bold uppercase tracking-widest mb-4">Pricing</div>
-            <h2 className="text-4xl font-bold text-white mb-3" style={{ letterSpacing: '-0.02em' }}>Clear pricing, no hidden costs.</h2>
-            <p className="text-white/40 text-sm max-w-md mx-auto">Nigerian teams pay in ₦ via Paystack. International billing via Stripe. Currency is detected automatically.</p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-5">
-            {PLANS.map(p => (
-              <div key={p.name} className={`rounded-2xl p-7 flex flex-col relative ${p.featured ? 'border-2 border-brand-500 bg-brand-500/5' : 'border border-white/[0.06] bg-white/[0.02]'}`}>
-                {p.featured && <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-brand-500 text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider whitespace-nowrap">Most popular</div>}
-                <div className="text-white/50 text-xs font-bold uppercase tracking-widest mb-2">{p.name}</div>
-                <p className="text-white/35 text-xs mb-5 leading-relaxed">{p.desc}</p>
-                <div className="text-4xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>{p.usd}</div>
-                <div className="text-white/25 text-xs mb-6">{p.ngn}/mo in Nigeria · billed monthly</div>
-                <div className="flex-1 space-y-2.5 mb-7">
-                  {p.features.map(f => (
-                    <div key={f} className="flex items-center gap-2.5 text-sm text-white/55">
-                      <div className="w-4 h-4 rounded-full bg-brand-500/15 border border-brand-500/25 flex items-center justify-center flex-shrink-0"><Check size={9} className="text-brand-400" /></div>
-                      {f}
-                    </div>
-                  ))}
-                </div>
-                <button onClick={() => navigate('/signup')}
-                  className={`w-full py-3 rounded-xl text-sm font-bold transition-all ${p.featured ? 'bg-brand-500 hover:bg-brand-600 text-white' : 'bg-white/5 hover:bg-white/10 text-white border border-white/10'}`}>
-                  Start free trial
-                </button>
-              </div>
-            ))}
-          </div>
-          <p className="text-center text-white/25 text-xs mt-8">14-day free trial on all plans · No credit card required · Cancel anytime</p>
-        </div>
-      </section>
-
-      {/* ── Final CTA ── */}
-      <section className="py-0 px-6 border-t border-white/5">
-        <div className="max-w-7xl mx-auto">
-          <div className="rounded-3xl overflow-hidden relative">
-            <img
-              src="https://images.unsplash.com/photo-1553877522-43269d4ea984?w=1400&auto=format&fit=crop&q=80"
-              alt="Team celebrating results"
-              className="w-full h-[480px] object-cover object-center"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#0F172A] via-[#0F172A]/85 to-[#0F172A]/40" />
-            <div className="absolute inset-0 flex items-center px-12 lg:px-20">
-              <div className="max-w-xl">
-                <h2 className="text-4xl lg:text-5xl font-bold text-white mb-5" style={{ letterSpacing: '-0.03em' }}>
-                  Your content operation, transformed.
-                </h2>
-                <p className="text-white/50 text-lg mb-8">Join 500+ marketing teams using ContentCard to publish consistently, strengthen brand equity, and deliver measurable results from social.</p>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button onClick={() => navigate('/signup')} className="btn-primary px-8 py-4 text-base">
-                    Start your free trial <ArrowRight size={17} />
-                  </button>
-                  <button onClick={() => navigate('/demo')} className="px-8 py-4 rounded-xl border border-white/20 text-white/70 hover:text-white hover:bg-white/5 transition-all text-sm font-semibold">
-                    Request a demo
-                  </button>
-                </div>
-                <p className="text-white/25 text-sm mt-5">14-day free trial · No credit card required · Cancel anytime</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Footer ── */}
-      <footer className="border-t border-white/5 py-12 px-6 mt-24">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-4 gap-8 mb-12">
+        <MarketingContainer className="relative py-12 sm:py-16 lg:py-20">
+          <div className="grid lg:grid-cols-[0.92fr_1.08fr] gap-12 items-center">
             <div>
-              <Link to="/"><LogoFull size={24} dark /></Link>
-              <p className="text-white/30 text-sm mt-4 leading-relaxed">AI-powered social content for enterprise teams, agencies, and startups.</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-4">Built for small businesses</p>
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.03] max-w-[12ch]">
+                Create social content that drives sales.
+              </h1>
+              <p className="mt-5 text-lg text-ink/65 leading-relaxed max-w-[28ch]">
+                ContentCard helps you design, caption, and publish brand-ready posts in minutes across Instagram, X, and Facebook.
+              </p>
+              <div className="mt-7 flex flex-col sm:flex-row gap-3 max-w-[520px]">
+                <input
+                  type="email"
+                  placeholder="Enter your email address"
+                  className="h-12 sm:flex-1 rounded-xl border border-fog bg-white px-4 text-sm text-ink placeholder:text-ink/45 focus:outline-none focus:ring-2 focus:ring-brand-300/60"
+                />
+                <PrimaryCta to="/signup" className="h-12 px-6 justify-center whitespace-nowrap">
+                  Start creating <ArrowRight size={14} className="ml-1" />
+                </PrimaryCta>
+              </div>
+              <div className="mt-3 text-xs text-ink/45">
+                No credit card required to start.
+              </div>
+              <div className="mt-5">
+                <SecondaryCta to="/pricing">View pricing</SecondaryCta>
+              </div>
             </div>
-            {[
-              { heading: 'Product',   links: [['Features','/features'],['Pricing','/pricing'],['Changelog','/changelog'],['Roadmap','/roadmap']] },
-              { heading: 'Solutions', links: [['Enterprise','/enterprise'],['Agencies','/solutions/agencies'],['Startups','/solutions/startups'],['Corporate','/solutions/corporate']] },
-              { heading: 'Company',   links: [['About','/about'],['Blog','/blog'],['Careers','/careers'],['Contact','/contact'],['Pitch Deck','/pitch-deck']] },
-            ].map(({ heading, links }) => (
-              <div key={heading}>
-                <div className="text-white/60 text-xs font-bold uppercase tracking-widest mb-4">{heading}</div>
-                <div className="space-y-2.5">
-                  {links.map(([l, h]) => <Link key={l} to={h} className="block text-white/30 hover:text-white/60 text-sm transition-colors">{l}</Link>)}
-                  {heading === 'Company' && (
-                    <a href="/contentcard-pitch-deck.pdf" target="_blank" rel="noopener noreferrer" className="block text-white/30 hover:text-white/60 text-sm transition-colors">Pitch Deck ↗</a>
-                  )}
+            <div className="lg:pl-4">
+              <div className="relative">
+                <div className="absolute -top-8 -right-6 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
+                  <img src="/marketing-examples/meme-wow-badge.svg" alt="Meme wow sticker" className="w-full h-full rounded-2xl object-cover" />
                 </div>
+                <div className="absolute -bottom-6 -left-6 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
+                  <img src="/marketing-examples/cartoon-creator-mascot.svg" alt="Cartoon creator mascot" className="w-full h-full rounded-2xl object-cover" />
+                </div>
+                <HeroPlatformCards />
+              </div>
+            </div>
+          </div>
+        </MarketingContainer>
+      </section>
+
+      <SurfaceSection className="bg-white border-b border-fog">
+        <MarketingContainer>
+          <SectionHeader
+            eyebrow="Discover"
+            title="See what brands create with ContentCard"
+            subtitle="Explore campaign-ready social posts created for real business use cases across food, mobility, and retail."
+          />
+          <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {discoverExamples.map((item, idx) => (
+              <article
+                key={`${item.brand}-${item.platform}-${idx}`}
+                className="rounded-3xl border border-fog bg-white overflow-hidden shadow-[0_14px_36px_rgba(15,23,42,0.08)]"
+              >
+                <img src={item.image} alt={`${item.brand} ${item.platform} post design`} className="w-full h-64 object-cover bg-mist/60" />
+                <div className="p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-base font-semibold text-ink">{item.brand}</p>
+                    <span className="rounded-full w-7 h-7 bg-brand-50 text-brand-700 border border-brand-100 inline-flex items-center justify-center">
+                      {item.platform === 'Instagram' ? (
+                        <Instagram size={13} />
+                      ) : item.platform === 'Facebook' ? (
+                        <Facebook size={13} />
+                      ) : (
+                        <Twitter size={13} />
+                      )}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-ink/65 leading-relaxed">{item.caption}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <section className="bg-gradient-to-b from-brand-700 via-brand-800 to-[#0f2a22] border-y border-brand-900 text-white">
+        <MarketingContainer className="py-14 sm:py-16">
+          <p className="text-3xl sm:text-4xl font-medium leading-tight max-w-4xl text-white/95">
+            Plan, create, and publish high-quality campaigns with speed and confidence.
+          </p>
+          <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-emerald-300/35 via-lime-200/30 to-teal-200/30 border border-white/20" />
+          <div className="mt-10 grid sm:grid-cols-3 gap-6">
+            {metrics.map(([value, label]) => (
+              <div key={label} className="rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-sm">
+                <p className="text-5xl font-semibold tracking-tight text-emerald-200">{value}</p>
+                <p className="mt-1 text-white/75">{label}</p>
               </div>
             ))}
           </div>
-          <div className="flex flex-col md:flex-row items-center justify-between gap-4 pt-8 border-t border-white/5">
-            <p className="text-white/20 text-xs">© 2025 ContentCard. All rights reserved.</p>
-            <div className="flex gap-6">
-              {[['Privacy','/privacy'],['Terms','/terms'],['Security','/security'],['Support','/support']].map(([l,h]) => (
-                <Link key={l} to={h} className="text-white/25 hover:text-white/50 text-xs transition-colors">{l}</Link>
-              ))}
-            </div>
+        </MarketingContainer>
+      </section>
+
+      <SurfaceSection className="bg-white border-b border-fog">
+        <MarketingContainer>
+          <SectionHeader
+            eyebrow="Pricing preview"
+            title="Plans shown in your local currency"
+            subtitle={
+              pricingCurrency === 'NGN'
+                ? 'Showing estimated monthly pricing in ₦ based on your location.'
+                : 'Showing estimated monthly pricing in $.'
+            }
+          />
+          <div className="mt-8 grid md:grid-cols-3 gap-5">
+            {pricingPlans.map((plan) => (
+              <article key={plan.name} className="rounded-2xl border border-fog bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+                <p className="text-[11px] uppercase tracking-widest text-ink/45 font-semibold">{plan.name}</p>
+                <p className="mt-2 text-4xl font-semibold text-ink tracking-tight">
+                  {pricingCurrency === 'NGN' ? `₦${plan.ngn.toLocaleString()}` : `$${plan.usd}`}
+                </p>
+                <p className="text-xs text-ink/45 mt-1">Billed monthly</p>
+                <p className="mt-3 text-sm text-ink/65 leading-relaxed">{plan.blurb}</p>
+              </article>
+            ))}
           </div>
-        </div>
-      </footer>
-    </div>
+          <div className="mt-6">
+            <SecondaryCta to="/pricing">View full pricing</SecondaryCta>
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection className="border-b border-fog bg-white">
+        <MarketingContainer className="max-w-4xl text-center">
+          <img
+            src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=96&h=96&auto=format&fit=crop&q=80"
+            alt="Customer testimonial avatar"
+            className="w-14 h-14 rounded-full object-cover mx-auto mb-6 border border-fog"
+          />
+          <p className="text-3xl sm:text-4xl leading-tight text-ink/80">
+            “We used to spend hours on one post. Now we schedule a full week of quality content in under 30 minutes.”
+          </p>
+          <p className="mt-5 text-ink/65">
+            <strong className="text-ink">Amaka Eze</strong>, Founder, Fresh Basket Mart
+          </p>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection className="bg-gradient-to-b from-white via-[#fcfcff] to-white border-b border-fog/80">
+        <MarketingContainer>
+          <SectionHeader
+            eyebrow="Why teams switch"
+            title="Flexible growth workflows for every social operating model"
+            subtitle="Scale your brand system with clean, high-clarity campaign operations designed to work independently or together."
+            center
+          />
+          <div className="mt-10">
+            <WhyTeamsSwitchShowcase />
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection className="bg-white border-b border-fog">
+        <MarketingContainer className="max-w-5xl">
+          <SectionHeader
+            eyebrow="FAQ"
+            title="Frequently asked questions"
+            subtitle="Everything you need to know before you start creating with ContentCard."
+          />
+          <div className="mt-8 space-y-3">
+            {faqs.map((item, idx) => (
+              <div key={item.q} className="rounded-2xl border border-fog bg-white p-5">
+                <button
+                  type="button"
+                  onClick={() => setOpenFaqIdx(idx)}
+                  className="w-full text-left flex items-center justify-between gap-4"
+                  aria-expanded={openFaqIdx === idx}
+                >
+                  <p className="text-base font-semibold text-ink">{item.q}</p>
+                  <span className={`text-ink/45 transition-transform text-xl leading-none ${openFaqIdx === idx ? 'rotate-45' : ''}`}>+</span>
+                </button>
+                {openFaqIdx === idx && (
+                  <p className="mt-3 text-sm text-ink/65 leading-relaxed">{item.a}</p>
+                )}
+              </div>
+            ))}
+          </div>
+        </MarketingContainer>
+      </SurfaceSection>
+
+      <SurfaceSection>
+        <MarketingContainer>
+          <CtaBand
+            title="Ready to run social like a high-performing team?"
+            body="Start free and launch your first campaign month in minutes."
+            primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
+            secondary={<SecondaryCta to="/pricing">View pricing</SecondaryCta>}
+          />
+        </MarketingContainer>
+      </SurfaceSection>
+    </MarketingLayout>
   )
 }

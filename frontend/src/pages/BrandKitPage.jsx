@@ -1,14 +1,32 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { Check, Plus, X, ArrowRight } from 'lucide-react'
+import { Check, Plus, X, ArrowRight, Upload } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import useAppStore from '../stores/appStore'
+import { brandApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
+import { normalizeHex } from '../lib/brandVisualValidate'
+import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
+import LogoCropModal from '../components/brand/LogoCropModal'
+import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
+import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 
-const TABS = ['Basics','Audience','Identity','Voice','Compliance','Rules']
-const inpCls = "w-full px-4 py-3 bg-zinc-950 border border-zinc-800 rounded-xl text-white placeholder:text-zinc-600 focus:outline-none focus:ring-2 focus:ring-violet-500/50 focus:border-violet-500 transition-all text-sm"
+const TABS = ['Basics', 'Products', 'Reviews', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
+
+const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
+const CAMPAIGN_ART_STYLE_PROFILES = [
+  { id: 'balanced_social_ad', label: 'Balanced social ad (recommended)' },
+  { id: 'bold_illustration_offer', label: 'Bold illustration + offer-first' },
+  { id: 'minimal_premium_editorial', label: 'Minimal premium editorial' },
+  { id: 'product_cutout_collage', label: 'Product cutout collage' },
+]
+
+const inpCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 const taCls  = `${inpCls} resize-none`
+const cardCls = "bg-surface border border-fog rounded-2xl p-6"
+const sectionTitleCls = "text-ink font-bold text-sm"
+const labelCls = "block text-xs font-bold uppercase tracking-widest text-ink/40"
 const TONE_TAGS = ['Bold','Authentic','Energetic','Playful','Luxury','Minimal','Warm','Professional','Witty','Inspirational','Confident','Friendly']
 
 const FONTS = [
@@ -23,6 +41,61 @@ const FONTS = [
   { value: 'oswald',      label: 'Oswald',        style: { fontFamily: 'Oswald, sans-serif' } },
   { value: 'sourceserif', label: 'Source Serif',  style: { fontFamily: '"Source Serif 4", serif' } },
 ]
+
+const ALLOWED_FONT_IDS = new Set(FONTS.map((f) => f.value))
+
+function mergeVisualSystem(kit, brandColors, brandFont) {
+  const cur = (kit && kit.visual_system) || {}
+  const bf = (brandFont || 'inter').toLowerCase()
+  const hf = ALLOWED_FONT_IDS.has((cur.heading_font || '').toLowerCase())
+    ? (cur.heading_font || '').toLowerCase()
+    : bf
+  const bod = ALLOWED_FONT_IDS.has((cur.body_font || '').toLowerCase())
+    ? (cur.body_font || '').toLowerCase()
+    : bf
+  const def = {
+    version: 1,
+    primary_hex: cur.primary_hex || brandColors[0] || '#6366f1',
+    secondary_hex: cur.secondary_hex || brandColors[1] || brandColors[0] || '#6366f1',
+    accent_hex: cur.accent_hex || brandColors[2] || brandColors[1] || '#6366f1',
+    neutral_hex: cur.neutral_hex || '#f4f4f5',
+    heading_font: hf,
+    body_font: bod,
+    logo_placement: cur.logo_placement || 'bottom_right',
+    logo_min_width_px: cur.logo_min_width_px ?? 80,
+    allowed_archetypes: Array.isArray(cur.allowed_archetypes) && cur.allowed_archetypes.length
+      ? cur.allowed_archetypes
+      : [...VISUAL_ARCHETYPES],
+    never_show_motifs: Array.isArray(cur.never_show_motifs) ? cur.never_show_motifs : [],
+    reference_urls: Array.isArray(cur.reference_urls) ? cur.reference_urls : [],
+    reference_rights_attested: !!cur.reference_rights_attested,
+    forbidden_hexes: Array.isArray(cur.forbidden_hexes) ? cur.forbidden_hexes : [],
+    image_people_style: ['real_people', 'illustration', 'cartoon', 'mixed'].includes(
+      String(cur.image_people_style || 'real_people').toLowerCase()
+    )
+      ? String(cur.image_people_style || 'real_people').toLowerCase()
+      : 'real_people',
+    default_visual_type: ['auto', 'real_people', 'illustration', 'abstract', 'product'].includes(
+      String(cur.default_visual_type || 'auto').toLowerCase()
+    )
+      ? String(cur.default_visual_type || 'auto').toLowerCase()
+      : 'auto',
+    campaign_art_style_profile: CAMPAIGN_ART_STYLE_PROFILES.some((x) => x.id === String(cur.campaign_art_style_profile || ''))
+      ? String(cur.campaign_art_style_profile)
+      : 'balanced_social_ad',
+  }
+  const merged = {
+    ...def,
+    ...cur,
+    allowed_archetypes: cur.allowed_archetypes?.length ? cur.allowed_archetypes : def.allowed_archetypes,
+  }
+  const ips = String(merged.image_people_style || 'real_people').toLowerCase()
+  merged.image_people_style = ['real_people', 'illustration', 'cartoon', 'mixed'].includes(ips) ? ips : 'real_people'
+  if (!CAMPAIGN_ART_STYLE_PROFILES.some((x) => x.id === String(merged.campaign_art_style_profile || ''))) {
+    merged.campaign_art_style_profile = 'balanced_social_ad'
+  }
+  return merged
+}
 
 const LANGUAGE_OPTIONS_BY_COUNTRY = {
   NG: [['english','English'],['nigerian_english','Nigerian English'],['pidgin','Pidgin (Naija)'],['mix','Mix (code-switching)']],
@@ -82,72 +155,94 @@ function computeScores(form) {
   return {
     name: () => {
       const v = (form.name || '').trim()
-      if (!v) return s('poor', 'Add your brand name — it anchors every AI-generated post and visual.')
+      if (!v) return s('poor', 'Add your brand name: it anchors every generated post and visual.')
       return s('excellent', 'Brand name set.')
     },
     industry: () => {
-      if (!form.industry) return s('poor', 'Select your industry so AI uses the right market language and references.')
-      return s('excellent', 'Industry set — AI will align language and examples to your sector.')
+      if (!form.industry) return s('poor', 'Select your industry so content uses the right market language and references.')
+      return s('excellent', 'Industry set: content will align language and examples to your sector.')
     },
     description: () => {
       const words = wc(form.description)
       if (words === 0) return s('poor', 'Most important field. Describe what your company does, who you serve, and the problem you solve.')
       if (words < 15)  return s('fair', 'Too brief. Add who your customers are, what you offer, and what makes you different.')
-      if (words < 40)  return s('good', 'Solid. Strengthen it by adding a specific outcome — e.g. "helping X achieve Y in Z timeframe".')
-      return s('excellent', 'Strong description. AI has rich context to generate on-brand content every time.')
+      if (words < 40)  return s('good', 'Solid. Strengthen it by adding a specific outcome: e.g. "helping X achieve Y in Z timeframe".')
+      return s('excellent', 'Strong description. You now have rich context to generate on-brand content every time.')
     },
     target_audience: () => {
       const words = wc(form.target_audience)
-      if (words === 0) return s('poor', 'Define who you\'re speaking to — age, occupation, location, and what drives their behaviour.')
+      if (words === 0) return s('poor', 'Define who you\'re speaking to: age, occupation, location, and what drives their behaviour.')
       if (words < 12)  return s('fair', 'Too vague. Add age range, occupation, location, and their mindset.')
       if (words < 30)  return s('good', 'Good detail. Add what motivates their decisions to reach Excellent.')
-      return s('excellent', 'Rich audience profile. AI will produce highly targeted content for this persona.')
+      return s('excellent', 'Rich audience profile. Content will be highly targeted for this persona.')
     },
     pain_point: () => {
       const words = wc(form.pain_point)
-      if (words === 0) return s('poor', 'Pain points create emotional hooks. Describe at least 2–3 specific frustrations your customer faces.')
-      if (words < 8)   return s('fair', 'Expand it. Describe the emotional weight of the problem — what keeps them up at night?')
+      if (words === 0) return s('poor', 'Pain points create emotional hooks. Describe at least 2 to 3 specific frustrations your customer faces.')
+      if (words < 8)   return s('fair', 'Expand it. Describe the emotional weight of the problem: what keeps them up at night?')
       if (words < 20)  return s('good', 'Good. Add the downstream consequence of unresolved pain for an Excellent score.')
-      return s('excellent', 'Strong pain point context. AI will write empathy-driven content that resonates.')
+      return s('excellent', 'Strong pain point context. Content will stay empathy-driven and resonant.')
     },
     brand_colors: () => {
       const n = arrLen(form.brand_colors)
-      if (n === 0) return s('poor', 'Add your primary brand colours — used in generated visuals and slide backgrounds.')
-      if (n === 1) return s('fair', 'Add at least 2–3 colours. A primary + accent gives AI a proper palette.')
+      if (n === 0) return s('poor', 'Add your primary brand colours: used in generated visuals and slide backgrounds.')
+      if (n === 1) return s('fair', 'Add at least 2 to 3 colours. A primary + accent gives a proper palette.')
       if (n === 2) return s('good', 'Good. A third colour (accent or neutral) gives more visual flexibility.')
-      return s('excellent', 'Great colour palette. AI will use these consistently in all generated visuals.')
+      return s('excellent', 'Great colour palette. These will stay consistent across generated visuals.')
     },
     brand_font: () => {
-      if (!form.brand_font) return s('fair', 'Choose a brand font so AI can reference your typographic style in visual direction.')
-      return s('good', 'Font set. AI will incorporate this into visual style descriptions.')
+      if (!form.brand_font) return s('fair', 'Choose a brand font so visual direction can reference your typographic style.')
+      return s('excellent', 'Font set. Typography direction is fully defined for generation.')
     },
     design_style: () => {
-      if (!form.design_style) return s('poor', 'Select a design style — it directly controls the visual feel of every AI-generated image.')
-      return s('excellent', 'Design style set. AI-generated visuals will follow this aesthetic.')
+      if (!form.design_style) return s('poor', 'Select a design style: it directly controls the visual feel of every generated image.')
+      return s('excellent', 'Design style set. Generated visuals will follow this aesthetic.')
     },
     tone_tags: () => {
       const n = arrLen(form.tone_tags)
-      if (n === 0) return s('poor', 'Tone tags define your brand voice. Select at least 3–4 that describe how your brand speaks.')
+      if (n === 0) return s('poor', 'Tone tags define your brand voice. Select at least 3 to 4 that describe how your brand speaks.')
       if (n <= 2)  return s('fair', 'Select at least 3 tone tags. The combination is what makes your voice distinctive.')
-      if (n <= 4)  return s('good', 'Good voice definition. Adding 1–2 more tags sharpens the AI\'s tonal range.')
-      return s('excellent', 'Strong voice profile. AI will consistently hit this tone across every post.')
+      if (n <= 4)  return s('good', 'Good voice definition. Adding 1 to 2 more tags sharpens tonal range.')
+      return s('excellent', 'Strong voice profile. This tone will stay consistent across every post.')
     },
     language_style: () => {
-      if (!form.language_style) return s('fair', 'Set a language style so AI writes in the dialect your audience actually speaks.')
-      return s('excellent', 'Language style set. AI will match your audience\'s dialect and register.')
+      if (!form.language_style) return s('fair', 'Set a language style so copy matches the dialect your audience actually speaks.')
+      return s('excellent', 'Language style set. Copy will match your audience\'s dialect and register.')
     },
     words_to_avoid: () => {
       const n = arrLen(form.words_to_avoid)
-      if (n === 0) return s('fair', 'Add words AI must never use — brand terms, competitor names, or overpromising language.')
-      if (n <= 2)  return s('fair', 'Add a few more. Think about buzzwords, competitor names, or phrases that feel off-brand.')
-      return s('good', 'Good guardrail list. AI will avoid all these terms in generated captions.')
+      if (n === 0) return s('fair', 'Add words content must never use: brand terms, competitor names, or overpromising language.')
+      if (n <= 2)  return s('good', 'Good start. Add a few more blocked terms for stronger copy guardrails.')
+      return s('excellent', 'Strong guardrail list. Generation will consistently avoid these terms.')
     },
     guidelines: () => {
       const words = wc(form.guidelines)
-      if (words === 0) return s('fair', 'Add brand guidelines — e.g. "always end with a CTA", "use active voice", "never mention competitors".')
-      if (words < 10)  return s('fair', 'Add more rules. The more specific, the better AI follows your brand\'s editorial standards.')
+      if (words === 0) return s('fair', 'Add brand guidelines: e.g. "always end with a CTA", "use active voice", "never mention competitors".')
+      if (words < 10)  return s('fair', 'Add more rules. The more specific, the better your brand editorial standards are followed.')
       if (words < 25)  return s('good', 'Good rules. List any remaining edge cases or formatting preferences for Excellent.')
-      return s('excellent', 'Comprehensive guidelines. AI will apply these editorial standards to every post.')
+      return s('excellent', 'Comprehensive guidelines. These editorial standards will apply to every post.')
+    },
+    visual_system: () => {
+      const vs = (form.brand_kit || {}).visual_system || {}
+      for (const k of ['primary_hex', 'secondary_hex', 'accent_hex']) {
+        const v = vs[k]
+        if (v != null && String(v).trim() !== '' && !normalizeHex(String(v))) {
+          return s('poor', `Invalid ${k.replace(/_/g, ' ')}: use #RRGGBB (e.g. #0A1B2C).`)
+        }
+      }
+      if (vs.neutral_hex != null && String(vs.neutral_hex).trim() !== '' && !normalizeHex(String(vs.neutral_hex))) {
+        return s('poor', 'Invalid neutral hex: use #RRGGBB or leave blank for default.')
+      }
+      for (const h of vs.forbidden_hexes || []) {
+        if (String(h).trim() && !normalizeHex(String(h))) {
+          return s('fair', 'One or more forbidden hex colours are invalid: fix or remove the bad line.')
+        }
+      }
+      const refs = vs.reference_urls || []
+      if (refs.length > 0 && !vs.reference_rights_attested) {
+        return s('fair', 'Reference URLs need the rights confirmation checked (or remove the URLs) before generating.')
+      }
+      return s('excellent', 'Visual tokens are valid for generation.')
     },
   }
 }
@@ -176,7 +271,7 @@ function ScoreBadge({ score }) {
         {score.label}
       </span>
       {score.tip && (
-        <p className="text-zinc-600 text-[11px] mt-1 leading-snug">{score.tip}</p>
+        <p className="text-ink/55 text-[11px] mt-1 leading-snug">{score.tip}</p>
       )}
     </div>
   )
@@ -190,25 +285,25 @@ function StrengthBanner({ overall, overallLevel }) {
     <div className={`rounded-2xl p-4 border ${pill} mb-6`}>
       <div className="flex items-center justify-between gap-4 mb-2">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-zinc-600 mb-1">Brand Kit Strength</p>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-ink/45 mb-1">Brand Kit Strength</p>
           <div className="flex items-center gap-2">
             <span className={`w-2 h-2 rounded-full ${dot}`} />
             <span className={`text-sm font-bold ${text}`}>{label}</span>
-            <span className="text-zinc-600 text-xs">— {overall}% complete</span>
+            <span className="text-ink/45 text-xs">· {overall}% complete</span>
           </div>
         </div>
         <span className={`text-2xl font-bold tabular-nums ${text}`}>
-          {overall}<span className="text-sm font-normal text-zinc-600">/100</span>
+          {overall}<span className="text-sm font-normal text-ink/45">/100</span>
         </span>
       </div>
-      <div className="h-1 bg-zinc-800 rounded-full overflow-hidden">
+      <div className="h-1 bg-fog rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${overall}%` }} />
       </div>
       {overallLevel !== 'excellent' && (
-        <p className="text-zinc-600 text-[11px] mt-2 leading-snug">
-          {overallLevel === 'poor' && 'Fill in description, audience, and tone first — these drive the most AI quality.'}
+        <p className="text-ink/55 text-[11px] mt-2 leading-snug">
+          {overallLevel === 'poor' && 'Fill in description, audience, and tone first: these drive the biggest quality lift.'}
           {overallLevel === 'fair' && 'Making progress. Focus on any fields still showing Poor or Can Be Better.'}
-          {overallLevel === 'good' && 'Almost there — a few more fields will push you to Excellent.'}
+          {overallLevel === 'good' && 'Almost there: a few more fields will push you to Excellent.'}
         </p>
       )}
     </div>
@@ -221,14 +316,14 @@ function ColorSwatch({ color, onRemove, onEdit }) {
   return (
     <div className="relative group flex flex-col items-center gap-1">
       <div
-        className="w-9 h-9 rounded-xl border-2 border-zinc-700 cursor-pointer hover:border-violet-500 transition-colors"
+        className="w-9 h-9 rounded-xl border-2 border-fog cursor-pointer hover:border-brand-400 transition-colors"
         style={{ background: color }}
         onClick={() => inputRef.current?.click()}
         title="Click to edit"
       />
       <input ref={inputRef} type="color" defaultValue={color}
         onChange={e => onEdit(e.target.value)} className="sr-only" />
-      <span className="text-[9px] text-zinc-500 font-mono">{color}</span>
+      <span className="text-[9px] text-ink/40 font-mono">{color}</span>
       <button onClick={onRemove}
         className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-[9px] items-center justify-center hidden group-hover:flex">×</button>
     </div>
@@ -247,13 +342,122 @@ export default function BrandKitPage() {
 
   const [tab, setTab]       = useState('Basics')
   const [saving, setSaving] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [brandImagesUploading, setBrandImagesUploading] = useState(false)
+  const [logoCropOpen, setLogoCropOpen] = useState(false)
+  const [logoCropSrc, setLogoCropSrc] = useState(null)
+  const [logoCropFile, setLogoCropFile] = useState(null)
+  const [coachMinimized, setCoachMinimized] = useState(false)
   const [newWord, setNewWord]     = useState('')
   const [newColorHex, setNewColorHex] = useState('#6C63FF')
   const [form, setForm]     = useState({})
+  const [websiteStatus, setWebsiteStatus] = useState(null)
+  const [websiteOps, setWebsiteOps] = useState([])
+  const [products, setProducts] = useState([])
+  const [productStateFilter, setProductStateFilter] = useState('all')
+  const [manualProductForm, setManualProductForm] = useState({
+    title: '',
+    image_url: '',
+    source_url: '',
+    price: '',
+    currency: 'NGN',
+    availability: 'in_stock',
+    product_type: '',
+    tags: '',
+    summary: '',
+  })
+  const [screenshotStatus, setScreenshotStatus] = useState(null)
+  const [referenceStatus, setReferenceStatus] = useState(null)
+  const [websiteSyncing, setWebsiteSyncing] = useState(false)
+  const [referenceSyncing, setReferenceSyncing] = useState(false)
+  const [productsLoading, setProductsLoading] = useState(false)
+  const [websiteReviews, setWebsiteReviews] = useState([])
+  const [reviewsLoading, setReviewsLoading] = useState(false)
+  const [reviewPhotoUploading, setReviewPhotoUploading] = useState(false)
+  const [manualReviewForm, setManualReviewForm] = useState({
+    customer_name: '',
+    rating: '5',
+    quote: '',
+    customer_image_url: '',
+    source_url: '',
+  })
+  const [manualProductSaving, setManualProductSaving] = useState(false)
+  const [manualProductRemovingId, setManualProductRemovingId] = useState('')
+  const [authCaptureSaving, setAuthCaptureSaving] = useState(false)
+  const [authCaptureRunning, setAuthCaptureRunning] = useState(false)
+  const [websiteLoading, setWebsiteLoading] = useState(false)
+  const logoFileRef = useRef(null)
+  const brandImagesFileRef = useRef(null)
+  const reviewPhotoFileRef = useRef(null)
 
   useEffect(() => {
-    if (brand) setForm({ ...brand, compliance_rules: brand.compliance_rules || {} })
+    if (!brand) return
+    const kit = { ...(brand.brand_kit || {}) }
+    kit.visual_system = mergeVisualSystem(kit, brand.brand_colors || [], brand.brand_font)
+    kit.website_intelligence = {
+      enabled: true,
+      default_sync_cadence: 'weekly',
+      ...(kit.website_intelligence || {}),
+    }
+    kit.website_intelligence.auth_capture = {
+      enabled: false,
+      tier: 'enterprise',
+      test_user_email: '',
+      allowed_domains: [],
+      allowed_routes: [],
+      capture_schedule: 'manual',
+      session_ttl_minutes: 30,
+      pii_block_mode: 'strict',
+      ...(kit.website_intelligence.auth_capture || {}),
+    }
+    kit.reviews = Array.isArray(kit.reviews) ? kit.reviews : []
+    setForm({ ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} })
   }, [brand?.id])
+
+  useEffect(() => {
+    if (!activeBrandId || !activeWorkspaceId) return
+    let cancelled = false
+    const loadWebsiteIntel = async () => {
+      setWebsiteLoading(true)
+      try {
+        const [status, opportunities, screenshots, refStatus, productRows, reviewRows] = await Promise.all([
+          brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
+          brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
+          brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId),
+          brandApi.referenceStatus(activeWorkspaceId, activeBrandId).catch(() => null),
+          brandApi.websiteProducts(activeWorkspaceId, activeBrandId, { limit: 120, state: 'all' }).catch(() => []),
+          brandApi.websiteEntities(activeWorkspaceId, activeBrandId, { limit: 120, entity_type: 'review' }).catch(() => []),
+        ])
+        if (cancelled) return
+        setWebsiteStatus(status)
+        setWebsiteOps(opportunities || [])
+        setScreenshotStatus(screenshots || null)
+        setReferenceStatus(refStatus || null)
+        setProducts(Array.isArray(productRows) ? productRows : [])
+        setWebsiteReviews(Array.isArray(reviewRows) ? reviewRows : [])
+      } catch {
+        if (!cancelled) {
+          setWebsiteStatus(null)
+          setWebsiteOps([])
+          setScreenshotStatus(null)
+          setReferenceStatus(null)
+          setProducts([])
+          setWebsiteReviews([])
+        }
+      } finally {
+        if (!cancelled) setWebsiteLoading(false)
+      }
+    }
+    loadWebsiteIntel()
+    return () => {
+      cancelled = true
+    }
+  }, [activeBrandId, activeWorkspaceId])
+
+  useEffect(() => {
+    if (!activeBrandId || !activeWorkspaceId) return
+    loadProducts(productStateFilter)
+  }, [productStateFilter, activeBrandId, activeWorkspaceId])
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
@@ -276,6 +480,23 @@ export default function BrandKitPage() {
 
   const setCompliance = (key, val) => set('compliance_rules', { ...(form.compliance_rules || {}), [key]: val })
 
+  const vs = () => ({ ...((form.brand_kit || {}).visual_system || {}) })
+  const setVs = (patch) => {
+    const kit = { ...(form.brand_kit || {}) }
+    kit.visual_system = { ...vs(), ...patch }
+    setForm((f) => ({ ...f, brand_kit: kit }))
+  }
+
+  const toggleArchetype = (id) => {
+    const cur = vs().allowed_archetypes || [...VISUAL_ARCHETYPES]
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
+    if (next.length === 0) {
+      toast('Keep at least one layout archetype', 'error')
+      return
+    }
+    setVs({ allowed_archetypes: next })
+  }
+
   const applyCompliancePreset = (preset) => {
     set('compliance_rules', { ...(form.compliance_rules || {}), ...COMPLIANCE_PRESETS[preset] })
     toast(`${preset.charAt(0).toUpperCase() + preset.slice(1)} compliance preset applied`)
@@ -292,27 +513,441 @@ export default function BrandKitPage() {
     } finally { setSaving(false) }
   }
 
+  const setWebsiteCfg = (patch) => {
+    const kit = { ...(form.brand_kit || {}) }
+    kit.website_intelligence = {
+      enabled: true,
+      default_sync_cadence: 'weekly',
+      ...(kit.website_intelligence || {}),
+      ...patch,
+    }
+    setForm((f) => ({ ...f, brand_kit: kit }))
+  }
+
+  const isEcommerceBrand = useMemo(() => {
+    const industry = String(form.industry || '').toLowerCase()
+    const website = String(form.website || '').toLowerCase()
+    if (products.length > 0) return true
+    return (
+      industry.includes('e-commerce') ||
+      industry.includes('ecommerce') ||
+      industry.includes('retail') ||
+      industry.includes('shopify') ||
+      website.includes('shopify.com')
+    )
+  }, [form.industry, form.website, products.length])
+
+  const loadProducts = async (state = productStateFilter) => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setProductsLoading(true)
+    try {
+      const rows = await brandApi.websiteProducts(activeWorkspaceId, activeBrandId, { limit: 120, state })
+      setProducts(Array.isArray(rows) ? rows : [])
+    } catch {
+      setProducts([])
+    } finally {
+      setProductsLoading(false)
+    }
+  }
+
+  const loadWebsiteReviews = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setReviewsLoading(true)
+    try {
+      const rows = await brandApi.websiteEntities(activeWorkspaceId, activeBrandId, { limit: 120, entity_type: 'review' })
+      setWebsiteReviews(Array.isArray(rows) ? rows : [])
+    } catch {
+      setWebsiteReviews([])
+    } finally {
+      setReviewsLoading(false)
+    }
+  }
+
+  const addManualReview = () => {
+    const quote = String(manualReviewForm.quote || '').trim()
+    if (quote.length < 12) {
+      toast('Add a stronger customer quote (at least 12 characters).', 'error')
+      return
+    }
+    const customer = String(manualReviewForm.customer_name || '').trim() || 'Customer'
+    const ratingNum = Math.max(1, Math.min(5, parseInt(manualReviewForm.rating, 10) || 5))
+    const current = Array.isArray(form.brand_kit?.reviews) ? [...form.brand_kit.reviews] : []
+    current.unshift({
+      id: `manual-${Date.now()}`,
+      source: 'manual',
+      customer_name: customer,
+      rating: ratingNum,
+      quote,
+      customer_image_url: String(manualReviewForm.customer_image_url || '').trim() || null,
+      source_url: String(manualReviewForm.source_url || '').trim() || null,
+      created_at: new Date().toISOString(),
+    })
+    set('brand_kit', { ...(form.brand_kit || {}), reviews: current.slice(0, 60) })
+    setManualReviewForm({
+      customer_name: '',
+      rating: '5',
+      quote: '',
+      customer_image_url: '',
+      source_url: '',
+    })
+    toast('Review added to Brand Kit.')
+  }
+
+  const removeReviewAt = (idx) => {
+    const current = Array.isArray(form.brand_kit?.reviews) ? [...form.brand_kit.reviews] : []
+    if (idx < 0 || idx >= current.length) return
+    current.splice(idx, 1)
+    set('brand_kit', { ...(form.brand_kit || {}), reviews: current })
+  }
+
+  const importWebsiteReview = (row) => {
+    const attrs = row?.attributes || {}
+    const summary = String(row?.summary || '').trim()
+    const quote = summary || String(row?.title || '').trim()
+    if (!quote) return
+    const ratingRaw = attrs.rating
+    const ratingNum = Math.max(1, Math.min(5, parseInt(String(ratingRaw || '5'), 10) || 5))
+    const imageUrl = Array.isArray(attrs.images) && attrs.images.length ? String(attrs.images[0] || '') : ''
+    const payload = {
+      id: `website-${row.id}`,
+      source: 'website',
+      customer_name: String(attrs.customer_name || attrs.author || 'Verified customer').trim(),
+      rating: ratingNum,
+      quote: quote.slice(0, 500),
+      customer_image_url: imageUrl || null,
+      source_url: row?.source_url || null,
+      created_at: row?.last_seen_at || new Date().toISOString(),
+    }
+    const current = Array.isArray(form.brand_kit?.reviews) ? [...form.brand_kit.reviews] : []
+    if (current.some((r) => String(r.quote || '').trim().toLowerCase() === payload.quote.trim().toLowerCase())) {
+      toast('This review is already in your Brand Kit.')
+      return
+    }
+    current.unshift(payload)
+    set('brand_kit', { ...(form.brand_kit || {}), reviews: current.slice(0, 60) })
+    toast('Imported review into Brand Kit.')
+  }
+
+  const createManualProduct = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    const title = String(manualProductForm.title || '').trim()
+    if (title.length < 2) {
+      toast('Enter a product name.', 'error')
+      return
+    }
+    const imageUrl = String(manualProductForm.image_url || '').trim()
+    if (!imageUrl) {
+      toast('Add a product image URL.', 'error')
+      return
+    }
+    setManualProductSaving(true)
+    try {
+      const payload = {
+        title,
+        image_url: imageUrl,
+        source_url: String(manualProductForm.source_url || '').trim() || null,
+        price: String(manualProductForm.price || '').trim() || null,
+        currency: String(manualProductForm.currency || '').trim() || null,
+        availability: String(manualProductForm.availability || '').trim() || null,
+        product_type: String(manualProductForm.product_type || '').trim() || null,
+        summary: String(manualProductForm.summary || '').trim() || null,
+        tags: String(manualProductForm.tags || '')
+          .split(',')
+          .map((x) => x.trim())
+          .filter(Boolean)
+          .slice(0, 12),
+      }
+      await brandApi.createWebsiteProduct(activeWorkspaceId, activeBrandId, payload)
+      setManualProductForm({
+        title: '',
+        image_url: '',
+        source_url: '',
+        price: '',
+        currency: manualProductForm.currency || 'NGN',
+        availability: manualProductForm.availability || 'in_stock',
+        product_type: '',
+        tags: '',
+        summary: '',
+      })
+      toast('Product added.')
+      await loadProducts(productStateFilter)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to add product', 'error')
+    } finally {
+      setManualProductSaving(false)
+    }
+  }
+
+  const removeManualProduct = async (productId) => {
+    if (!activeWorkspaceId || !activeBrandId || !productId) return
+    setManualProductRemovingId(productId)
+    try {
+      await brandApi.deleteWebsiteProduct(activeWorkspaceId, activeBrandId, productId)
+      toast('Product removed.')
+      await loadProducts(productStateFilter)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to remove product', 'error')
+    } finally {
+      setManualProductRemovingId('')
+    }
+  }
+
+  const runWebsiteSync = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setWebsiteSyncing(true)
+    try {
+      const res = await brandApi.syncWebsite(activeWorkspaceId, activeBrandId, { force: true })
+      toast(`Website sync complete: ${res.entity_count || 0} entities, ${res.opportunity_count || 0} opportunities`)
+      const [status, opportunities] = await Promise.all([
+        brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
+        brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
+      ])
+      setWebsiteStatus(status)
+      setWebsiteOps(opportunities || [])
+      await loadProducts(productStateFilter)
+      await loadWebsiteReviews()
+      try {
+        const screenshots = await brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId)
+        setScreenshotStatus(screenshots || null)
+      } catch {}
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Website sync failed', 'error')
+    } finally {
+      setWebsiteSyncing(false)
+    }
+  }
+
+  const updateOpportunityStatus = async (id, status) => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    try {
+      await brandApi.updateWebsiteOpportunity(activeWorkspaceId, activeBrandId, id, status)
+      setWebsiteOps((prev) => prev.map((op) => (op.id === id ? { ...op, status } : op)))
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to update opportunity', 'error')
+    }
+  }
+
+  const runReferenceSync = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setReferenceSyncing(true)
+    try {
+      const res = await brandApi.syncReferences(activeWorkspaceId, activeBrandId, { force: true })
+      toast(`Reference sync: ${res.fetched_count || 0} sources, confidence ${Math.round((res.style_confidence || 0) * 100)}%`)
+      const st = await brandApi.referenceStatus(activeWorkspaceId, activeBrandId).catch(() => null)
+      setReferenceStatus(st || null)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Reference sync failed', 'error')
+    } finally {
+      setReferenceSyncing(false)
+    }
+  }
+
+  const authCaptureCfg = form.brand_kit?.website_intelligence?.auth_capture || {}
+  const setAuthCaptureCfg = (patch) => {
+    const kit = { ...(form.brand_kit || {}) }
+    const wi = {
+      enabled: true,
+      default_sync_cadence: 'weekly',
+      ...(kit.website_intelligence || {}),
+    }
+    wi.auth_capture = {
+      enabled: false,
+      tier: 'enterprise',
+      test_user_email: '',
+      allowed_domains: [],
+      allowed_routes: [],
+      capture_schedule: 'manual',
+      session_ttl_minutes: 30,
+      pii_block_mode: 'strict',
+      ...(wi.auth_capture || {}),
+      ...patch,
+    }
+    kit.website_intelligence = wi
+    setForm((f) => ({ ...f, brand_kit: kit }))
+  }
+
+  const saveAuthCaptureConfig = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setAuthCaptureSaving(true)
+    try {
+      const payload = {
+        enabled: !!authCaptureCfg.enabled,
+        tier: authCaptureCfg.tier || 'enterprise',
+        test_user_email: authCaptureCfg.test_user_email || null,
+        allowed_domains: Array.isArray(authCaptureCfg.allowed_domains) ? authCaptureCfg.allowed_domains : [],
+        allowed_routes: Array.isArray(authCaptureCfg.allowed_routes) ? authCaptureCfg.allowed_routes : [],
+        capture_schedule: authCaptureCfg.capture_schedule || 'manual',
+        session_ttl_minutes: Number(authCaptureCfg.session_ttl_minutes || 30),
+        pii_block_mode: authCaptureCfg.pii_block_mode || 'strict',
+      }
+      await brandApi.configureAuthCapture(activeWorkspaceId, activeBrandId, payload)
+      toast('Auth capture governance saved')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to save auth capture config', 'error')
+    } finally {
+      setAuthCaptureSaving(false)
+    }
+  }
+
+  const runAuthCaptureNow = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setAuthCaptureRunning(true)
+    try {
+      await brandApi.runAuthCapture(activeWorkspaceId, activeBrandId, { reason: 'manual QA capture' })
+      toast('Auth capture run queued')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to queue auth capture', 'error')
+    } finally {
+      setAuthCaptureRunning(false)
+    }
+  }
+
   const addWord = () => {
     if (!newWord.trim()) return
     set('words_to_avoid', [...(form.words_to_avoid || []), newWord.trim()])
     setNewWord('')
   }
 
-  // Live scores — recomputed on every keystroke
+  const closeLogoCrop = () => {
+    if (logoCropSrc) URL.revokeObjectURL(logoCropSrc)
+    setLogoCropSrc(null)
+    setLogoCropFile(null)
+    setLogoCropOpen(false)
+  }
+
+  const uploadLogoFile = async (file) => {
+    if (!activeBrandId || !activeWorkspaceId || !file) return
+    setLogoUploading(true)
+    try {
+      const { logo_url: logoUrl } = await brandApi.uploadLogo(activeWorkspaceId, activeBrandId, file)
+      setForm((f) => ({ ...f, logo_url: logoUrl }))
+      useAppStore.setState((s) => ({
+        brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, logo_url: logoUrl } : b)),
+      }))
+      toast('Logo saved with a transparent-friendly treatment so it sits cleanly on any generated design.')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Upload failed', 'error')
+      throw err
+    } finally {
+      setLogoUploading(false)
+    }
+  }
+
+  const handleLogoCropConfirm = async (file) => {
+    try {
+      await uploadLogoFile(file)
+      closeLogoCrop()
+    } catch {
+      /* toast shown in uploadLogoFile */
+    }
+  }
+
+  const onBrandLogoFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !activeBrandId || !activeWorkspaceId) return
+    if (!file.type.startsWith('image/')) {
+      toast('Please choose an image file (PNG, JPG, or SVG).', 'error')
+      return
+    }
+    if (file.type === 'image/svg+xml') {
+      await uploadLogoFile(file)
+      return
+    }
+    const url = URL.createObjectURL(file)
+    setLogoCropSrc(url)
+    setLogoCropFile(file)
+    setLogoCropOpen(true)
+  }
+
+  const onBrandImagesFiles = async (e) => {
+    const files = Array.from(e.target.files || [])
+    e.target.value = ''
+    if (!files.length || !activeBrandId || !activeWorkspaceId) return
+    const imageFiles = files.filter((f) => String(f.type || '').startsWith('image/'))
+    if (!imageFiles.length) {
+      toast('Please choose image files (PNG, JPG, or WEBP).', 'error')
+      return
+    }
+    setBrandImagesUploading(true)
+    let uploaded = 0
+    try {
+      let latestPhotos = Array.isArray(form.brand_photos) ? [...form.brand_photos] : []
+      for (const file of imageFiles) {
+        const res = await brandApi.uploadPhoto(activeWorkspaceId, activeBrandId, file)
+        latestPhotos = Array.isArray(res?.brand_photos) ? res.brand_photos : latestPhotos
+        uploaded += 1
+      }
+      setForm((f) => ({ ...f, brand_photos: latestPhotos }))
+      useAppStore.setState((s) => ({
+        brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, brand_photos: latestPhotos } : b)),
+      }))
+      toast(uploaded === 1 ? 'Brand image uploaded.' : `${uploaded} brand images uploaded.`)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Brand image upload failed', 'error')
+    } finally {
+      setBrandImagesUploading(false)
+    }
+  }
+
+  const onReviewPhotoFile = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !activeBrandId || !activeWorkspaceId) return
+    if (!String(file.type || '').startsWith('image/')) {
+      toast('Please choose an image file for the customer photo.', 'error')
+      return
+    }
+    setReviewPhotoUploading(true)
+    try {
+      const res = await brandApi.uploadPhoto(activeWorkspaceId, activeBrandId, file)
+      const latestPhotos = Array.isArray(res?.brand_photos) ? res.brand_photos : []
+      const photoUrl = String(res?.photo_url || latestPhotos[latestPhotos.length - 1] || '').trim()
+      if (photoUrl) {
+        setManualReviewForm((f) => ({ ...f, customer_image_url: photoUrl }))
+      }
+      setForm((f) => ({ ...f, brand_photos: latestPhotos }))
+      useAppStore.setState((s) => ({
+        brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, brand_photos: latestPhotos } : b)),
+      }))
+      toast('Customer photo uploaded.')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Review photo upload failed', 'error')
+    } finally {
+      setReviewPhotoUploading(false)
+    }
+  }
+
+  const removeBrandImage = async (idx) => {
+    if (!activeBrandId || !activeWorkspaceId) return
+    try {
+      const res = await brandApi.deletePhoto(activeWorkspaceId, activeBrandId, idx)
+      const latestPhotos = Array.isArray(res?.brand_photos) ? res.brand_photos : []
+      setForm((f) => ({ ...f, brand_photos: latestPhotos }))
+      useAppStore.setState((s) => ({
+        brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, brand_photos: latestPhotos } : b)),
+      }))
+      toast('Brand image removed.')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Failed to remove brand image', 'error')
+    }
+  }
+
+  // Live scores: recomputed on every keystroke
   const { S, overall, overallLevel } = useBrandScores(form)
 
   if (!brand) {
     return (
       <div className="p-6 lg:p-8 max-w-5xl mx-auto">
-        <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
-        <p className="text-zinc-500 text-sm mb-8">Your brand profile shapes every generated design and caption.</p>
-        <div className="bg-zinc-900 border border-dashed border-zinc-700 rounded-2xl p-12 text-center">
-          <h2 className="text-white font-bold text-lg mb-2">No brand yet</h2>
-          <p className="text-zinc-500 text-sm mb-6 max-w-sm mx-auto">
-            Create your brand profile so ContentCard knows your tone, audience, and voice — and generates content that sounds exactly like you.
+        <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
+        <p className="text-ink/40 text-sm mb-8">Your brand profile shapes every generated design and caption.</p>
+        <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
+          <h2 className="text-ink font-bold text-lg mb-2">No brand yet</h2>
+          <p className="text-ink/40 text-sm mb-6 max-w-sm mx-auto">
+            Create your brand profile so ContentCard knows your tone, audience, and voice, and generates content that sounds exactly like you.
           </p>
           <button onClick={() => navigate('/onboarding')}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors">
+            className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
             Create brand profile <ArrowRight size={15} />
           </button>
         </div>
@@ -321,14 +956,17 @@ export default function BrandKitPage() {
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-white mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
-          <p className="text-zinc-500 text-sm">{brand.name} · {brand.industry || 'No industry set'}</p>
+          <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
+          <p className="text-ink/40 text-sm">
+            {brand.name} · {brand.industry || 'No industry set'}
+            {brand.sub_industry ? ` · ${brand.sub_industry}` : ''}
+          </p>
         </div>
         <button onClick={save} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
+          className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
           <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
         </button>
       </div>
@@ -336,12 +974,18 @@ export default function BrandKitPage() {
       {/* Brand Strength Banner */}
       <StrengthBanner overall={overall} overallLevel={overallLevel} />
 
-      <div className="grid lg:grid-cols-[190px_1fr] gap-6 items-start">
-        <nav className="bg-zinc-900 border border-zinc-800 rounded-2xl p-2 sticky top-6">
+      <div className={clsx(
+        'grid gap-8 items-start',
+        coachMinimized
+          ? 'xl:grid-cols-[1fr_64px]'
+          : 'xl:grid-cols-[1fr_min(360px,100%)]'
+      )}>
+        <div className="grid lg:grid-cols-[190px_1fr] gap-6 items-start min-w-0">
+        <nav className="bg-surface border border-fog rounded-2xl p-2 sticky top-6">
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={clsx('flex items-center gap-2 w-full px-3 py-2.5 rounded-xl text-sm font-semibold transition-all text-left mb-0.5',
-                tab === t ? 'bg-violet-600 text-white' : 'text-white/60 hover:text-white hover:bg-zinc-800')}>
+                tab === t ? 'bg-brand-500 text-white' : 'text-ink/50 hover:text-ink hover:bg-mist')}>
               {t}
             </button>
           ))}
@@ -351,30 +995,66 @@ export default function BrandKitPage() {
 
           {/* ── BASICS ── */}
           {tab === 'Basics' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-5">Business basics</h3>
+            <div className={cardCls}>
+              <h3 className={`${sectionTitleCls} mb-5`}>Business basics</h3>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Brand name</label>
+                  <label className={`${labelCls} mb-2`}>Brand name</label>
                   <ScoreBadge score={S.name} />
                   <input value={form.name || ''} onChange={e => set('name', e.target.value)} placeholder="Nova Studio"
                     className={clsx(inpCls, 'mt-2')} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Industry</label>
+                  <label className={`${labelCls} mb-2`}>Industry</label>
                   <ScoreBadge score={S.industry} />
-                  <select value={form.industry || ''} onChange={e => set('industry', e.target.value)}
+                  <select value={form.industry || ''} onChange={e => setForm((f) => ({ ...f, industry: e.target.value, sub_industry: '' }))}
                     className={clsx(inpCls, 'cursor-pointer mt-2')}>
                     <option value="">Select industry…</option>
-                    {['Marketing & Creative','E-commerce','Fashion & Beauty','Tech & SaaS','Health & Wellness',
-                      'Finance','Real Estate','Education','Entertainment','Church & Ministry','Other'].map(i => (
+                    {INDUSTRIES.map(i => (
                       <option key={i}>{i}</option>
                     ))}
                   </select>
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className={`${labelCls} mb-2`}>Sub-industry</label>
+                  <select
+                    value={form.sub_industry || ''}
+                    onChange={e => set('sub_industry', e.target.value)}
+                    className={clsx(inpCls, 'cursor-pointer')}
+                    disabled={!form.industry}
+                  >
+                    <option value="">{form.industry ? 'Select sub-industry…' : 'Choose industry first'}</option>
+                    {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
+                      <option key={sub} value={sub}>{sub}</option>
+                    ))}
+                  </select>
+                  {!!form.industry && (INDUSTRY_TAXONOMY[form.industry] || []).length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[11px] text-ink/45 mb-1.5">Quick pick</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
+                          <button
+                            key={sub}
+                            type="button"
+                            onClick={() => set('sub_industry', sub)}
+                            className={`px-2 py-1 rounded-lg border text-[11px] font-medium transition-colors ${
+                              form.sub_industry === sub
+                                ? 'border-slate-900 bg-slate-900 text-white'
+                                : 'border-fog bg-mist/40 text-ink/65 hover:text-ink hover:bg-mist'
+                            }`}
+                          >
+                            {sub}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
               <div className="mb-4">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">What you do</label>
+                <label className={`${labelCls} mb-2`}>What you do</label>
                 <ScoreBadge score={S.description} />
                 <textarea value={form.description || ''} onChange={e => set('description', e.target.value)} rows={3}
                   placeholder="We help small businesses grow through strategic social media content…"
@@ -382,48 +1062,607 @@ export default function BrandKitPage() {
               </div>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Website</label>
+                  <label className={`${labelCls} mb-2`}>Website</label>
                   <input value={form.website || ''} onChange={e => set('website', e.target.value)} placeholder="https://yourbrand.com" className={inpCls} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Location</label>
+                  <label className={`${labelCls} mb-2`}>Location</label>
                   <input value={form.location || ''} onChange={e => set('location', e.target.value)} placeholder="Lagos, Nigeria" className={inpCls} />
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
                 {[['instagram_handle','Instagram'],['facebook_handle','Facebook'],['twitter_handle','Twitter/X']].map(([k,p]) => (
                   <div key={k}>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">{p}</label>
+                    <label className={`${labelCls} mb-2`}>{p}</label>
                     <input value={form[k] || ''} onChange={e => set(k, e.target.value)} placeholder="@handle" className={inpCls} />
                   </div>
                 ))}
+              </div>
+              <div className="mt-6 rounded-xl border border-fog bg-mist/40 p-4 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wider text-ink/45">Website intelligence</p>
+                    <p className="text-xs text-ink/45 mt-1">
+                      Sync your website and queue new product opportunities for approval before generation.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={runWebsiteSync}
+                    disabled={websiteSyncing || websiteLoading || !form.website}
+                    className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                  >
+                    {websiteSyncing ? 'Syncing…' : 'Sync now'}
+                  </button>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <label className="space-y-1">
+                    <span className={labelCls}>Enabled</span>
+                    <select
+                      className={inpCls}
+                      value={(form.brand_kit?.website_intelligence?.enabled ?? true) ? 'yes' : 'no'}
+                      onChange={(e) => setWebsiteCfg({ enabled: e.target.value === 'yes' })}
+                    >
+                      <option value="yes">Yes</option>
+                      <option value="no">No</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className={labelCls}>Default sync cadence</span>
+                    <select
+                      className={inpCls}
+                      value={form.brand_kit?.website_intelligence?.default_sync_cadence || 'weekly'}
+                      onChange={(e) => setWebsiteCfg({ default_sync_cadence: e.target.value })}
+                    >
+                      <option value="weekly">Weekly</option>
+                    </select>
+                  </label>
+                  <div className="space-y-1">
+                    <span className={labelCls}>Status</span>
+                    <div className="h-[46px] px-3 rounded-xl border border-fog bg-surface text-xs flex items-center text-ink/70">
+                      {websiteStatus?.last_status || (websiteLoading ? 'Loading…' : 'Not synced')}
+                    </div>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3 text-xs">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                    Entities: <span className="font-semibold text-ink">{websiteStatus?.active_entities ?? 0}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                    Pending approval: <span className="font-semibold text-ink">{websiteStatus?.pending_approval_count ?? 0}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                    Last crawl: <span className="font-semibold text-ink">{websiteStatus?.last_crawled_at ? new Date(websiteStatus.last_crawled_at).toLocaleString() : '—'}</span>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3 text-xs">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                    Sync health: <span className="font-semibold text-ink">{websiteStatus?.sync_health || 'unknown'}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                    Last latency: <span className="font-semibold text-ink">{websiteStatus?.last_sync_latency_ms ?? 0}ms</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                    Recent errors: <span className="font-semibold text-ink">{websiteStatus?.recent_error_count ?? 0}</span>
+                  </div>
+                </div>
+                <div className="grid sm:grid-cols-3 gap-3 text-xs">
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                    Verified UI assets: <span className="font-semibold text-ink">{screenshotStatus?.verified_ui_asset_count ?? 0}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                    Public UI assets: <span className="font-semibold text-ink">{screenshotStatus?.public_ui_asset_count ?? 0}</span>
+                  </div>
+                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                    Synthetic fallback: <span className="font-semibold text-ink">{screenshotStatus?.synthetic_ui_visual_count ?? 0}</span>
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-fog space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-semibold text-ink/55">Reference research + style fingerprint</p>
+                    <button
+                      type="button"
+                      onClick={runReferenceSync}
+                      disabled={referenceSyncing || !form.website}
+                      className="px-3 py-1.5 rounded-lg border border-fog bg-surface text-[11px] font-semibold text-ink/75 disabled:opacity-50"
+                    >
+                      {referenceSyncing ? 'Syncing…' : 'Sync references'}
+                    </button>
+                  </div>
+                  <div className="grid sm:grid-cols-3 gap-3 text-xs">
+                    <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                      Last ref sync: <span className="font-semibold text-ink">{referenceStatus?.last_synced_at ? new Date(referenceStatus.last_synced_at).toLocaleString() : '—'}</span>
+                    </div>
+                    <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                      Ref sources: <span className="font-semibold text-ink">{referenceStatus?.source_count ?? 0}</span>
+                    </div>
+                    <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
+                      Style confidence: <span className="font-semibold text-ink">{Math.round((referenceStatus?.style_confidence || 0) * 100)}%</span>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold text-ink/55 mb-2">Pending opportunities</p>
+                  <div className="space-y-2 max-h-60 overflow-auto pr-1">
+                    {websiteOps.filter((op) => op.status === 'pending_approval').length === 0 && (
+                      <p className="text-xs text-ink/40">No pending opportunities. Run sync after updating your website/products.</p>
+                    )}
+                    {websiteOps
+                      .filter((op) => op.status === 'pending_approval')
+                      .map((op) => (
+                        <div key={op.id} className="rounded-lg border border-fog bg-surface p-3">
+                          <p className="text-xs font-semibold text-ink">{op.title}</p>
+                          <p className="text-[11px] text-ink/45 mt-1">{op.trigger_type}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={() => updateOpportunityStatus(op.id, 'approved')}
+                              className="px-2.5 py-1 rounded-md bg-brand-500 text-white text-[11px] font-semibold"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updateOpportunityStatus(op.id, 'dismissed')}
+                              className="px-2.5 py-1 rounded-md border border-fog text-[11px] font-semibold text-ink/70"
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+                <div className="pt-2 border-t border-fog space-y-3">
+                  <div>
+                    <p className="text-[11px] font-semibold text-ink/55 mb-1">Auth capture governance (opt-in)</p>
+                    <p className="text-[11px] text-ink/40">For login-gated SaaS screenshots. Use read-only test users and strict allowlists.</p>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <label className="space-y-1">
+                      <span className={labelCls}>Enabled</span>
+                      <select className={inpCls} value={authCaptureCfg.enabled ? 'yes' : 'no'} onChange={(e) => setAuthCaptureCfg({ enabled: e.target.value === 'yes' })}>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <span className={labelCls}>Tier</span>
+                      <select className={inpCls} value={authCaptureCfg.tier || 'enterprise'} onChange={(e) => setAuthCaptureCfg({ tier: e.target.value })}>
+                        <option value="enterprise">enterprise</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <label className="space-y-1">
+                      <span className={labelCls}>Test user email</span>
+                      <input className={inpCls} value={authCaptureCfg.test_user_email || ''} onChange={(e) => setAuthCaptureCfg({ test_user_email: e.target.value })} placeholder="qa-readonly@yourdomain.com" />
+                    </label>
+                    <label className="space-y-1">
+                      <span className={labelCls}>Session TTL (minutes)</span>
+                      <input className={inpCls} type="number" min={5} max={180} value={authCaptureCfg.session_ttl_minutes || 30} onChange={(e) => setAuthCaptureCfg({ session_ttl_minutes: e.target.value })} />
+                    </label>
+                  </div>
+                  <label className="space-y-1 block">
+                    <span className={labelCls}>Allowed domains (one per line)</span>
+                    <textarea className={taCls} rows={2} value={(authCaptureCfg.allowed_domains || []).join('\n')} onChange={(e) => setAuthCaptureCfg({ allowed_domains: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) })} />
+                  </label>
+                  <label className="space-y-1 block">
+                    <span className={labelCls}>Allowed routes (one per line)</span>
+                    <textarea className={taCls} rows={2} value={(authCaptureCfg.allowed_routes || []).join('\n')} onChange={(e) => setAuthCaptureCfg({ allowed_routes: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) })} />
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={saveAuthCaptureConfig} disabled={authCaptureSaving} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold disabled:opacity-60">
+                      {authCaptureSaving ? 'Saving…' : 'Save auth capture config'}
+                    </button>
+                    <button type="button" onClick={runAuthCaptureNow} disabled={authCaptureRunning} className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink/80 disabled:opacity-60">
+                      {authCaptureRunning ? 'Queueing…' : 'Run auth capture now'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tab === 'Products' && (
+            <div className={cardCls}>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className={sectionTitleCls}>Products</h3>
+                  <p className="text-ink/40 text-xs mt-1">
+                    Synced from your website/store and reused for product-led content generation.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={runWebsiteSync}
+                  disabled={websiteSyncing || !form.website}
+                  className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                >
+                  {websiteSyncing ? 'Refreshing…' : 'Refresh products'}
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
+                <p className="text-sm font-semibold text-ink">Add product manually</p>
+                <p className="text-xs text-ink/45 mt-1 mb-3">
+                  Add products directly when website sync misses items.
+                </p>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <input
+                    className={inpCls}
+                    placeholder="Product name"
+                    value={manualProductForm.title}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, title: e.target.value }))}
+                  />
+                  <input
+                    className={inpCls}
+                    placeholder="Image URL"
+                    value={manualProductForm.image_url}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, image_url: e.target.value }))}
+                  />
+                  <input
+                    className={inpCls}
+                    placeholder="Product page URL (optional)"
+                    value={manualProductForm.source_url}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, source_url: e.target.value }))}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      className={inpCls}
+                      placeholder="Price"
+                      value={manualProductForm.price}
+                      onChange={(e) => setManualProductForm((f) => ({ ...f, price: e.target.value }))}
+                    />
+                    <input
+                      className={inpCls}
+                      placeholder="Currency"
+                      value={manualProductForm.currency}
+                      onChange={(e) => setManualProductForm((f) => ({ ...f, currency: e.target.value }))}
+                    />
+                  </div>
+                  <input
+                    className={inpCls}
+                    placeholder="Type (e.g. Burger)"
+                    value={manualProductForm.product_type}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, product_type: e.target.value }))}
+                  />
+                  <input
+                    className={inpCls}
+                    placeholder="Tags (comma separated)"
+                    value={manualProductForm.tags}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, tags: e.target.value }))}
+                  />
+                </div>
+                <textarea
+                  className={clsx(taCls, 'mt-3')}
+                  rows={2}
+                  placeholder="Short summary (optional)"
+                  value={manualProductForm.summary}
+                  onChange={(e) => setManualProductForm((f) => ({ ...f, summary: e.target.value }))}
+                />
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    onClick={createManualProduct}
+                    disabled={manualProductSaving}
+                    className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold disabled:opacity-60"
+                  >
+                    {manualProductSaving ? 'Adding…' : 'Add product'}
+                  </button>
+                </div>
+              </div>
+
+              {!isEcommerceBrand && products.length === 0 && (
+                <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
+                  <p className="text-sm font-semibold text-ink">No ecommerce signals yet</p>
+                  <p className="text-xs text-ink/45 mt-1">
+                    Set your industry to ecommerce/retail and ensure website sync is enabled. We will detect product entities and list them here.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <div className="text-xs text-ink/50">
+                  Showing <span className="font-semibold text-ink">{products.length}</span> product{products.length === 1 ? '' : 's'}
+                </div>
+                <select
+                  className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs text-ink/70"
+                  value={productStateFilter}
+                  onChange={(e) => setProductStateFilter(e.target.value)}
+                >
+                  <option value="all">All updates</option>
+                  <option value="manual">Manual only</option>
+                  <option value="new">New only</option>
+                  <option value="updated">Updated only</option>
+                  <option value="unchanged">Unchanged</option>
+                </select>
+              </div>
+
+              {productsLoading ? (
+                <div className="py-12 text-center text-sm text-ink/45">Loading products…</div>
+              ) : products.length === 0 ? (
+                <div className="py-12 text-center text-sm text-ink/45">
+                  No products found yet. Run <span className="font-semibold text-ink/70">Refresh products</span> after updating your website.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {products.map((p) => {
+                    const statePill =
+                      p.sync_state === 'manual'
+                        ? 'bg-violet-500/10 text-violet-700 border-violet-500/20'
+                        : p.sync_state === 'new'
+                        ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20'
+                        : p.sync_state === 'updated'
+                          ? 'bg-blue-500/10 text-blue-700 border-blue-500/20'
+                          : 'bg-zinc-500/10 text-zinc-600 border-zinc-500/20'
+                    const availability = String(p.availability || '').toLowerCase()
+                    const inStock = availability.includes('in') || availability.includes('active')
+                    return (
+                      <div key={p.id} className="rounded-xl border border-fog bg-surface p-3">
+                        <div className="flex gap-3">
+                          <div className="w-16 h-16 rounded-lg border border-fog bg-mist/60 overflow-hidden flex-shrink-0">
+                            {p.image_url ? (
+                              <img src={p.image_url} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center text-[10px] text-ink/30">No image</div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-semibold text-ink truncate">{p.title}</p>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statePill}`}>
+                                {p.sync_state}
+                              </span>
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${inStock ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' : 'bg-amber-500/10 text-amber-700 border-amber-500/20'}`}>
+                                {p.availability || 'availability unknown'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-ink/45 mt-1">
+                              {p.summary || 'No summary available from source.'}
+                            </p>
+                            <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">
+                              {p.price && (
+                                <span className="text-ink/80 font-semibold">
+                                  {p.currency ? `${p.currency} ` : ''}{p.price}
+                                  {p.compare_at_price ? <span className="text-ink/35 ml-1 line-through">{p.compare_at_price}</span> : null}
+                                </span>
+                              )}
+                              {p.vendor ? <span className="text-ink/45">Vendor: {p.vendor}</span> : null}
+                              {p.product_type ? <span className="text-ink/45">Type: {p.product_type}</span> : null}
+                            </div>
+                            {p.source_url && (
+                              <a
+                                href={p.source_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-block mt-2 text-[11px] font-semibold text-brand-600 hover:text-brand-700"
+                              >
+                                View product page
+                              </a>
+                            )}
+                            <div className="mt-2">
+                              <button
+                                type="button"
+                                onClick={() => removeManualProduct(p.id)}
+                                disabled={manualProductRemovingId === p.id}
+                                className="text-[11px] font-semibold text-red-600 hover:text-red-700 disabled:opacity-60"
+                              >
+                                {manualProductRemovingId === p.id ? 'Removing…' : 'Remove product'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {tab === 'Reviews' && (
+            <div className={cardCls}>
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <h3 className={sectionTitleCls}>Reviews</h3>
+                  <p className="text-ink/40 text-xs mt-1">
+                    Add proof from real customer feedback. AI uses this section to write stronger trust-led content.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadWebsiteReviews}
+                  disabled={reviewsLoading}
+                  className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                >
+                  {reviewsLoading ? 'Refreshing…' : 'Refresh reviews'}
+                </button>
+              </div>
+
+              <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
+                <p className="text-sm font-semibold text-ink">Add review manually</p>
+                <p className="text-xs text-ink/45 mt-1 mb-3">
+                  Add testimonials from calls, DMs, or client feedback. Include customer photo for stronger social proof.
+                </p>
+                <div className="grid md:grid-cols-2 gap-3">
+                  <input
+                    className={inpCls}
+                    placeholder="Customer name"
+                    value={manualReviewForm.customer_name}
+                    onChange={(e) => setManualReviewForm((f) => ({ ...f, customer_name: e.target.value }))}
+                  />
+                  <select
+                    className={inpCls}
+                    value={manualReviewForm.rating}
+                    onChange={(e) => setManualReviewForm((f) => ({ ...f, rating: e.target.value }))}
+                  >
+                    <option value="5">5 stars</option>
+                    <option value="4">4 stars</option>
+                    <option value="3">3 stars</option>
+                    <option value="2">2 stars</option>
+                    <option value="1">1 star</option>
+                  </select>
+                </div>
+                <textarea
+                  className={clsx(taCls, 'mt-3')}
+                  rows={3}
+                  placeholder="Customer quote"
+                  value={manualReviewForm.quote}
+                  onChange={(e) => setManualReviewForm((f) => ({ ...f, quote: e.target.value }))}
+                />
+                <div className="grid md:grid-cols-2 gap-3 mt-3">
+                  <input
+                    className={inpCls}
+                    placeholder="Customer image URL (optional)"
+                    value={manualReviewForm.customer_image_url}
+                    onChange={(e) => setManualReviewForm((f) => ({ ...f, customer_image_url: e.target.value }))}
+                  />
+                  <input
+                    className={inpCls}
+                    placeholder="Review source URL (optional)"
+                    value={manualReviewForm.source_url}
+                    onChange={(e) => setManualReviewForm((f) => ({ ...f, source_url: e.target.value }))}
+                  />
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    ref={reviewPhotoFileRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    className="sr-only"
+                    onChange={onReviewPhotoFile}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => reviewPhotoFileRef.current?.click()}
+                    disabled={reviewPhotoUploading}
+                    className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-60"
+                  >
+                    {reviewPhotoUploading ? 'Uploading…' : 'Upload customer photo'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={addManualReview}
+                    className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold"
+                  >
+                    Add review
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-fog bg-surface p-4 mb-4">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <p className="text-sm font-semibold text-ink">Import from website sync</p>
+                  <span className="text-xs text-ink/45">{websiteReviews.length} found</span>
+                </div>
+                {reviewsLoading ? (
+                  <div className="py-6 text-center text-sm text-ink/45">Loading reviews…</div>
+                ) : websiteReviews.length === 0 ? (
+                  <div className="text-xs text-ink/45">
+                    No website reviews found yet. Run website sync and refresh reviews.
+                  </div>
+                ) : (
+                  <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                    {websiteReviews.map((r) => {
+                      const attrs = r.attributes || {}
+                      const rating = attrs.rating ? `${attrs.rating}/5` : null
+                      const reviewCount = attrs.review_count ? `${attrs.review_count} reviews` : null
+                      const quote = String(r.summary || '').trim() || String(r.title || '').trim()
+                      return (
+                        <div key={r.id} className="rounded-lg border border-fog bg-mist/40 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-xs font-semibold text-ink truncate">{r.title || 'Customer review'}</p>
+                            <button
+                              type="button"
+                              onClick={() => importWebsiteReview(r)}
+                              className="text-[11px] font-semibold text-brand-600 hover:text-brand-700"
+                            >
+                              Import
+                            </button>
+                          </div>
+                          {(rating || reviewCount) && (
+                            <p className="text-[11px] text-ink/45 mt-1">
+                              {[rating, reviewCount].filter(Boolean).join(' · ')}
+                            </p>
+                          )}
+                          {quote && <p className="text-xs text-ink/60 mt-1 line-clamp-3">{quote}</p>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded-xl border border-fog bg-surface p-4">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <p className="text-sm font-semibold text-ink">Saved in Brand Kit</p>
+                  <span className="text-xs text-ink/45">{Array.isArray(form.brand_kit?.reviews) ? form.brand_kit.reviews.length : 0} saved</span>
+                </div>
+                {!Array.isArray(form.brand_kit?.reviews) || form.brand_kit.reviews.length === 0 ? (
+                  <div className="text-xs text-ink/45">No reviews added yet.</div>
+                ) : (
+                  <div className="space-y-3">
+                    {form.brand_kit.reviews.map((rev, idx) => (
+                      <div key={rev.id || `${rev.quote}-${idx}`} className="rounded-lg border border-fog bg-mist/40 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 min-w-0">
+                            {rev.customer_image_url ? (
+                              <img src={rev.customer_image_url} alt={rev.customer_name || 'customer'} className="w-10 h-10 rounded-full object-cover border border-fog flex-shrink-0" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-slate-200 border border-fog flex-shrink-0" />
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-ink truncate">
+                                {rev.customer_name || 'Customer'} {rev.rating ? `· ${rev.rating}/5` : ''}
+                              </p>
+                              <p className="text-xs text-ink/65 mt-1">{rev.quote}</p>
+                              {rev.source_url ? (
+                                <a href={rev.source_url} target="_blank" rel="noreferrer" className="inline-block text-[11px] text-brand-600 hover:text-brand-700 mt-1">
+                                  Source
+                                </a>
+                              ) : null}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeReviewAt(idx)}
+                            className="text-[11px] font-semibold text-red-600 hover:text-red-700"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
 
           {/* ── AUDIENCE ── */}
           {tab === 'Audience' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-5">Target audience</h3>
+            <div className={cardCls}>
+              <h3 className={`${sectionTitleCls} mb-5`}>Target audience</h3>
               <div className="mb-4">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Who are they?</label>
+                <label className={`${labelCls} mb-2`}>Who are they?</label>
                 <ScoreBadge score={S.target_audience} />
                 <textarea value={form.target_audience || ''} onChange={e => set('target_audience', e.target.value)} rows={3}
-                  placeholder="Small business owners aged 25–40, looking to grow their social media presence…"
+                  placeholder="Small business owners aged 25 to 40, looking to grow their social media presence…"
                   className={clsx(taCls, 'mt-2')} />
               </div>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Age range</label>
-                  <input value={form.audience_age_range || ''} onChange={e => set('audience_age_range', e.target.value)} placeholder="25–40" className={inpCls} />
+                  <label className={`${labelCls} mb-2`}>Age range</label>
+                  <input value={form.audience_age_range || ''} onChange={e => set('audience_age_range', e.target.value)} placeholder="25 to 40" className={inpCls} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Location</label>
+                  <label className={`${labelCls} mb-2`}>Location</label>
                   <input value={form.audience_location || ''} onChange={e => set('audience_location', e.target.value)} placeholder="Nigeria, West Africa" className={inpCls} />
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Their biggest pain point</label>
+                <label className={`${labelCls} mb-2`}>Their biggest pain point</label>
                 <ScoreBadge score={S.pain_point} />
                 <textarea value={form.pain_point || ''} onChange={e => set('pain_point', e.target.value)} rows={2}
                   placeholder="Overwhelmed by content creation, no clear strategy…"
@@ -432,11 +1671,351 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {/* ── IDENTITY ── */}
+          {/* ── VISUAL (VBS) ── */}
+          {tab === 'Visual' && (
+            <div className={`${cardCls} space-y-5`}>
+              <div>
+                <h3 className={sectionTitleCls}>Visual brand system</h3>
+                <ScoreBadge score={S.visual_system} />
+                <p className="text-ink/40 text-xs mt-1 max-w-xl">
+                  Tokens drive generated backgrounds, logo placement, and Bannerbear accents. Set primary colours to
+                  match your real brand (not generic defaults).
+                </p>
+              </div>
+              <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
+                <div>
+                  <span className={labelCls}>Brand logo (on designs)</span>
+                  <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
+                    Raster images open a crop step; we save a {BRAND_KIT_LOGO_PX}×{BRAND_KIT_LOGO_PX} PNG for crisp compositing.
+                    SVG uploads skip cropping. Use a transparent background when possible. This logo is burned onto generated
+                    covers — it is not drawn inside the image model.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <input
+                    ref={logoFileRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
+                    className="sr-only"
+                    onChange={onBrandLogoFile}
+                  />
+                  {form.logo_url ? (
+                    <div className="flex items-center gap-3 rounded-lg border border-fog bg-surface p-2 pr-3">
+                      <img
+                        src={form.logo_url}
+                        alt="Brand logo preview"
+                        className="h-14 w-auto max-w-[200px] object-contain object-left"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-14 w-28 rounded-lg border border-dashed border-fog bg-surface flex items-center justify-center text-[11px] text-ink/35">
+                      No logo yet
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={logoUploading}
+                    onClick={() => logoFileRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-surface text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                  >
+                    <Upload size={16} />
+                    {logoUploading ? 'Uploading…' : form.logo_url ? 'Replace logo' : 'Upload logo'}
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
+                <div>
+                  <span className={labelCls}>Brand images (approved for AI use)</span>
+                  <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
+                    Upload product or brand photos you have rights to use. Generation can reference these as source images
+                    to keep designs aligned with your real brand.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-4">
+                  <input
+                    ref={brandImagesFileRef}
+                    type="file"
+                    multiple
+                    accept="image/png,image/jpeg,image/jpg,image/webp"
+                    className="sr-only"
+                    onChange={onBrandImagesFiles}
+                  />
+                  <button
+                    type="button"
+                    disabled={brandImagesUploading}
+                    onClick={() => brandImagesFileRef.current?.click()}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-surface text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                  >
+                    <Upload size={16} />
+                    {brandImagesUploading ? 'Uploading…' : 'Upload brand images'}
+                  </button>
+                  <label className="inline-flex items-center gap-2 text-[11px] text-ink/55">
+                    <input
+                      type="checkbox"
+                      className="rounded border-fog text-brand-600 focus:ring-brand-500/40"
+                      checked={!!((form.brand_kit || {}).brand_images_rights_attested)}
+                      onChange={(e) =>
+                        set('brand_kit', {
+                          ...(form.brand_kit || {}),
+                          brand_images_rights_attested: e.target.checked,
+                        })
+                      }
+                    />
+                    I confirm I have rights to use these uploaded brand images.
+                  </label>
+                </div>
+                {(form.brand_photos || []).length > 0 ? (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(form.brand_photos || []).map((url, idx) => (
+                      <div key={`${url}-${idx}`} className="relative rounded-lg overflow-hidden border border-fog bg-surface group">
+                        <img src={url} alt={`Brand asset ${idx + 1}`} className="w-full h-24 object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => removeBrandImage(idx)}
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/55 text-white text-xs hidden group-hover:flex items-center justify-center"
+                          title="Remove image"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-ink/35">No brand images uploaded yet.</div>
+                )}
+              </div>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <label className="space-y-1">
+                  <span className={labelCls}>Primary hex</span>
+                  <input
+                    className={inpCls}
+                    value={vs().primary_hex || ''}
+                    onChange={(e) => setVs({ primary_hex: e.target.value })}
+                    placeholder="#0033FF"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Secondary hex</span>
+                  <input
+                    className={inpCls}
+                    value={vs().secondary_hex || ''}
+                    onChange={(e) => setVs({ secondary_hex: e.target.value })}
+                    placeholder="#FF0066"
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Accent hex</span>
+                  <input
+                    className={inpCls}
+                    value={vs().accent_hex || ''}
+                    onChange={(e) => setVs({ accent_hex: e.target.value })}
+                  />
+                </label>
+                <label className="space-y-1 sm:col-span-3">
+                  <span className={labelCls}>Neutral / background hex</span>
+                  <input
+                    className={inpCls}
+                    maxLength={7}
+                    value={vs().neutral_hex || ''}
+                    onChange={(e) => setVs({ neutral_hex: e.target.value })}
+                    placeholder="#f4f4f5"
+                  />
+                </label>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <label className="space-y-1">
+                  <span className={labelCls}>Heading font (slides)</span>
+                  <select
+                    className={inpCls}
+                    value={vs().heading_font || 'inter'}
+                    onChange={(e) => setVs({ heading_font: e.target.value })}
+                  >
+                    {FONTS.map((f) => (
+                      <option key={f.value} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Body font (slides)</span>
+                  <select
+                    className={inpCls}
+                    value={vs().body_font || 'inter'}
+                    onChange={(e) => setVs({ body_font: e.target.value })}
+                  >
+                    {FONTS.map((f) => (
+                      <option key={`b-${f.value}`} value={f.value}>
+                        {f.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <label className="space-y-1 block">
+                <span className={labelCls}>Forbidden hex colours (one per line)</span>
+                <textarea
+                  className={taCls}
+                  rows={2}
+                  value={(vs().forbidden_hexes || []).join('\n')}
+                  onChange={(e) =>
+                    setVs({
+                      forbidden_hexes: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder={'#00ff88\n#ff00ff'}
+                />
+              </label>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <label className="space-y-1 sm:col-span-2">
+                  <span className={labelCls}>People in generated images</span>
+                  <select
+                    className={inpCls}
+                    value={vs().image_people_style || 'real_people'}
+                    onChange={(e) => setVs({ image_people_style: e.target.value })}
+                  >
+                    <option value="real_people">Real people (photography)</option>
+                    <option value="illustration">Illustration / cartoon-style art</option>
+                    <option value="cartoon">Cartoon / comic illustration</option>
+                    <option value="mixed">Mix (vary by post)</option>
+                  </select>
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Controls how month generation and image prompts treat humans: photoreal, illustrated, or both across the month.
+                  </p>
+                </label>
+                <label className="space-y-1 sm:col-span-2">
+                  <span className={labelCls}>Default visual type for templates</span>
+                  <select
+                    className={inpCls}
+                    value={vs().default_visual_type || 'auto'}
+                    onChange={(e) => setVs({ default_visual_type: e.target.value })}
+                  >
+                    <option value="auto">Auto (recommended)</option>
+                    <option value="real_people">Real people</option>
+                    <option value="illustration">Illustration</option>
+                    <option value="abstract">Abstract graphic</option>
+                    <option value="product">Product-led</option>
+                  </select>
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Templates and preview design generation start from this mode, then adapt to each template category.
+                  </p>
+                </label>
+                <label className="space-y-1 sm:col-span-2">
+                  <span className={labelCls}>Campaign art style profile</span>
+                  <select
+                    className={inpCls}
+                    value={vs().campaign_art_style_profile || 'balanced_social_ad'}
+                    onChange={(e) => setVs({ campaign_art_style_profile: e.target.value })}
+                  >
+                    {CAMPAIGN_ART_STYLE_PROFILES.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Enforces a monthly design language so generated posts look like one campaign system instead of random styles.
+                  </p>
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Logo placement (raster)</span>
+                  <select
+                    className={inpCls}
+                    value={vs().logo_placement || 'bottom_right'}
+                    onChange={(e) => setVs({ logo_placement: e.target.value })}
+                  >
+                    <option value="bottom_right">Bottom right</option>
+                    <option value="bottom_left">Bottom left</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className={labelCls}>Logo min width (px)</span>
+                  <input
+                    type="number"
+                    min={48}
+                    className={inpCls}
+                    value={vs().logo_min_width_px ?? 80}
+                    onChange={(e) => setVs({ logo_min_width_px: parseInt(e.target.value, 10) || 80 })}
+                  />
+                </label>
+              </div>
+              <div>
+                <span className={labelCls}>Allowed layout archetypes</span>
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {VISUAL_ARCHETYPES.map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => toggleArchetype(id)}
+                      className={clsx(
+                        'text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors',
+                        (vs().allowed_archetypes || []).includes(id)
+                          ? 'border-brand-500 bg-brand-500/10 text-brand-700'
+                          : 'border-fog text-ink/40 hover:border-ink/20'
+                      )}
+                    >
+                      {id.replace(/_/g, ' ')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <label className="space-y-1 block">
+                <span className={labelCls}>Never show (one motif per line)</span>
+                <textarea
+                  className={taCls}
+                  rows={3}
+                  value={(vs().never_show_motifs || []).join('\n')}
+                  onChange={(e) =>
+                    setVs({
+                      never_show_motifs: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                    })
+                  }
+                  placeholder={'floating stock tickers\ngeneric shield + checkmark icon'}
+                />
+              </label>
+              <label className="space-y-1 block">
+                <span className={labelCls}>Reference URLs (style only, max 10)</span>
+                <textarea
+                  className={taCls}
+                  rows={2}
+                  value={(vs().reference_urls || []).join('\n')}
+                  onChange={(e) =>
+                    setVs({
+                      reference_urls: e.target.value
+                        .split('\n')
+                        .map((s) => s.trim())
+                        .filter(Boolean)
+                        .slice(0, 10),
+                    })
+                  }
+                  placeholder="https://…"
+                />
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!vs().reference_rights_attested}
+                  onChange={(e) => setVs({ reference_rights_attested: e.target.checked })}
+                  className="mt-1"
+                />
+                <span className="text-ink/60 text-xs">
+                  I confirm I have rights to use the reference URLs for style guidance (not to copy third-party
+                  trademarks).
+                </span>
+              </label>
+            </div>
+          )}
+
           {tab === 'Identity' && (
             <div className="space-y-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-2">Brand colors</h3>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-2`}>Brand colors</h3>
                 <ScoreBadge score={S.brand_colors} />
                 <div className="flex gap-4 flex-wrap items-end mb-4 mt-3">
                   {(form.brand_colors || []).map((c, i) => (
@@ -448,37 +2027,37 @@ export default function BrandKitPage() {
                 </div>
                 <div className="flex gap-3 items-center">
                   <input type="color" value={newColorHex} onChange={e => setNewColorHex(e.target.value)}
-                    className="w-12 h-10 rounded-xl border-2 border-zinc-700 cursor-pointer bg-transparent p-0.5" />
+                    className="w-12 h-10 rounded-xl border-2 border-fog cursor-pointer bg-transparent p-0.5" />
                   <input value={newColorHex} onChange={e => setNewColorHex(e.target.value)} placeholder="#6C63FF"
-                    className="w-32 px-3 py-2 bg-zinc-950 border border-zinc-800 rounded-xl text-white text-sm font-mono focus:outline-none focus:border-violet-500" />
+                    className="w-32 px-3 py-2 bg-mist border border-fog rounded-xl text-ink text-sm font-mono focus:outline-none focus:border-brand-400" />
                   <button onClick={addColor}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-bold rounded-xl border border-zinc-700 transition-colors">
+                    className="flex items-center gap-1.5 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-bold rounded-xl transition-colors">
                     <Plus size={14} /> Add color
                   </button>
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-2">Brand font</h3>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-2`}>Brand font</h3>
                 <ScoreBadge score={S.brand_font} />
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   {FONTS.map(f => (
                     <button key={f.value} onClick={() => set('brand_font', f.value)}
-                      className={`py-3 px-4 rounded-xl border-2 text-left transition-all ${form.brand_font === f.value ? 'border-violet-500 bg-violet-500/5' : 'border-zinc-800 hover:border-zinc-700'}`}>
-                      <span className="text-sm font-semibold text-white" style={f.style}>{f.label}</span>
-                      <span className="block text-xs text-zinc-500 mt-0.5" style={f.style}>Aa Bb Cc 123</span>
+                      className={`py-3 px-4 rounded-xl border-2 text-left transition-all ${form.brand_font === f.value ? 'border-brand-400 bg-brand-500/5' : 'border-fog hover:border-brand-300'}`}>
+                      <span className="text-sm font-semibold text-ink" style={f.style}>{f.label}</span>
+                      <span className="block text-xs text-ink/40 mt-0.5" style={f.style}>Aa Bb Cc 123</span>
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-2">Design style</h3>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-2`}>Design style</h3>
                 <ScoreBadge score={S.design_style} />
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   {['bold','minimal','warm','premium'].map(style => (
                     <button key={style} onClick={() => set('design_style', style)}
-                      className={`py-3 rounded-xl border-2 text-sm font-semibold capitalize transition-all ${form.design_style === style ? 'border-violet-500 bg-violet-500/5 text-violet-300' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+                      className={`py-3 rounded-xl border-2 text-sm font-semibold capitalize transition-all ${form.design_style === style ? 'border-brand-400 bg-brand-500/5 text-brand-600' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
                       {style}
                     </button>
                   ))}
@@ -489,17 +2068,17 @@ export default function BrandKitPage() {
 
           {/* ── VOICE ── */}
           {tab === 'Voice' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-5">Brand voice & tone</h3>
+            <div className={cardCls}>
+              <h3 className={`${sectionTitleCls} mb-5`}>Brand voice & tone</h3>
               <div className="mb-5">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Tone tags</label>
+                <label className={`${labelCls} mb-2`}>Tone tags</label>
                 <ScoreBadge score={S.tone_tags} />
                 <div className="flex flex-wrap gap-2 mt-3">
                   {TONE_TAGS.map(t => {
                     const on = (form.tone_tags || []).includes(t.toLowerCase())
                     return (
                       <button key={t} onClick={() => toggleTone(t.toLowerCase())}
-                        className={`px-3 py-1.5 rounded-full border-2 text-xs font-semibold transition-all ${on ? 'bg-violet-600 border-violet-600 text-white' : 'border-zinc-800 text-zinc-500 hover:border-zinc-600'}`}>
+                        className={`px-3 py-1.5 rounded-full border-2 text-xs font-semibold transition-all ${on ? 'bg-brand-500 border-brand-500 text-white' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
                         {t}
                       </button>
                     )
@@ -507,19 +2086,19 @@ export default function BrandKitPage() {
                 </div>
               </div>
               <div className="mb-5">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-3">
-                  Personality — {(form.personality_score || 50) < 35 ? 'Serious & corporate' : (form.personality_score || 50) > 65 ? 'Casual & relaxed' : 'Balanced'}
+                <label className={`${labelCls} mb-3`}>
+                  Personality: {(form.personality_score || 50) < 35 ? 'Serious & corporate' : (form.personality_score || 50) > 65 ? 'Casual & relaxed' : 'Balanced'}
                 </label>
                 <div className="flex items-center gap-3">
-                  <span className="text-xs text-zinc-600">Serious</span>
+                  <span className="text-xs text-ink/40">Serious</span>
                   <input type="range" min="0" max="100" value={form.personality_score || 50}
                     onChange={e => set('personality_score', Number(e.target.value))}
-                    className="flex-1 accent-violet-600" />
-                  <span className="text-xs text-zinc-600">Casual</span>
+                    className="flex-1 accent-brand-500" />
+                  <span className="text-xs text-ink/40">Casual</span>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Language style</label>
+                <label className={`${labelCls} mb-2`}>Language style</label>
                 <ScoreBadge score={S.language_style} />
                 {!countryCode && (
                   <p className="text-amber-400 text-xs mt-2 mb-3 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
@@ -529,7 +2108,7 @@ export default function BrandKitPage() {
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   {langOptions.map(([v,l]) => (
                     <button key={v} onClick={() => set('language_style', v)}
-                      className={`py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${form.language_style === v ? 'border-violet-500 bg-violet-500/5 text-violet-300' : 'border-zinc-800 text-zinc-400 hover:border-zinc-700'}`}>
+                      className={`py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${form.language_style === v ? 'border-brand-400 bg-brand-500/5 text-brand-600' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
                       {l}
                     </button>
                   ))}
@@ -541,9 +2120,9 @@ export default function BrandKitPage() {
           {/* ── COMPLIANCE ── */}
           {tab === 'Compliance' && (
             <div className="space-y-4">
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-1">Compliance presets</h3>
-                <p className="text-zinc-500 text-xs mb-5">Apply a preset to add industry-specific rules to all generated content.</p>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-1`}>Compliance presets</h3>
+                <p className="text-ink/40 text-xs mb-5">Apply a preset to add industry-specific rules to all generated content.</p>
                 <div className="grid grid-cols-3 gap-2 mb-2">
                   {Object.entries({
                     finance: 'Finance & Investment',
@@ -553,21 +2132,21 @@ export default function BrandKitPage() {
                     real_estate: 'Real Estate',
                   }).map(([key, label]) => (
                     <button key={key} onClick={() => applyCompliancePreset(key)}
-                      className="py-2.5 px-3 rounded-xl border border-zinc-700 text-zinc-300 text-xs font-semibold hover:border-violet-500 hover:text-violet-300 transition-all text-left">
+                      className="py-2.5 px-3 rounded-xl border border-fog text-ink/60 text-xs font-semibold hover:border-brand-300 hover:text-brand-600 transition-all text-left">
                       {label}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-                <h3 className="text-white font-bold text-sm mb-1">Active compliance rules</h3>
-                <p className="text-zinc-500 text-xs mb-5">These rules will be applied to all AI-generated content for this brand.</p>
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-1`}>Active compliance rules</h3>
+                <p className="text-ink/40 text-xs mb-5">These rules will be applied to all generated content for this brand.</p>
 
                 {[
                   ['disclaimer', 'Include disclaimer on every post', 'Adds "This is not financial/legal/medical advice" where appropriate'],
                   ['no_guarantees', 'No guarantees or promises', 'Avoids language like "guaranteed results" or "100% success"'],
-                  ['not_financial_advice', 'Not financial advice notice', 'Appends "Not financial advice – DYOR" on investment-related posts'],
+                  ['not_financial_advice', 'Not financial advice notice', 'Appends "Not financial advice  to  DYOR" on investment-related posts'],
                   ['no_medical_claims', 'No medical/health claims', 'Avoids unverified health or cure claims'],
                   ['age_gate', 'Age-restricted content flag', 'Marks content as 18+ where required'],
                   ['responsible_messaging', 'Responsible messaging', 'Adds responsible use messaging for regulated products'],
@@ -577,28 +2156,28 @@ export default function BrandKitPage() {
                   ['licensed_disclosure', 'Licensed professional disclosure', 'States relevant professional licence where needed'],
                   ['requires_disclosure', 'Sponsored content disclosure', 'Adds #ad or #sponsored tags on paid/partner content'],
                 ].map(([key, label, desc]) => (
-                  <div key={key} className="flex items-start gap-3 py-3.5 border-b border-zinc-800 last:border-0">
+                  <div key={key} className="flex items-start gap-3 py-3.5 border-b border-fog last:border-0">
                     <button onClick={() => setCompliance(key, !(form.compliance_rules || {})[key])}
-                      className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${(form.compliance_rules || {})[key] ? 'bg-violet-600 border-violet-600' : 'border-zinc-700 hover:border-zinc-500'}`}>
+                      className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${(form.compliance_rules || {})[key] ? 'bg-brand-500 border-brand-500' : 'border-fog hover:border-brand-300'}`}>
                       {(form.compliance_rules || {})[key] && <Check size={11} className="text-white" />}
                     </button>
                     <div>
-                      <p className="text-zinc-200 text-sm font-semibold">{label}</p>
-                      <p className="text-zinc-500 text-xs mt-0.5">{desc}</p>
+                      <p className="text-ink text-sm font-semibold">{label}</p>
+                      <p className="text-ink/40 text-xs mt-0.5">{desc}</p>
                     </div>
                   </div>
                 ))}
 
                 <div className="mt-5">
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Regulatory body / jurisdiction</label>
+                  <label className={`${labelCls} mb-2`}>Regulatory body / jurisdiction</label>
                   <input value={(form.compliance_rules || {}).regulatory_body || ''}
                     onChange={e => setCompliance('regulatory_body', e.target.value)}
                     placeholder="e.g. FCA, SEC, NAFDAC, CAC" className={inpCls} />
-                  <p className="text-zinc-600 text-xs mt-1.5">Referenced in generated content where disclosures are required.</p>
+                  <p className="text-ink/40 text-xs mt-1.5">Referenced in generated content where disclosures are required.</p>
                 </div>
 
                 <div className="mt-4">
-                  <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Custom disclaimer text</label>
+                  <label className={`${labelCls} mb-2`}>Custom disclaimer text</label>
                   <textarea value={(form.compliance_rules || {}).custom_disclaimer || ''}
                     onChange={e => setCompliance('custom_disclaimer', e.target.value)} rows={2}
                     placeholder="e.g. 'Past performance is not indicative of future results.'" className={taCls} />
@@ -609,10 +2188,10 @@ export default function BrandKitPage() {
 
           {/* ── RULES ── */}
           {tab === 'Rules' && (
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
-              <h3 className="text-white font-bold text-sm mb-5">Brand rules</h3>
+            <div className={cardCls}>
+              <h3 className={`${sectionTitleCls} mb-5`}>Brand rules</h3>
               <div className="mb-5">
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Words to never use</label>
+                <label className={`${labelCls} mb-2`}>Words to never use</label>
                 <ScoreBadge score={S.words_to_avoid} />
                 <div className="flex flex-wrap gap-2 mt-3 mb-3 min-h-[36px]">
                   {(form.words_to_avoid || []).map(w => (
@@ -628,11 +2207,11 @@ export default function BrandKitPage() {
                     onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addWord())}
                     placeholder="Type a word and press Enter…" className={`${inpCls} flex-1`} />
                   <button onClick={addWord}
-                    className="px-4 py-3 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-sm font-bold rounded-xl border border-zinc-700 transition-colors">Add</button>
+                    className="px-4 py-3 bg-brand-500 hover:bg-brand-600 text-white text-sm font-bold rounded-xl transition-colors">Add</button>
                 </div>
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-zinc-500 mb-2">Brand guidelines</label>
+                <label className={`${labelCls} mb-2`}>Brand guidelines</label>
                 <ScoreBadge score={S.guidelines} />
                 <textarea value={form.guidelines || ''} onChange={e => set('guidelines', e.target.value)} rows={5}
                   placeholder="Always use inclusive language. Never make direct price comparisons. Lead with value. Use active voice…"
@@ -643,12 +2222,39 @@ export default function BrandKitPage() {
 
           <div className="flex justify-end">
             <button onClick={save} disabled={saving}
-              className="flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
+              className="flex items-center gap-2 px-5 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors">
               <Check size={14} />{saving ? 'Saving…' : 'Save brand kit'}
             </button>
           </div>
         </div>
+        </div>
+
+        <aside className={clsx(
+          'space-y-2 xl:sticky xl:top-24',
+          coachMinimized ? 'xl:justify-self-end' : ''
+        )}>
+          <BrandFormCoachPanel
+            mode="brand_kit"
+            brandId={activeBrandId}
+            formSnapshot={form}
+            onApplyPatch={(patch) => setForm((f) => mergeBrandFormPatch(f, patch))}
+            onMinimizedChange={setCoachMinimized}
+            className={coachMinimized ? '' : 'min-h-[320px]'}
+          />
+          <p className={clsx('text-[11px] text-ink/45 px-1', coachMinimized ? 'hidden' : '')}>
+            Suggestions merge into the form. Review tabs, then use Save changes when you are ready.
+          </p>
+        </aside>
       </div>
+      {logoCropOpen && logoCropSrc && logoCropFile && (
+        <LogoCropModal
+          imageSrc={logoCropSrc}
+          originalFile={logoCropFile}
+          onClose={closeLogoCrop}
+          onConfirm={handleLogoCropConfirm}
+          busy={logoUploading}
+        />
+      )}
     </div>
   )
 }
