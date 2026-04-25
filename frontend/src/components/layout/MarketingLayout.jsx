@@ -17,10 +17,11 @@ const FOOTER_LINKS = {
     { label: 'Corporate',  href: '/solutions/corporate' },
   ],
   Company: [
-    { label: 'About',    href: '/about' },
-    { label: 'Blog',     href: '/blog' },
-    { label: 'Careers',  href: '/careers' },
-    { label: 'Contact',  href: '/contact' },
+    { label: 'About',      href: '/about' },
+    { label: 'Blog',       href: '/blog' },
+    { label: 'Careers',    href: '/careers' },
+    { label: 'Contact',    href: '/contact' },
+    { label: 'Investors',  href: '/pitch-deck' },
   ],
 }
 
