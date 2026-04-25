@@ -35,10 +35,10 @@ html[data-theme='dark'] {
 
 @layer components {
   .shopify-oauth-button {
-    background-color: #95BF47;
+    background-color: #008060;
     color: #FFFFFF;
     border: none;
-    border-radius: 10px;
+    border-radius: 6px;
     padding: 14px 20px;
     font-size: 16px;
     font-weight: 600;
@@ -52,7 +52,7 @@ html[data-theme='dark'] {
   }
 
   .shopify-oauth-button:hover {
-    background-color: #7FAF3A;
+    background-color: #006e54;
   }
 
   .shopify-oauth-button:active {
