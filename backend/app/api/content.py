@@ -147,8 +147,9 @@ def _item_ready_for_user(item: ContentItem) -> bool:
     wg = cm.get("website_grounding_gate") if isinstance(cm.get("website_grounding_gate"), dict) else {}
     if wg and str(wg.get("status") or "") == "fail":
         return False
-    if cm.get("logo_required") and not cm.get("logo_applied"):
-        return False
+    # Logo-applied is tracked for reporting only — a logo compositing failure must
+    # not permanently block delivery. Items with visual assets are always surfaced
+    # so the user sees content rather than an infinite loading state.
     return True
 
 
@@ -1015,32 +1016,44 @@ async def _brand_product_grounding_pool(db: AsyncSession, brand_id: str, limit: 
 
 
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
-    """Burn logo onto final cover (Bannerbear) or raster-only hero — never rely on the image model for logos."""
+    """
+    Burn logo onto final cover (Bannerbear) or raster-only hero.
+
+    Returns True when images are deliverable (with or without logo).
+    Logo compositing failure is non-fatal: images are kept and delivered
+    without the logo rather than being wiped and blocking delivery forever.
+    """
     logo_required = has_brand_logo(brand_dict)
     try:
         if item.image_urls:
             finalized, all_applied = await finalize_rendered_urls_with_logo(item.image_urls, brand_dict, post_data)
-            item.image_urls = finalized
+            # Keep whatever images we got (with or without logo on each frame).
             if finalized:
+                item.image_urls = finalized
                 item.image_url = finalized[0]
             if logo_required and not all_applied:
-                # Strict gate: do not ship ready visuals without brand logo.
-                item.image_urls = None
-                item.image_url = None
+                logger.warning(
+                    "_apply_brand_logo_to_visuals: logo composite failed for one or more "
+                    "frames on item %s — delivering without logo overlay", item.id
+                )
+                # Return False so the caller knows logo wasn't fully applied,
+                # but images are kept — content is still deliverable.
                 return False
         elif item.image_url:
             nu = await burn_logo_into_image_url(item.image_url, brand_dict, post_data)
             if nu:
                 item.image_url = nu
             elif logo_required:
-                item.image_url = None
+                logger.warning(
+                    "_apply_brand_logo_to_visuals: logo burn failed for item %s "
+                    "— delivering raster image without logo overlay", item.id
+                )
+                # Do NOT wipe item.image_url — keep the generated image.
                 return False
     except Exception as e:
         logger.warning("_apply_brand_logo_to_visuals failed for %s: %s", item.id, e)
-        if logo_required:
-            item.image_urls = None
-            item.image_url = None
-            return False
+        # Do NOT wipe images on exception — they are still deliverable without the logo.
+        return False if logo_required else True
     return True
 
 
@@ -1123,7 +1136,11 @@ async def _render_with_quality_gate(
             }
 
         pass_quality = str(last_qg.get("status") or "") == "pass"
-        if pass_quality and last_logo_ok:
+        cover_url_exists = bool(item.image_url or item.image_urls)
+        # Accept if quality passes regardless of logo status — logo failure is non-fatal.
+        # Accept also if we have images but quality gate returned "skip" (no image to score).
+        qg_status = str(last_qg.get("status") or "")
+        if (pass_quality or qg_status == "skip") and cover_url_exists:
             return last_lint, last_qg, last_logo_ok
 
     # Final fallback render: deterministic branded template output (no AI background)
@@ -1148,7 +1165,8 @@ async def _render_with_quality_gate(
         last_logo_ok = await _apply_brand_logo_to_visuals(item, fallback_post, brand_dict)
         cover_url = (item.image_urls or [item.image_url])[0] if (item.image_urls or item.image_url) else None
         last_lint = await lint_final_image(cover_url, brand_dict, sab)
-        if cover_url and last_logo_ok:
+        # Deliver fallback if we have any image — logo failure is still non-fatal here.
+        if cover_url:
             last_qg = {
                 "status": "pass_fallback",
                 "overall_score": round(float(last_qg.get("overall_score") or 0.0), 3),
@@ -1156,7 +1174,7 @@ async def _render_with_quality_gate(
                 "reasons": ["Primary quality gate retries failed; used deterministic fallback template render."],
                 "retry_hints": last_qg.get("retry_hints") or [],
             }
-            return last_lint, last_qg, True
+            return last_lint, last_qg, last_logo_ok
     except Exception as e:
         logger.warning("quality fallback render failed for %s: %s", item.id, e)
 
