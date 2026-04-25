@@ -10,7 +10,7 @@ OPENAI_CHAT_URL = "https://api.openai.com/v1/chat/completions"
 TEXT_MODEL = "gpt-4o"
 
 # ── System prompt ──────────────────────────────────────────────────────────────
-# This is an enforcement layer, not a suggestion list.
+# Enforcement layer — not a suggestion list.
 
 SYSTEM_PROMPT = """You are an AI content engine inside ContentCard.
 
@@ -24,11 +24,121 @@ HARD CONSTRAINTS — violating any of these is a failure:
 - Captions must be platform-native: short/punchy for Instagram/Twitter, longer/professional for LinkedIn."""
 
 
+# ── Phase 4: Art director design persona ──────────────────────────────────────
+# Injected before every generation request. Reframes the model as a senior designer.
+
+DESIGN_SYSTEM_PROMPT = """You are a world-class social media designer and art director.
+
+Your job is to create high-quality, modern, scroll-stopping social media designs that feel like they were produced by a senior designer — not a template.
+
+# CORE OBJECTIVE
+Design visually compelling, premium social media posts that:
+- Grab attention within 1 second
+- Are clear and easy to understand
+- Feel modern, clean, and intentional
+- Convert viewers into action
+
+# NON-NEGOTIABLE DESIGN PRINCIPLES
+
+## 1. VISUAL HIERARCHY
+- There MUST be one dominant focal point (headline OR image — never both)
+- Supporting elements must be clearly secondary
+- CTA must be visible but not competing
+
+## 2. SIMPLICITY
+- Use a maximum of 3–4 elements: Headline, Image or visual, Supporting text, CTA
+- Remove all unnecessary elements
+- Avoid clutter, icon overload, and excessive text
+
+## 3. CONTRAST
+- Use strong contrast: light vs dark, bold vs regular, large vs small
+- Ensure text is highly readable
+
+## 4. TYPOGRAPHY
+- Use maximum 2 fonts
+- Clear hierarchy: Bold → headline, Regular → supporting text
+- Avoid long paragraphs
+
+## 5. SPACING (PREMIUM FEEL)
+- Use generous whitespace
+- Avoid cramped layouts
+- Maintain consistent padding and margins
+
+## 6. ALIGNMENT
+- Use consistent alignment (left OR center — not random)
+- Ensure clean, structured layout
+
+## 7. LAYOUT STRUCTURE
+Use a clear layout system:
+- "centered" → strong hero, text overlay centered, symmetrical
+- "split" → image occupies one side, text the other
+- "image-dominant" → visual carries 70%+ of the message, full bleed
+Choose the layout that best serves the content. Vary it across posts.
+
+## 8. FOCAL POINT
+- Clearly define what draws the eye first
+- Everything else must support it — never compete with it
+
+## 9. BRAND CONSISTENCY
+- Use brand colors, fonts, and tone appropriately
+- Do NOT overuse brand colors on backgrounds
+- Use brand colors as accents
+
+## 10. EMOTIONAL DESIGN
+Match the design feeling to the content:
+- Promo / CTA → high contrast, punchy, saturated, energetic
+- Testimonial → clean, warm, face-forward, trust-building
+- Educational Tip → minimal, organised, calm, clear
+- Behind the Scenes → candid, warm, documentary feel
+- Motivation / Inspiration → aspirational, golden light, wide open space
+- Product Spotlight → visual-heavy, product hero, clean surround
+
+## 11. SCROLL-STOPPING
+- Bold, clear headline
+- Strong visual impact at first glance — no gentle or forgettable compositions
+
+## 12. MOBILE-FIRST
+- Text must be large and readable on small screens
+- Subject and mood must be clear at 300px wide — no fine detail required
+- Avoid small or detailed elements that disappear at mobile size
+
+## 13. TEXT VS IMAGE BALANCE
+- Image should do most of the work (≈70%)
+- Text should be short and punchy
+
+# THINK BEFORE DESIGNING
+For EVERY post, before writing visual_direction or image_prompt, decide:
+1. FOCAL POINT — What is the one dominant element?
+2. LAYOUT — Which structure: centered / split / image-dominant?
+3. EMOTIONAL REGISTER — What feeling must this specific content type evoke?
+4. WHAT TO REMOVE — What would clutter this design?
+
+# FINAL STANDARD
+Every design must feel like:
+- A top brand ad
+- A premium Instagram post
+- Something that would perform on a real feed
+
+You are not a template generator. You are a senior designer."""
+
+
 # ── Output validation ──────────────────────────────────────────────────────────
 
 REQUIRED_POST_FIELDS = {"caption", "date", "format"}
 VALID_FORMATS = {"single", "carousel", "quote"}
 VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
+
+# Generic filler phrases that signal low-quality visual_direction / image_prompt
+_GENERIC_PHRASES = {
+    "vibrant colors", "vibrant colour", "modern design", "dynamic lighting",
+    "stunning", "beautiful", "amazing", "perfect", "incredible", "awesome",
+    "dramatic lighting", "eye-catching", "visually appealing", "aesthetically pleasing",
+}
+
+# Design quality signals that must appear in visual_direction
+_FOCAL_KEYWORDS = {"focal", "dominant", "hero", "face", "headline", "foreground", "subject", "anchor"}
+_LAYOUT_KEYWORDS = {"centered", "centre", "center", "split", "left", "right", "full-bleed", "full bleed", "image-dominant", "dominant"}
+_COMPOSITION_KEYWORDS = {"negative space", "upper third", "lower third", "foreground", "frame", "composition", "bleed", "thirds"}
 
 
 def _validate_posts(posts: list, words_to_avoid: list[str] | None = None) -> list[dict]:
@@ -43,7 +153,6 @@ def _validate_posts(posts: list, words_to_avoid: list[str] | None = None) -> lis
             logger.warning(f"Post {i}: not a dict — dropped")
             continue
 
-        # Required field check
         missing = REQUIRED_POST_FIELDS - post.keys()
         if missing:
             logger.warning(f"Post {i}: missing required fields {missing} — dropped")
@@ -83,18 +192,76 @@ def _validate_posts(posts: list, words_to_avoid: list[str] | None = None) -> lis
             logger.warning(f"Post {i} caption truncated to 600 chars")
         post["caption"] = caption
 
-        # words_to_avoid check — log violations but keep the post
+        # words_to_avoid check
         if avoid:
             caption_lower = caption.lower()
             violations = [w for w in avoid if w in caption_lower]
             if violations:
-                logger.warning(
-                    f"Post {i} ('{post.get('topic')}') contains forbidden words: {violations}"
-                )
+                logger.warning(f"Post {i} ('{post.get('topic')}') contains forbidden words: {violations}")
 
         valid.append(post)
 
     return valid
+
+
+# ── Phase 3: Design quality validation ────────────────────────────────────────
+
+def _validate_design_quality(posts: list[dict]) -> list[dict]:
+    """
+    Validate that visual_direction and image_prompt meet senior-designer standards.
+    Logs specific failures. Does not drop posts — quality issues are surfaced as
+    warnings so they can be monitored without blocking generation.
+    """
+    for i, post in enumerate(posts):
+        topic = post.get("topic", f"post {i}")
+        vd = (post.get("visual_direction") or "").lower()
+        ip = (post.get("image_prompt") or "").lower()
+
+        # 1. image_prompt must be substantial (under 80 words = too vague)
+        ip_words = len(ip.split())
+        if ip_words < 80:
+            logger.warning(
+                f"[Design QA] Post '{topic}': image_prompt too short ({ip_words} words) — "
+                "likely under-specified, may produce generic image."
+            )
+
+        # 2. visual_direction must reference a focal point
+        if vd and not any(kw in vd for kw in _FOCAL_KEYWORDS):
+            logger.warning(
+                f"[Design QA] Post '{topic}': visual_direction missing focal point reference. "
+                "No dominant element defined."
+            )
+
+        # 3. visual_direction must reference a layout or composition
+        if vd and not any(kw in vd for kw in _LAYOUT_KEYWORDS | _COMPOSITION_KEYWORDS):
+            logger.warning(
+                f"[Design QA] Post '{topic}': visual_direction missing layout/composition structure."
+            )
+
+        # 4. Generic phrase check in image_prompt
+        found_generic = [p for p in _GENERIC_PHRASES if p in ip]
+        if found_generic:
+            logger.warning(
+                f"[Design QA] Post '{topic}': image_prompt contains generic filler phrases: "
+                f"{found_generic}. These produce stock-photo-quality output."
+            )
+
+        # 5. image_prompt must end with no-text constraint
+        no_text_markers = ["no text", "no logo", "no watermark", "no typography", "photorealistic photograph only"]
+        if ip and not any(m in ip for m in no_text_markers):
+            logger.warning(
+                f"[Design QA] Post '{topic}': image_prompt missing no-text/no-logo constraint."
+            )
+
+        # Log a pass for clean posts (debug only)
+        if not any([
+            ip_words < 80,
+            vd and not any(kw in vd for kw in _FOCAL_KEYWORDS),
+            found_generic,
+        ]):
+            logger.debug(f"[Design QA] Post '{topic}': passed all design quality checks.")
+
+    return posts  # always return — QA is advisory, not blocking
 
 
 # ── Core OpenAI chat wrapper ───────────────────────────────────────────────────
@@ -179,6 +346,35 @@ def _get_posting_dates(year: int, month: int, posts_per_week: int) -> list[str]:
     return [weekdays[int(i * step)].isoformat() for i in range(total)]
 
 
+# ── Emotional register mapping ────────────────────────────────────────────────
+# Maps content_type to design direction for the pre-flight block.
+
+_CONTENT_TYPE_DESIGN = {
+    "Educational Tip":       ("centered",        "minimal, clean, organised — calm authority"),
+    "Meme / Relatable Humour": ("image-dominant","playful, candid, warm — feels real not staged"),
+    "CTA / Promotion":       ("split",           "high contrast, punchy, saturated — urgent energy"),
+    "Trending Moment":       ("image-dominant",  "bold, fast, high-energy — first-mover urgency"),
+    "Behind the Scenes":     ("image-dominant",  "candid, warm, documentary — no-filter authenticity"),
+    "Customer Testimonial":  ("split",           "clean, warm, face-forward — trust and social proof"),
+    "Hot Take":              ("centered",        "bold typography energy, strong contrast — conviction"),
+    "Engagement Question":   ("centered",        "open, inviting, warm — conversation-starting"),
+    "Product Spotlight":     ("image-dominant",  "product hero, clean surround — desire and aspiration"),
+    "Monday Motivation":     ("image-dominant",  "aspirational, golden light, wide open — achievable ambition"),
+    "Founder Story":         ("split",           "personal, warm, human — authenticity over polish"),
+    "Industry Insight":      ("centered",        "authoritative, structured, premium — thought leadership"),
+}
+
+_DEFAULT_DESIGN = ("image-dominant", "modern, premium, on-brand — scroll-stopping at first glance")
+
+
+def _get_design_direction(content_type: str) -> tuple[str, str]:
+    """Return (layout, emotional_register) for a given content type."""
+    for key, val in _CONTENT_TYPE_DESIGN.items():
+        if key.lower() in content_type.lower():
+            return val
+    return _DEFAULT_DESIGN
+
+
 # ── Per-platform generation ────────────────────────────────────────────────────
 
 async def _generate_for_platform(
@@ -210,6 +406,16 @@ async def _generate_for_platform(
     assigned_types = [content_types[rng.randint(0, len(content_types) - 1)] for _ in posting_dates]
     type_instructions = '\n'.join([f"- {d}: {t}" for d, t in zip(posting_dates, assigned_types)])
 
+    # Phase 1: Build per-post design pre-flight instructions
+    # Each content type gets its specific layout + emotional register mapped in.
+    design_preflights = []
+    for d, ct in zip(posting_dates, assigned_types):
+        layout, register = _get_design_direction(ct)
+        design_preflights.append(
+            f"  {d} ({ct}): layout={layout} | register={register}"
+        )
+    design_preflight_block = "\n".join(design_preflights)
+
     platform_notes = {
         "instagram": "Instagram square 1:1",
         "facebook": "Facebook post 1:1",
@@ -231,7 +437,8 @@ When writing image_prompt fields:
 - ALWAYS describe the logo's visual appearance using logo_description from VISUAL IDENTITY (never skip this)
 - ALWAYS use imagery_style, lighting_style, design_style, typography, and brand_motifs verbatim from VISUAL IDENTITY
 - ALWAYS describe subjects using the target_audience demographics — NOT generic stock people
-- NEVER use generic phrases like "vibrant colors", "dramatic lighting", or "modern design"
+- NEVER use generic phrases like "vibrant colors", "dramatic lighting", "stunning", or "modern design"
+- NEVER produce a flat paragraph — every image_prompt must describe: focal point, composition, lighting, subject, mood, and color palette as distinct sentences
 
 When writing captions:
 - Match the language style and tone tags exactly
@@ -241,6 +448,7 @@ When writing captions:
 - Honour all guardrails and regulatory constraints
 - First line must be a strong hook — never start with the brand name"""
 
+    # Phase 1: Art director pre-flight block injected into creative_brief
     creative_brief = f"""Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
 
 Platform: {platform} ({platform_format})
@@ -250,6 +458,40 @@ Format preference: {format_mix}
 Assign one post to each date:
 {type_instructions}
 
+═══════════════════════════════════════════════════
+ART DIRECTOR PRE-FLIGHT — apply this to EVERY post
+═══════════════════════════════════════════════════
+
+Before writing visual_direction or image_prompt for each post, answer these 4 questions internally:
+
+1. FOCAL POINT — What is the ONE dominant element? (subject face / hero product / bold typography — pick one, never two)
+2. LAYOUT — Which structure fits this content type?
+   - "centered" → subject dead-centre, symmetrical, strong negative space top and bottom
+   - "split" → subject occupies right 55–60% of frame, left third clean and empty for text overlay
+   - "image-dominant" → full bleed, subject fills 75%+ of frame, camera close, emotional expression visible
+3. EMOTIONAL REGISTER — What feeling must this content type evoke? (see per-date mapping below)
+4. REMOVE — What would clutter this? Strip it.
+
+Pre-assigned layout + register per date:
+{design_preflight_block}
+
+Then write visual_direction that:
+- Names the focal point explicitly ("The focal point is...")
+- States the layout used ("Layout: split / centered / image-dominant")
+- Describes exactly 3 compositional elements and their position in frame
+- Specifies what the negative space is reserved for (text overlay)
+- Describes the emotional mood in one sentence
+- Is mobile-readable — subject legible at 300px wide
+
+Then write image_prompt that:
+- Opens with the layout decision and focal point
+- Has at least 5 distinct sentences (focal, subject, lighting, color, mood)
+- Uses exact brand colors (hex values from VISUAL IDENTITY)
+- Describes the subject using the brand's target audience demographics
+- Contains zero generic phrases ("vibrant colors", "stunning", "modern", "dynamic", "eye-catching")
+- Ends with: "No text, no logos, no watermarks, no typography, no UI elements, no illustration, photorealistic photograph only."
+═══════════════════════════════════════════════════
+
 For EACH post return ALL these fields:
 
 1. content_type — exactly as assigned above
@@ -258,16 +500,17 @@ For EACH post return ALL these fields:
 4. caption — full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
 5. cta — standalone call to action, max 12 words
 6. hashtags — array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction — 3-4 sentences for a designer: scene, composition, lighting, people/product, mood, typography placement. Must be consistent with the brand's visual identity.
-8. image_prompt — photorealistic background image prompt for gpt-image-1. Must reference: brand name ({brand_name}), exact brand colors, imagery_style, lighting_style, brand_motifs, and audience demographics. Ends with: "No text, no logos, no watermarks, no typography, no UI elements, no illustration, photorealistic photograph only."
-9. image_prompt_explanation — 2 sentences: why this visual was chosen
-10. visual_type — one of: "real_people", "illustration", "abstract", "product" — choose based on the brand's imagery_style and content type
+7. visual_direction — 4-5 sentences following the ART DIRECTOR PRE-FLIGHT rules above (focal point + layout + composition + mood)
+8. image_prompt — production-ready photorealistic background prompt for gpt-image-1, following all rules above. Min 100 words.
+9. image_prompt_explanation — 2 sentences: why this visual was chosen for this specific content type
+10. visual_type — one of: "real_people", "illustration", "abstract", "product" — match brand's imagery_style and content type
 11. format — "single", "carousel", or "quote"
 12. slide_count — 1 for single/quote, 2-5 for carousel
 13. date — posting date in YYYY-MM-DD format exactly as listed above
 
 HARD RULES:
-- Each post must feel distinctly different — vary tone, angle, format, and style
+- Each post must feel distinctly different — vary layout, focal point, angle, and emotional register
+- NEVER use the same layout twice in a row
 - NEVER use words from the words_to_avoid list
 - NEVER produce generic AI-sounding captions
 - topic must equal content_idea exactly
@@ -281,7 +524,6 @@ Return a JSON object with a single key "posts" containing the array:
             raw = None
 
             if assistant_id and attempt == 0:
-                # Attempt 1: OpenAI Assistants API with Vector Store + inline context
                 brief_with_context = (
                     f"=== BRAND CONTEXT (primary reference) ===\n"
                     f"{brand_ctx}\n\n"
@@ -297,22 +539,32 @@ Return a JSON object with a single key "posts" containing the array:
                     raw = None
 
             if raw is None:
-                # Chat completions fallback (or subsequent retry attempts)
+                # Phase 4: DESIGN_SYSTEM_PROMPT injected as second user message
+                # Model reads it before receiving any brand context or brief,
+                # so the designer persona is active for the entire conversation.
                 raw = await _openai_chat(
                     messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": brand_system},
-                        {"role": "assistant", "content": f"Understood. I have memorised the {brand_name} brand context and all guardrails. Ready to generate fully on-brand content."},
-                        {"role": "user", "content": creative_brief},
+                        {"role": "system",    "content": SYSTEM_PROMPT},
+                        {"role": "user",      "content": DESIGN_SYSTEM_PROMPT},
+                        {"role": "assistant", "content": (
+                            "Understood. I am operating as a senior art director. "
+                            "For every post I will first decide: focal point, layout structure "
+                            "(centered / split / image-dominant), and emotional register. "
+                            "I will remove clutter, enforce visual hierarchy, and write "
+                            "production-ready visual_direction and image_prompt that a real "
+                            "photographer could shoot from. I will not produce generic output."
+                        )},
+                        {"role": "user",      "content": brand_system},
+                        {"role": "assistant", "content": f"Memorised. {brand_name} brand context locked in. Ready to generate."},
+                        {"role": "user",      "content": creative_brief},
                     ],
-                    max_tokens=12000,
+                    max_tokens=14000,
                     temperature=0.4,
                     json_mode=True,
                 )
 
             parsed = _parse_json_safe(raw)
 
-            # Extract "posts" wrapper if present
             if isinstance(parsed, dict) and "posts" in parsed:
                 posts = parsed["posts"]
             elif isinstance(parsed, list):
@@ -326,6 +578,9 @@ Return a JSON object with a single key "posts" containing the array:
             validated = _validate_posts(posts, words_to_avoid)
             if len(validated) == 0:
                 raise ValueError("All posts failed validation")
+
+            # Phase 3: Design quality validation (advisory — never blocks)
+            validated = _validate_design_quality(validated)
 
             logger.info(f"Platform {platform}: {len(validated)} posts validated (attempt {attempt + 1})")
             return validated
@@ -496,7 +751,7 @@ Mood: {mood or 'same as original'}
 Original caption: {existing_caption}
 
 Return JSON object: {{"caption": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: max 100 words, platform-native, no generic phrases, no forbidden words."""
+Rules: max 100 words, platform-native, strong hook on first line, no generic phrases, no forbidden words."""
     else:
         prompt = f"""Write one {platform} caption for {brand.get('name', 'the brand')}.
 Brand profile:
@@ -511,7 +766,7 @@ Rules: max 100 words, platform-native, strong hook on first line, no generic phr
     raw = await _openai_chat(
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {"role": "user",   "content": prompt},
         ],
         max_tokens=1000,
         temperature=0.6,
@@ -521,7 +776,6 @@ Rules: max 100 words, platform-native, strong hook on first line, no generic phr
     if not isinstance(result, dict):
         raise ValueError("Expected JSON object for caption")
 
-    # Coerce hashtags
     if not isinstance(result.get("hashtags"), list):
         result["hashtags"] = []
     result["hashtags"] = [str(h).lstrip("#") for h in result["hashtags"]][:2]
@@ -548,7 +802,7 @@ Rules: topic 2-5 words titlecase, description one sentence, volume e.g. "4.2M po
     raw = await _openai_chat(
         messages=[
             {"role": "system", "content": f"You are a senior Nigerian digital strategist tracking real-time trends. Today is {today}. Return ONLY valid JSON."},
-            {"role": "user", "content": prompt},
+            {"role": "user",   "content": prompt},
         ],
         max_tokens=2000,
         temperature=0.7,
@@ -607,7 +861,7 @@ Rules: platform-native, strong hook, no generic phrases, no forbidden words, max
     raw = await _openai_chat(
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
+            {"role": "user",   "content": prompt},
         ],
         max_tokens=800,
         temperature=0.6,
