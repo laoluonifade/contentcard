@@ -22,6 +22,26 @@ PLATFORM_FORMAT = {
     "linkedin": "LinkedIn post image, landscape or square",
 }
 
+# ── Content-type art direction map ────────────────────────────────────────────
+_CONTENT_DESIGN_MAP = {
+    "educational tip": "Clean, authoritative composition with clear visual hierarchy: numbered system or step-reveal layout, generous negative space, credible and precise scene design. Avoid clutter and busy decorative backgrounds.",
+    "educational": "Clean, authoritative composition with clear visual hierarchy: numbered system or step-reveal layout, generous negative space, credible and precise scene design.",
+    "meme / relatable humour": "High-contrast punchy composition with bold text dominance and reaction-energy visual. Culturally tuned and relatable. Avoid low-energy flat or overly polished corporate feel.",
+    "meme": "High-contrast punchy composition with bold text dominance and reaction-energy visual. Culturally tuned and relatable.",
+    "cta / promotion": "Bold product or offer hero composition with urgency energy: strong color contrast, clear focal subject (product, deal, or value moment), action-ready visual hierarchy. Avoid soft muted tones and passive scenes.",
+    "promotion": "Bold product or offer hero composition with urgency energy: strong color contrast, clear focal subject, action-ready visual hierarchy.",
+    "customer testimonial": "Warm human-centered layout anchored by a real face, expressive hands, or authentic environment. Quote as secondary hero element. Trust-focused — no generic stock smiles, no corporate cold palette.",
+    "testimonial": "Warm human-centered layout anchored by a real face or authentic environment. Trust-focused — no generic stock smiles.",
+    "behind the scenes": "Candid documentary energy with raw authenticity: slightly imperfect framing, real-world textures, unposed moments that feel like genuine access. Avoid overly staged or polished looks.",
+    "engagement question": "Bold question-forward composition: large typography question as dominant element with supporting visual context. Conversational and inviting energy. Avoid passive or decorative-only visuals.",
+    "trending moment": "Reactive newsy design that signals timeliness: contemporary visual language, current cultural references, fast editorial energy. Avoid dated or generic non-specific visuals.",
+    "hot take": "Bold contrarian visual with debate energy: strong type-led composition, intentional visual tension, confident and provocative. Avoid safe neutral design that undermines the take.",
+    "product spotlight": "Premium product hero with contextual lifestyle story: product as clear focal subject, styled environment as supporting narrative, tactile material and lighting. Avoid generic white-background packshots.",
+    "founder story": "Personal editorial feel with human warmth: founder presence (face or workspace detail), narrative composition, behind-the-brand authenticity. Avoid cold corporate feel.",
+    "industry insight": "Thought-leadership editorial with data-point energy: clean information scene or abstracted data visualization as focal point, expert and forward-looking mood. Avoid vague decorative visuals.",
+    "monday motivation": "Energizing motivational composition: bold typography hero or dynamic action scene, uplifting and aspirational. Avoid generic inspirational stock photo clichés.",
+}
+
 
 def _resolve_logo_url(brand: dict) -> str:
     vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
@@ -68,10 +88,13 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     platform = (post.get("platform") or "instagram").lower()
     logo_safe_zone = str(post.get("logo_safe_zone") or "lower_right").strip().lower().replace("-", "_")
     content_idea = post.get("content_idea") or post.get("topic", "")
+    content_type = str(post.get("content_type") or "").strip().lower()
     description = post.get("description", "")
     visual_direction = post.get("visual_direction", "")
     ai_image_prompt = post.get("image_prompt", "")
     fmt = post.get("format", "single")
+    # Content-type art direction
+    _ct_design = _CONTENT_DESIGN_MAP.get(content_type, "")
     qg_notes = str(post.get("quality_gate_notes") or "").strip()
     qg_retry = int(post.get("quality_gate_retry") or 0) if str(post.get("quality_gate_retry") or "").isdigit() else 0
     message_arch = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
@@ -418,6 +441,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"Color palette: {color_str}. Tone: {tone_str}. "
             f"{audience_note} {cultural_note} {motif_note} {msg_note} "
             f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note}\n"
+            f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
             f"{cam_line} "
             f"{lighting}. {format_note} "
             f"{style_close} "
@@ -460,6 +484,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"Mood: {tone_str}. Color palette: {color_str}. "
             f"{audience_note} {cultural_note} {motif_note} {imagery_note} {msg_note} "
             f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} "
+            f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
             "Creative standard: emulate high-performing social campaign craft with clear module hierarchy (headline/offer/proof/cta), "
             "bold but disciplined color blocking, and storytelling props that support the claim. "
             "Illustration or graphic accents must reinforce the message narrative, never act as random decoration. "
