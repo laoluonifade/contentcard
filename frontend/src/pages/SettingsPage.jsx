@@ -198,6 +198,7 @@ export default function SettingsPage() {
   }
 
   return (
+    <>
     <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Settings</h1>
@@ -631,5 +632,6 @@ export default function SettingsPage() {
         </div>
       </div>
     )}
+    </>
   )
 }
