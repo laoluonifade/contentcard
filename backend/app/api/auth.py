@@ -266,7 +266,6 @@ async def change_password(
     await db.commit()
 
 
-<<<<<<< HEAD
 def _shopify_state_secret() -> str:
     return (settings.SHOPIFY_OAUTH_STATE_SECRET or settings.SECRET_KEY).strip()
 
@@ -736,51 +735,3 @@ async def set_post_signup_decision(
     connection.connection_metadata = {**(connection.connection_metadata or {}), "post_signup_decision": body.decision}
     await db.commit()
     return {"ok": True, "decision": body.decision}
-=======
-@router.delete("/me", status_code=204)
-async def delete_account(
-    body: dict,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Permanently delete the current user's account.
-    Requires password confirmation.
-    Workspaces where this user is the sole owner are also deleted.
-    """
-    password = body.get("password", "")
-    if not password:
-        raise HTTPException(status_code=400, detail="Password is required")
-    if not verify_password(password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="Incorrect password")
-
-    # Find workspaces where this user is the sole owner
-    owned_ws_r = await db.execute(
-        select(Workspace).join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
-        .where(WorkspaceMember.user_id == current_user.id, WorkspaceMember.role == WorkspaceRole.OWNER)
-    )
-    owned_workspaces = owned_ws_r.scalars().all()
-
-    for ws in owned_workspaces:
-        # Check if there are other owners
-        other_owners_r = await db.execute(
-            select(WorkspaceMember).where(
-                WorkspaceMember.workspace_id == ws.id,
-                WorkspaceMember.user_id != current_user.id,
-                WorkspaceMember.role == WorkspaceRole.OWNER,
-            )
-        )
-        other_owners = other_owners_r.scalars().all()
-        if not other_owners:
-            # Sole owner — delete the workspace (cascade deletes members, brands, content)
-            await db.delete(ws)
-
-    # Remove user from any other workspaces they're a member of
-    await db.execute(
-        sql_delete(WorkspaceMember).where(WorkspaceMember.user_id == current_user.id)
-    )
-
-    # Delete the user
-    await db.delete(current_user)
-    await db.commit()
->>>>>>> 75d7127 (fix: add DELETE /auth/me endpoint for account deletion)
