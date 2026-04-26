@@ -560,6 +560,112 @@ async def send_once(
     return True
 
 
+# ── Template: Generation complete (Phase 1) ────────────────────────────────────
+
+_MONTH_NAMES = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def _month_label(month: int, year: int) -> str:
+    if 1 <= int(month) <= 12:
+        return f"{_MONTH_NAMES[int(month) - 1]} {int(year)}"
+    return f"{int(month):02d}/{int(year)}"
+
+
+def render_generation_complete(
+    *,
+    month: int,
+    year: int,
+    post_count: int,
+    calendar_url: str,
+    name: str | None = None,
+    brand_name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 1 — sent when a monthly generation finishes with at least one post."""
+    first = name.split()[0] if name else None
+    greeting = f"Hi {first}," if first else "Hi there,"
+    label = _month_label(month, year)
+    brand_line = f" for <strong>{brand_name}</strong>" if brand_name else ""
+    posts_word = "post" if post_count == 1 else "posts"
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">Your {label} content is ready</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {greeting}</p>
+    <p style="margin:0 0 30px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      We just finished generating <strong>{post_count} {posts_word}</strong>{brand_line}
+      for {label}. Visuals are rendered, captions are written — head to the calendar
+      to review, edit, or schedule.
+    </p>
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn(f"Open the {label} calendar", calendar_url)}
+    </div>
+    {_divider()}
+    <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
+      Don't want these emails? Manage your preferences in
+      <a href="{calendar_url.split('/dashboard')[0]}/dashboard/settings?tab=Notifications" style="color:{_GREEN};">Settings &rsaquo; Notifications</a>.
+    </p>"""
+    return (
+        f"Your {label} content is ready",
+        _shell(
+            f"{post_count} {posts_word} ready for {label} — open your calendar to review.",
+            body,
+        ),
+    )
+
+
+# ── Template: Generation failed (Phase 1) ──────────────────────────────────────
+
+def render_generation_failed(
+    *,
+    month: int,
+    year: int,
+    retry_url: str,
+    failure_summary: str,
+    name: str | None = None,
+    brand_name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 1 — sent when a monthly generation fails or saves zero posts."""
+    first = name.split()[0] if name else None
+    greeting = f"Hi {first}," if first else "Hi there,"
+    label = _month_label(month, year)
+    brand_line = f" for <strong>{brand_name}</strong>" if brand_name else ""
+    # Failure summary is plain language only; tracebacks must never reach this
+    # template. Caller is responsible for sanitising before passing.
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">{label} generation didn't finish</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {greeting}</p>
+    <p style="margin:0 0 18px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      We hit a snag generating your {label} content{brand_line} and couldn't
+      complete the run. Nothing was charged and no posts were lost on the
+      calendar — you can retry safely.
+    </p>
+    <div style="background:{_LIGHT_GREEN};border:1px solid {_BORDER};
+      border-radius:10px;padding:14px 18px;margin:0 0 26px;">
+      <p style="margin:0;font-size:13px;color:{_TEXT};line-height:1.6;">
+        <strong style="color:{_NAVY};">What happened:</strong> {failure_summary}
+      </p>
+    </div>
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn("Retry generation", retry_url)}
+    </div>
+    {_divider()}
+    <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
+      If retrying doesn't work, reply to this email and we'll dig into it.
+    </p>"""
+    return (
+        f"{label} generation didn't finish — retry inside",
+        _shell(
+            f"Your {label} content didn't finish generating. Open the dashboard to retry.",
+            body,
+        ),
+    )
+
+
 # ── Convenience helpers ────────────────────────────────────────────────────────
 
 async def send_password_reset(
@@ -594,3 +700,73 @@ async def send_team_invite(
 async def send_welcome(to: str, name: str | None, login_url: str) -> None:
     subject, html = render_welcome(name, login_url)
     await send_email(to, subject, html)
+
+
+# ── Phase 1: Generation lifecycle ─────────────────────────────────────────────
+
+
+async def send_generation_complete(
+    *,
+    to: str,
+    month: int,
+    year: int,
+    post_count: int,
+    calendar_url: str,
+    brand_id: str,
+    name: str | None = None,
+    brand_name: str | None = None,
+    user_preferences: dict | None = None,
+) -> bool:
+    """Phase 1 — fire on successful monthly generation.
+
+    Idempotent on `(to, "generation_complete", "{brand_id}:{year}-{month}")` so
+    re-running a generation for the same brand/month doesn't double-send.
+    """
+    if not settings.EMAIL_GENERATION_LIFECYCLE_ENABLED:
+        return False
+    subject, html = render_generation_complete(
+        month=month, year=year, post_count=post_count,
+        calendar_url=calendar_url, name=name, brand_name=brand_name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="generation_complete",
+        dedupe_key=f"{brand_id}:{int(year):04d}-{int(month):02d}",
+        subject=subject,
+        html=html,
+        user_preferences=user_preferences,
+    )
+
+
+async def send_generation_failed(
+    *,
+    to: str,
+    month: int,
+    year: int,
+    retry_url: str,
+    failure_summary: str,
+    brand_id: str,
+    name: str | None = None,
+    brand_name: str | None = None,
+    user_preferences: dict | None = None,
+) -> bool:
+    """Phase 1 — fire when a generation run fails or saves zero posts.
+
+    Idempotent on `(to, "generation_failed", "{brand_id}:{year}-{month}")`. If
+    the user retries and succeeds, `generation_complete` will fire on the
+    success path independently.
+    """
+    if not settings.EMAIL_GENERATION_LIFECYCLE_ENABLED:
+        return False
+    subject, html = render_generation_failed(
+        month=month, year=year, retry_url=retry_url,
+        failure_summary=failure_summary, name=name, brand_name=brand_name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="generation_failed",
+        dedupe_key=f"{brand_id}:{int(year):04d}-{int(month):02d}",
+        subject=subject,
+        html=html,
+        user_preferences=user_preferences,
+    )
