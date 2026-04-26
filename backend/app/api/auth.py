@@ -31,6 +31,7 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.services.geo_service import get_country_from_ip, get_payment_provider
+from app.services.email_service import send_password_reset, send_welcome
 from app.core.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -107,6 +108,12 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     db.add(member)
     await db.commit()
     await db.refresh(user)
+
+    # Send welcome email (fire-and-forget — never block the signup response)
+    import asyncio
+    asyncio.create_task(
+        send_welcome(user.email, user.full_name, settings.FRONTEND_URL + "/dashboard")
+    )
 
     token = create_access_token(user.id)
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
@@ -251,6 +258,66 @@ async def delete_account(
     current_user.is_active = False
     current_user.deleted_at = now
 
+    await db.commit()
+
+
+@router.post("/forgot-password", status_code=204)
+async def forgot_password(body: dict, db: AsyncSession = Depends(get_db)):
+    """
+    Request a password reset link.
+
+    Always returns 204 regardless of whether the email exists — this prevents
+    account enumeration.  The reset link is emailed and expires in 30 minutes.
+    """
+    import asyncio
+    raw_email = str(body.get("email") or "").strip().lower()
+    if not raw_email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+
+    result = await db.execute(
+        select(User).where(User.email == raw_email, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
+
+    if user:
+        token = secrets.token_urlsafe(48)
+        user.reset_token = token
+        user.reset_token_expires = datetime.now(timezone.utc) + timedelta(minutes=30)
+        await db.commit()
+
+        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+        asyncio.create_task(
+            send_password_reset(user.email, reset_url, user.full_name)
+        )
+    # Always return 204 — never reveal whether an account exists
+
+
+@router.post("/reset-password", status_code=204)
+async def reset_password(body: dict, db: AsyncSession = Depends(get_db)):
+    """
+    Consume a password reset token and set a new password.
+    """
+    token    = str(body.get("token") or "").strip()
+    password = str(body.get("password") or "").strip()
+
+    if not token:
+        raise HTTPException(status_code=422, detail="Reset token is required.")
+    if len(password) < 8:
+        raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
+
+    result = await db.execute(
+        select(User).where(User.reset_token == token, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    if user.reset_token_expires is None or datetime.now(timezone.utc) > user.reset_token_expires:
+        raise HTTPException(status_code=400, detail="This reset link has expired. Please request a new one.")
+
+    user.hashed_password = hash_password(password)
+    user.reset_token = None
+    user.reset_token_expires = None
     await db.commit()
 
 
