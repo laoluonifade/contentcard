@@ -220,6 +220,63 @@ CONTENT_TYPE_CONTRACTS: dict[str, TypeContract] = {
         min_dominance=0.55,
         banned_poses=POSE_TAGS,
     ),
+    # ── Canonical content_planner slots (preferred; map to the same envelopes) ──
+    "product_spotlight": TypeContract(
+        allowed_subjects=("product",),
+        allowed_mediums=("photo", "illustration"),
+        min_dominance=0.6,
+        banned_poses=POSE_TAGS,
+        prompt_negatives=(
+            "no person holding a device",
+            "no laptop in frame",
+            "no phone in frame unless the phone IS the product",
+            "no human hands unless they are interacting with the product",
+        ),
+    ),
+    "promotional": TypeContract(
+        allowed_subjects=("product", "typography", "abstract"),
+        allowed_mediums=("text_graphic", "photo"),
+        min_dominance=0.55,
+        banned_poses=POSE_TAGS,
+        prompt_negatives=(
+            "no human subject",
+            "no stock photography of people",
+            "the offer or product is the hero, not a person",
+        ),
+    ),
+    "social_proof": TypeContract(
+        allowed_subjects=("typography", "abstract"),
+        allowed_mediums=("text_graphic",),
+        min_dominance=0.6,
+        banned_poses=POSE_TAGS,
+        prompt_negatives=(
+            "no photographic portrait",
+            "no person in frame — typography quotes the customer",
+            "no scene background competing with the quote",
+        ),
+    ),
+    "engagement": TypeContract(
+        allowed_subjects=("typography", "abstract", "environment"),
+        allowed_mediums=("text_graphic", "illustration"),
+        min_dominance=0.55,
+        banned_poses=POSE_TAGS,
+        prompt_negatives=(
+            "no human portrait competing with the question",
+            "the prompt or question is the hero",
+        ),
+    ),
+    "story": TypeContract(
+        # Real-world / behind-the-scenes — humans allowed but only mid-activity.
+        allowed_subjects=("environment", "human", "product"),
+        allowed_mediums=("photo",),
+        min_dominance=0.4,
+        banned_poses=("smiling_camera", "pointing_screen", "holding_phone"),
+        prompt_negatives=(
+            "no posed photography",
+            "no studio lighting — this is a real-world candid moment",
+            "no stock 'professional headshot' framing",
+        ),
+    ),
 }
 
 # Default contract used when content_type doesn't match anything above.
@@ -259,17 +316,30 @@ DISTRIBUTION_PER_10 = {
 
 _CANDIDATES: dict[str, list[VisualStrategy]] = {
     "product spotlight": [
+        # Studio packshot — clean catalog hero
         VisualStrategy("product", "close_up", "photo", "studio", "studio", "none", 0.75),
+        # Angled hero on minimal seamless
         VisualStrategy("product", "angled", "photo", "warm", "minimal", "none", 0.7),
+        # Knolling / flatlay
         VisualStrategy("product", "top_down", "photo", "natural", "minimal", "none", 0.65),
+        # Hands on product — no face
         VisualStrategy("product", "centered", "photo", "high_contrast", "in_use", "hands_on_product", 0.6),
+        # Cropped lifestyle product hero
         VisualStrategy("product", "cropped", "photo", "warm", "lifestyle", "none", 0.7),
+        # Macro detail — material story
+        VisualStrategy("product", "close_up", "photo", "natural", "environment", "none", 0.7),
     ],
     "educational": [
+        # Bold headline typography
         VisualStrategy("typography", "centered", "text_graphic", "natural", "minimal", "none", 0.6),
+        # UI mockup as the hero
         VisualStrategy("ui", "split", "ui_mockup", "natural", "minimal", "none", 0.65),
+        # Two-column compare card
         VisualStrategy("typography", "split", "text_graphic", "high_contrast", "minimal", "none", 0.55),
+        # Diagram-style illustration
         VisualStrategy("abstract", "centered", "illustration", "natural", "minimal", "none", 0.5),
+        # UI walkthrough close-up
+        VisualStrategy("ui", "close_up", "ui_mockup", "high_contrast", "minimal", "none", 0.7),
     ],
     "promotion": [
         VisualStrategy("typography", "centered", "text_graphic", "high_contrast", "minimal", "none", 0.6),
@@ -311,7 +381,26 @@ _CANDIDATE_ALIASES = {
     "cta / promotion": "promotion",
     "customer testimonial": "testimonial",
     "meme / relatable humour": "meme",
+    # Canonical content_planner slots
+    "product_spotlight": "product spotlight",
+    "promotional": "promotion",
+    "social_proof": "testimonial",
+    "engagement": "engagement question",
 }
+
+# Story / Behind the Scenes — given its own candidate list that mixes
+# documentary BTS (environment/human) AND lifestyle (human in real-world
+# context). This ensures the per-10 lifestyle_human bucket can be filled
+# even when the slot mix has no dedicated "lifestyle" content type.
+_CANDIDATES["story"] = [
+    # Lifestyle human, mid-activity
+    VisualStrategy("human", "wide", "photo", "warm", "lifestyle", "candid_activity", 0.5),
+    VisualStrategy("human", "cropped", "photo", "natural", "lifestyle", "hands_on_product", 0.55),
+    # Behind-the-scenes documentary
+    VisualStrategy("environment", "wide", "photo", "natural", "environment", "none", 0.45),
+    VisualStrategy("human", "cropped", "photo", "natural", "environment", "candid_activity", 0.5),
+    VisualStrategy("environment", "angled", "photo", "warm", "environment", "none", 0.45),
+]
 
 
 def candidates_for(content_type: str | None) -> list[VisualStrategy]:
@@ -357,6 +446,12 @@ _DIVERSITY_WEIGHTS = {
     "pose_tag": 0.15,
 }
 
+# The four axes the spec calls out as the "subject_type / composition /
+# lighting / medium" repetition guard. If any of the last 3 posts matches
+# the candidate on ≥ AXIS_MATCH_REJECT_THRESHOLD of these axes → reject.
+_REPETITION_AXES = ("subject_type", "composition", "medium", "lighting")
+AXIS_MATCH_REJECT_THRESHOLD = 3  # 3 of 4 axes identical = too similar
+
 
 def similarity(a: VisualStrategy, b: VisualStrategy) -> float:
     """Weighted equality: 0 = totally distinct, 1 = identical on the tracked axes."""
@@ -374,14 +469,47 @@ def similarity(a: VisualStrategy, b: VisualStrategy) -> float:
     return score
 
 
-REPETITION_THRESHOLD = 0.6  # > this against any of the last 3 → reject
+def axis_matches(a: VisualStrategy, b: VisualStrategy) -> int:
+    """Count of repetition axes (subject_type/composition/medium/lighting) that match."""
+    return sum(1 for axis in _REPETITION_AXES if getattr(a, axis) == getattr(b, axis))
+
+
+REPETITION_THRESHOLD = 0.6  # legacy weighted score threshold (kept for callers)
 
 
 def too_similar_to_recent(strategy: VisualStrategy, recent: Iterable[VisualStrategy]) -> bool:
+    """Reject if any of the last 3 strategies matches on ≥3 of 4 hard axes."""
     for r in list(recent)[-3:]:
-        if similarity(strategy, r) > REPETITION_THRESHOLD:
+        if axis_matches(strategy, r) >= AXIS_MATCH_REJECT_THRESHOLD:
             return True
     return False
+
+
+# ── Per-10 visual diversity buckets ──────────────────────────────────────────
+
+
+def bucket_for_strategy(s: VisualStrategy, content_type: str | None = None) -> str:
+    """Map a strategy to one of the seven distribution buckets.
+
+    Order matters — checked top-to-bottom so a strategy lands in the most
+    specific bucket first. Used by the scheduler to enforce DISTRIBUTION_PER_10.
+    """
+    ct = (content_type or "").strip().lower()
+    if s.medium == "ui_mockup":
+        return "ui_mockup"
+    if "testimonial" in ct or ct in ("social_proof",):
+        return "testimonial_text"
+    if s.medium == "text_graphic":
+        return "typography_graphic"
+    if s.subject_type == "product":
+        return "product_first"
+    if s.subject_type == "human" or s.context == "lifestyle":
+        return "lifestyle_human"
+    if "educational" in ct and s.medium in ("illustration", "text_graphic"):
+        return "educational_graphic"
+    if s.medium == "illustration" or s.subject_type == "abstract":
+        return "experimental"
+    return "experimental"
 
 
 # ── Scheduler ────────────────────────────────────────────────────────────────
@@ -396,6 +524,29 @@ class ScheduledStrategy:
     rejected: list[str] = field(default_factory=list)
 
 
+def _scaled_bucket_targets(total: int) -> dict[str, int]:
+    """Scale DISTRIBUTION_PER_10 to `total` posts using largest-remainder rounding."""
+    if total <= 0:
+        return {k: 0 for k in DISTRIBUTION_PER_10}
+    scaled: dict[str, float] = {k: v * total / 10 for k, v in DISTRIBUTION_PER_10.items()}
+    floored: dict[str, int] = {k: max(0, int(v)) for k, v in scaled.items()}
+    remainder = total - sum(floored.values())
+    if remainder != 0:
+        fracs = [(k, scaled[k] - floored[k]) for k in scaled]
+        fracs.sort(key=lambda kv: (kv[1], DISTRIBUTION_PER_10.get(kv[0], 0)), reverse=(remainder > 0))
+        i = 0
+        while remainder != 0 and fracs:
+            k = fracs[i % len(fracs)][0]
+            if remainder > 0:
+                floored[k] += 1
+                remainder -= 1
+            elif floored[k] > 0:
+                floored[k] -= 1
+                remainder += 1
+            i += 1
+    return floored
+
+
 def schedule_month(
     posting_dates: list[str],
     content_type_per_date: dict[str, str],
@@ -404,17 +555,19 @@ def schedule_month(
     """
     Assign a visual_strategy to every date.
 
-    `content_type_per_date` is the {date: content_type} mapping that the existing
-    playbook scheduler already produces. This function does NOT pick content
-    types — it only chooses a structured strategy for each one, subject to:
+    `content_type_per_date` is the {date: content_type} mapping that the
+    upstream content planner produces. This function does NOT pick content
+    types — it chooses a structured strategy for each one, subject to:
 
-      * the type's contract,
-      * the per-month distribution targets (best-effort),
-      * the no-consecutive-human / no-consecutive-composition / no-consecutive-
-        lighting rules,
-      * the 5-post pose-tag rotation window,
-      * the 50% human cap,
-      * the repetition guard against the last 3 chosen strategies.
+      * the type's contract (allowed subjects/mediums/dominance);
+      * the per-10 visual diversity distribution (product-first ×2,
+        typography ×2, lifestyle ×2, ui_mockup, testimonial, educational
+        graphic, experimental — scaled to the actual post count);
+      * the no-consecutive-human / consecutive-composition / consecutive-
+        lighting rules;
+      * the 5-post pose-tag rotation window;
+      * the 50% human cap and ≥40% non-human floor;
+      * the hard repetition guard (last 3 posts; ≥3-of-4 axes match → reject).
     """
     if not posting_dates:
         return []
@@ -423,18 +576,25 @@ def schedule_month(
     rng = random.Random(seed)
 
     total = len(posting_dates)
-    human_cap = total // 2  # 50%
+    human_cap = total // 2                # 50% ceiling
+    non_human_floor = max(1, (total * 2) // 5)  # at least 40% non-human
     humans_used = 0
+    non_humans_used = 0
     recent_strategies: list[VisualStrategy] = []
     recent_poses: list[str] = []
     prev: VisualStrategy | None = None
     consecutive_human = 0
 
+    bucket_targets = _scaled_bucket_targets(total)
+    bucket_filled: dict[str, int] = {k: 0 for k in bucket_targets}
+
     out: list[ScheduledStrategy] = []
-    for d in posting_dates:
+    for idx, d in enumerate(posting_dates):
         ct = content_type_per_date.get(d, "")
         opts = candidates_for(ct)
         rng.shuffle(opts)
+        remaining_dates = total - idx
+        non_human_deficit = non_human_floor - non_humans_used  # >0 → urgent
 
         # Score each candidate; lower = better.
         scored: list[tuple[float, VisualStrategy, list[str]]] = []
@@ -447,7 +607,7 @@ def schedule_month(
                 rejections.append(v)
                 score += 100.0  # contract violations are effectively disqualifying
 
-            # Hard rules
+            # Human ceilings / floors
             if s.subject_type == "human":
                 if humans_used >= human_cap:
                     rejections.append("monthly 50% human cap reached")
@@ -455,22 +615,48 @@ def schedule_month(
                 if consecutive_human >= 2:
                     rejections.append("no more than 2 consecutive humans")
                     score += 100.0
+                # If we still need non-humans to hit the 40% floor, penalise.
+                if non_human_deficit >= remaining_dates:
+                    rejections.append(f"non-human floor ({non_human_floor}) needs every remaining slot")
+                    score += 100.0
+                elif non_human_deficit > 0:
+                    score += 6.0
+            else:
+                # Reward non-human picks proportional to deficit.
+                if non_human_deficit > 0:
+                    score -= 2.0
 
             if prev is not None:
                 if s.composition == prev.composition:
-                    score += 5.0  # discourage but don't ban
+                    score += 5.0
                 if s.lighting == prev.lighting:
                     score += 3.0
+                if s.medium == prev.medium:
+                    score += 4.0
+                if s.subject_type == prev.subject_type:
+                    score += 4.0
                 if s.pose_tag != "none" and s.pose_tag == prev.pose_tag:
-                    score += 8.0  # repeated pose is the worst offender
+                    score += 8.0
 
             # 5-post pose rotation
             if s.pose_tag != "none" and s.pose_tag in recent_poses[-5:]:
                 score += 6.0
 
-            # Repetition guard against last 3
+            # Hard repetition guard: ≥3-of-4 axes match any of last 3 → big penalty.
             if too_similar_to_recent(s, recent_strategies):
-                score += 4.0
+                rejections.append("rep guard: ≥3-of-4 axes match a recent post")
+                score += 50.0
+
+            # Per-10 distribution: prefer candidates that fill an under-target bucket.
+            b = bucket_for_strategy(s, ct)
+            target = bucket_targets.get(b, 0)
+            filled = bucket_filled.get(b, 0)
+            if target > 0 and filled < target:
+                # Reward candidates that fill an undersupplied bucket.
+                score -= 3.0 * (target - filled)
+            elif target > 0 and filled >= target:
+                # Mild penalty when bucket is already saturated.
+                score += 2.0
 
             scored.append((score, s, rejections))
 
@@ -500,8 +686,12 @@ def schedule_month(
             consecutive_human += 1
         else:
             consecutive_human = 0
+            non_humans_used += 1
         recent_strategies.append(chosen)
         recent_poses.append(chosen.pose_tag)
+        bucket_filled[bucket_for_strategy(chosen, ct)] = bucket_filled.get(
+            bucket_for_strategy(chosen, ct), 0
+        ) + 1
         prev = chosen
 
     return out
@@ -564,30 +754,129 @@ def render_strategy_constraints(strategy: VisualStrategy, content_type: str | No
     Render a strategy as a block of HARD constraints for the image prompt.
 
     These go FIRST in the prompt — before brand prose, before playbook flavor —
-    so the model treats them as the primary brief, not optional flavor.
+    so the model treats them as the primary brief, not optional flavor. The
+    block always names the five axes the spec requires the image prompt to
+    include: Subject / Composition / Environment / Lighting / Style. Every
+    line is concrete (no abstract placeholders).
     """
     contract = contract_for(content_type)
-    lines: list[str] = ["VISUAL STRATEGY (HARD CONSTRAINTS — do not deviate):"]
+    lines: list[str] = ["ART DIRECTION (HARD CONSTRAINTS — do not deviate):"]
     subject_dom = _bucket_dominance(strategy.subject_dominance)
     lines.append(
-        f"- Primary subject: {strategy.subject_type} with {subject_dom}."
+        f"- Subject: {strategy.subject_type} as the primary subject, {subject_dom}."
     )
     lines.append(f"- Composition: {_COMPOSITION_PROSE.get(strategy.composition, strategy.composition)}.")
-    lines.append(f"- Medium: {_MEDIUM_PROSE.get(strategy.medium, strategy.medium)}.")
+    lines.append(f"- Environment: {_CONTEXT_PROSE.get(strategy.context, strategy.context)}.")
     lines.append(f"- Lighting: {_LIGHTING_PROSE.get(strategy.lighting, strategy.lighting)}.")
-    lines.append(f"- Context: {_CONTEXT_PROSE.get(strategy.context, strategy.context)}.")
+    lines.append(f"- Style: {_STYLE_PROSE.get(strategy.medium, _MEDIUM_PROSE.get(strategy.medium, strategy.medium))}")
+    lines.append(f"- Depth: {_DEPTH_PROSE.get(strategy.composition, 'Layered foreground / midground / background separation.')}")
 
-    if strategy.subject_type == "human" and strategy.pose_tag != "none":
-        pose_words = strategy.pose_tag.replace("_", " ")
-        lines.append(f"- Human action: {pose_words} — mid-activity, not posing for the camera.")
-    elif strategy.subject_type != "human":
-        lines.append("- No humans in frame.")
+    if strategy.subject_type == "human":
+        pose = strategy.pose_tag.replace("_", " ") if strategy.pose_tag != "none" else "mid-activity"
+        lines.append(
+            f"- Human Usage: allowed — one or two humans, candid {pose}, "
+            "documentary realism (real skin texture, true facial anatomy, no posed smiling stock)."
+        )
+    elif "human" in contract.allowed_subjects:
+        lines.append(
+            "- Human Usage: optional — only as silhouette, hands, or partial figure if it strengthens "
+            "the story; never the hero."
+        )
+    else:
+        lines.append("- Human Usage: not allowed — no people, faces, hands, or human figures in frame.")
 
     if contract.prompt_negatives:
         lines.append("STRICTLY AVOID:")
         for n in contract.prompt_negatives:
             lines.append(f"- {n}")
 
+    return "\n".join(lines)
+
+
+# ── Structured Visual Direction (the seven-axis spec) ────────────────────────
+#
+# Every visual direction served to the planner LLM and to the image model
+# follows the spec's structure: Subject / Composition / Environment / Lighting
+# / Human Usage / Style / Depth. The prose under each axis is pulled from the
+# strategy and the per-content-type contract — never freeform "editorial /
+# campaign quality" placeholder text.
+
+_STYLE_PROSE = {
+    "photo": "Premium photography (campaign / editorial — not stock, not template).",
+    "illustration": "Editorial illustration — deliberate brushwork, cohesive shape language.",
+    "ui_mockup": "Clean UI mockup — interface is the hero, real product screens.",
+    "text_graphic": "Typography-led graphic — the words ARE the visual.",
+}
+
+_DEPTH_PROSE = {
+    "close_up": "Tight foreground only; minimal midground; soft falloff to background; subtle subject shadow.",
+    "wide": "Strong foreground/midground/background separation; layered depth; atmospheric perspective.",
+    "split": "Two parallel planes of equal weight; clean separation between zones.",
+    "centered": "Balanced symmetrical layering; subject crisp, background gently softened.",
+    "cropped": "Asymmetric crop with negative space carrying weight; subject sharp, far background blurred.",
+    "top_down": "Flatlay depth via shadow length and prop scale rather than perspective.",
+    "angled": "Three-quarter perspective with foreground props, hero subject, and softened background.",
+}
+
+
+def _human_usage_line(strategy: VisualStrategy, content_type: str | None) -> str:
+    contract = contract_for(content_type)
+    if strategy.subject_type == "human":
+        pose = strategy.pose_tag.replace("_", " ") if strategy.pose_tag != "none" else "mid-activity"
+        return (
+            f"Allowed — one or two humans, candid {pose}, "
+            "documentary realism (real skin texture, true facial anatomy, no posed smiling stock)."
+        )
+    if "human" in contract.allowed_subjects:
+        return "Optional — only as silhouette / hands / partial figure if it strengthens the story; never the hero."
+    return "Not allowed — no people, faces, hands, or human figures in frame."
+
+
+def _environment_line(strategy: VisualStrategy, content_type: str | None) -> str:
+    base = _CONTEXT_PROSE.get(strategy.context, strategy.context)
+    if strategy.medium == "text_graphic":
+        return f"Flat brand-color field or subtle gradient; {base}."
+    if strategy.medium == "ui_mockup":
+        return f"Clean device frame on neutral surface; {base}."
+    if strategy.medium == "illustration":
+        return f"Illustrated brand world with cohesive shape rhythm; {base}."
+    return f"{base[0].upper() + base[1:]}."
+
+
+def render_structured_visual_direction(
+    strategy: VisualStrategy,
+    content_type: str | None,
+    *,
+    logo_safe_zone: str | None = None,
+) -> str:
+    """
+    Emit the Subject/Composition/Environment/Lighting/Human Usage/Style/Depth
+    visual direction the spec requires.
+
+    This is the executable art brief — every line is concrete and actionable;
+    no abstract placeholders like "editorial" or "campaign quality". Used
+    both as the LLM-facing visual_direction text and as the image-prompt
+    structured block.
+    """
+    subject_dom = _bucket_dominance(strategy.subject_dominance)
+    style_line = _STYLE_PROSE.get(strategy.medium, strategy.medium)
+    depth_line = _DEPTH_PROSE.get(strategy.composition, "Layered foreground / midground / background separation.")
+    safe_zone = (logo_safe_zone or "").strip().lower().replace("-", "_")
+    safe_zone_words = safe_zone.replace("_", " ") if safe_zone else ""
+    safe_note = (
+        f" Reserve calmer negative space in the {safe_zone_words} corner for the post-production logo lockup."
+        if safe_zone_words
+        else ""
+    )
+    lines = [
+        f"Subject: {strategy.subject_type} as the primary subject, {subject_dom}.",
+        f"Composition: {_COMPOSITION_PROSE.get(strategy.composition, strategy.composition)}.",
+        f"Environment: {_environment_line(strategy, content_type)}",
+        f"Lighting: {_LIGHTING_PROSE.get(strategy.lighting, strategy.lighting)}.",
+        f"Human Usage: {_human_usage_line(strategy, content_type)}",
+        f"Style: {style_line}",
+        f"Depth: {depth_line}{safe_note}",
+    ]
     return "\n".join(lines)
 
 
