@@ -50,6 +50,8 @@ from app.services.ai_service import (
     run_generation_prep_chat,
     run_brand_form_coach_chat,
     _default_cta_from_brand,
+    _get_posting_dates,
+    _build_playbook_schedule,
 )
 from app.services.month_holiday_context import build_month_holiday_context
 from app.services.visual_tokens import apply_visual_system_defaults
@@ -1287,6 +1289,67 @@ def _validate_brand_readiness(brand: Brand) -> list[str]:
 
 
 # ── Literal routes FIRST — before any /{param} routes ─────────────
+
+
+class PlanPreviewRequest(BaseModel):
+    brand_id: str
+    month: int
+    year: int
+    platform: str = "instagram"
+    posts_per_week: int = 3
+
+
+@router.post("/plan-preview")
+async def plan_preview(
+    body: PlanPreviewRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the playbook-derived plan for a month so the user can review
+    exactly what will be generated (dates, post types, content types,
+    visual directions, and which brand photos are pre-assigned to each slot).
+    """
+    if body.month < 1 or body.month > 12:
+        raise HTTPException(status_code=400, detail="Month must be 1–12")
+    if body.year < 2024 or body.year > 2030:
+        raise HTTPException(status_code=400, detail="Invalid year")
+    brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=False)
+    brand_dict = _brand_to_dict(brand)
+
+    industry_key = _industry_key_from_brand(brand_dict)
+    playbook = await _load_design_playbook_for_industry(db, industry_key)
+    posting_dates = _get_posting_dates(body.year, body.month, max(1, min(7, body.posts_per_week)))
+
+    rows: list[dict] = []
+    if playbook and playbook.get("content_types"):
+        plan = _build_playbook_schedule(
+            posting_dates,
+            playbook,
+            seed_key=f"{body.month}{body.year}{body.platform}",
+        )
+        rows = [
+            {
+                "date": row.get("date"),
+                "post_type": row.get("post_type") or "single",
+                "content_type": row.get("content_type") or "",
+                "visual_direction": row.get("visual_direction") or "",
+            }
+            for row in plan
+        ]
+
+    brand_photos = brand_dict.get("brand_photos") or []
+    if not isinstance(brand_photos, list):
+        brand_photos = []
+
+    return {
+        "has_playbook": bool(rows),
+        "industry_key": (playbook or {}).get("industry_key"),
+        "industry_name": (playbook or {}).get("industry_name"),
+        "rows": rows,
+        "posting_dates": posting_dates,
+        "brand_photos": brand_photos,
+    }
+
 
 @router.post("/generate-month", status_code=202)
 async def generate_month(
