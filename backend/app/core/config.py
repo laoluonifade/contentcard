@@ -18,6 +18,15 @@ class Settings(BaseSettings):
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
 
+    # Stripe — used for users outside Nigeria
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    STRIPE_PUBLISHABLE_KEY: str = ""
+    # Optional: set pre-created Stripe Price IDs; if blank they are created at startup
+    STRIPE_PRICE_STARTER: str = ""
+    STRIPE_PRICE_SMB: str = ""
+    STRIPE_PRICE_PRO: str = ""
+
     CLOUDINARY_CLOUD_NAME: str = ""
     CLOUDINARY_API_KEY: str = ""
     CLOUDINARY_API_SECRET: str = ""

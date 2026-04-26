@@ -13,10 +13,17 @@ from app.models.user import User
 from app.core.dependencies import get_current_user
 from app.core.config import settings
 from app.services.billing_service import (
+    # Paystack
     create_paystack_checkout,
     verify_paystack_transaction,
     cancel_paystack_subscription,
+    # Stripe
+    create_stripe_checkout,
+    cancel_stripe_subscription,
+    retrieve_stripe_subscription,
+    # Shared
     PLANS,
+    is_nigeria_user,
 )
 from app.services.billing_entitlements import (
     billing_anchor_workspace,
@@ -57,6 +64,20 @@ def _save_card_from_authorization(ws: Workspace, auth: dict) -> None:
     ws.card_exp_year = auth.get("exp_year") or ws.card_exp_year
 
 
+def _save_card_from_stripe(ws: Workspace, payment_method: dict) -> None:
+    """Persist card details from a Stripe PaymentMethod.card object."""
+    card = payment_method.get("card", {})
+    ws.card_last4 = card.get("last4") or ws.card_last4
+    ws.card_type = card.get("brand") or ws.card_type   # visa | mastercard | amex | etc.
+    ws.card_bank = None                                  # Stripe doesn't expose bank name
+    exp_month = card.get("exp_month")
+    exp_year = card.get("exp_year")
+    if exp_month:
+        ws.card_exp_month = str(exp_month).zfill(2)
+    if exp_year:
+        ws.card_exp_year = str(exp_year)
+
+
 async def _require_owner(workspace_id: str, user_id: str, db: AsyncSession) -> Workspace:
     m_r = await db.execute(select(WorkspaceMember).where(
         WorkspaceMember.workspace_id == workspace_id,
@@ -72,7 +93,7 @@ async def _require_owner(workspace_id: str, user_id: str, db: AsyncSession) -> W
     return ws
 
 
-# ── Endpoints ─────────────────────────────────────────────────────────────────
+# ── Endpoints ──────────────────────────────────────────────────────────────────
 
 @router.get("/{workspace_id}", response_model=SubscriptionOut)
 async def get_subscription(
@@ -97,6 +118,8 @@ async def get_subscription(
         next_payment_date=anchor.next_payment_date,
         billing_workspace_id=anchor.id,
         subscription_covers_owned_workspaces=shared and effective in ("starter", "smb", "pro"),
+        # Let frontend know which processor so it can display the right logo/copy
+        stripe_publishable_key=settings.STRIPE_PUBLISHABLE_KEY if not is_nigeria_user(current_user.country_code) else None,
     )
 
 
@@ -112,24 +135,48 @@ async def create_checkout(
 
     ws = await _require_owner(body.workspace_id, current_user.id, db)
     target_ws = await checkout_target_workspace(db, current_user.id, ws)
-    target_ws.payment_provider = "paystack"
-    await db.flush()
 
     api_base = str(request.base_url).rstrip("/")
-    callback_url = (
-        f"{api_base}/api/v1/billing/webhook/paystack/verify"
-        f"?workspace={target_ws.id}&plan={body.plan}"
-    )
+    nigeria = is_nigeria_user(current_user.country_code)
 
-    checkout_url = await create_paystack_checkout(
-        email=current_user.email,
-        plan=body.plan,
-        workspace_id=target_ws.id,
-        callback_url=callback_url,
-    )
+    if nigeria:
+        # ── Paystack (Nigeria) ──────────────────────────────────────
+        target_ws.payment_provider = "paystack"
+        await db.flush()
 
-    await db.commit()
-    return CheckoutResponse(checkout_url=checkout_url, provider="paystack")
+        callback_url = (
+            f"{api_base}/api/v1/billing/webhook/paystack/verify"
+            f"?workspace={target_ws.id}&plan={body.plan}"
+        )
+        checkout_url = await create_paystack_checkout(
+            email=current_user.email,
+            plan=body.plan,
+            workspace_id=target_ws.id,
+            callback_url=callback_url,
+        )
+        await db.commit()
+        return CheckoutResponse(checkout_url=checkout_url, provider="paystack")
+
+    else:
+        # ── Stripe (international) ──────────────────────────────────
+        target_ws.payment_provider = "stripe"
+        await db.flush()
+
+        success_url = (
+            f"{api_base}/api/v1/billing/webhook/stripe/verify"
+            f"?session_id={{CHECKOUT_SESSION_ID}}&workspace={target_ws.id}&plan={body.plan}"
+        )
+        cancel_url = f"{settings.FRONTEND_URL}/dashboard/billing?cancelled=1"
+
+        checkout_url = await create_stripe_checkout(
+            email=current_user.email,
+            plan=body.plan,
+            workspace_id=target_ws.id,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+        await db.commit()
+        return CheckoutResponse(checkout_url=checkout_url, provider="stripe")
 
 
 @router.delete("/card/{workspace_id}", status_code=204)
@@ -138,27 +185,29 @@ async def remove_card(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Remove the saved card and cancel the active subscription.
-    The user can re-subscribe at any time.
-    For owners with multiple workspaces, this applies to the workspace that holds the subscription.
-    """
+    """Remove the saved card and cancel the active subscription."""
     await _require_owner(workspace_id, current_user.id, db)
     anchor = await billing_anchor_workspace(db, current_user.id)
     if not anchor:
         raise HTTPException(status_code=404, detail="Workspace not found")
     ws = anchor
 
-    # Cancel Paystack subscription (best effort)
-    if ws.subscription_id:
-        try:
-            await cancel_paystack_subscription(ws.subscription_id)
-        except Exception as e:
-            logger.warning(f"Paystack cancel on card removal failed: {e}")
+    if ws.payment_provider == "stripe":
+        if ws.subscription_id:
+            try:
+                await cancel_stripe_subscription(ws.subscription_id)
+            except Exception as e:
+                logger.warning(f"Stripe cancel on card removal failed: {e}")
+    else:
+        if ws.subscription_id:
+            try:
+                await cancel_paystack_subscription(ws.subscription_id)
+            except Exception as e:
+                logger.warning(f"Paystack cancel on card removal failed: {e}")
 
-    # Clear all card + subscription state
     ws.plan = "trial"
     ws.subscription_id = None
+    ws.customer_id = None
     ws.paystack_authorization_code = None
     ws.card_last4 = None
     ws.card_type = None
@@ -166,6 +215,7 @@ async def remove_card(
     ws.card_exp_month = None
     ws.card_exp_year = None
     ws.next_payment_date = None
+    ws.payment_provider = None
     await db.commit()
 
 
@@ -175,11 +225,7 @@ async def cancel_subscription(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Cancel the subscription but keep the saved card on file.
-    The user can re-subscribe with one click using the saved card.
-    For owners with multiple workspaces, this applies to the workspace that holds the subscription.
-    """
+    """Cancel subscription at period end, keep card on file for easy re-subscribe."""
     await _require_owner(workspace_id, current_user.id, db)
     anchor = await billing_anchor_workspace(db, current_user.id)
     if not anchor:
@@ -188,20 +234,27 @@ async def cancel_subscription(
     if ws.plan not in ("starter", "smb", "pro"):
         raise HTTPException(status_code=400, detail="No active subscription to cancel")
 
-    if ws.subscription_id:
-        try:
-            await cancel_paystack_subscription(ws.subscription_id)
-        except Exception as e:
-            logger.warning(f"Paystack cancel failed: {e}")
+    if ws.payment_provider == "stripe":
+        if ws.subscription_id:
+            try:
+                # Cancel at period end so user keeps access until billing date
+                await cancel_stripe_subscription(ws.subscription_id, at_period_end=True)
+            except Exception as e:
+                logger.warning(f"Stripe cancel failed: {e}")
+    else:
+        if ws.subscription_id:
+            try:
+                await cancel_paystack_subscription(ws.subscription_id)
+            except Exception as e:
+                logger.warning(f"Paystack cancel failed: {e}")
 
     ws.plan = "trial"
     ws.subscription_id = None
     ws.next_payment_date = None
-    # Card details remain — user can re-subscribe easily
     await db.commit()
 
 
-# ── Paystack callback redirect (user returning from checkout) ─────────────────
+# ── Paystack callback redirect ─────────────────────────────────────────────────
 
 @router.get("/webhook/paystack/verify")
 async def paystack_verify_redirect(
@@ -210,11 +263,6 @@ async def paystack_verify_redirect(
     plan: str | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Paystack redirects here after the user completes (or abandons) payment.
-    We verify the transaction and activate the plan + save card immediately
-    so the UI updates before the webhook arrives.
-    """
     result = await verify_paystack_transaction(reference)
     data = result.get("data", {})
 
@@ -234,17 +282,14 @@ async def paystack_verify_redirect(
         ws.plan = plan_name
         ws.payment_provider = "paystack"
 
-        # Save card
         auth = data.get("authorization", {})
         if auth:
             _save_card_from_authorization(ws, auth)
 
-        # Save subscription code if present
         sub_code = data.get("subscription_code")
         if sub_code:
             ws.subscription_id = sub_code
 
-        # Next payment date
         npd = data.get("next_payment_date")
         if npd:
             try:
@@ -252,13 +297,90 @@ async def paystack_verify_redirect(
             except Exception:
                 pass
 
-        # Save customer code
         customer = data.get("customer", {})
         if customer.get("customer_code"):
             ws.customer_id = customer["customer_code"]
 
         await db.commit()
-        logger.info(f"Payment verified: workspace {ws.id} → {plan_name}")
+        logger.info(f"Paystack payment verified: workspace {ws.id} → {plan_name}")
+
+    return RedirectResponse(
+        url=f"{settings.FRONTEND_URL}/dashboard/billing?success=1&workspace={workspace_id or ''}&plan={plan_name}",
+        status_code=302,
+    )
+
+
+# ── Stripe callback redirect ───────────────────────────────────────────────────
+
+@router.get("/webhook/stripe/verify")
+async def stripe_verify_redirect(
+    session_id: str,
+    workspace: str | None = None,
+    plan: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Stripe redirects here after the user completes checkout.
+    We retrieve the session, activate the plan, and save card details.
+    """
+    if not settings.STRIPE_SECRET_KEY:
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/dashboard/billing?error=stripe_not_configured",
+            status_code=302,
+        )
+
+    import stripe
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+
+    try:
+        session = stripe.checkout.Session.retrieve(
+            session_id,
+            expand=["subscription", "subscription.default_payment_method"],
+        )
+    except Exception as e:
+        logger.error(f"Stripe session retrieve failed: {e}")
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/dashboard/billing?error=payment_failed",
+            status_code=302,
+        )
+
+    if session.payment_status != "paid":
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/dashboard/billing?error=payment_failed",
+            status_code=302,
+        )
+
+    meta = session.metadata or {}
+    plan_name = meta.get("plan") or plan or "starter"
+    workspace_id = meta.get("workspace_id") or workspace
+
+    ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+    ws = ws_r.scalar_one_or_none()
+
+    if ws:
+        ws.plan = plan_name
+        ws.payment_provider = "stripe"
+        ws.customer_id = session.customer  # Stripe customer ID
+
+        # Save subscription
+        sub = session.subscription
+        if sub:
+            sub_id = sub.id if hasattr(sub, "id") else sub
+            ws.subscription_id = sub_id
+
+            # Next payment date from subscription's current period end
+            if hasattr(sub, "current_period_end") and sub.current_period_end:
+                ws.next_payment_date = datetime.fromtimestamp(
+                    sub.current_period_end, tz=timezone.utc
+                )
+
+            # Save card from default payment method
+            pm = getattr(sub, "default_payment_method", None)
+            if pm and hasattr(pm, "card"):
+                _save_card_from_stripe(ws, {"card": pm.card})
+
+        await db.commit()
+        logger.info(f"Stripe payment verified: workspace {ws.id} → {plan_name}")
 
     return RedirectResponse(
         url=f"{settings.FRONTEND_URL}/dashboard/billing?success=1&workspace={workspace_id or ''}&plan={plan_name}",
@@ -273,7 +395,6 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
     payload = await request.body()
     sig_header = request.headers.get("x-paystack-signature", "")
 
-    # Verify HMAC-SHA512 signature using secret key
     if settings.PAYSTACK_SECRET_KEY:
         expected = hmac.new(
             settings.PAYSTACK_SECRET_KEY.encode("utf-8"),
@@ -294,22 +415,168 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
 
     if event_type == "charge.success":
         await _handle_charge_success(data, db)
-
     elif event_type == "subscription.create":
         await _handle_subscription_create(data, db)
-
     elif event_type in ("subscription.disable", "subscription.not_renew"):
         await _handle_subscription_disable(data, db)
-
     elif event_type == "invoice.payment_failed":
-        # Optional: notify user their card failed
         sub_code = data.get("subscription", {}).get("subscription_code")
-        logger.warning(f"Invoice payment failed for subscription {sub_code}")
+        logger.warning(f"Paystack invoice payment failed for subscription {sub_code}")
 
     return {"status": "ok"}
 
 
-# ── Webhook sub-handlers ───────────────────────────────────────────────────────
+# ── Stripe server-side webhook ─────────────────────────────────────────────────
+
+@router.post("/webhook/stripe", include_in_schema=False)
+async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Receives signed events from Stripe.
+    Register this URL in your Stripe dashboard:
+      {API_BASE}/api/v1/billing/webhook/stripe
+    """
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+
+    if not settings.STRIPE_WEBHOOK_SECRET:
+        logger.warning("STRIPE_WEBHOOK_SECRET not set — skipping signature check")
+        try:
+            event = json.loads(payload)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON")
+    else:
+        import stripe
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
+            )
+        except stripe.error.SignatureVerificationError:
+            raise HTTPException(status_code=400, detail="Invalid Stripe signature")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid payload")
+
+    event_type = event["type"] if isinstance(event, dict) else event.type
+    data_obj = (event["data"]["object"] if isinstance(event, dict)
+                else event.data.object)
+    logger.info(f"Stripe webhook: {event_type}")
+
+    if event_type == "checkout.session.completed":
+        await _stripe_handle_checkout_completed(data_obj, db)
+
+    elif event_type in ("customer.subscription.deleted", "customer.subscription.updated"):
+        await _stripe_handle_subscription_change(data_obj, db)
+
+    elif event_type == "invoice.payment_succeeded":
+        await _stripe_handle_invoice_paid(data_obj, db)
+
+    elif event_type == "invoice.payment_failed":
+        sub_id = (data_obj.get("subscription") if isinstance(data_obj, dict)
+                  else getattr(data_obj, "subscription", None))
+        logger.warning(f"Stripe invoice payment failed for subscription {sub_id}")
+
+    return {"status": "ok"}
+
+
+# ── Stripe webhook sub-handlers ────────────────────────────────────────────────
+
+async def _stripe_handle_checkout_completed(data, db: AsyncSession) -> None:
+    """checkout.session.completed — activate plan when payment clears."""
+    meta = data.get("metadata", {}) if isinstance(data, dict) else (data.metadata or {})
+    plan_name = meta.get("plan", "starter")
+    workspace_id = meta.get("workspace_id")
+    customer_id = data.get("customer") if isinstance(data, dict) else getattr(data, "customer", None)
+    subscription_id = data.get("subscription") if isinstance(data, dict) else getattr(data, "subscription", None)
+    payment_status = data.get("payment_status") if isinstance(data, dict) else getattr(data, "payment_status", None)
+
+    if payment_status != "paid":
+        return
+
+    ws = await _resolve_stripe_workspace(workspace_id, customer_id, db)
+    if not ws:
+        return
+
+    ws.plan = plan_name
+    ws.payment_provider = "stripe"
+    ws.customer_id = customer_id
+
+    if subscription_id:
+        ws.subscription_id = subscription_id
+        # Fetch next payment date from Stripe
+        try:
+            import stripe
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            sub = stripe.Subscription.retrieve(
+                subscription_id,
+                expand=["default_payment_method"],
+            )
+            if sub.current_period_end:
+                ws.next_payment_date = datetime.fromtimestamp(
+                    sub.current_period_end, tz=timezone.utc
+                )
+            pm = getattr(sub, "default_payment_method", None)
+            if pm and hasattr(pm, "card"):
+                _save_card_from_stripe(ws, {"card": pm.card})
+        except Exception as e:
+            logger.warning(f"Stripe subscription fetch after checkout: {e}")
+
+    await db.commit()
+    logger.info(f"Stripe checkout.session.completed: workspace {ws.id} → {plan_name}")
+
+
+async def _stripe_handle_subscription_change(data, db: AsyncSession) -> None:
+    """customer.subscription.deleted / updated — sync plan status."""
+    sub_id = data.get("id") if isinstance(data, dict) else getattr(data, "id", None)
+    status = data.get("status") if isinstance(data, dict) else getattr(data, "status", None)
+    customer_id = data.get("customer") if isinstance(data, dict) else getattr(data, "customer", None)
+    cancel_at_end = (data.get("cancel_at_period_end") if isinstance(data, dict)
+                     else getattr(data, "cancel_at_period_end", False))
+
+    ws_r = await db.execute(select(Workspace).where(Workspace.subscription_id == sub_id))
+    ws = ws_r.scalar_one_or_none()
+    if not ws and customer_id:
+        ws_r = await db.execute(select(Workspace).where(Workspace.customer_id == customer_id))
+        ws = ws_r.scalar_one_or_none()
+    if not ws:
+        return
+
+    if status in ("canceled", "unpaid", "incomplete_expired"):
+        ws.plan = "trial"
+        ws.subscription_id = None
+        ws.next_payment_date = None
+        await db.commit()
+        logger.info(f"Stripe subscription {sub_id} cancelled → workspace {ws.id} reset to trial")
+    elif status == "active" and not cancel_at_end:
+        # Renewal — update next payment date
+        current_period_end = (data.get("current_period_end") if isinstance(data, dict)
+                              else getattr(data, "current_period_end", None))
+        if current_period_end:
+            ws.next_payment_date = datetime.fromtimestamp(current_period_end, tz=timezone.utc)
+            await db.commit()
+
+
+async def _stripe_handle_invoice_paid(data, db: AsyncSession) -> None:
+    """invoice.payment_succeeded — keep next_payment_date in sync on renewals."""
+    sub_id = data.get("subscription") if isinstance(data, dict) else getattr(data, "subscription", None)
+    if not sub_id:
+        return
+    ws_r = await db.execute(select(Workspace).where(Workspace.subscription_id == sub_id))
+    ws = ws_r.scalar_one_or_none()
+    if not ws:
+        return
+    # Fetch updated subscription to get next billing date
+    try:
+        import stripe
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+        sub = stripe.Subscription.retrieve(sub_id)
+        if sub.current_period_end:
+            ws.next_payment_date = datetime.fromtimestamp(sub.current_period_end, tz=timezone.utc)
+            await db.commit()
+    except Exception as e:
+        logger.warning(f"Stripe invoice.payment_succeeded fetch: {e}")
+
+
+# ── Paystack webhook sub-handlers ──────────────────────────────────────────────
 
 async def _handle_charge_success(data: dict, db: AsyncSession) -> None:
     metadata = data.get("metadata", {})
@@ -343,11 +610,10 @@ async def _handle_charge_success(data: dict, db: AsyncSession) -> None:
             pass
 
     await db.commit()
-    logger.info(f"charge.success: workspace {ws.id} → {plan_name}")
+    logger.info(f"Paystack charge.success: workspace {ws.id} → {plan_name}")
 
 
 async def _handle_subscription_create(data: dict, db: AsyncSession) -> None:
-    """Store subscription code and next payment date when a subscription is created."""
     sub_code = data.get("subscription_code")
     npd = data.get("next_payment_date")
     customer_code = data.get("customer", {}).get("customer_code")
@@ -369,7 +635,7 @@ async def _handle_subscription_create(data: dict, db: AsyncSession) -> None:
             pass
 
     await db.commit()
-    logger.info(f"subscription.create: workspace {ws.id}, sub={sub_code}")
+    logger.info(f"Paystack subscription.create: workspace {ws.id}, sub={sub_code}")
 
 
 async def _handle_subscription_disable(data: dict, db: AsyncSession) -> None:
@@ -383,13 +649,13 @@ async def _handle_subscription_disable(data: dict, db: AsyncSession) -> None:
         ws.subscription_id = None
         ws.next_payment_date = None
         await db.commit()
-        logger.info(f"Subscription disabled: {sub_code}, workspace {ws.id} → trial")
+        logger.info(f"Paystack subscription disabled: {sub_code}, workspace {ws.id} → trial")
 
 
 # ── Utility ────────────────────────────────────────────────────────────────────
 
 async def _resolve_workspace(workspace_id: str | None, data: dict, db: AsyncSession) -> Workspace | None:
-    """Find workspace by metadata, customer_code, then owner email fallback."""
+    """Find workspace by ID, Paystack customer_code, or owner email."""
     if workspace_id:
         ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
         ws = ws_r.scalar_one_or_none()
@@ -403,7 +669,6 @@ async def _resolve_workspace(workspace_id: str | None, data: dict, db: AsyncSess
         if ws:
             return ws
 
-    # Fallback: find by customer email via user table
     customer_email = data.get("customer", {}).get("email", "")
     if customer_email:
         user_r = await db.execute(select(User).where(User.email == customer_email))
@@ -416,4 +681,23 @@ async def _resolve_workspace(workspace_id: str | None, data: dict, db: AsyncSess
             )
             return ws_r.scalar_one_or_none()
 
+    return None
+
+
+async def _resolve_stripe_workspace(
+    workspace_id: str | None,
+    customer_id: str | None,
+    db: AsyncSession,
+) -> Workspace | None:
+    """Find workspace by ID or Stripe customer_id."""
+    if workspace_id:
+        ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        ws = ws_r.scalar_one_or_none()
+        if ws:
+            return ws
+    if customer_id:
+        ws_r = await db.execute(select(Workspace).where(Workspace.customer_id == customer_id))
+        ws = ws_r.scalar_one_or_none()
+        if ws:
+            return ws
     return None
