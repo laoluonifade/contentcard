@@ -389,23 +389,25 @@ export default function TemplatesPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
-            Content Playbook
-          </h1>
-          <p className="text-ink/40 text-sm">Your playbook items control what content gets generated for this brand.</p>
-          <p className="text-ink/30 text-xs mt-1">{activeCount} active playbook item{activeCount === 1 ? '' : 's'} available</p>
+      {!viewingTemplate && (
+        <div className="flex items-start justify-between gap-4 mb-8">
+          <div>
+            <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
+              Content Playbook
+            </h1>
+            <p className="text-ink/40 text-sm">Your playbook items control what content gets generated for this brand.</p>
+            <p className="text-ink/30 text-xs mt-1">{activeCount} active playbook item{activeCount === 1 ? '' : 's'} available</p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={openNewTemplate}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
+            >
+              <Plus size={15} /> Add playbook item
+            </button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={openNewTemplate}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors flex-shrink-0"
-          >
-            <Plus size={15} /> Add playbook item
-          </button>
-        </div>
-      </div>
+      )}
 
       {showModal && (
         <div className="mb-8 bg-surface border border-fog rounded-2xl overflow-hidden">
@@ -678,7 +680,7 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      {!showModal && (() => {
+      {!showModal && !viewingTemplate && (() => {
         // Group user templates under their matching catalog content type
         const catalogRows = templatePlaybookCatalog?.depth || []
         const templatesByType = {}
@@ -832,220 +834,268 @@ export default function TemplatesPage() {
         )
       })()}
 
-      {/* Add playbook item modal */}
+      {/* Full-page template editor */}
       {viewingTemplate && (
-        <div
-          className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4"
-          onClick={(e) => e.target === e.currentTarget && closeTemplate()}
-        >
-          <div className="bg-surface border border-fog rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-5 border-b border-fog sticky top-0 bg-surface">
-              <div>
-                <h2 className="text-ink font-bold">{viewingTemplate.name}</h2>
-                <p className="text-xs text-ink/40 capitalize">
-                  {viewingTemplate.category} · {viewingTemplate.recurrence} · {(viewingTemplate.source || 'manual').replace('_', ' ')}
-                </p>
-                <p className="text-[11px] text-ink/45 mt-1">
-                  Playbook content type: {String(contentTemplateType(viewingTemplate)).replace(/_/g, ' ')}
-                </p>
-              </div>
-              <button onClick={closeTemplate} className="text-ink/40 hover:text-ink/70 text-xl">
-                ×
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="grid sm:grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-1">Template name</label>
-                  <input
-                    value={templateDraft?.name || ''}
-                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), name: e.target.value }))}
-                    className="w-full h-9 rounded-lg border border-fog bg-surface px-2.5 text-xs text-ink focus:outline-none focus:border-brand-400"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-1">Playbook content type</label>
-                  <input
-                    value={templateDraft?.playbook_content_type || ''}
-                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), playbook_content_type: e.target.value }))}
-                    className="w-full h-9 rounded-lg border border-fog bg-surface px-2.5 text-xs text-ink focus:outline-none focus:border-brand-400"
-                  />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-1">Description</label>
-                  <textarea
-                    rows={2}
-                    value={templateDraft?.description || ''}
-                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), description: e.target.value }))}
-                    className="w-full rounded-lg border border-fog bg-surface px-2.5 py-2 text-xs text-ink focus:outline-none focus:border-brand-400"
-                  />
-                </div>
-              </div>
-              <div className="w-full rounded-2xl border border-fog bg-mist/40 px-5 py-4">
-                <p className="text-xs uppercase tracking-wide text-ink/45 font-semibold">Playbook blueprint</p>
-                <p className="text-2xl font-bold leading-tight text-ink mt-1">{previewTitle(viewingTemplate)}</p>
-                <p className="text-sm text-ink/60 mt-1">{previewSubtitle(viewingTemplate)}</p>
-                <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[11px]">
-                  <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                    <span className="font-semibold text-ink">Category:</span> <span className="capitalize">{viewingTemplate.category}</span>
-                  </div>
-                  <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                    <span className="font-semibold text-ink">Recurrence:</span> <span className="capitalize">{viewingTemplate.recurrence}</span>
-                  </div>
-                </div>
-                {(() => {
-                  const bp = blueprintFields(viewingTemplate)
-                  return (
-                    <>
-                      <div className="mt-3 grid sm:grid-cols-2 gap-2 text-[11px]">
-                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                          <span className="font-semibold text-ink">Playbook content type:</span>{' '}
-                          <span className="capitalize">{String(bp.playbookContentType || 'general').replace(/_/g, ' ')}</span>
-                        </div>
-                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                          <span className="font-semibold text-ink">Content template type:</span>{' '}
-                          <span className="capitalize">{String(bp.contentTemplateType || 'general').replace(/_/g, ' ')}</span>
-                        </div>
-                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                          <span className="font-semibold text-ink">Logo zone:</span>{' '}
-                          <span className="capitalize">{String(bp.logoZone).replace(/_/g, ' ')}</span>
-                        </div>
-                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                          <span className="font-semibold text-ink">Visual type:</span>{' '}
-                          <span className="capitalize">{String(bp.visualType).replace(/_/g, ' ')}</span>
-                        </div>
-                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                          <span className="font-semibold text-ink">Visual archetype:</span>{' '}
-                          <span className="capitalize">{String(bp.visualArchetype).replace(/_/g, ' ')}</span>
-                        </div>
-                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                          <span className="font-semibold text-ink">People style:</span>{' '}
-                          <span className="capitalize">{String(bp.peopleStyle).replace(/_/g, ' ')}</span>
-                        </div>
-                        <div className="rounded-lg border border-fog bg-surface px-3 py-2 text-ink/70">
-                          <span className="font-semibold text-ink">Slot contract:</span>{' '}
-                          h{bp.slot.headline_max_words || '—'} / s{bp.slot.support_max_words || '—'} / e{bp.slot.evidence_max_words || '—'} / c{bp.slot.cta_max_words || '—'}
-                        </div>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {(bp.palette.length ? bp.palette : ['#7c3aed']).map((c) => (
-                          <span key={c} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md border border-fog bg-surface text-[10px] text-ink/60 font-mono">
-                            <span className="w-2.5 h-2.5 rounded-full border border-fog" style={{ background: c }} />
-                            {c}
-                          </span>
-                        ))}
-                      </div>
-                      <div className="mt-2 rounded-lg border border-fog bg-surface px-3 py-2">
-                        <p className="text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-1">Visual direction from playbook</p>
-                        <p className="text-[11px] text-ink/70 leading-relaxed">
-                          {bp.visualDirection || 'No visual direction found.'}
-                        </p>
-                      </div>
-                      {slotDrafts.length > 0 && (
-                          <div className="mt-3 rounded-lg border border-fog bg-surface px-3 py-2">
-                            <p className="text-[10px] uppercase tracking-wide text-ink/45 font-semibold mb-2">
-                              Slot contract (VD01-VD10): edit and choose preferred slot
-                            </p>
-                            <div className="mb-2">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  disabled={savingDirection}
-                                  onClick={() => saveSlotDirections(viewingTemplate)}
-                                  className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold disabled:opacity-60"
-                                >
-                                  Save slot edits
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={savingDirection}
-                                  onClick={addSlotDraftRow}
-                                  className="h-8 px-3 rounded-lg border border-fog bg-mist text-[11px] font-semibold text-ink/70 hover:text-ink disabled:opacity-60"
-                                >
-                                  Add visual direction
-                                </button>
-                              </div>
-                            </div>
-                            <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
-                              {slotDrafts.map((opt, idx) => {
-                                const selected = String(viewingTemplate?.design_spec?.playbook_selected_slot_key || '').trim().toUpperCase() === String(opt?.slot_key || '').trim().toUpperCase()
-                                return (
-                                  <div
-                                    key={`${opt.slot_key}-${idx}`}
-                                    className={`w-full text-left rounded-md border px-2 py-1.5 transition-colors ${
-                                      selected ? 'border-brand-400 bg-brand-500/10' : 'border-fog'
-                                    }`}
-                                  >
-                                    <div className="flex items-center justify-between gap-2 mb-1">
-                                      <p className="text-[10px] font-semibold text-ink/60 uppercase">
-                                        {opt.slot_key || `VD${String(idx + 1).padStart(2, '0')}`}
-                                      </p>
-                                      <select
-                                        value={opt.post_type || 'single'}
-                                        onChange={(e) => {
-                                          const value = e.target.value === 'carousel' ? 'carousel' : 'single'
-                                          setSlotDrafts((prev) => prev.map((s, sIdx) => (sIdx === idx ? { ...s, post_type: value } : s)))
-                                        }}
-                                        className="h-6 rounded-md border border-fog bg-surface px-1.5 text-[10px] text-ink/70"
-                                      >
-                                        <option value="single">single</option>
-                                        <option value="carousel">carousel</option>
-                                      </select>
-                                      <button
-                                        type="button"
-                                        disabled={savingDirection}
-                                        onClick={() => savePreferredDirection(viewingTemplate, opt, opt.slot_key)}
-                                        className="h-6 px-2 rounded-md border border-fog bg-mist text-[10px] font-semibold text-ink/70 hover:text-ink disabled:opacity-60"
-                                      >
-                                        Use this slot
-                                      </button>
-                                    </div>
-                                    <textarea
-                                      value={opt.visual_direction || ''}
-                                      onChange={(e) => {
-                                        const value = e.target.value
-                                        setSlotDrafts((prev) => prev.map((s, sIdx) => (sIdx === idx ? { ...s, visual_direction: value } : s)))
-                                      }}
-                                      rows={2}
-                                      className="w-full rounded-md border border-fog bg-surface px-2 py-1 text-[11px] text-ink/75 focus:outline-none focus:border-brand-400"
-                                    />
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </div>
-                        )}
-                    </>
-                  )
-                })()}
-              </div>
-              <div className="grid sm:grid-cols-2 gap-3 text-xs">
-                <div className="rounded-xl border border-fog bg-mist/50 px-3 py-2 text-ink/70">
-                  <span className="font-semibold text-ink">Status:</span>{' '}
-                  {viewingTemplate.is_active ? 'Active' : 'Paused'}
-                </div>
-                <div className="rounded-xl border border-fog bg-mist/50 px-3 py-2 text-ink/70">
-                  <span className="font-semibold text-ink">Style:</span>{' '}
-                  {(activeBrand?.brand_kit?.visual_system?.image_people_style || 'mixed').replace('_', ' ')}
-                </div>
-              </div>
-            </div>
-            <div className="flex justify-end gap-3 px-5 py-4 border-t border-fog">
+        <div className="max-w-4xl mx-auto">
+          {/* Back bar */}
+          <div className="flex items-center justify-between mb-6">
+            <button
+              onClick={closeTemplate}
+              className="inline-flex items-center gap-2 text-sm font-semibold text-ink/50 hover:text-ink transition-colors"
+            >
+              <span className="text-lg leading-none">&#8592;</span> Back to playbook
+            </button>
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 disabled={savingDirection}
                 onClick={() => saveTemplateMeta(viewingTemplate)}
-                className="h-10 px-4 rounded-xl border border-fog bg-mist hover:bg-fog text-ink text-sm font-semibold disabled:opacity-60"
+                className="h-9 px-4 rounded-xl border border-fog bg-surface hover:bg-mist text-ink text-sm font-semibold disabled:opacity-60 transition-colors"
               >
-                Save playbook changes
+                {savingDirection ? 'Saving…' : 'Save changes'}
               </button>
               <button
                 type="button"
                 onClick={() => useTemplateForMonth(viewingTemplate.id)}
-                className="h-10 px-4 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold"
+                className="h-9 px-4 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold transition-colors"
               >
                 Use this month
               </button>
+            </div>
+          </div>
+
+          {/* Title block */}
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-ink" style={{ letterSpacing: '-0.02em' }}>{viewingTemplate.name}</h2>
+            <p className="text-sm text-ink/45 capitalize mt-0.5">
+              {viewingTemplate.category} · {viewingTemplate.recurrence} · {(viewingTemplate.source || 'manual').replace('_', ' ')}
+            </p>
+          </div>
+
+          <div className="space-y-6">
+            {/* Basic details */}
+            <div className="bg-surface border border-fog rounded-2xl overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-fog bg-mist/40">
+                <p className="text-xs font-semibold uppercase tracking-widest text-ink/40">Basic details</p>
+              </div>
+              <div className="p-5 grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wide text-ink/45 font-semibold mb-1.5">Template name</label>
+                  <input
+                    value={templateDraft?.name || ''}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), name: e.target.value }))}
+                    className="w-full h-10 rounded-xl border border-fog bg-mist px-3 text-sm text-ink focus:outline-none focus:border-brand-400 transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase tracking-wide text-ink/45 font-semibold mb-1.5">Playbook content type</label>
+                  <input
+                    value={templateDraft?.playbook_content_type || ''}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), playbook_content_type: e.target.value }))}
+                    className="w-full h-10 rounded-xl border border-fog bg-mist px-3 text-sm text-ink focus:outline-none focus:border-brand-400 transition-colors"
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] uppercase tracking-wide text-ink/45 font-semibold mb-1.5">Description</label>
+                  <textarea
+                    rows={3}
+                    value={templateDraft?.description || ''}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), description: e.target.value }))}
+                    className="w-full rounded-xl border border-fog bg-mist px-3 py-2.5 text-sm text-ink focus:outline-none focus:border-brand-400 transition-colors resize-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Playbook blueprint */}
+            <div className="bg-surface border border-fog rounded-2xl overflow-hidden">
+              <div className="px-5 py-3.5 border-b border-fog bg-mist/40">
+                <p className="text-xs font-semibold uppercase tracking-widest text-ink/40">Playbook blueprint</p>
+              </div>
+              <div className="p-5">
+                <p className="text-2xl font-bold leading-tight text-ink">{previewTitle(viewingTemplate)}</p>
+                <p className="text-sm text-ink/60 mt-1 mb-5">{previewSubtitle(viewingTemplate)}</p>
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 text-[12px]">
+                  <div className="rounded-xl border border-fog bg-mist/50 px-4 py-3 text-ink/70">
+                    <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1">Category</p>
+                    <p className="font-semibold text-ink capitalize">{viewingTemplate.category}</p>
+                  </div>
+                  <div className="rounded-xl border border-fog bg-mist/50 px-4 py-3 text-ink/70">
+                    <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1">Recurrence</p>
+                    <p className="font-semibold text-ink capitalize">{viewingTemplate.recurrence}</p>
+                  </div>
+                  <div className="rounded-xl border border-fog bg-mist/50 px-4 py-3 text-ink/70">
+                    <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1">Status</p>
+                    <p className={`font-semibold capitalize ${viewingTemplate.is_active ? 'text-emerald-500' : 'text-ink/40'}`}>
+                      {viewingTemplate.is_active ? 'Active' : 'Paused'}
+                    </p>
+                  </div>
+                  {(() => {
+                    const bp = blueprintFields(viewingTemplate)
+                    return (
+                      <>
+                        <div className="rounded-xl border border-fog bg-mist/50 px-4 py-3">
+                          <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1">Content type</p>
+                          <p className="font-semibold text-ink capitalize text-sm">{String(bp.playbookContentType || 'general').replace(/_/g, ' ')}</p>
+                        </div>
+                        <div className="rounded-xl border border-fog bg-mist/50 px-4 py-3">
+                          <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1">Visual archetype</p>
+                          <p className="font-semibold text-ink capitalize text-sm">{String(bp.visualArchetype).replace(/_/g, ' ')}</p>
+                        </div>
+                        <div className="rounded-xl border border-fog bg-mist/50 px-4 py-3">
+                          <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1">People style</p>
+                          <p className="font-semibold text-ink capitalize text-sm">{String(bp.peopleStyle).replace(/_/g, ' ')}</p>
+                        </div>
+                        <div className="rounded-xl border border-fog bg-mist/50 px-4 py-3">
+                          <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1">Logo zone</p>
+                          <p className="font-semibold text-ink capitalize text-sm">{String(bp.logoZone).replace(/_/g, ' ')}</p>
+                        </div>
+                        <div className="rounded-xl border border-fog bg-mist/50 px-4 py-3">
+                          <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1">Visual type</p>
+                          <p className="font-semibold text-ink capitalize text-sm">{String(bp.visualType).replace(/_/g, ' ')}</p>
+                        </div>
+                        <div className="rounded-xl border border-fog bg-mist/50 px-4 py-3">
+                          <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1">Slot contract</p>
+                          <p className="font-semibold text-ink text-sm font-mono">
+                            h{bp.slot.headline_max_words || '—'} / s{bp.slot.support_max_words || '—'} / e{bp.slot.evidence_max_words || '—'} / c{bp.slot.cta_max_words || '—'}
+                          </p>
+                        </div>
+                        {bp.palette.length > 0 && (
+                          <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-fog bg-mist/50 px-4 py-3">
+                            <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-2">Palette lock</p>
+                            <div className="flex flex-wrap gap-2">
+                              {bp.palette.map((c) => (
+                                <span key={c} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-fog bg-surface text-xs text-ink/60 font-mono">
+                                  <span className="w-3 h-3 rounded-full border border-fog flex-shrink-0" style={{ background: c }} />
+                                  {c}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {bp.visualDirection && (
+                          <div className="sm:col-span-2 lg:col-span-3 rounded-xl border border-fog bg-mist/50 px-4 py-3">
+                            <p className="text-[10px] uppercase tracking-widest text-ink/35 font-semibold mb-1.5">Visual direction from playbook</p>
+                            <p className="text-sm text-ink/70 leading-relaxed">{bp.visualDirection}</p>
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
+            </div>
+
+            {/* Visual direction slots */}
+            {slotDrafts.length > 0 && (
+              <div className="bg-surface border border-fog rounded-2xl overflow-hidden">
+                <div className="flex items-center justify-between px-5 py-3.5 border-b border-fog bg-mist/40">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-widest text-ink/40">Visual direction slots (VD01–VD10)</p>
+                    <p className="text-[11px] text-ink/35 mt-0.5">Edit each slot's direction then save. Click "Use this slot" to set it as the preferred slot for generation.</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      type="button"
+                      disabled={savingDirection}
+                      onClick={addSlotDraftRow}
+                      className="h-8 px-3 rounded-lg border border-fog bg-surface text-[11px] font-semibold text-ink/70 hover:text-ink disabled:opacity-60 transition-colors"
+                    >
+                      + Add slot
+                    </button>
+                    <button
+                      type="button"
+                      disabled={savingDirection}
+                      onClick={() => saveSlotDirections(viewingTemplate)}
+                      className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold disabled:opacity-60 transition-colors"
+                    >
+                      {savingDirection ? 'Saving…' : 'Save slot edits'}
+                    </button>
+                  </div>
+                </div>
+                <div className="p-5 space-y-3">
+                  {slotDrafts.map((opt, idx) => {
+                    const selected = String(viewingTemplate?.design_spec?.playbook_selected_slot_key || '').trim().toUpperCase() === String(opt?.slot_key || '').trim().toUpperCase()
+                    return (
+                      <div
+                        key={`${opt.slot_key}-${idx}`}
+                        className={`rounded-xl border px-4 py-4 transition-colors ${
+                          selected ? 'border-brand-400 bg-brand-500/5' : 'border-fog bg-mist/30'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 mb-3">
+                          <span className={`text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded-lg ${
+                            selected ? 'bg-brand-500/15 text-brand-600' : 'bg-fog text-ink/50'
+                          }`}>
+                            {opt.slot_key || `VD${String(idx + 1).padStart(2, '0')}`}
+                          </span>
+                          {selected && (
+                            <span className="text-[11px] font-semibold text-brand-500">&#10003; Preferred slot</span>
+                          )}
+                          <div className="flex items-center gap-2 ml-auto">
+                            <select
+                              value={opt.post_type || 'single'}
+                              onChange={(e) => {
+                                const value = e.target.value === 'carousel' ? 'carousel' : 'single'
+                                setSlotDrafts((prev) => prev.map((s, sIdx) => (sIdx === idx ? { ...s, post_type: value } : s)))
+                              }}
+                              className="h-8 rounded-lg border border-fog bg-surface px-2.5 text-xs text-ink/70 focus:outline-none focus:border-brand-400"
+                            >
+                              <option value="single">single</option>
+                              <option value="carousel">carousel</option>
+                            </select>
+                            <button
+                              type="button"
+                              disabled={savingDirection}
+                              onClick={() => savePreferredDirection(viewingTemplate, opt, opt.slot_key)}
+                              className="h-8 px-3 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink/70 hover:border-brand-300 hover:text-brand-600 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                            >
+                              Use this slot
+                            </button>
+                          </div>
+                        </div>
+                        <textarea
+                          value={opt.visual_direction || ''}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            setSlotDrafts((prev) => prev.map((s, sIdx) => (sIdx === idx ? { ...s, visual_direction: value } : s)))
+                          }}
+                          rows={3}
+                          placeholder="Describe the visual direction for this slot…"
+                          className="w-full rounded-xl border border-fog bg-surface px-3 py-2.5 text-sm text-ink/80 focus:outline-none focus:border-brand-400 transition-colors resize-none"
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Bottom action bar */}
+            <div className="flex items-center justify-between py-2">
+              <button
+                onClick={closeTemplate}
+                className="text-sm text-ink/40 hover:text-ink transition-colors"
+              >
+                &#8592; Back to playbook
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={savingDirection}
+                  onClick={() => saveTemplateMeta(viewingTemplate)}
+                  className="h-10 px-5 rounded-xl border border-fog bg-surface hover:bg-mist text-ink text-sm font-semibold disabled:opacity-60 transition-colors"
+                >
+                  {savingDirection ? 'Saving…' : 'Save changes'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => useTemplateForMonth(viewingTemplate.id)}
+                  className="h-10 px-5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold transition-colors"
+                >
+                  Use this month
+                </button>
+              </div>
             </div>
           </div>
         </div>
