@@ -235,207 +235,236 @@ function CalendarPrepBody({
   prepServiceDown,
 }) {
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-2 min-h-[200px] max-h-[42vh]">
+    <div className=”flex flex-col flex-1 min-h-0”>
+      {/* ── Message list ── */}
+      <div ref={scrollRef} className=”flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-[200px] max-h-[42vh]”>
+
+        {/* Empty state hint */}
         {!messages.length && (
-          <p className="text-ink/30 text-xs leading-relaxed">
-            Example: “We’re launching X on the 12th” or “Use the new dashboard screenshot tone.” The assistant will
-            reply with follow-ups; everything here is sent with Generate as context.
-          </p>
+          <div className=”flex flex-col items-center justify-center gap-2 py-4 text-center”>
+            <div className=”w-8 h-8 rounded-xl bg-brand-500/10 flex items-center justify-center”>
+              <Sparkles size={14} className=”text-brand-500” />
+            </div>
+            <p className=”text-ink/40 text-[11px] leading-relaxed max-w-[200px]”>
+              Chat to brief the AI, then say “generate” when ready.
+            </p>
+          </div>
         )}
+
         {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`text-xs rounded-xl px-3 py-2 leading-relaxed ${
-              m.role === 'assistant' ? 'bg-mist text-ink/80' : 'bg-brand-500/10 text-ink border border-brand-500/15'
-            }`}
-          >
-            <span className="font-semibold text-[10px] uppercase tracking-wide text-ink/35 block mb-0.5">
-              {m.role === 'assistant' ? 'Assistant' : 'You'}
-            </span>
-            {m.content}
-            {m.role === 'assistant' && Array.isArray(m.choices) && m.choices.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-fog/70">
-                {m.choices.map((ch) => (
-                  <button
-                    key={ch.id}
-                    type="button"
-                    onClick={() => onPickChoice(ch)}
-                    className="text-[11px] px-2 py-1 rounded-lg border border-fog bg-surface text-ink/70 hover:border-ink/20 hover:text-ink transition-colors"
-                  >
-                    {ch.label}
-                  </button>
-                ))}
+          <div key={i}>
+            {/* User bubble — right-aligned dark */}
+            {m.role === ‘user’ ? (
+              <div className=”flex justify-end”>
+                <div className=”max-w-[85%] bg-slate-900 text-white rounded-2xl rounded-tr-sm px-3 py-2 text-xs leading-relaxed”>
+                  {m.content}
+                </div>
               </div>
-            )}
-            {m.role === 'assistant' && !generatingMonth && Array.isArray(m.questions) && m.questions.length > 0 && (
-              <div className="mt-2 pt-2 border-t border-fog/70 space-y-2">
-                {m.questions.map((q) => {
-                  const answer = prepQuestionAnswers?.[q.id] || {}
-                  if (q.input_type === 'upload') {
-                    const accept =
-                      q.accept === 'image'
-                        ? 'image/*'
-                        : q.accept === 'recording'
-                          ? 'video/mp4,video/webm,video/quicktime'
-                          : 'image/*,video/mp4,video/webm,video/quicktime'
-                    return (
-                      <div key={q.id} className="rounded-lg border border-fog bg-surface px-2 py-2">
-                        <p className="text-[11px] font-semibold text-ink/70 mb-1">
-                          {q.prompt}
-                        </p>
-                        <div className="flex gap-1.5 mb-1.5">
-                          <select
-                            value={answer.asset_type || ''}
-                            onChange={(e) => onQuestionPick(q, e.target.value, true)}
-                            className="h-7 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
+            ) : (
+              /* Assistant bubble — left-aligned with avatar */
+              <div className=”flex items-start gap-2”>
+                <div className=”w-5 h-5 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0 mt-0.5”>
+                  <Sparkles size={9} className=”text-white” />
+                </div>
+                <div className=”flex-1 min-w-0”>
+                  <div className=”bg-mist border border-fog rounded-2xl rounded-tl-sm px-3 py-2 text-xs leading-relaxed text-ink”>
+                    <p className=”whitespace-pre-wrap”>{m.content}</p>
+
+                    {/* Choice chips */}
+                    {Array.isArray(m.choices) && m.choices.length > 0 && (
+                      <div className=”flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-fog/70”>
+                        {m.choices.map((ch) => (
+                          <button
+                            key={ch.id}
+                            type=”button”
+                            onClick={() => onPickChoice(ch)}
+                            className=”text-[11px] px-2 py-1 rounded-lg border border-fog bg-surface text-ink/70 hover:border-ink/20 hover:text-ink transition-colors”
                           >
-                            <option value="">Choose upload type…</option>
-                            {(q.accept === 'image' ? ['Screenshot'] : q.accept === 'recording' ? ['Screen recording'] : ['Screenshot', 'Screen recording']).map((opt) => (
-                              <option key={opt} value={opt}>
-                                {opt}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <input
-                          type="file"
-                          accept={accept}
-                          disabled={prepUploadingAsset || !answer.asset_type}
-                          onChange={(e) => onQuestionUpload(q, e.target.files?.[0] || null, answer.asset_type)}
-                          className="block w-full text-[11px] text-ink/60 file:mr-2 file:rounded-md file:border file:border-fog file:bg-surface file:px-2.5 file:py-1 file:text-[11px] file:font-semibold file:text-ink/70"
-                        />
+                            {ch.label}
+                          </button>
+                        ))}
                       </div>
-                    )
-                  }
-                  return (
-                    <div key={q.id} className="rounded-lg border border-fog bg-surface px-2 py-2">
-                      <p className="text-[11px] font-semibold text-ink/70 mb-1">
-                        {q.prompt}
-                      </p>
-                      {(q.options || []).length > 0 ? (
-                        <select
-                          value={answer.value || ''}
-                          onChange={(e) => onQuestionPick(q, e.target.value)}
-                          className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
+                    )}
+
+                    {/* Structured questions */}
+                    {!generatingMonth && Array.isArray(m.questions) && m.questions.length > 0 && (
+                      <div className=”mt-2 pt-2 border-t border-fog/70 space-y-2”>
+                        {m.questions.map((q) => {
+                          const answer = prepQuestionAnswers?.[q.id] || {}
+                          if (q.input_type === ‘upload’) {
+                            const accept =
+                              q.accept === ‘image’ ? ‘image/*’
+                              : q.accept === ‘recording’ ? ‘video/mp4,video/webm,video/quicktime’
+                              : ‘image/*,video/mp4,video/webm,video/quicktime’
+                            return (
+                              <div key={q.id} className=”rounded-lg border border-fog bg-surface px-2 py-2”>
+                                <p className=”text-[11px] font-semibold text-ink/70 mb-1”>{q.prompt}</p>
+                                <div className=”flex gap-1.5 mb-1.5”>
+                                  <select
+                                    value={answer.asset_type || ‘’}
+                                    onChange={(e) => onQuestionPick(q, e.target.value, true)}
+                                    className=”h-7 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70”
+                                  >
+                                    <option value=””>Choose upload type…</option>
+                                    {(q.accept === ‘image’ ? [‘Screenshot’] : q.accept === ‘recording’ ? [‘Screen recording’] : [‘Screenshot’, ‘Screen recording’]).map((opt) => (
+                                      <option key={opt} value={opt}>{opt}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <input
+                                  type=”file”
+                                  accept={accept}
+                                  disabled={prepUploadingAsset || !answer.asset_type}
+                                  onChange={(e) => onQuestionUpload(q, e.target.files?.[0] || null, answer.asset_type)}
+                                  className=”block w-full text-[11px] text-ink/60 file:mr-2 file:rounded-md file:border file:border-fog file:bg-surface file:px-2.5 file:py-1 file:text-[11px] file:font-semibold file:text-ink/70”
+                                />
+                              </div>
+                            )
+                          }
+                          return (
+                            <div key={q.id} className=”rounded-lg border border-fog bg-surface px-2 py-2”>
+                              <p className=”text-[11px] font-semibold text-ink/70 mb-1”>{q.prompt}</p>
+                              {(q.options || []).length > 0 ? (
+                                <select
+                                  value={answer.value || ‘’}
+                                  onChange={(e) => onQuestionPick(q, e.target.value)}
+                                  className=”w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70”
+                                >
+                                  <option value=””>Select answer…</option>
+                                  {(q.options || []).map((opt) => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <textarea
+                                  value={answer.value || ‘’}
+                                  onChange={(e) => onQuestionPick(q, e.target.value)}
+                                  placeholder=”Type your answer…”
+                                  rows={2}
+                                  className=”w-full rounded-md border border-fog bg-surface px-2 py-1.5 text-[11px] text-ink/70 resize-none focus:outline-none focus:ring-1 focus:ring-brand-400/50”
+                                />
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* Generate CTA — shown on last assistant message */}
+                    {(m.cta?.action === ‘start_generation’ || i === messages.length - 1) && (() => {
+                      const ctaKey = String(i)
+                      const isUsed = usedCtaKeys?.has(ctaKey)
+                      const busy = Boolean(isUsed || ctaBusy || generatingMonth || prepServiceDown)
+                      if (isUsed) return (
+                        <p className=”mt-2 pt-2 border-t border-fog/70 text-[10px] text-ink/35 italic”>Generation started ✓</p>
+                      )
+                      if (prepServiceDown) return null
+                      return (
+                        <div className=”mt-2 pt-2 border-t border-fog/70”>
+                          <button
+                            type=”button”
+                            disabled={busy}
+                            onClick={() => onRunCta(m.cta || { action: ‘start_generation’ }, ctaKey)}
+                            className=”flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors”
+                          >
+                            <Zap size={10} />
+                            {generatingMonth ? ‘Generating…’ : (m.cta?.label || ‘Generate posts now’)}
+                          </button>
+                        </div>
+                      )
+                    })()}
+
+                    {/* Design refresh intent */}
+                    {m.design_intent?.action === ‘regenerate_visuals’ && (
+                      <div className=”mt-2 pt-2 border-t border-fog/70 space-y-1.5”>
+                        <button
+                          type=”button”
+                          disabled={prepExecuteBusy}
+                          onClick={() => onExecuteDesignIntent(m.design_intent)}
+                          className=”text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-900 text-white font-semibold hover:bg-slate-800 disabled:opacity-40”
                         >
-                          <option value="">Select answer…</option>
-                          {(q.options || []).map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <textarea
-                          value={answer.value || ''}
-                          onChange={(e) => onQuestionPick(q, e.target.value)}
-                          placeholder="Type your answer…"
-                          rows={2}
-                          className="w-full rounded-md border border-fog bg-surface px-2 py-1.5 text-[11px] text-ink/70 resize-none focus:outline-none focus:ring-1 focus:ring-brand-400/50"
-                        />
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-            {m.role === 'assistant' &&
-              (m.cta?.action === 'start_generation' || i === messages.length - 1) && (
-              (() => {
-                const ctaKey = String(i)
-                const isUsed = usedCtaKeys?.has(ctaKey)
-                const disabled = Boolean(isUsed || ctaBusy || generatingMonth || prepServiceDown)
-                return (
-              <div className="mt-2 pt-2 border-t border-fog/70">
-                <select
-                  defaultValue=""
-                  disabled={disabled}
-                  onChange={(e) => {
-                    if (e.target.value === 'generate') onRunCta(m.cta || { action: 'start_generation', label: 'Generate posts now' }, ctaKey)
-                    e.target.value = ''
-                  }}
-                  className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70 disabled:opacity-60"
-                >
-                  <option value="">
-                    {isUsed
-                      ? 'Generation already started from this action'
-                      : prepServiceDown
-                        ? 'Assistant temporarily unavailable — contact support'
-                      : generatingMonth
-                        ? 'Generation in progress…'
-                        : (m.cta?.label || 'Choose next action…')}
-                  </option>
-                  <option value="generate">Generate posts now</option>
-                  <option value="modify">Modify context first</option>
-                </select>
-              </div>
-                )
-              })()
-            )}
-            {m.role === 'assistant' && m.design_intent?.action === 'regenerate_visuals' && (
-              <div className="mt-2 pt-2 border-t border-fog/70 space-y-1.5">
-                <button
-                  type="button"
-                  disabled={prepExecuteBusy}
-                  onClick={() => onExecuteDesignIntent(m.design_intent)}
-                  className="text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-900 text-white font-semibold hover:bg-slate-800 disabled:opacity-40"
-                >
-                  {prepExecuteBusy ? 'Running…' : 'Run design refresh'}
-                </button>
-                {m.design_intent?.scope === 'selected' && (
-                  <p className="text-ink/30 text-[10px] leading-snug">
-                    Uses posts you tick in Select mode on the calendar (or pick month to refresh all in view).
-                  </p>
-                )}
-                {m.design_intent?.scope === 'month' && (
-                  <p className="text-ink/30 text-[10px] leading-snug">Refreshes visuals for every post in this month (up to 15 at a time).</p>
-                )}
+                          {prepExecuteBusy ? ‘Running…’ : ‘Run design refresh’}
+                        </button>
+                        <p className=”text-ink/30 text-[10px] leading-snug”>
+                          {m.design_intent?.scope === ‘selected’
+                            ? ‘Uses posts you tick in Select mode (or pick month to refresh all).’
+                            : ‘Refreshes visuals for every post in this month (up to 15 at a time).’}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
           </div>
         ))}
+
+        {/* Typing indicator — three bouncing dots */}
         {prepSending && (
-          <div className="text-ink/30 text-xs flex items-center gap-2 px-1">
-            <div className="w-3.5 h-3.5 border border-fog border-t-ink/30 rounded-full animate-spin" />
-            Thinking…
+          <div className=”flex items-start gap-2”>
+            <div className=”w-5 h-5 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0 mt-0.5”>
+              <Sparkles size={9} className=”text-white” />
+            </div>
+            <div className=”bg-mist border border-fog rounded-2xl rounded-tl-sm px-3 py-2.5 flex items-center gap-1”>
+              <span className=”w-1.5 h-1.5 rounded-full bg-ink/30 animate-bounce [animation-delay:0ms]” />
+              <span className=”w-1.5 h-1.5 rounded-full bg-ink/30 animate-bounce [animation-delay:150ms]” />
+              <span className=”w-1.5 h-1.5 rounded-full bg-ink/30 animate-bounce [animation-delay:300ms]” />
+            </div>
           </div>
         )}
       </div>
-      <div className="p-3 border-t border-fog bg-mist/50">
-        <div className="mb-2">
-          <label className="text-[11px] text-ink/45 font-semibold block mb-1">Attach screenshot or screen recording (max 1 min)</label>
-          <input
-            type="file"
-            accept="image/*,video/mp4,video/webm,video/quicktime"
-            disabled={!activeBrandId || prepSending || prepUploadingAsset || prepServiceDown}
-            onChange={(e) => onUploadAsset(e.target.files?.[0] || null)}
-            className="block w-full text-[11px] text-ink/60 file:mr-2 file:rounded-md file:border file:border-fog file:bg-surface file:px-2.5 file:py-1 file:text-[11px] file:font-semibold file:text-ink/70"
-          />
-          {prepUploadingAsset && <p className="text-[10px] text-ink/40 mt-1">Uploading asset…</p>}
+
+      {/* ── Input bar ── */}
+      <div className=”px-3 py-2.5 border-t border-fog bg-surface/80 space-y-2”>
+        {/* File attach (compact) */}
+        <div className=”flex items-center gap-2”>
+          <label className=”flex items-center gap-1.5 cursor-pointer text-[11px] text-ink/50 hover:text-ink transition-colors”>
+            <input
+              type=”file”
+              accept=”image/*,video/mp4,video/webm,video/quicktime”
+              disabled={!activeBrandId || prepSending || prepUploadingAsset || prepServiceDown}
+              onChange={(e) => onUploadAsset(e.target.files?.[0] || null)}
+              className=”hidden”
+            />
+            <span className=”px-2 py-1 rounded-lg border border-fog bg-surface text-[11px] font-medium hover:border-ink/20”>
+              {prepUploadingAsset ? ‘Uploading…’ : ‘+ Attach’}
+            </span>
+          </label>
+          <span className=”text-ink/25 text-[10px]”>screenshot or recording</span>
         </div>
-        <textarea
-          value={prepInput}
-          onChange={(e) => setPrepInput(e.target.value)}
-          rows={2}
-          placeholder="Product updates, promos, tone…"
-          className="input text-xs resize-none mb-2"
-          disabled={!activeBrandId || prepSending || prepServiceDown}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              onSend()
-            }
-          }}
-        />
+
+        {/* Message input + Send + Generate */}
+        <div className=”flex items-end gap-1.5 bg-mist border border-fog rounded-xl px-3 py-2 focus-within:border-brand-400/50 transition-all”>
+          <textarea
+            value={prepInput}
+            onChange={(e) => setPrepInput(e.target.value)}
+            rows={1}
+            placeholder={generatingMonth ? ‘Generating…’ : ‘Chat or say “generate my posts”…’}
+            className=”flex-1 resize-none bg-transparent text-xs text-ink placeholder:text-ink/35 focus:outline-none leading-relaxed min-h-[18px] max-h-[80px] disabled:opacity-50”
+            disabled={!activeBrandId || prepSending || prepServiceDown}
+            onKeyDown={(e) => {
+              if (e.key === ‘Enter’ && !e.shiftKey) { e.preventDefault(); onSend() }
+            }}
+          />
+          <button
+            type=”button”
+            onClick={onSend}
+            disabled={!activeBrandId || prepSending || !prepInput.trim() || prepServiceDown}
+            className=”w-6 h-6 flex-shrink-0 rounded-lg bg-slate-900 text-white flex items-center justify-center hover:bg-slate-800 disabled:bg-fog disabled:text-ink/30 transition-colors”
+          >
+            <Send size={11} />
+          </button>
+        </div>
+
+        {/* Generate button — always visible */}
         <button
-          type="button"
-          onClick={onSend}
-          disabled={!activeBrandId || prepSending || !prepInput.trim() || prepServiceDown}
-          className="btn-primary w-full text-xs py-2 justify-center gap-1.5 disabled:opacity-40"
+          type=”button”
+          onClick={() => onRunCta({ action: ‘start_generation’ }, ‘’)}
+          disabled={!activeBrandId || generatingMonth || ctaBusy || prepServiceDown}
+          className=”w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors”
         >
-          <Send size={12} />
-          Send
+          <Zap size={11} />
+          {generatingMonth ? ‘Generating…’ : ‘Generate posts’}
         </button>
       </div>
     </div>
@@ -1005,6 +1034,13 @@ export default function CalendarPage() {
         design_intent: idx === chunks.length - 1 ? (data.design_intent || null) : null,
       }))
       setPrepMessages([...next, ...assistantRows])
+
+      // Auto-trigger generation when the AI signals it's ready
+      if (data.cta?.action === 'start_generation' && !generatingMonth) {
+        setTimeout(() => {
+          handleGenerate()
+        }, 600)
+      }
     } catch (e) {
       if (isAiCapacityError(e)) {
         setPrepServiceDown(true)
