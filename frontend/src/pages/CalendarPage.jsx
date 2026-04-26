@@ -346,29 +346,28 @@ function CalendarPrepBody({
                 const ctaKey = String(i)
                 const isUsed = usedCtaKeys?.has(ctaKey)
                 const disabled = Boolean(isUsed || ctaBusy || generatingMonth || prepServiceDown)
+                const statusLabel = isUsed
+                  ? 'Generation started ✓'
+                  : prepServiceDown
+                    ? 'Temporarily unavailable'
+                    : generatingMonth
+                      ? 'Generating…'
+                      : null
                 return (
               <div className="mt-2 pt-2 border-t border-fog/70">
-                <select
-                  defaultValue=""
-                  disabled={disabled}
-                  onChange={(e) => {
-                    if (e.target.value === 'generate') onRunCta(m.cta || { action: 'start_generation', label: 'Generate posts now' }, ctaKey)
-                    e.target.value = ''
-                  }}
-                  className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70 disabled:opacity-60"
-                >
-                  <option value="">
-                    {isUsed
-                      ? 'Generation already started from this action'
-                      : prepServiceDown
-                        ? 'Assistant temporarily unavailable — contact support'
-                      : generatingMonth
-                        ? 'Generation in progress…'
-                        : (m.cta?.label || 'Choose next action…')}
-                  </option>
-                  <option value="generate">Generate posts now</option>
-                  <option value="modify">Modify context first</option>
-                </select>
+                {statusLabel ? (
+                  <p className="text-[11px] text-ink/40 italic">{statusLabel}</p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onRunCta(m.cta || { action: 'start_generation', label: 'Generate posts now' }, ctaKey)}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-slate-900 text-white text-[11px] font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors"
+                  >
+                    <Zap size={11} />
+                    {m.cta?.label || 'Generate posts now'}
+                  </button>
+                )}
               </div>
                 )
               })()
@@ -428,15 +427,27 @@ function CalendarPrepBody({
             }
           }}
         />
-        <button
-          type="button"
-          onClick={onSend}
-          disabled={!activeBrandId || prepSending || !prepInput.trim() || prepServiceDown}
-          className="btn-primary w-full text-xs py-2 justify-center gap-1.5 disabled:opacity-40"
-        >
-          <Send size={12} />
-          Send
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={!activeBrandId || prepSending || !prepInput.trim() || prepServiceDown}
+            className="btn-primary flex-1 text-xs py-2 justify-center gap-1.5 disabled:opacity-40"
+          >
+            <Send size={12} />
+            Send
+          </button>
+          <button
+            type="button"
+            onClick={() => onRunCta({ action: 'start_generation', label: 'Generate' }, '')}
+            disabled={!activeBrandId || generatingMonth || ctaBusy || prepServiceDown}
+            className="flex items-center gap-1 px-3 py-2 rounded-xl border border-fog bg-surface text-[11px] font-semibold text-ink/70 hover:border-ink/20 hover:text-ink disabled:opacity-40 transition-colors"
+            title="Generate posts now using this chat as context"
+          >
+            <Zap size={11} />
+            {ctaBusy ? '…' : 'Generate'}
+          </button>
+        </div>
       </div>
     </div>
   )
