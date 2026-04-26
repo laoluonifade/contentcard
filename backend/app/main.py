@@ -204,6 +204,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_window_minutes INTEGER DEFAULT 30",
             "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_cooldown_minutes INTEGER DEFAULT 30",
             "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_until TIMESTAMPTZ",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(128)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS visual_strategy_used VARCHAR(100)",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS composition_description TEXT",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))
@@ -215,9 +220,11 @@ async def lifespan(app: FastAPI):
         await _run_startup_task("Trend seed", seed_trends(db), timeout_seconds=15.0)
         await _run_startup_task("Meme seed", seed_memes(db), timeout_seconds=15.0)
 
-    # Ensure Paystack subscription plans exist
-    from app.services.billing_service import ensure_paystack_plans
+    # Ensure Paystack subscription plans exist (Nigeria)
+    from app.services.billing_service import ensure_paystack_plans, ensure_stripe_prices
     await _run_startup_task("Paystack plan setup", ensure_paystack_plans(), timeout_seconds=12.0)
+    # Ensure Stripe products/prices exist (international)
+    await _run_startup_task("Stripe price setup", ensure_stripe_prices(), timeout_seconds=15.0)
 
     yield
 

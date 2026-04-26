@@ -31,6 +31,7 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.services.geo_service import get_country_from_ip, get_payment_provider
+from app.services.email_service import send_password_reset, send_welcome
 from app.core.config import settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -108,6 +109,12 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     await db.commit()
     await db.refresh(user)
 
+    # Send welcome email (fire-and-forget — never block the signup response)
+    import asyncio
+    asyncio.create_task(
+        send_welcome(user.email, user.full_name, settings.FRONTEND_URL + "/dashboard")
+    )
+
     token = create_access_token(user.id)
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
@@ -148,6 +155,170 @@ async def update_profile(
     await db.commit()
     await db.refresh(current_user)
     return UserOut.model_validate(current_user)
+
+
+@router.delete("/me", status_code=204)
+async def delete_account(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Soft-archive the authenticated user's account.
+
+    The user row is NOT hard-deleted — all posts, brands, and workspace data
+    are retained in the database for audit / recovery purposes.  What happens:
+
+    - All active Paystack subscriptions are cancelled.
+    - All saved payment / card data is wiped from owned workspaces.
+    - The user's PII (email, name, phone, password hash) is anonymised in-place
+      so the row carries no personal data.
+    - `is_active` is set to False and `deleted_at` is stamped — the JWT becomes
+      invalid immediately (get_current_user filters on is_active=True).
+    - Workspace content items, brands, and calendar posts are archived (kept)
+      so they remain visible internally and can be recovered if needed.
+    """
+    from app.services.billing_service import cancel_paystack_subscription
+
+    # Password confirmation — skip for OAuth-only accounts (no password set)
+    password = str(body.get("password") or "").strip()
+    has_local_password = bool(current_user.hashed_password)
+    if has_local_password:
+        if not password:
+            raise HTTPException(status_code=400, detail="Password is required to delete your account.")
+        if not verify_password(password, current_user.hashed_password):
+            raise HTTPException(status_code=400, detail="Incorrect password.")
+
+    now = datetime.now(timezone.utc)
+    uid_short = str(current_user.id)[:8]
+
+    # Collect all workspace memberships for this user
+    memberships = (
+        await db.execute(
+            select(WorkspaceMember).where(WorkspaceMember.user_id == current_user.id)
+        )
+    ).scalars().all()
+
+    for mem in memberships:
+        ws_id = mem.workspace_id
+        ws = (
+            await db.execute(select(Workspace).where(Workspace.id == ws_id))
+        ).scalar_one_or_none()
+        if not ws:
+            continue
+
+        # Cancel active Paystack subscription and wipe all billing data
+        if ws.subscription_id:
+            try:
+                await cancel_paystack_subscription(ws.subscription_id)
+            except Exception:
+                pass  # best-effort; never block account deletion on billing API errors
+
+        ws.subscription_id = None
+        ws.customer_id = None
+        ws.paystack_authorization_code = None
+        ws.card_last4 = None
+        ws.card_type = None
+        ws.card_bank = None
+        ws.card_exp_month = None
+        ws.card_exp_year = None
+        ws.next_payment_date = None
+        ws.plan = "trial"
+
+        # Sole-owned workspaces: keep data intact but mark them inactive so
+        # other members (if any) can no longer log in to them.
+        other_owners = (
+            await db.execute(
+                select(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == ws_id,
+                    WorkspaceMember.user_id != current_user.id,
+                    WorkspaceMember.role == WorkspaceRole.OWNER,
+                )
+            )
+        ).scalars().all()
+
+        if mem.role == WorkspaceRole.OWNER and not other_owners:
+            ws.name = f"[Archived workspace – {uid_short}]"
+            ws.is_active = False
+            # Revoke other members' access — content rows are intentionally kept
+            await db.execute(
+                delete(WorkspaceMember).where(
+                    WorkspaceMember.workspace_id == ws_id,
+                    WorkspaceMember.user_id != current_user.id,
+                )
+            )
+
+    # Soft-archive: anonymise PII and deactivate — row is retained in DB
+    current_user.email = f"deleted_{uid_short}@deleted.internal"
+    current_user.full_name = "[Deleted Account]"
+    current_user.phone = None
+    current_user.hashed_password = hash_password(secrets.token_hex(32))  # random unusable hash
+    current_user.shopify_shop_domain = None
+    current_user.shopify_customer_id = None
+    current_user.is_active = False
+    current_user.deleted_at = now
+
+    await db.commit()
+
+
+@router.post("/forgot-password", status_code=204)
+async def forgot_password(body: dict, db: AsyncSession = Depends(get_db)):
+    """
+    Request a password reset link.
+
+    Always returns 204 regardless of whether the email exists — this prevents
+    account enumeration.  The reset link is emailed and expires in 30 minutes.
+    """
+    import asyncio
+    raw_email = str(body.get("email") or "").strip().lower()
+    if not raw_email:
+        raise HTTPException(status_code=422, detail="Email is required.")
+
+    result = await db.execute(
+        select(User).where(User.email == raw_email, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
+
+    if user:
+        token = secrets.token_urlsafe(48)
+        user.reset_token = token
+        user.reset_token_expires = datetime.now(timezone.utc) + timedelta(minutes=30)
+        await db.commit()
+
+        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
+        asyncio.create_task(
+            send_password_reset(user.email, reset_url, user.full_name)
+        )
+    # Always return 204 — never reveal whether an account exists
+
+
+@router.post("/reset-password", status_code=204)
+async def reset_password(body: dict, db: AsyncSession = Depends(get_db)):
+    """
+    Consume a password reset token and set a new password.
+    """
+    token    = str(body.get("token") or "").strip()
+    password = str(body.get("password") or "").strip()
+
+    if not token:
+        raise HTTPException(status_code=422, detail="Reset token is required.")
+    if len(password) < 8:
+        raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
+
+    result = await db.execute(
+        select(User).where(User.reset_token == token, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    if user.reset_token_expires is None or datetime.now(timezone.utc) > user.reset_token_expires:
+        raise HTTPException(status_code=400, detail="This reset link has expired. Please request a new one.")
+
+    user.hashed_password = hash_password(password)
+    user.reset_token = None
+    user.reset_token_expires = None
+    await db.commit()
 
 
 @router.post("/change-password", status_code=204)

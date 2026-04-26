@@ -147,8 +147,9 @@ def _item_ready_for_user(item: ContentItem) -> bool:
     wg = cm.get("website_grounding_gate") if isinstance(cm.get("website_grounding_gate"), dict) else {}
     if wg and str(wg.get("status") or "") == "fail":
         return False
-    if cm.get("logo_required") and not cm.get("logo_applied"):
-        return False
+    # Logo-applied is tracked for reporting only — a logo compositing failure must
+    # not permanently block delivery. Items with visual assets are always surfaced
+    # so the user sees content rather than an infinite loading state.
     return True
 
 
@@ -1015,32 +1016,44 @@ async def _brand_product_grounding_pool(db: AsyncSession, brand_id: str, limit: 
 
 
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
-    """Burn logo onto final cover (Bannerbear) or raster-only hero — never rely on the image model for logos."""
+    """
+    Burn logo onto final cover (Bannerbear) or raster-only hero.
+
+    Returns True when images are deliverable (with or without logo).
+    Logo compositing failure is non-fatal: images are kept and delivered
+    without the logo rather than being wiped and blocking delivery forever.
+    """
     logo_required = has_brand_logo(brand_dict)
     try:
         if item.image_urls:
             finalized, all_applied = await finalize_rendered_urls_with_logo(item.image_urls, brand_dict, post_data)
-            item.image_urls = finalized
+            # Keep whatever images we got (with or without logo on each frame).
             if finalized:
+                item.image_urls = finalized
                 item.image_url = finalized[0]
             if logo_required and not all_applied:
-                # Strict gate: do not ship ready visuals without brand logo.
-                item.image_urls = None
-                item.image_url = None
+                logger.warning(
+                    "_apply_brand_logo_to_visuals: logo composite failed for one or more "
+                    "frames on item %s — delivering without logo overlay", item.id
+                )
+                # Return False so the caller knows logo wasn't fully applied,
+                # but images are kept — content is still deliverable.
                 return False
         elif item.image_url:
             nu = await burn_logo_into_image_url(item.image_url, brand_dict, post_data)
             if nu:
                 item.image_url = nu
             elif logo_required:
-                item.image_url = None
+                logger.warning(
+                    "_apply_brand_logo_to_visuals: logo burn failed for item %s "
+                    "— delivering raster image without logo overlay", item.id
+                )
+                # Do NOT wipe item.image_url — keep the generated image.
                 return False
     except Exception as e:
         logger.warning("_apply_brand_logo_to_visuals failed for %s: %s", item.id, e)
-        if logo_required:
-            item.image_urls = None
-            item.image_url = None
-            return False
+        # Do NOT wipe images on exception — they are still deliverable without the logo.
+        return False if logo_required else True
     return True
 
 
@@ -1098,6 +1111,11 @@ async def _render_with_quality_gate(
         if bg_urls:
             item.image_url = bg_urls[0]
 
+        # Persist product pipeline metadata set by generate_post_image (if edits path was used)
+        if render_post.get("visual_strategy_used"):
+            item.visual_strategy_used    = render_post["visual_strategy_used"]
+            item.composition_description = render_post.get("composition_description")
+
         bb_urls = await generate_post_images(render_post, brand_dict, background_image_url=item.image_url or None)
         if bb_urls:
             item.image_urls = bb_urls
@@ -1123,7 +1141,11 @@ async def _render_with_quality_gate(
             }
 
         pass_quality = str(last_qg.get("status") or "") == "pass"
-        if pass_quality and last_logo_ok:
+        cover_url_exists = bool(item.image_url or item.image_urls)
+        # Accept if quality passes regardless of logo status — logo failure is non-fatal.
+        # Accept also if we have images but quality gate returned "skip" (no image to score).
+        qg_status = str(last_qg.get("status") or "")
+        if (pass_quality or qg_status == "skip") and cover_url_exists:
             return last_lint, last_qg, last_logo_ok
 
     # Final fallback render: deterministic branded template output (no AI background)
@@ -1148,7 +1170,8 @@ async def _render_with_quality_gate(
         last_logo_ok = await _apply_brand_logo_to_visuals(item, fallback_post, brand_dict)
         cover_url = (item.image_urls or [item.image_url])[0] if (item.image_urls or item.image_url) else None
         last_lint = await lint_final_image(cover_url, brand_dict, sab)
-        if cover_url and last_logo_ok:
+        # Deliver fallback if we have any image — logo failure is still non-fatal here.
+        if cover_url:
             last_qg = {
                 "status": "pass_fallback",
                 "overall_score": round(float(last_qg.get("overall_score") or 0.0), 3),
@@ -1156,7 +1179,7 @@ async def _render_with_quality_gate(
                 "reasons": ["Primary quality gate retries failed; used deterministic fallback template render."],
                 "retry_hints": last_qg.get("retry_hints") or [],
             }
-            return last_lint, last_qg, True
+            return last_lint, last_qg, last_logo_ok
     except Exception as e:
         logger.warning("quality fallback render failed for %s: %s", item.id, e)
 
@@ -1468,6 +1491,7 @@ async def generate_month_v2(
         existing_counts=dict(existing_counts),
         monthly_post_cap=monthly_post_cap,
         current_month_total=current_month_total,
+        custom_plan=body.custom_plan or None,
     )
     await db.commit()
     return {
@@ -1776,6 +1800,18 @@ async def generation_prep_chat(
         )
     )
     msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
+
+    # Live web search for the prep assistant
+    research_context: str | None = None
+    last_text = body.messages[-1].content or "" if body.messages else ""
+    if body.enable_web_search and last_text:
+        try:
+            from app.services.brand_research_fetch import needs_web_search, web_search_for_coach
+            if needs_web_search(last_text):
+                research_context, _ = await web_search_for_coach(last_text)
+        except Exception as e:
+            logger.warning("prep chat web search skipped: %s", e)
+
     raw = await run_generation_prep_chat(
         _brand_to_dict(brand),
         body.month,
@@ -1783,6 +1819,7 @@ async def generation_prep_chat(
         msgs,
         playbook_summary=playbook_summary,
         product_context=product_context,
+        research_context=research_context,
     )
     design_intent = None
     if isinstance(raw.get("design_intent"), dict):
@@ -1988,15 +2025,27 @@ async def brand_form_coach(
     research_block: str | None = None
     research_sources: list[dict] = []
     try:
-        from app.services.brand_research_fetch import extract_urls_from_text, gather_research_context
+        from app.services.brand_research_fetch import (
+            extract_urls_from_text, gather_research_context,
+            needs_web_search, web_search_for_coach,
+        )
 
+        last_text = body.messages[-1].content or "" if body.messages else ""
         explicit = [u.strip() for u in (body.research_urls or []) if (u or "").strip()]
-        last_text = ""
-        if body.messages:
-            last_text = body.messages[-1].content or ""
         from_msg = extract_urls_from_text(last_text) if body.fetch_urls_from_message else []
-        block, research_sources = await gather_research_context(explicit, from_msg)
-        research_block = block.strip() if block.strip() else None
+
+        # 1. Fetch any explicitly provided / message-pasted URLs
+        url_block, url_sources = await gather_research_context(explicit, from_msg)
+        research_sources.extend(url_sources)
+
+        # 2. Live web search when message needs external information
+        search_block = ""
+        if body.enable_web_search and needs_web_search(last_text) and not from_msg and not explicit:
+            search_block, search_sources = await web_search_for_coach(last_text)
+            research_sources.extend(search_sources)
+
+        combined = "\n\n".join(filter(None, [url_block.strip(), search_block.strip()]))
+        research_block = combined if combined.strip() else None
     except Exception as e:
         logger.warning("brand research fetch skipped: %s", e)
 
@@ -2526,6 +2575,7 @@ async def _do_generate_month(
     existing_counts: dict[str, int] | None = None,
     monthly_post_cap: int | None = None,
     current_month_total: int = 0,
+    custom_plan: list[dict] | None = None,
 ):
     from app.db.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
@@ -2571,14 +2621,49 @@ async def _do_generate_month(
                 brief_parts.append(meme_addon)
             combined_generation_brief = "\n\n".join(brief_parts) if brief_parts else None
 
-            posts = await generate_monthly_plan(
-                brand=brand_for_planner, month=month, year=year,
-                platforms=platforms, format_mix=format_mix,
-                posts_per_week=posts_per_week,
-                topic_override=topic_override, template_topics=template_topics,
-                holiday_context=holiday_context or None,
-                generation_brief=combined_generation_brief,
-            )
+            if custom_plan and len(custom_plan) > 0:
+                # User reviewed and edited the plan in the modal — use their schedule
+                # directly instead of running AI planning. The AI still generates
+                # captions and images for each slot; only dates/types/images are seeded.
+                posts = []
+                for slot in custom_plan:
+                    if not isinstance(slot, dict):
+                        continue
+                    raw_date = str(slot.get("date") or "").strip()
+                    if not raw_date:
+                        continue
+                    platform_val = str(slot.get("platform") or (platforms[0] if platforms else "instagram")).lower()
+                    fmt_val = str(slot.get("format") or "single").lower()
+                    content_type = str(slot.get("content_type") or "").strip()
+                    visual_direction = str(slot.get("visual_direction") or "").strip() or None
+                    product_image_url = str(slot.get("product_image_url") or "").strip() or None
+                    # Merge override template_id from slot (if any) or fall back to global
+                    slot_template_id = str(slot.get("template_id") or "").strip() or template_id or None
+                    posts.append({
+                        "date": raw_date,
+                        "platform": platform_val,
+                        "format": fmt_val,
+                        "content_type": content_type,
+                        "visual_direction": visual_direction,
+                        "product_image_url": product_image_url,
+                        "template_id": slot_template_id,
+                        # Leave topic/caption/image_prompt blank — AI fills these later
+                        "topic": topic_override or content_type or "content",
+                        "caption": None,
+                    })
+                logger.info(
+                    "_do_generate_month: using custom_plan with %d slots for brand %s %s/%s",
+                    len(posts), brand_id, month, year,
+                )
+            else:
+                posts = await generate_monthly_plan(
+                    brand=brand_for_planner, month=month, year=year,
+                    platforms=platforms, format_mix=format_mix,
+                    posts_per_week=posts_per_week,
+                    topic_override=topic_override, template_topics=template_topics,
+                    holiday_context=holiday_context or None,
+                    generation_brief=combined_generation_brief,
+                )
             ec = existing_counts or {}
             slots = {p: max(0, MAX_POSTS_PER_PLATFORM_PER_MONTH - int(ec.get(p, 0))) for p in platforms}
             filtered_posts = []
@@ -2766,6 +2851,15 @@ async def _do_generate_month(
                             "product_image_url": fallback_img,
                             "product_image_urls": fallback_urls,
                         }
+                # Custom plan: if user pinned a specific image to this post, honour it
+                # (overrides whatever the website-grounding system resolved).
+                pinned_image_url = str(post.get("product_image_url") or "").strip()
+                if pinned_image_url:
+                    product_ctx = {
+                        **(product_ctx or {}),
+                        "product_image_url": pinned_image_url,
+                        "product_image_urls": [pinned_image_url],
+                    }
                 if product_ctx:
                     enriched.update(product_ctx)
                 if isinstance(matched_op, dict):
@@ -2831,8 +2925,10 @@ async def _do_generate_month(
             return
 
         # ── Phase 1: render with quality gate + retry loop ──────────────────────────
-        for item, post_data in saved_items:
+        for _batch_idx, (item, post_data) in enumerate(saved_items):
             try:
+                # Inject batch index so the variation engine can rotate hero/lifestyle/detail/angled
+                post_data["_batch_index"] = _batch_idx
                 sab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else {}
                 lint, quality_gate, logo_ok = await _render_with_quality_gate(db, item, post_data, brand_dict, sab)
                 th = dict(item.theme) if isinstance(item.theme, dict) else {}

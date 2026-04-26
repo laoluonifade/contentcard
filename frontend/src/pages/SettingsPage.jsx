@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { Check, Eye, EyeOff, Sun } from 'lucide-react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import { Check, Eye, EyeOff, Sun, Trash2, AlertTriangle } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { authApi, workspaceApi, inviteApi } from '../api'
@@ -24,8 +24,9 @@ const ROLES = ['admin','editor','viewer','approver']
 const inputCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 
 export default function SettingsPage() {
-  const { user, updateUser, fetchMe } = useAuthStore()
+  const { user, updateUser, fetchMe, deleteAccount } = useAuthStore()
   const { activeWorkspace, activeWorkspaceId, fetchWorkspaces, renameWorkspace } = useAppStore()
+  const navigate = useNavigate()
   const { theme, setTheme } = useTheme()
   const [searchParams] = useSearchParams()
   const [tab, setTab] = useState('Profile')
@@ -59,6 +60,11 @@ export default function SettingsPage() {
     quietEnd: '07:00',
     autoReply: false,
   })
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteConfirmText, setDeleteConfirmText] = useState('')
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteShowPw, setDeleteShowPw] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     setWorkspaceName(activeWorkspace?.name || '')
@@ -174,7 +180,25 @@ export default function SettingsPage() {
     toast('Coming soon')
   }
 
+  const handleDeleteAccount = async () => {
+    if (deleteConfirmText !== 'DELETE') {
+      toast('Type DELETE in capitals to confirm', 'error')
+      return
+    }
+    setDeleting(true)
+    try {
+      await deleteAccount(deletePassword)
+      toast('Account deleted. Sorry to see you go.')
+      navigate('/')
+    } catch (err) {
+      toast(err.message || 'Could not delete account', 'error')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
+    <>
     <div className="p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Settings</h1>
@@ -236,6 +260,29 @@ export default function SettingsPage() {
                   </button>
                 </div>
               </div>
+              <div className="bg-surface border border-rose-200 rounded-2xl p-6 mt-4">
+                <div className="flex items-start gap-3 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <AlertTriangle size={15} className="text-rose-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-ink font-bold text-sm mb-0.5">Danger zone</h3>
+                    <p className="text-ink/40 text-xs leading-relaxed">
+                      Permanently delete your account and all associated data. This cannot be undone.
+                      Your active subscription will be cancelled immediately and all payment data removed.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(''); setDeletePassword('') }}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold rounded-xl transition-colors"
+                >
+                  <Trash2 size={14} />
+                  Delete my account
+                </button>
+              </div>
+
               <div className="bg-surface border border-fog rounded-2xl p-6 mt-4">
                 <h3 className="text-ink font-bold text-sm mb-1">Change password</h3>
                 <p className="text-ink/40 text-xs mb-5">Min. 8 characters</p>
@@ -498,5 +545,92 @@ export default function SettingsPage() {
         </div>
       </div>
     </div>
+
+    {/* Delete account modal */}
+    {showDeleteModal && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+        <div className="w-full max-w-md bg-surface rounded-2xl border border-fog shadow-xl p-6">
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-9 h-9 rounded-xl bg-rose-50 border border-rose-200 flex items-center justify-center flex-shrink-0">
+              <Trash2 size={16} className="text-rose-500" />
+            </div>
+            <div>
+              <h3 className="text-ink font-bold text-base">Delete your account</h3>
+              <p className="text-ink/45 text-xs mt-0.5">Your access will be revoked immediately. Contact support to recover your account.</p>
+            </div>
+          </div>
+
+          <div className="bg-rose-50 border border-rose-200 rounded-xl p-4 mb-5 text-xs text-rose-700 leading-relaxed space-y-1">
+            <p className="font-semibold">What happens when you delete:</p>
+            <ul className="list-disc list-inside space-y-0.5 text-rose-600">
+              <li>Your profile and login access are removed immediately</li>
+              <li>Active subscription is cancelled immediately</li>
+              <li>All saved payment and card data is wiped</li>
+              <li>Workspaces you solely own are deactivated</li>
+            </ul>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">
+                Type <span className="text-rose-500 font-mono">DELETE</span> to confirm
+              </label>
+              <input
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                placeholder="DELETE"
+                className={`${inputCls} font-mono`}
+                autoComplete="off"
+              />
+            </div>
+            {(user?.auth_provider === 'password' || user?.auth_provider === 'mixed') && (
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">
+                  Confirm your password
+                </label>
+                <div className="relative">
+                  <input
+                    type={deleteShowPw ? 'text' : 'password'}
+                    value={deletePassword}
+                    onChange={e => setDeletePassword(e.target.value)}
+                    placeholder="Your current password"
+                    className={`${inputCls} pr-12`}
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setDeleteShowPw(v => !v)}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/40 hover:text-ink/70"
+                  >
+                    {deleteShowPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex justify-end gap-2 mt-6">
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(false)}
+              className="px-4 py-2.5 border border-fog rounded-xl text-ink/70 hover:bg-mist text-sm font-medium transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleDeleteAccount}
+              disabled={deleting || deleteConfirmText !== 'DELETE'}
+              className="flex items-center gap-2 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold rounded-xl transition-colors"
+            >
+              {deleting
+                ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Deleting…</>
+                : <><Trash2 size={14} />Delete account</>}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

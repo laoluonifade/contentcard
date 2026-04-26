@@ -8,6 +8,7 @@ import SignupPage           from './pages/SignupPage'
 import OnboardingPage       from './pages/OnboardingPage'
 import AcceptInvite         from './pages/AcceptInvite'
 import ForgotPasswordPage   from './pages/ForgotPasswordPage'
+import ResetPasswordPage    from './pages/ResetPasswordPage'
 import FeaturesPage         from './pages/FeaturesPage'
 import PricingPage          from './pages/PricingPage'
 import EnterprisePage       from './pages/EnterprisePage'
@@ -34,6 +35,7 @@ import DirectoryPage        from './pages/DirectoryPage'
 import MemesPage            from './pages/MemesPage'
 import SocialAutopilotPage  from './pages/SocialAutopilotPage'
 import DesignEditorPage from './pages/DesignEditorPage'
+import AssistantPage   from './pages/AssistantPage'
 import ShopifyAuthCallbackPage from './pages/ShopifyAuthCallbackPage'
 import ShopifyOnboardingCompletionPage from './pages/ShopifyOnboardingCompletionPage'
 import ShopifyPostSignupDecisionPage from './pages/ShopifyPostSignupDecisionPage'
@@ -98,6 +100,7 @@ export default function App() {
         <Route path="/login"                 element={<GuestRoute><LoginPage /></GuestRoute>} />
         <Route path="/signup"                element={<GuestRoute><SignupPage /></GuestRoute>} />
         <Route path="/forgot-password"       element={<ForgotPasswordPage />} />
+        <Route path="/reset-password"        element={<ResetPasswordPage />} />
         <Route path="/accept-invite"         element={<AcceptInvite />} />
         <Route path="/onboarding"            element={<PrivateRoute><OnboardingPage /></PrivateRoute>} />
         <Route path="/shopify/callback"      element={<ShopifyAuthCallbackPage />} />
@@ -117,6 +120,7 @@ export default function App() {
           <Route path="memes"      element={<MemesPage />} />
           <Route path="social"     element={<SocialAutopilotPage />} />
           <Route path="calendar/editor/:contentId" element={<DesignEditorPage />} />
+          <Route path="assistant"  element={<AssistantPage />} />
         </Route>
 
         {/* Admin */}

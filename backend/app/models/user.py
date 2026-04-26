@@ -20,6 +20,12 @@ class User(Base):
     shopify_shop_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     shopify_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Soft-delete / archive support — set when user requests account deletion.
+    # PII is anonymised at the same time; the row is kept for audit / data recovery.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    # Password-reset flow — token is a URL-safe random string; cleared after use.
+    reset_token: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
+    reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

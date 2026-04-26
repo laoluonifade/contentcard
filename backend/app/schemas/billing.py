@@ -23,7 +23,7 @@ class CardOut(BaseModel):
 
 class SubscriptionOut(BaseModel):
     plan: str
-    provider: str | None
+    provider: str | None            # "paystack" | "stripe" | None
     trial_ends_at: datetime | None
     is_active: bool
     subscription_id: str | None
@@ -33,3 +33,5 @@ class SubscriptionOut(BaseModel):
     # When the owner has multiple workspaces, subscription/card may live on `billing_workspace_id`
     billing_workspace_id: str | None = None
     subscription_covers_owned_workspaces: bool = False
+    # Non-null for international (Stripe) users — lets frontend show correct processor copy
+    stripe_publishable_key: str | None = None

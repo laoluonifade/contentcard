@@ -8,7 +8,7 @@ import { toast } from '../components/ui/Toast'
 
 // ── Plan definitions ──────────────────────────────────────────────────────────
 
-const PLANS = [
+const PLANS_NGN = [
   {
     id: 'starter',
     name: 'Starter',
@@ -42,6 +42,50 @@ const PLANS = [
     name: 'Pro',
     ngn: '₦200,000',
     usd: '$99',
+    desc: 'For agencies.',
+    features: [
+      'Everything in Growth',
+      '10 brands',
+      'Unlimited team members',
+      'Priority support',
+    ],
+  },
+]
+
+const PLANS_USD = [
+  {
+    id: 'starter',
+    name: 'Starter',
+    price: '$15',
+    priceRaw: 15,
+    desc: 'For solo creators.',
+    features: [
+      'Unlimited content generation',
+      'Instagram, Facebook, X, LinkedIn',
+      'Full brand kit',
+      'AI-generated images',
+      '1 brand',
+    ],
+  },
+  {
+    id: 'smb',
+    name: 'Growth',
+    price: '$39',
+    priceRaw: 39,
+    desc: 'For growing businesses.',
+    features: [
+      'Everything in Starter',
+      'AI trending topics',
+      '3 brands',
+      '5 team members',
+    ],
+    featured: true,
+  },
+  {
+    id: 'pro',
+    name: 'Pro',
+    price: '$99',
+    priceRaw: 99,
     desc: 'For agencies.',
     features: [
       'Everything in Growth',
@@ -174,6 +218,11 @@ export default function BillingPage() {
   const [showRemoveModal, setShowRemoveModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [removing, setRemoving] = useState(false)
+
+  // Choose plan list based on provider (stripe = USD, paystack/null = NGN)
+  const isStripe = subscription?.stripe_publishable_key != null || subscription?.provider === 'stripe'
+  const PLANS = isStripe ? PLANS_USD : PLANS_NGN
+  const providerName = isStripe ? 'Stripe' : 'Paystack'
 
   const isSubscribed = ['starter', 'smb', 'pro'].includes(subscription?.plan)
   const freeUsed = subscription?.free_generations_used ?? 0
@@ -363,7 +412,7 @@ export default function BillingPage() {
                   } disabled:opacity-60`}
                 >
                   {isLoading ? (
-                    <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Redirecting to {provider}…</>
+                    <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Redirecting to {providerName}…</>
                   ) : isCurrent ? (
                     <><Check size={14} />Current plan</>
                   ) : (
@@ -379,10 +428,7 @@ export default function BillingPage() {
       {/* Trust footer */}
       <div className="flex items-center justify-center gap-2 mt-6 text-ink/30 text-xs">
         <Shield size={13} />
-        <span>
-          Payments secured by {currency === 'NGN' ? 'Paystack' : 'Stripe'} · Cancel anytime ·
-          Questions? <a href="mailto:hellovoya@gmail.com" className="text-brand-500 hover:text-brand-600 transition-colors">hellovoya@gmail.com</a>
-        </span>
+        <span>Payments processed securely by {providerName} · Cancel anytime · Questions? <a href="mailto:hellovoya@gmail.com" className="text-brand-500 hover:text-brand-600 transition-colors">hellovoya@gmail.com</a></span>
       </div>
 
       {/* ── Cancel modal ── */}

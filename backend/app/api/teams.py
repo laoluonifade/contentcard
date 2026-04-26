@@ -1,3 +1,4 @@
+import asyncio
 import secrets
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +9,8 @@ from app.models.workspace import WorkspaceInvite, WorkspaceMember, WorkspaceRole
 from app.models.user import User
 from app.core.dependencies import get_current_user
 from app.core.security import hash_password, verify_password
+from app.services.email_service import send_team_invite
+from app.core.config import settings
 from app.schemas.workspace import (
     InviteRequest,
     InviteOut,
@@ -75,6 +78,22 @@ async def invite_member(
     db.add(invite)
     await db.commit()
     await db.refresh(invite)
+
+    # Send invite email for email-targeted invites (not link-only)
+    if not _is_link_invite_email(target_email):
+        ws_result = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        ws = ws_result.scalar_one_or_none()
+        workspace_name = ws.name if ws else "a workspace"
+        invite_url = f"{settings.FRONTEND_URL}/accept-invite?token={token}"
+        asyncio.create_task(
+            send_team_invite(
+                to=target_email,
+                invite_url=invite_url,
+                workspace_name=workspace_name,
+                invited_by=current_user.full_name or current_user.email,
+                role=body.role.value if hasattr(body.role, "value") else str(body.role),
+            )
+        )
 
     return InviteCreated.model_validate(invite)
 

@@ -18,9 +18,12 @@ class Settings(BaseSettings):
     PAYSTACK_SECRET_KEY: str = ""
     PAYSTACK_PUBLIC_KEY: str = ""
 
+    # Stripe — used for users outside Nigeria
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
-    STRIPE_PRICE_STARTER: str = ""   # price_xxx from Stripe dashboard
+    STRIPE_PUBLISHABLE_KEY: str = ""
+    # Set pre-created Stripe Price IDs from the Stripe dashboard (price_xxx)
+    STRIPE_PRICE_STARTER: str = ""
     STRIPE_PRICE_SMB: str = ""
     STRIPE_PRICE_PRO: str = ""
 
@@ -79,8 +82,8 @@ class Settings(BaseSettings):
     AI_CHAT_SUMMARY_TRIGGER_MESSAGES: int = 14
     AI_CHAT_SUMMARY_KEEP_LAST_MESSAGES: int = 10
 
-    AI_CACHE_TTL_CHAT_SEC: int = 900
-    AI_CACHE_TTL_DETERMINISTIC_SEC: int = 14400
+    AI_CACHE_TTL_CHAT_SEC: int = 900          # 15 min — text generation dedup window
+    AI_CACHE_TTL_DETERMINISTIC_SEC: int = 1800 # 30 min — image generation dedup window (was 4 h)
     AI_TRANSIENT_RETRY_MAX: int = 1
 
     # Rough cost modelling for telemetry (USD / 1K tokens)
@@ -110,6 +113,15 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = "http://localhost:5173"
     API_BASE_URL: str = "http://localhost:8000"
     SHOPIFY_AUTH_ENABLED: bool = True
+
+    # Gmail SMTP — use a Google App Password (not your regular password).
+    # Enable 2FA on the Gmail account, then generate an App Password at
+    # https://myaccount.google.com/apppasswords
+    GMAIL_USER: str = ""               # e.g. hello@contentcard.co
+    GMAIL_APP_PASSWORD: str = ""       # 16-char App Password from Google
+    GMAIL_FROM_NAME: str = "ContentCard"
+    GMAIL_SMTP_HOST: str = "smtp.gmail.com"
+    GMAIL_SMTP_PORT: int = 587
 
     class Config:
         env_file = ".env"

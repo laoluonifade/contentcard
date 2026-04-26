@@ -8,23 +8,25 @@ stripe.api_key = settings.STRIPE_SECRET_KEY
 
 logger = logging.getLogger(__name__)
 
-# Plan config — prices in kobo (Paystack, NGN)
+# ── Plan config ────────────────────────────────────────────────────────────────
+# Prices: NGN (kobo) for Paystack/Nigeria, USD (cents) for Stripe/international
+
 PLANS = {
     "starter": {
         "name": "Starter",
         "paystack_name": "ContentCard Starter",
-        "ngn_price": 2000000,       # ₦20,000 in kobo
-        "usd_price_cents": 2900,    # $29.00 in cents
-        "stripe_price_id": settings.STRIPE_PRICE_STARTER,
+        "stripe_name": "ContentCard Starter",
+        "ngn_price": 2000000,   # ₦20,000 in kobo
+        "usd_price": 1500,      # $15.00 in cents
         "max_brands": 1,
         "max_members": 1,
     },
     "smb": {
         "name": "Growth",
         "paystack_name": "ContentCard Growth",
-        "ngn_price": 5000000,       # ₦50,000
-        "usd_price_cents": 4900,    # $49.00
-        "stripe_price_id": settings.STRIPE_PRICE_SMB,
+        "stripe_name": "ContentCard Growth",
+        "ngn_price": 5000000,   # ₦50,000
+        "usd_price": 3900,      # $39.00
         "max_brands": 3,
         "max_members": 5,
         "featured": True,
@@ -32,9 +34,9 @@ PLANS = {
     "pro": {
         "name": "Pro",
         "paystack_name": "ContentCard Pro",
-        "ngn_price": 20000000,      # ₦200,000
-        "usd_price_cents": 9900,    # $99.00
-        "stripe_price_id": settings.STRIPE_PRICE_PRO,
+        "stripe_name": "ContentCard Pro",
+        "ngn_price": 20000000,  # ₦200,000
+        "usd_price": 9900,      # $99.00
         "max_brands": 10,
         "max_members": None,
     },
@@ -43,8 +45,10 @@ PLANS = {
 PAYSTACK_BASE = "https://api.paystack.co"
 
 # Cache of plan_key -> Paystack plan_code (e.g. PLN_xxx)
-# Populated at app startup via ensure_paystack_plans()
 _PLAN_CODES: dict[str, str] = {}
+
+# Cache of plan_key -> Stripe Price ID (e.g. price_xxx)
+_STRIPE_PRICE_IDS: dict[str, str] = {}
 
 
 def _headers() -> dict:
@@ -54,6 +58,8 @@ def _headers() -> dict:
     }
 
 
+# ── Paystack ───────────────────────────────────────────────────────────────────
+
 async def ensure_paystack_plans() -> None:
     """
     Create Paystack Plans for each subscription tier if they don't already
@@ -61,11 +67,10 @@ async def ensure_paystack_plans() -> None:
     Called once at app startup.
     """
     if not settings.PAYSTACK_SECRET_KEY:
-        logger.warning("PAYSTACK_SECRET_KEY not set — skipping plan creation")
+        logger.warning("PAYSTACK_SECRET_KEY not set — skipping Paystack plan creation")
         return
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        # Fetch existing plans (up to 50)
         resp = await client.get(
             f"{PAYSTACK_BASE}/plan?perPage=50",
             headers=_headers(),
@@ -106,7 +111,6 @@ async def create_paystack_checkout(
 ) -> str:
     """
     Initialize a Paystack transaction with a recurring plan attached.
-    The plan causes Paystack to save the card and create a subscription.
     Returns the Paystack authorization_url to redirect the user to.
     """
     plan_config = PLANS[plan]
@@ -126,7 +130,6 @@ async def create_paystack_checkout(
         },
     }
 
-    # Attaching a plan enables recurring billing + card saving
     if plan_code:
         payload["plan"] = plan_code
     else:
@@ -145,11 +148,7 @@ async def create_paystack_checkout(
 
 
 async def verify_paystack_transaction(reference: str) -> dict:
-    """
-    Verify a transaction by reference and return Paystack JSON.
-    On HTTP or parse errors, returns a Paystack-shaped dict with status false
-    so callers can surface message without crashing.
-    """
+    """Verify a Paystack transaction by reference and return its JSON."""
     ref = (reference or "").strip()
     if not settings.PAYSTACK_SECRET_KEY:
         return {"status": False, "message": "PAYSTACK_SECRET_KEY is not configured", "data": None}
@@ -218,10 +217,7 @@ async def charge_saved_authorization(
     amount_kobo: int,
     metadata: dict | None = None,
 ) -> dict:
-    """
-    Charge a saved Paystack authorization immediately (no checkout redirect).
-    Returns Paystack response body and raises ValueError on failed charge init.
-    """
+    """Charge a saved Paystack authorization immediately."""
     if not authorization_code:
         raise ValueError("Missing authorization code")
     payload = {
@@ -243,66 +239,134 @@ async def charge_saved_authorization(
         return body
 
 
-# ── Stripe ───────────────────────────────────────────────────────────────────
+# ── Stripe ─────────────────────────────────────────────────────────────────────
+
+# Cache of plan_key -> Stripe Price ID (populated at startup or from env vars)
+_STRIPE_PRICE_IDS: dict[str, str] = {}
+
+
+async def ensure_stripe_prices() -> None:
+    """
+    Cache Stripe Price IDs from env vars, or create them programmatically if blank.
+    Called once at app startup.
+    """
+    if not settings.STRIPE_SECRET_KEY:
+        logger.warning("STRIPE_SECRET_KEY not set — skipping Stripe price setup")
+        return
+
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
+
+    overrides = {
+        "starter": settings.STRIPE_PRICE_STARTER,
+        "smb":     settings.STRIPE_PRICE_SMB,
+        "pro":     settings.STRIPE_PRICE_PRO,
+    }
+    for key, price_id in overrides.items():
+        if price_id:
+            _STRIPE_PRICE_IDS[key] = price_id
+            logger.info(f"Stripe price (from config): {key} → {price_id}")
+
+    for key, config in PLANS.items():
+        if key in _STRIPE_PRICE_IDS:
+            continue
+        try:
+            products = _stripe.Product.search(
+                query=f'name:"{config["stripe_name"]}" AND active:"true"'
+            )
+            product_id = products.data[0].id if products.data else _stripe.Product.create(
+                name=config["stripe_name"],
+                description=f"ContentCard {config['name']}: unlimited AI content generation",
+            ).id
+            prices = _stripe.Price.list(product=product_id, currency="usd", active=True, limit=10)
+            matching = [p for p in prices.data if p.unit_amount == config["usd_price"]]
+            price_id = matching[0].id if matching else _stripe.Price.create(
+                product=product_id,
+                unit_amount=config["usd_price"],
+                currency="usd",
+                recurring={"interval": "month"},
+            ).id
+            _STRIPE_PRICE_IDS[key] = price_id
+            logger.info(f"Stripe price ready: {key} → {price_id}")
+        except Exception as e:
+            logger.error(f"Failed to set up Stripe price for {key}: {e}")
+
 
 async def create_stripe_checkout(
-    *,
     email: str,
     plan: str,
     workspace_id: str,
     success_url: str,
     cancel_url: str,
 ) -> str:
-    """
-    Create a Stripe Checkout Session for a recurring subscription.
-    Returns the hosted checkout URL to redirect the user to.
-    """
-    price_id = PLANS[plan].get("stripe_price_id", "")
+    """Create a Stripe Checkout Session and return the hosted URL."""
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
+    price_id = _STRIPE_PRICE_IDS.get(plan)
     if not price_id:
-        raise ValueError(f"No Stripe price ID configured for plan '{plan}'. Set STRIPE_PRICE_{plan.upper()} in env.")
+        raise ValueError(f"Stripe price not configured for plan '{plan}'. Check STRIPE_PRICE_* env vars.")
 
-    session = await asyncio.to_thread(
-        stripe.checkout.Session.create,
-        customer_email=email,
-        payment_method_types=["card"],
-        line_items=[{"price": price_id, "quantity": 1}],
+    session = _stripe.checkout.Session.create(
         mode="subscription",
+        payment_method_types=["card"],
+        customer_email=email,
+        line_items=[{"price": price_id, "quantity": 1}],
         success_url=success_url,
         cancel_url=cancel_url,
         metadata={"plan": plan, "workspace_id": workspace_id},
         subscription_data={"metadata": {"plan": plan, "workspace_id": workspace_id}},
+        allow_promotion_codes=True,
     )
     return session.url
 
 
 async def verify_stripe_session(session_id: str) -> dict:
-    """Retrieve and return a Stripe Checkout Session (with subscription expanded)."""
-    session = await asyncio.to_thread(
-        stripe.checkout.Session.retrieve,
-        session_id,
-        expand=["subscription"],
-    )
-    return session
+    """Retrieve a Stripe Checkout Session with subscription expanded."""
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
+    return _stripe.checkout.Session.retrieve(session_id, expand=["subscription"])
 
 
-async def cancel_stripe_subscription(subscription_id: str) -> None:
-    """Cancel a Stripe subscription immediately."""
-    await asyncio.to_thread(stripe.Subscription.cancel, subscription_id)
+async def cancel_stripe_subscription(subscription_id: str, *, at_period_end: bool = False) -> None:
+    """Cancel a Stripe subscription. at_period_end=True = graceful (access until period end)."""
+    if not subscription_id:
+        return
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        if at_period_end:
+            _stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
+        else:
+            _stripe.Subscription.cancel(subscription_id)
+    except _stripe.error.InvalidRequestError as e:
+        logger.warning(f"Stripe cancel subscription {subscription_id}: {e}")
+
+
+async def retrieve_stripe_subscription(subscription_id: str) -> dict | None:
+    """Retrieve a Stripe subscription object."""
+    if not subscription_id:
+        return None
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        return _stripe.Subscription.retrieve(subscription_id)
+    except Exception as e:
+        logger.warning(f"Stripe retrieve subscription {subscription_id}: {e}")
+        return None
 
 
 async def handle_stripe_webhook(payload: bytes, sig_header: str) -> dict | None:
     """Verify Stripe webhook signature and return the parsed event, or None on failure."""
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
     try:
-        event = await asyncio.to_thread(
-            stripe.Webhook.construct_event,
-            payload,
-            sig_header,
-            settings.STRIPE_WEBHOOK_SECRET,
-        )
-        return event
+        return _stripe.Webhook.construct_event(payload, sig_header, settings.STRIPE_WEBHOOK_SECRET)
     except Exception as e:
         logger.warning(f"Stripe webhook signature verification failed: {e}")
         return None
+
+
+# ── Shared helpers ─────────────────────────────────────────────────────────────
 
 
 def get_plan_limits(plan: str) -> dict:
@@ -313,3 +377,8 @@ def plan_includes_trending_topics(plan: str | None) -> bool:
     """Matches BillingPage: Starter omits 'AI trending topics'; Growth (smb) and Pro include it."""
     p = (plan or "").strip().lower()
     return p in ("smb", "pro")
+
+
+def is_nigeria_user(country_code: str | None) -> bool:
+    """Returns True if the user should be billed via Paystack (Nigeria)."""
+    return (country_code or "").strip().upper() == "NG"
