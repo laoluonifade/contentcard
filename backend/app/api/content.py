@@ -1111,6 +1111,11 @@ async def _render_with_quality_gate(
         if bg_urls:
             item.image_url = bg_urls[0]
 
+        # Persist product pipeline metadata set by generate_post_image (if edits path was used)
+        if render_post.get("visual_strategy_used"):
+            item.visual_strategy_used    = render_post["visual_strategy_used"]
+            item.composition_description = render_post.get("composition_description")
+
         bb_urls = await generate_post_images(render_post, brand_dict, background_image_url=item.image_url or None)
         if bb_urls:
             item.image_urls = bb_urls
@@ -2849,8 +2854,10 @@ async def _do_generate_month(
             return
 
         # ── Phase 1: render with quality gate + retry loop ──────────────────────────
-        for item, post_data in saved_items:
+        for _batch_idx, (item, post_data) in enumerate(saved_items):
             try:
+                # Inject batch index so the variation engine can rotate hero/lifestyle/detail/angled
+                post_data["_batch_index"] = _batch_idx
                 sab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else {}
                 lint, quality_gate, logo_ok = await _render_with_quality_gate(db, item, post_data, brand_dict, sab)
                 th = dict(item.theme) if isinstance(item.theme, dict) else {}

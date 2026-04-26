@@ -16,9 +16,10 @@ logger = logging.getLogger(__name__)
 # Bump this whenever image prompt logic or design system changes significantly.
 # It is included in the cache key so existing cached image URLs are invalidated
 # automatically on deploy without needing to flush any external store.
-_IMAGE_PROMPT_VERSION = "v3"
+_IMAGE_PROMPT_VERSION = "v4"
 
-IMAGES_API_URL = "https://api.openai.com/v1/images/generations"
+IMAGES_API_URL      = "https://api.openai.com/v1/images/generations"
+IMAGES_EDIT_API_URL = "https://api.openai.com/v1/images/edits"
 
 PLATFORM_FORMAT = {
     "instagram": "square Instagram post 1:1 (1080×1080)",
@@ -170,10 +171,33 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     food_like_ctx = f"{industry} {str(brand.get('sub_industry') or '').lower()}"
     is_food_like = any(k in food_like_ctx for k in ("food", "restaurant", "diner", "cafe", "bakery", "kitchen", "menu"))
     if product_image_urls:
-        product_grounding_bits.append(
-            f"Use the provided product photo reference(s) ({len(product_image_urls)} image source(s)) "
-            "for silhouette, materials, and merchandising composition."
-        )
+        # Pull category-specific composition rules for the text-only fallback path.
+        # (The primary path uses gpt-image-1 /edits with the actual image; this
+        #  makes the text-only fallback meaningfully better than the old generic line.)
+        try:
+            from app.services.product_image_service import (
+                classify_product,
+                select_variation_type,
+                get_strategy,
+            )
+            _p_category = classify_product(grounded_product_title, "", industry_tokens)
+            _p_variation = select_variation_type(content_type, int(post.get("_batch_index", 0)))
+            _p_strategy  = get_strategy(_p_category, _p_variation)
+            product_grounding_bits.append(
+                f"PRODUCT COMPOSITION RULES (text-only fallback): "
+                f"Category: {_p_category}. Variation: {_p_variation}. "
+                f"Environment: {_p_strategy.environment}. "
+                f"Lighting: {_p_strategy.lighting}. "
+                f"Composition: {_p_strategy.composition}. "
+                f"Depth: {_p_strategy.depth_cues}. "
+                f"Open text zone: {_p_strategy.negative_space}. "
+                f"Mood: {_p_strategy.mood}. "
+                f"The product MUST occupy its correct canvas share as specified; "
+                f"do not shrink it to a corner or float it randomly."
+            )
+        except Exception:
+            pass  # strategy lookup failure should never break generation
+
         if is_food_like:
             product_grounding_bits.append(
                 "For food posts, keep the hero dish visually authentic to the source photos (shape, toppings, packaging cues). "
@@ -1049,26 +1073,268 @@ async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: d
     return out, all_applied
 
 
+async def _fetch_and_prepare_product_png(url: str) -> bytes | None:
+    """
+    Download a product image URL and convert it to a clean RGBA PNG ready for
+    the gpt-image-1 /edits endpoint.
+
+    Steps:
+      1. Fetch from URL (follow redirects, 15 s timeout)
+      2. Decode with Pillow → RGBA
+      3. Strip flat-plate background (reuses existing edge-flood logic)
+      4. Remove light halos on clean-cut images
+      5. Ensure square canvas by padding transparent pixels
+      6. Resize to 1024 × 1024 (gpt-image-1 edits requirement)
+      7. Encode as PNG bytes
+
+    Returns None on any failure so the caller falls back gracefully.
+    """
+    from PIL import Image
+
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(url)
+            if resp.status_code != 200:
+                logger.warning("Product image fetch failed (%s): %s", resp.status_code, url)
+                return None
+            raw = resp.content
+
+        # SVG → PNG rasterise
+        if _is_svg_bytes(raw, url):
+            raw = _rasterize_svg_to_png_bytes(raw) or raw
+
+        im = Image.open(io.BytesIO(raw)).convert("RGBA")
+
+        # --- Background cleaning ---
+        # Edge-flood strip (removes flat solid plate backgrounds common in
+        # product photos from e-commerce sites / Shopify stores).
+        _strip_edge_connected_similar_color(im, tol=36.0)
+        _defringe_light_halos(im)
+        _expand_transparency_through_soft_white(im, passes=2)
+
+        # --- Square-pad so the model always gets a 1:1 canvas ---
+        w, h = im.size
+        if w != h:
+            side = max(w, h)
+            square = Image.new("RGBA", (side, side), (0, 0, 0, 0))
+            offset_x = (side - w) // 2
+            offset_y = (side - h) // 2
+            square.paste(im, (offset_x, offset_y))
+            im = square
+
+        # --- Resize to model maximum ---
+        if im.width > 1024 or im.height > 1024:
+            im = im.resize((1024, 1024), Image.Resampling.LANCZOS)
+
+        buf = io.BytesIO()
+        im.save(buf, format="PNG", optimize=False)
+        png_bytes = buf.getvalue()
+
+        # gpt-image-1 edits: max 4 MB per image
+        if len(png_bytes) > 4 * 1024 * 1024:
+            logger.warning("Product PNG too large (%d bytes) for edits endpoint; skipping", len(png_bytes))
+            return None
+
+        return png_bytes
+
+    except Exception as exc:
+        logger.warning("Product image prepare failed for %s: %s", url, exc)
+        return None
+
+
+async def _generate_with_product_edits(
+    product_png: bytes,
+    prompt: str,
+    topic: str,
+    n: int = 1,
+) -> list[str]:
+    """
+    Call gpt-image-1 /edits endpoint with an actual product PNG and a
+    composition prompt.  The model SEES the real product and generates the
+    designed scene around/with it rather than inventing a generic substitute.
+
+    Returns a list of permanent Cloudinary URLs.  On failure returns [].
+    """
+    try:
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=180) as client:
+            # multipart/form-data — httpx handles this via `files` + `data`
+            resp = await client.post(
+                IMAGES_EDIT_API_URL,
+                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                files={"image": ("product.png", product_png, "image/png")},
+                data={
+                    "model":  "gpt-image-1",
+                    "prompt": prompt,
+                    "n":      str(n),
+                    "size":   "1024x1024",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        items = data.get("data", [])
+        urls: list[str] = []
+        for idx, item in enumerate(items):
+            if item.get("b64_json"):
+                image_bytes = base64.b64decode(item["b64_json"])
+            elif item.get("url"):
+                async with httpx.AsyncClient(timeout=30) as dl:
+                    dl_resp = await dl.get(item["url"])
+                    if dl_resp.status_code != 200:
+                        continue
+                    image_bytes = dl_resp.content
+            else:
+                continue
+
+            permanent_url = await _upload_to_cloudinary(image_bytes, f"{topic}-edit", idx)
+            if permanent_url:
+                urls.append(permanent_url)
+
+        latency = (time.perf_counter() - start) * 1000.0
+        logger.info(
+            "product-edits: %d/%d images generated for '%s' (%.0f ms)",
+            len(urls), n, topic, latency,
+        )
+        telemetry_record(CallTelemetry(
+            endpoint_name="image_edit",
+            model="gpt-image-1",
+            input_tokens=max(1, len(prompt) // 4),
+            output_tokens=0,
+            estimated_cost_usd=estimate_cost_usd("gpt-image-1", max(1, len(prompt) // 4), 0),
+            latency_ms=latency,
+            cache_hit=False,
+            retries=0,
+            success=bool(urls),
+            failure_reason=None if urls else "no_urls",
+        ))
+        return urls
+
+    except Exception as exc:
+        logger.error("Product edits generation failed for '%s': %s", topic, exc)
+        telemetry_record(CallTelemetry(
+            endpoint_name="image_edit",
+            model="gpt-image-1",
+            input_tokens=0,
+            output_tokens=0,
+            estimated_cost_usd=0.0,
+            latency_ms=0.0,
+            cache_hit=False,
+            retries=0,
+            success=False,
+            failure_reason=str(exc)[:200],
+        ))
+        return []
+
+
 async def generate_post_image(post: dict, brand: dict) -> list[str]:
     """
     Generate background image(s) for a post using settings.IMAGE_MODEL.
 
-    Returns a list of permanent Cloudinary URLs (one per generated image).
-    Returns an empty list on failure or when OpenAI is not configured.
+    When the post contains product_image_urls, the pipeline switches to the
+    gpt-image-1 /edits endpoint so the model SEES the actual product instead
+    of inventing a generic substitute.  The product image is cleaned (flat
+    background removed) before sending.  If the edits path fails for any
+    reason, the function falls back to the standard text-only /generations path.
 
-    The list length matches settings.IMAGE_COUNT (default 1).
-    When IMAGE_COUNT > 1 the caller can present candidates for selection.
-    The Bannerbear pipeline uses index 0 as the primary background.
+    The post dict is mutated to add:
+      post["visual_strategy_used"]    — e.g. "food_hero"
+      post["composition_description"] — human-readable composition summary
+
+    Returns a list of permanent Cloudinary URLs.
+    Returns an empty list on failure or when OpenAI is not configured.
     """
     if not settings.OPENAI_API_KEY:
         return []
 
+    from app.services.product_image_service import (
+        classify_product,
+        select_variation_type,
+        build_product_edit_prompt,
+        describe_composition,
+    )
+
     topic = post.get("topic", "")
-    prompt = _build_image_prompt(post, brand)
     n = max(1, min(10, settings.IMAGE_COUNT))
     if settings.AI_IMAGE_VARIANT_MIN_MODE:
         n = 1
     model = settings.IMAGE_MODEL
+
+    # ── Product-edit path ────────────────────────────────────────────────────
+    product_image_urls: list[str] = (
+        post.get("product_image_urls")
+        if isinstance(post.get("product_image_urls"), list)
+        else []
+    )
+
+    if product_image_urls and model == "gpt-image-1":
+        # Classify product to select visual strategy
+        grounding = post.get("website_grounding") if isinstance(post.get("website_grounding"), dict) else {}
+        grounding_payload = grounding.get("payload") if isinstance(grounding.get("payload"), dict) else {}
+        product_title = (
+            grounding_payload.get("entity_title")
+            or grounding.get("entity_title")
+            or post.get("topic", "")
+        )
+        industry = str(brand.get("industry") or "").lower()
+        content_type = str(post.get("content_type") or "").strip()
+
+        # Determine variation: rotate across posts using post index in batch
+        post_index = int(post.get("_batch_index", 0))
+        category     = classify_product(product_title, "", industry)
+        variation    = select_variation_type(content_type, post_index)
+
+        # Tag the post so callers can persist metadata
+        strategy_key = f"{category}_{variation}"
+        post["visual_strategy_used"]    = strategy_key
+        post["composition_description"] = describe_composition(category, variation)
+        logger.info(
+            "Product post '%s': category=%s variation=%s strategy=%s",
+            topic, category, variation, strategy_key,
+        )
+
+        # Build category-aware edit prompt
+        edit_prompt = build_product_edit_prompt(category, variation, post, brand)
+
+        # Cache key for the edit path (includes product URL so different
+        # products with the same brief don't share a cached result)
+        product_url_sig = "|".join(sorted(product_image_urls[:3]))
+        edit_cache_key = hashlib.sha256(
+            (
+                f"{_IMAGE_PROMPT_VERSION}|edit|{n}|{edit_prompt[:500]}|"
+                f"{product_url_sig}|{brand.get('id', '')}"
+            ).encode("utf-8")
+        ).hexdigest()
+        cached = cache_get("openai_image", edit_cache_key)
+        if isinstance(cached, list) and cached:
+            logger.info("product-edits: cache hit for '%s'", topic)
+            return [str(u) for u in cached if str(u).strip()]
+
+        # Try each product URL until one prepares successfully
+        product_png: bytes | None = None
+        for purl in product_image_urls[:3]:
+            product_png = await _fetch_and_prepare_product_png(purl)
+            if product_png:
+                break
+
+        if product_png:
+            edit_urls = await _generate_with_product_edits(product_png, edit_prompt, topic, n)
+            if edit_urls:
+                cache_set("openai_image", edit_cache_key, edit_urls,
+                          ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
+                return edit_urls
+            # Falls through to text-only path below
+            logger.warning(
+                "Product edits failed for '%s'; falling back to text-only generation", topic
+            )
+        else:
+            logger.warning(
+                "No product PNG prepared for '%s'; falling back to text-only generation", topic
+            )
+
+    # ── Text-only path (standard generations) ────────────────────────────────
+    # Also used as fallback when the edits path fails.
+    prompt = _build_image_prompt(post, brand)
     cache_key = hashlib.sha256(
         (
             f"{_IMAGE_PROMPT_VERSION}|{model}|{n}|{prompt}|{post.get('platform','')}|{post.get('format','')}|"
@@ -1137,9 +1403,6 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                     logger.warning(f"Image {idx} had neither b64_json nor url; skipping")
                     continue
 
-                # Product references stay in the text prompt only; we do not paste website product photos onto the
-                # generated frame (avoids illustration + raw-photo collage that reads as low polish).
-                # Logo is composited after Bannerbear (or here if caller uses raster-only flow).
                 permanent_url = await _upload_to_cloudinary(image_bytes, topic, idx)
                 if permanent_url:
                     urls.append(permanent_url)
