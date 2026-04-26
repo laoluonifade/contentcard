@@ -64,7 +64,7 @@ function PrivateRoute({ children }) {
 
 function GuestRoute({ children }) {
   const { isAuthenticated } = useAuthStore()
-  return !isAuthenticated ? children : <Navigate to="/dashboard" replace />
+  return !isAuthenticated ? children : <Navigate to="/dashboard/calendar" replace />
 }
 
 function AdminRoute({ children }) {
@@ -78,7 +78,8 @@ export default function App() {
       <ToastProvider />
       <Routes>
         {/* Marketing */}
-        <Route path="/"                      element={<LandingPage />} />
+        <Route path="/"                      element={<Navigate to="/dashboard/calendar" replace />} />
+        <Route path="/landing"               element={<LandingPage />} />
         <Route path="/features"              element={<FeaturesPage />} />
         <Route path="/pricing"               element={<PricingPage />} />
         <Route path="/enterprise"            element={<EnterprisePage />} />
@@ -109,8 +110,8 @@ export default function App() {
         <Route path="/shopify/complete-onboarding" element={<PrivateRoute><ShopifyOnboardingCompletionPage /></PrivateRoute>} />
         <Route path="/shopify/decision"      element={<PrivateRoute><ShopifyPostSignupDecisionPage /></PrivateRoute>} />
 
-        {/* Dashboard */}
-        <Route path="/dashboard" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
+        {/* Dashboard — open to guests, ChatGPT-style */}
+        <Route path="/dashboard" element={<DashboardLayout />}>
           <Route index             element={<DashboardPage />} />
           <Route path="generate"   element={<GeneratePage />} />
           <Route path="calendar"   element={<CalendarPage />} />
