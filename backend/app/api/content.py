@@ -2006,15 +2006,27 @@ async def brand_form_coach(
     research_block: str | None = None
     research_sources: list[dict] = []
     try:
-        from app.services.brand_research_fetch import extract_urls_from_text, gather_research_context
+        from app.services.brand_research_fetch import (
+            extract_urls_from_text, gather_research_context,
+            needs_web_search, web_search_for_coach,
+        )
 
+        last_text = body.messages[-1].content or "" if body.messages else ""
         explicit = [u.strip() for u in (body.research_urls or []) if (u or "").strip()]
-        last_text = ""
-        if body.messages:
-            last_text = body.messages[-1].content or ""
         from_msg = extract_urls_from_text(last_text) if body.fetch_urls_from_message else []
-        block, research_sources = await gather_research_context(explicit, from_msg)
-        research_block = block.strip() if block.strip() else None
+
+        # 1. Fetch any explicitly provided / message-pasted URLs
+        url_block, url_sources = await gather_research_context(explicit, from_msg)
+        research_sources.extend(url_sources)
+
+        # 2. Live web search when message needs external information
+        search_block = ""
+        if body.enable_web_search and needs_web_search(last_text) and not from_msg and not explicit:
+            search_block, search_sources = await web_search_for_coach(last_text)
+            research_sources.extend(search_sources)
+
+        combined = "\n\n".join(filter(None, [url_block.strip(), search_block.strip()]))
+        research_block = combined if combined.strip() else None
     except Exception as e:
         logger.warning("brand research fetch skipped: %s", e)
 
