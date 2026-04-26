@@ -2297,13 +2297,35 @@ export default function CalendarPage() {
             After bonus credits, we auto-charge your card instantly so generation keeps flowing.
           </p>
           <div className="grid grid-cols-2 gap-2 mt-3">
-            <div className="rounded-xl border border-fog p-2 bg-gradient-to-br from-orange-100 via-red-50 to-amber-100">
-              <p className="text-[10px] text-ink/55">Jay&apos;s Diner poster</p>
-              <p className="text-xs font-semibold text-ink">Smoky Burger Combo Night</p>
+            {/* Jay's Diner — real generated poster */}
+            <div className="rounded-xl border border-fog overflow-hidden relative group">
+              <img
+                src="/marketing-examples/juicy-jollof.png"
+                alt="Jay's Diner – Smoky Burger Combo Night"
+                className="w-full h-24 object-cover"
+              />
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+                <p className="text-[9px] text-white/60 leading-none mb-0.5">Jay&apos;s Diner</p>
+                <p className="text-[11px] font-semibold text-white leading-tight">Smoky Burger Combo Night</p>
+              </div>
+              <div className="absolute top-1.5 right-1.5 bg-brand-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                AI
+              </div>
             </div>
-            <div className="rounded-xl border border-fog p-2 bg-gradient-to-br from-sky-100 via-blue-50 to-cyan-100">
-              <p className="text-[10px] text-ink/55">Paystack poster</p>
-              <p className="text-xs font-semibold text-ink">Instant Transfer Proof</p>
+            {/* Paystack — real generated poster */}
+            <div className="rounded-xl border border-fog overflow-hidden relative group">
+              <img
+                src="/marketing-examples/uber-ride.png"
+                alt="Paystack – Instant Transfer Proof"
+                className="w-full h-24 object-cover"
+              />
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
+                <p className="text-[9px] text-white/60 leading-none mb-0.5">Paystack</p>
+                <p className="text-[11px] font-semibold text-white leading-tight">Instant Transfer Proof</p>
+              </div>
+              <div className="absolute top-1.5 right-1.5 bg-brand-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">
+                AI
+              </div>
             </div>
           </div>
           <div className="flex items-center gap-2 mt-3">
