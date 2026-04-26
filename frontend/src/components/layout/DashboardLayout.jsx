@@ -7,7 +7,14 @@ import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
 import Seo from '../seo/Seo'
 import GuestOnboarding from '../dashboard/GuestOnboarding'
-import { loadGuestProfile } from '../../utils/demoData'
+import GuestGenerationLoader from '../dashboard/GuestGenerationLoader'
+import {
+  loadGuestProfile,
+  loadGuestGeneratedPosts,
+  saveGuestGeneratedPosts,
+  brandKeyForProfile,
+} from '../../utils/demoData'
+import { marketingApi } from '../../api'
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
@@ -36,7 +43,7 @@ export default function DashboardLayout() {
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
           fetchTrends, createWorkspace,
-          seedDemoData }                        = useAppStore()
+          seedDemoData, seedGuestGeneratedPosts } = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -45,6 +52,8 @@ export default function DashboardLayout() {
   const [creatingWs, setCreatingWs] = useState(false)
   const [guestProfile, setGuestProfile] = useState(() => (typeof window !== 'undefined' ? loadGuestProfile() : null))
   const [showGuestOnboarding, setShowGuestOnboarding] = useState(false)
+  const [guestGenPending, setGuestGenPending] = useState(false)
+  const [guestGenError, setGuestGenError] = useState(null)
 
   useEffect(() => {
     setSidebarOpen(false)
@@ -54,17 +63,59 @@ export default function DashboardLayout() {
     if (!isAuthenticated) {
       const stored = loadGuestProfile()
       setGuestProfile(stored)
-      seedDemoData(stored || undefined)
+      // If we already generated posts for this exact brand profile, restore
+      // them straight from localStorage instead of burning another OpenAI call.
+      const cached = stored ? loadGuestGeneratedPosts() : null
+      const cacheMatches = cached && cached.brandKey === brandKeyForProfile(stored)
+      if (cacheMatches) {
+        seedGuestGeneratedPosts(stored, cached.posts)
+      } else {
+        seedDemoData(stored || undefined)
+      }
       setShowGuestOnboarding(!stored)
       return
     }
     setShowGuestOnboarding(false)
+    setGuestGenPending(false)
+    setGuestGenError(null)
     if (!workspaces.length) {
       fetchWorkspaces().catch(() => {})
     }
     fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
   }, [isAuthenticated])
+
+  const runGuestGeneration = async (profile) => {
+    setGuestGenError(null)
+    setGuestGenPending(true)
+    try {
+      const res = await marketingApi.guestPreviewGenerate({
+        brand_name: profile.brandName,
+        website: profile.website,
+        intent: profile.intent || undefined,
+      })
+      if (!res?.posts || !Array.isArray(res.posts) || !res.posts.length) {
+        throw new Error('No posts returned')
+      }
+      seedGuestGeneratedPosts(profile, res.posts)
+      saveGuestGeneratedPosts({
+        brandKey: brandKeyForProfile(profile),
+        posts: res.posts,
+      })
+      setGuestGenPending(false)
+    } catch (err) {
+      const status = err?.response?.status
+      const detail = err?.response?.data?.detail
+      const friendly =
+        status === 429
+          ? 'You\'ve generated a few previews already. Sign up to keep generating.'
+          : typeof detail === 'string' && detail
+            ? detail
+            : 'Generation took longer than expected.'
+      setGuestGenError(friendly)
+      setGuestGenPending(false)
+    }
+  }
 
   const handleSaveProgress = () => {
     const params = new URLSearchParams()
@@ -266,8 +317,26 @@ export default function DashboardLayout() {
           onDone={(profile) => {
             setGuestProfile(profile)
             setShowGuestOnboarding(false)
+            // Only burn an OpenAI call if we don't already have posts for
+            // this exact brand profile cached locally.
+            const cached = loadGuestGeneratedPosts()
+            const cacheMatches = cached && cached.brandKey === brandKeyForProfile(profile)
+            if (cacheMatches) {
+              seedGuestGeneratedPosts(profile, cached.posts)
+            } else {
+              runGuestGeneration(profile)
+            }
           }}
           onDismiss={guestProfile ? () => setShowGuestOnboarding(false) : null}
+        />
+      )}
+      {!isAuthenticated && !showGuestOnboarding && (guestGenPending || guestGenError) && (
+        <GuestGenerationLoader
+          brandName={guestProfile?.brandName}
+          isPending={guestGenPending}
+          error={guestGenError}
+          onRetry={() => guestProfile && runGuestGeneration(guestProfile)}
+          onDismiss={() => setGuestGenError(null)}
         />
       )}
       {newWsOpen && (

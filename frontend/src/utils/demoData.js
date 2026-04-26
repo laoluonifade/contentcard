@@ -3,6 +3,7 @@
 // and redirected to /signup, so nothing here ever hits the API.
 
 export const GUEST_PROFILE_KEY = 'cc:guest:profile:v1'
+export const GUEST_GENERATED_POSTS_KEY = 'cc:guest:generatedPosts:v1'
 
 export const DEFAULT_GUEST_PROFILE = {
   brandName: 'Acme Coffee',
@@ -34,7 +35,37 @@ export function saveGuestProfile(profile) {
 export function clearGuestProfile() {
   try {
     localStorage.removeItem(GUEST_PROFILE_KEY)
+    localStorage.removeItem(GUEST_GENERATED_POSTS_KEY)
   } catch { /* ignore */ }
+}
+
+// Generated posts cache so a refresh doesn't re-burn an OpenAI generation.
+export function loadGuestGeneratedPosts() {
+  try {
+    const raw = localStorage.getItem(GUEST_GENERATED_POSTS_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || !Array.isArray(parsed.posts) || !parsed.brandKey) return null
+    // 30-day TTL — refresh after that.
+    if (parsed.savedAt && Date.now() - parsed.savedAt > 30 * 24 * 60 * 60 * 1000) return null
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export function saveGuestGeneratedPosts({ brandKey, posts }) {
+  try {
+    localStorage.setItem(
+      GUEST_GENERATED_POSTS_KEY,
+      JSON.stringify({ brandKey, posts, savedAt: Date.now() }),
+    )
+  } catch { /* ignore */ }
+}
+
+export function brandKeyForProfile(profile) {
+  const p = { ...DEFAULT_GUEST_PROFILE, ...(profile || {}) }
+  return `${(p.brandName || '').trim().toLowerCase()}|${(p.website || '').trim().toLowerCase()}|${p.intent || 'all'}`
 }
 
 export const INTENT_OPTIONS = [
@@ -275,6 +306,75 @@ export function buildDemoState(profile) {
     brands: [brand],
     activeBrandId: brand.id,
     contentByMonth: buildDemoContentByMonth(profile),
+    trends: buildDemoTrends(profile),
+    templates: buildDemoTemplates(profile),
+  }
+}
+
+// Spread N posts across the current month on every-3-days cadence.
+function spreadDates(count, refDate = new Date()) {
+  const m = refDate.getMonth() + 1
+  const y = refDate.getFullYear()
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const days = []
+  for (let d = 2; d <= daysInMonth && days.length < count; d += Math.max(2, Math.floor(daysInMonth / Math.max(count, 1)))) {
+    days.push(d)
+  }
+  while (days.length < count) days.push(Math.min(daysInMonth, (days[days.length - 1] || 1) + 1))
+  return days.slice(0, count).map((d) => ({ y, m, iso: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}` }))
+}
+
+// Convert posts coming back from /public/guest-preview-generate into the
+// shape the calendar/components expect.
+export function convertApiPostsToCalendar(apiPosts, profile) {
+  const brand = buildBrand(profile)
+  const dates = spreadDates(apiPosts.length)
+  return apiPosts.map((p, i) => {
+    const slides = p?.platform === 'linkedin' ? 3 : 1
+    const gradient = GRADIENT_BACKGROUNDS[i % GRADIENT_BACKGROUNDS.length]
+    const idea = String(p?.content_idea || p?.caption || 'Generated post').slice(0, 80)
+    const imageUrl = gradientToDataUri(gradient, idea.split(':')[0])
+    return {
+      id: `guest-gen-${i}-${Date.now()}`,
+      brand_id: brand.id,
+      workspace_id: brand.workspace_id,
+      platform: p.platform,
+      scheduled_date: dates[i]?.iso || `${dates[0].y}-${String(dates[0].m).padStart(2, '0')}-15`,
+      content_idea: idea,
+      topic: idea,
+      caption: String(p?.caption || '').trim(),
+      hashtags: Array.isArray(p?.hashtags) ? p.hashtags.slice(0, 8) : [],
+      cta: String(p?.cta || '').trim() || null,
+      content_type: p?.content_type || null,
+      image_url: imageUrl,
+      image_urls: [imageUrl],
+      slide_count: slides,
+      status: 'ready',
+      is_demo: false,
+      is_guest_generated: true,
+    }
+  })
+}
+
+// Same shape as buildDemoState but using real generated posts as the
+// content for the current month. Other months keep demo content so the
+// calendar still feels populated when the visitor flips ahead/behind.
+export function buildGeneratedState(profile, apiPosts) {
+  const ws = buildWorkspace(profile)
+  const brand = buildBrand(profile)
+  const generated = convertApiPostsToCalendar(apiPosts, profile)
+  const refDate = new Date()
+  const m = refDate.getMonth() + 1
+  const y = refDate.getFullYear()
+  const baseMonths = buildDemoContentByMonth(profile)
+  const contentByMonth = { ...baseMonths, [`${y}-${m}`]: generated }
+  return {
+    workspaces: [ws],
+    activeWorkspaceId: ws.id,
+    activeWorkspace: ws,
+    brands: [brand],
+    activeBrandId: brand.id,
+    contentByMonth,
     trends: buildDemoTrends(profile),
     templates: buildDemoTemplates(profile),
   }

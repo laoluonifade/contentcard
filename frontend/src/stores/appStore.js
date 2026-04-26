@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { workspaceApi, brandApi, contentApi, templateApi, trendsApi, billingApi } from '../api'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
-import { buildDemoState, loadGuestProfile } from '../utils/demoData'
+import { buildDemoState, buildGeneratedState, loadGuestProfile } from '../utils/demoData'
 
 /** Billing tier for the active workspace (owner subscription pool or row plan). */
 function workspacePlanTier(ws) {
@@ -37,6 +37,19 @@ const useAppStore = create(
         const guestProfile = profile || loadGuestProfile() || undefined
         set({
           ...buildDemoState(guestProfile),
+          subscription: null,
+          generatingMonth: false,
+          generationProgress: null,
+        })
+      },
+
+      // Replace the demo content for the current month with posts that came
+      // back from /public/guest-preview-generate so the calendar shows the
+      // visitor's freshly generated content.
+      seedGuestGeneratedPosts: (profile, apiPosts) => {
+        if (!Array.isArray(apiPosts) || !apiPosts.length) return
+        set({
+          ...buildGeneratedState(profile, apiPosts),
           subscription: null,
           generatingMonth: false,
           generationProgress: null,
