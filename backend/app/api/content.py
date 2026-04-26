@@ -1799,7 +1799,14 @@ async def generation_prep_chat(
             else "recent_products: none"
         )
     )
-    msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
+    msgs = [
+        {
+            "role": (m.role or "user").lower(),
+            "content": m.content,
+            "image_urls": list(m.image_urls or []),
+        }
+        for m in body.messages
+    ]
 
     # Live web search for the prep assistant
     research_context: str | None = None

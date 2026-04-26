@@ -2559,18 +2559,35 @@ async def run_generation_prep_chat(
         {"role": "system", "content": intro},
         {"role": "system", "content": _visual_system_prompt_block(brand)},
     ]
+    has_images = False
     for m in messages[-16:]:
         r = (m.get("role") or "user").lower()
         if r not in ("user", "assistant"):
             r = "user"
-        msgs.append({"role": r, "content": str(m.get("content", ""))[:8000]})
+        text = str(m.get("content", ""))[:8000]
+        image_urls = m.get("image_urls") if isinstance(m.get("image_urls"), list) else []
+        # Filter to safe https URLs (Cloudinary/HTTPS)
+        valid_imgs = [
+            str(u) for u in image_urls
+            if isinstance(u, str) and u.lower().startswith("https://")
+        ][:6]
+        if valid_imgs and r == "user":
+            has_images = True
+            parts: list[dict] = []
+            if text:
+                parts.append({"type": "text", "text": text})
+            for u in valid_imgs:
+                parts.append({"type": "image_url", "image_url": {"url": u}})
+            msgs.append({"role": r, "content": parts})
+        else:
+            msgs.append({"role": r, "content": text})
     raw = await _openai_chat(
         msgs,
         max_tokens=1100,
         temperature=0.5,
         json_mode=True,
         endpoint_name="prep_chat",
-        high_quality_required=not settings.AI_LOW_COST_PREP_MODE,
+        high_quality_required=has_images or (not settings.AI_LOW_COST_PREP_MODE),
     )
     try:
         data = _parse_json_safe(raw)
