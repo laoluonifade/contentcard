@@ -19,8 +19,12 @@ async def get_country_from_ip(ip: str) -> str | None:
 
 
 def get_payment_provider(country_code: str | None) -> str:
-    """Always use Paystack."""
-    return "paystack"
+    """Return the payment provider for the given country code.
+    Nigeria → Paystack (NGN). All other countries → Stripe (USD).
+    """
+    if country_code and country_code.strip().upper() in NIGERIA_CODES:
+        return "paystack"
+    return "stripe"
 
 
 def is_nigeria(country_code: str | None) -> bool:
