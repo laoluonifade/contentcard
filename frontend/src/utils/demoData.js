@@ -2,6 +2,8 @@
 // All actions on demo data are intercepted by the auth gate in DashboardLayout
 // and redirected to /signup, so nothing here ever hits the API.
 
+import { buildPostImageDataUri } from './postImageDesigner'
+
 export const GUEST_PROFILE_KEY = 'cc:guest:profile:v1'
 export const GUEST_GENERATED_POSTS_KEY = 'cc:guest:generatedPosts:v1'
 
@@ -160,21 +162,6 @@ const INTENT_POSTS = {
 
 const PLATFORMS = ['instagram', 'instagram', 'instagram', 'facebook', 'twitter', 'linkedin']
 
-const GRADIENT_BACKGROUNDS = [
-  ['#6F4E37', '#D2B48C'],
-  ['#3E2723', '#8D6E63'],
-  ['#FFF8E7', '#D2B48C'],
-  ['#A1887F', '#FFF8E7'],
-  ['#5D4037', '#FFCC80'],
-  ['#4E342E', '#A1887F'],
-]
-
-function gradientToDataUri([from, to], label) {
-  const safeLabel = label.replace(/[^A-Za-z0-9 ]/g, '').slice(0, 28)
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="600" viewBox="0 0 600 600"><defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="${from}"/><stop offset="100%" stop-color="${to}"/></linearGradient></defs><rect width="600" height="600" fill="url(#g)"/><text x="300" y="305" text-anchor="middle" dominant-baseline="middle" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="36" font-weight="700" fill="rgba(255,255,255,0.92)">${safeLabel}</text></svg>`
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
-}
-
 function brandSlug(name) {
   return (name || 'demo')
     .toLowerCase()
@@ -262,17 +249,19 @@ export function buildDemoMonthContent(month, year, profile) {
     const idea = ideas[i % ideas.length]
     const platform = PLATFORMS[i % PLATFORMS.length]
     const iso = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    const gradient = GRADIENT_BACKGROUNDS[i % GRADIENT_BACKGROUNDS.length]
-    const imageUrl = gradientToDataUri(gradient, idea.idea.split(':')[0])
-    return {
+    const stub = {
       id: `demo-post-${month}-${year}-${i}`,
+      platform,
+      content_idea: idea.idea,
+      caption: personalize(idea.caption, brand.name),
+    }
+    const imageUrl = buildPostImageDataUri(stub, profile, i)
+    return {
+      ...stub,
       brand_id: brand.id,
       workspace_id: brand.workspace_id,
-      platform,
       scheduled_date: iso,
-      content_idea: idea.idea,
       topic: idea.idea,
-      caption: personalize(idea.caption, brand.name),
       hashtags: idea.hashtags,
       image_url: imageUrl,
       image_urls: [imageUrl],
@@ -331,11 +320,11 @@ export function convertApiPostsToCalendar(apiPosts, profile) {
   const dates = spreadDates(apiPosts.length)
   return apiPosts.map((p, i) => {
     const slides = p?.platform === 'linkedin' ? 3 : 1
-    const gradient = GRADIENT_BACKGROUNDS[i % GRADIENT_BACKGROUNDS.length]
     const idea = String(p?.content_idea || p?.caption || 'Generated post').slice(0, 80)
-    const imageUrl = gradientToDataUri(gradient, idea.split(':')[0])
+    const stub = { id: `guest-gen-${i}-${Date.now()}`, platform: p.platform, content_idea: idea, caption: p?.caption || '' }
+    const imageUrl = buildPostImageDataUri(stub, profile, i)
     return {
-      id: `guest-gen-${i}-${Date.now()}`,
+      id: stub.id,
       brand_id: brand.id,
       workspace_id: brand.workspace_id,
       platform: p.platform,
