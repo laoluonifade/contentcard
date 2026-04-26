@@ -169,6 +169,8 @@ export const authApi = {
   deleteAccount:    (data) => api.delete('/auth/me', { data }).then(r => r.data),
   forgotPassword:   (data) => postPublicAuth('/auth/forgot-password', data),
   resetPassword:    (data) => postPublicAuth('/auth/reset-password', data),
+  verifyEmail:        (data) => postPublicAuth('/auth/verify-email', data),
+  resendVerification: (data) => postPublicAuth('/auth/resend-verification', data),
   shopifyStart:   (params) => getPublicAuth('/auth/shopify/start', params),
   shopifyOnboardingStatus: () => api.get('/auth/shopify/onboarding-status').then(r => r.data),
   completeShopifyOnboarding: (data) => api.post('/auth/shopify/onboarding-complete', data).then(r => r.data),

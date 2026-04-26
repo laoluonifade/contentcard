@@ -20,6 +20,11 @@ class User(Base):
     shopify_shop_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     shopify_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Email verification — must be confirmed before the user can log in.
+    # OAuth signups (Shopify) auto-set this to True since the provider already verified the address.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    email_verification_token: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
+    email_verification_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     # Soft-delete / archive support — set when user requests account deletion.
     # PII is anonymised at the same time; the row is kept for audit / data recovery.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)

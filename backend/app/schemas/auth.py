@@ -35,6 +35,21 @@ class TokenResponse(BaseModel):
     user: "UserOut"
 
 
+class SignupResponse(BaseModel):
+    """Returned by /auth/signup — no token; user must verify email before logging in."""
+    email: EmailStr
+    requires_verification: bool = True
+    message: str = "Account created. Check your inbox for a verification link."
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
 class UserOut(BaseModel):
     id: str
     email: str
@@ -43,6 +58,7 @@ class UserOut(BaseModel):
     country_code: str | None
     agency_mode: bool = False
     auth_provider: str = "password"
+    email_verified: bool = False
 
     model_config = {"from_attributes": True}
 
