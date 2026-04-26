@@ -1305,6 +1305,34 @@ def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, se
             }
         )
         prev_ct = str(ct.get("name") or "")
+
+    # ── Visual diversity engine: assign a structured visual_strategy per date ──
+    # Runs *after* content_type assignment so the strategy can honour each type's
+    # contract (Product Spotlight=no humans, Testimonial=text-led, etc.) and
+    # enforce the monthly distribution + 50% human cap + pose rotation.
+    try:
+        from app.services import visual_strategy as _vs
+
+        ct_per_date = {row["date"]: row["content_type"] for row in plan}
+        scheduled = _vs.schedule_month(
+            posting_dates=[row["date"] for row in plan],
+            content_type_per_date=ct_per_date,
+            seed_key=seed_key + "::visual_strategy",
+        )
+        by_date = {s.date: s for s in scheduled}
+        for row in plan:
+            s = by_date.get(row["date"])
+            if not s:
+                continue
+            row["visual_strategy"] = s.strategy.to_dict()
+            row["composition_description"] = _vs.composition_description(s.strategy, row["content_type"])
+            if s.rejected:
+                row["visual_strategy_rejections"] = s.rejected
+    except Exception:
+        # Diversity engine is best-effort. If it fails for any reason the
+        # caller still gets a valid plan with the legacy fields.
+        logger.exception("visual_strategy scheduler failed; falling back to legacy plan")
+
     return plan
 
 
@@ -1383,6 +1411,12 @@ def _enforce_playbook_assignments(posts: list[dict], plan: list[dict]) -> list[d
         post["format"] = fmt
         post["slide_count"] = max(4, int(post.get("slide_count") or 1)) if fmt == "carousel" else 1
         post["visual_direction"] = assigned.get("visual_direction")
+        if assigned.get("visual_strategy"):
+            post["visual_strategy"] = assigned["visual_strategy"]
+        if assigned.get("composition_description"):
+            post["composition_description"] = assigned["composition_description"]
+        if assigned.get("visual_strategy_rejections"):
+            post["visual_strategy_rejections"] = assigned["visual_strategy_rejections"]
     return posts
 
 

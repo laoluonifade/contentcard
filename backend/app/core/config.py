@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     QUALITY_GATE_MIN_SCORE: float = 0.66
     QUALITY_GATE_MAX_RETRIES: int = 2
     MAX_REAL_PEOPLE_SHARE: float = 0.35
+    # Visual diversity engine — vision-based subject_type validation.
+    # Off by default (adds ~$0.002/post + ~0.5-1s latency); enable to A/B.
+    VISUAL_DIVERSITY_VISION_ENABLED: bool = False
 
     # AI cost optimization (safe-by-default rollout flags)
     AI_COST_OPTIMIZATION_ENABLED: bool = True
