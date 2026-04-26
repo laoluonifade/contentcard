@@ -216,9 +216,11 @@ async def lifespan(app: FastAPI):
         await _run_startup_task("Trend seed", seed_trends(db), timeout_seconds=15.0)
         await _run_startup_task("Meme seed", seed_memes(db), timeout_seconds=15.0)
 
-    # Ensure Paystack subscription plans exist
-    from app.services.billing_service import ensure_paystack_plans
+    # Ensure Paystack subscription plans exist (Nigeria)
+    from app.services.billing_service import ensure_paystack_plans, ensure_stripe_prices
     await _run_startup_task("Paystack plan setup", ensure_paystack_plans(), timeout_seconds=12.0)
+    # Ensure Stripe products/prices exist (international)
+    await _run_startup_task("Stripe price setup", ensure_stripe_prices(), timeout_seconds=15.0)
 
     yield
 
