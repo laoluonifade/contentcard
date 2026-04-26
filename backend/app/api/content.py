@@ -1140,6 +1140,41 @@ async def _render_with_quality_gate(
                 "retry_hints": [],
             }
 
+        # ── Visual diversity engine: vision-based subject_type validator ──
+        # Flag-gated since it adds ~$0.002/post and ~0.5-1s latency. When it
+        # detects a mismatch, downgrade the gate so the existing retry loop
+        # picks an alternate strategy on the next attempt.
+        if settings.VISUAL_DIVERSITY_VISION_ENABLED and cover_url:
+            from app.services import visual_strategy as _vs
+
+            vs_obj = _vs.VisualStrategy.from_dict(
+                render_post.get("visual_strategy") if isinstance(render_post.get("visual_strategy"), dict) else None
+            )
+            if vs_obj is not None:
+                matches, detected, err = await _vs.verify_subject_with_vision(cover_url, vs_obj)
+                if not matches:
+                    item.diversity_checks_passed = False
+                    log = list(item.rejection_log or [])
+                    log.append(f"vision: expected {vs_obj.subject_type!r}, detected {detected!r}")
+                    item.rejection_log = log
+                    # Roll a different candidate strategy for the next retry (if any).
+                    pool = [c for c in _vs.candidates_for(post_data.get("content_type")) if c.subject_type != (detected or "")]
+                    if pool and attempt < max_attempts - 1:
+                        new_strategy = pool[(attempt + 1) % len(pool)]
+                        post_data["visual_strategy"] = new_strategy.to_dict()
+                        post_data["composition_description"] = _vs.composition_description(
+                            new_strategy, post_data.get("content_type")
+                        )
+                    last_qg = {
+                        **last_qg,
+                        "status": "fail",
+                        "reasons": list(last_qg.get("reasons") or []) + [
+                            f"Visual subject mismatch: expected {vs_obj.subject_type}, detected {detected}"
+                        ],
+                    }
+                elif err is None:
+                    item.diversity_checks_passed = True
+
         pass_quality = str(last_qg.get("status") or "") == "pass"
         cover_url_exists = bool(item.image_url or item.image_urls)
         # Accept if quality passes regardless of logo status — logo failure is non-fatal.
@@ -2789,6 +2824,24 @@ async def _do_generate_month(
                 if not cta_text:
                     cta_text = _default_cta_from_brand(brand_for_planner, post)[:300]
 
+                # ── Visual diversity engine: persist strategy + run pre-gen contract check ──
+                from app.services import visual_strategy as _vs
+
+                vs_dict = post.get("visual_strategy") if isinstance(post.get("visual_strategy"), dict) else None
+                vs_obj = _vs.VisualStrategy.from_dict(vs_dict)
+                rejection_log: list[str] = []
+                if isinstance(post.get("visual_strategy_rejections"), list):
+                    rejection_log.extend([str(r) for r in post["visual_strategy_rejections"] if r])
+                contract_passed = True
+                if vs_obj is not None:
+                    violation = _vs.violates_contract(vs_obj, post.get("content_type"))
+                    if violation:
+                        contract_passed = False
+                        rejection_log.append(f"contract: {violation}")
+                comp_desc = post.get("composition_description")
+                if not comp_desc and vs_obj is not None:
+                    comp_desc = _vs.composition_description(vs_obj, post.get("content_type"))
+
                 item = ContentItem(
                     brand_id=brand_id,
                     template_id=template_id,
@@ -2810,6 +2863,10 @@ async def _do_generate_month(
                     scheduled_date=post_date,
                     generation_month=month,
                     generation_year=year,
+                    visual_strategy=vs_obj.to_dict() if vs_obj else None,
+                    composition_description=comp_desc,
+                    diversity_checks_passed=contract_passed,
+                    rejection_log=rejection_log or None,
                 )
                 db.add(item)
                 saved_items.append((item, post))

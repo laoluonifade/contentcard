@@ -191,6 +191,11 @@ class ContentOut(BaseModel):
     scheduled_date: date | None
     generation_month: int | None
     generation_year: int | None
+    # Visual diversity engine — full strategy object, audit trail, human-readable description
+    visual_strategy: dict | None = None
+    composition_description: str | None = None
+    diversity_checks_passed: bool | None = None
+    rejection_log: list | None = None
     created_at: datetime
     updated_at: datetime
 

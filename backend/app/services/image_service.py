@@ -99,6 +99,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     visual_direction = post.get("visual_direction", "")
     ai_image_prompt = post.get("image_prompt", "")
     fmt = post.get("format", "single")
+    # Visual diversity engine — structured strategy assigned by the scheduler
+    from app.services import visual_strategy as _vs
+    _strategy_obj = _vs.VisualStrategy.from_dict(post.get("visual_strategy") if isinstance(post.get("visual_strategy"), dict) else None)
+    strategy_block = _vs.render_strategy_constraints(_strategy_obj, content_type) if _strategy_obj else ""
     # Content-type art direction
     _ct_design = _CONTENT_DESIGN_MAP.get(content_type, "")
     qg_notes = str(post.get("quality_gate_notes") or "").strip()
@@ -541,7 +545,12 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         "no glassy doll-like eyes, no uncanny smile geometry, no over-smoothed beauty-filter skin, and no impossible reflections. "
         "Prefer believable documentary camera rendering with natural texture, grounded shadows, and authentic micro-imperfections."
     )
-    prompt = f"{prompt.strip()}{edge_guard}"
+    # Strategy constraints go FIRST so the model treats them as the primary brief,
+    # not flavor — the "person holding phone" attractor only breaks under hard constraints.
+    if strategy_block:
+        prompt = f"{strategy_block}\n\n{prompt.strip()}{edge_guard}"
+    else:
+        prompt = f"{prompt.strip()}{edge_guard}"
 
     return prompt.strip()
 
