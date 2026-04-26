@@ -167,7 +167,7 @@ const useAppStore = create(
               throw e
             }
           }
-          const count = await get()._pollForContent(brandId, month, year)
+          const count = await get()._pollForContent(brandId, month, year, Number(baseline_total || 0))
           return count
         } finally {
           set({ generatingMonth: false, generationStartedAt: null, generationProgress: null })
@@ -175,7 +175,7 @@ const useAppStore = create(
       },
 
       // Poll with exponential backoff: returns number of posts found
-      _pollForContent: async (brandId, month, year) => {
+      _pollForContent: async (brandId, month, year, baselineTotal = 0) => {
         const maxAttempts = 36
         const delays = [3000, 3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
 
@@ -194,20 +194,20 @@ const useAppStore = create(
                 ? { with: withV, total }
                 : { with: 0, total: 0 },
             })
-            if (status.ready && withV > 0) {
+            if (status.ready && total > baselineTotal) {
               const items = await get().fetchMonthContent(month, year)
               return items.length
             }
           } catch (e) {
             if (e.message && !e.message.includes('fetch') && !e.message.includes('Network')) throw e
             const items = await get().fetchMonthContent(month, year)
-            if (items.length > 0) return items.length
+            if (items.length > baselineTotal) return items.length
           }
         }
         const items = await get().fetchMonthContent(month, year)
-        if (items.length === 0) {
+        if (items.length <= baselineTotal) {
           throw new Error(
-            'Generation is taking longer than expected. Finished posts will appear on the calendar automatically; check back in a minute.'
+            'Generation request was accepted but no new posts were created yet. This usually means the worker failed or is still processing. Please retry once and check again in 1-2 minutes.'
           )
         }
         return items.length
@@ -357,10 +357,10 @@ const useAppStore = create(
         return sub
       },
 
-      createCheckout: async (plan) => {
+      createCheckout: async (plan, currency = 'NGN') => {
         const wsId = get().activeWorkspaceId
         if (!wsId) throw new Error('No active workspace')
-        return billingApi.createCheckout({ plan, workspace_id: wsId })
+        return billingApi.createCheckout({ plan, workspace_id: wsId, currency })
       },
 
       cancelSubscription: async () => {

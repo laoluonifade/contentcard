@@ -1,6 +1,10 @@
+import asyncio
 import httpx
 import logging
+import stripe
 from app.core.config import settings
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +16,8 @@ PLANS = {
         "name": "Starter",
         "paystack_name": "ContentCard Starter",
         "stripe_name": "ContentCard Starter",
-        "ngn_price": 2000000,   # ₦20,000
-        "usd_price": 1500,      # $15.00
+        "ngn_price": 2000000,   # ₦20,000 in kobo
+        "usd_price": 1500,      # $15.00 in cents
         "max_brands": 1,
         "max_members": 1,
     },
@@ -237,84 +241,53 @@ async def charge_saved_authorization(
 
 # ── Stripe ─────────────────────────────────────────────────────────────────────
 
-def _stripe():
-    """Return the stripe module configured with the secret key."""
-    import stripe as _stripe_mod
-    _stripe_mod.api_key = settings.STRIPE_SECRET_KEY
-    return _stripe_mod
+# Cache of plan_key -> Stripe Price ID (populated at startup or from env vars)
+_STRIPE_PRICE_IDS: dict[str, str] = {}
 
 
 async def ensure_stripe_prices() -> None:
     """
-    Create Stripe Products + Prices for each plan tier if they don't already
-    exist, then cache Price IDs in _STRIPE_PRICE_IDS.
-    Config overrides (STRIPE_PRICE_STARTER etc.) take precedence if set.
+    Cache Stripe Price IDs from env vars, or create them programmatically if blank.
     Called once at app startup.
     """
     if not settings.STRIPE_SECRET_KEY:
         logger.warning("STRIPE_SECRET_KEY not set — skipping Stripe price setup")
         return
 
-    import stripe
-
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
 
     overrides = {
         "starter": settings.STRIPE_PRICE_STARTER,
         "smb":     settings.STRIPE_PRICE_SMB,
         "pro":     settings.STRIPE_PRICE_PRO,
     }
-
-    # Use config overrides where provided
     for key, price_id in overrides.items():
         if price_id:
             _STRIPE_PRICE_IDS[key] = price_id
             logger.info(f"Stripe price (from config): {key} → {price_id}")
 
-    # Create missing ones programmatically
     for key, config in PLANS.items():
         if key in _STRIPE_PRICE_IDS:
             continue
         try:
-            # Find or create product
-            products = stripe.Product.search(
+            products = _stripe.Product.search(
                 query=f'name:"{config["stripe_name"]}" AND active:"true"'
             )
-            if products.data:
-                product_id = products.data[0].id
-            else:
-                product = stripe.Product.create(
-                    name=config["stripe_name"],
-                    description=f"ContentCard {config['name']}: unlimited AI content generation",
-                )
-                product_id = product.id
-                logger.info(f"Created Stripe product: {config['stripe_name']} → {product_id}")
-
-            # Find or create monthly price
-            prices = stripe.Price.list(
+            product_id = products.data[0].id if products.data else _stripe.Product.create(
+                name=config["stripe_name"],
+                description=f"ContentCard {config['name']}: unlimited AI content generation",
+            ).id
+            prices = _stripe.Price.list(product=product_id, currency="usd", active=True, limit=10)
+            matching = [p for p in prices.data if p.unit_amount == config["usd_price"]]
+            price_id = matching[0].id if matching else _stripe.Price.create(
                 product=product_id,
+                unit_amount=config["usd_price"],
                 currency="usd",
                 recurring={"interval": "month"},
-                active=True,
-                limit=10,
-            )
-            matching = [p for p in prices.data if p.unit_amount == config["usd_price"]]
-            if matching:
-                price_id = matching[0].id
-            else:
-                price = stripe.Price.create(
-                    product=product_id,
-                    unit_amount=config["usd_price"],
-                    currency="usd",
-                    recurring={"interval": "month"},
-                    nickname=f"ContentCard {config['name']} monthly",
-                )
-                price_id = price.id
-                logger.info(f"Created Stripe price: {config['stripe_name']} ${config['usd_price']/100:.2f}/mo → {price_id}")
-
+            ).id
             _STRIPE_PRICE_IDS[key] = price_id
             logger.info(f"Stripe price ready: {key} → {price_id}")
-
         except Exception as e:
             logger.error(f"Failed to set up Stripe price for {key}: {e}")
 
@@ -326,18 +299,14 @@ async def create_stripe_checkout(
     success_url: str,
     cancel_url: str,
 ) -> str:
-    """
-    Create a Stripe Checkout Session (hosted page) for a subscription.
-    Returns the session URL to redirect the user to.
-    """
-    import stripe
-
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    """Create a Stripe Checkout Session and return the hosted URL."""
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
     price_id = _STRIPE_PRICE_IDS.get(plan)
     if not price_id:
         raise ValueError(f"Stripe price not configured for plan '{plan}'. Check STRIPE_PRICE_* env vars.")
 
-    session = stripe.checkout.Session.create(
+    session = _stripe.checkout.Session.create(
         mode="subscription",
         payment_method_types=["card"],
         customer_email=email,
@@ -351,22 +320,25 @@ async def create_stripe_checkout(
     return session.url
 
 
+async def verify_stripe_session(session_id: str) -> dict:
+    """Retrieve a Stripe Checkout Session with subscription expanded."""
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
+    return _stripe.checkout.Session.retrieve(session_id, expand=["subscription"])
+
+
 async def cancel_stripe_subscription(subscription_id: str, *, at_period_end: bool = False) -> None:
-    """
-    Cancel a Stripe subscription.
-    at_period_end=True keeps access until end of billing period (graceful).
-    at_period_end=False cancels immediately.
-    """
+    """Cancel a Stripe subscription. at_period_end=True = graceful (access until period end)."""
     if not subscription_id:
         return
-    import stripe
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
     try:
         if at_period_end:
-            stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
+            _stripe.Subscription.modify(subscription_id, cancel_at_period_end=True)
         else:
-            stripe.Subscription.cancel(subscription_id)
-    except stripe.error.InvalidRequestError as e:
+            _stripe.Subscription.cancel(subscription_id)
+    except _stripe.error.InvalidRequestError as e:
         logger.warning(f"Stripe cancel subscription {subscription_id}: {e}")
 
 
@@ -374,17 +346,28 @@ async def retrieve_stripe_subscription(subscription_id: str) -> dict | None:
     """Retrieve a Stripe subscription object."""
     if not subscription_id:
         return None
-    import stripe
-    stripe.api_key = settings.STRIPE_SECRET_KEY
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
     try:
-        sub = stripe.Subscription.retrieve(subscription_id)
-        return sub
+        return _stripe.Subscription.retrieve(subscription_id)
     except Exception as e:
         logger.warning(f"Stripe retrieve subscription {subscription_id}: {e}")
         return None
 
 
+async def handle_stripe_webhook(payload: bytes, sig_header: str) -> dict | None:
+    """Verify Stripe webhook signature and return the parsed event, or None on failure."""
+    import stripe as _stripe
+    _stripe.api_key = settings.STRIPE_SECRET_KEY
+    try:
+        return _stripe.Webhook.construct_event(payload, sig_header, settings.STRIPE_WEBHOOK_SECRET)
+    except Exception as e:
+        logger.warning(f"Stripe webhook signature verification failed: {e}")
+        return None
+
+
 # ── Shared helpers ─────────────────────────────────────────────────────────────
+
 
 def get_plan_limits(plan: str) -> dict:
     return PLANS.get(plan, PLANS["starter"])

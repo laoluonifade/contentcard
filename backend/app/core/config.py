@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PUBLISHABLE_KEY: str = ""
-    # Optional: set pre-created Stripe Price IDs; if blank they are created at startup
+    # Set pre-created Stripe Price IDs from the Stripe dashboard (price_xxx)
     STRIPE_PRICE_STARTER: str = ""
     STRIPE_PRICE_SMB: str = ""
     STRIPE_PRICE_PRO: str = ""

@@ -13,8 +13,8 @@ const PLANS_NGN = [
   {
     id: 'starter',
     name: 'Starter',
-    price: '₦20,000',
-    priceRaw: 20000,
+    ngn: '₦20,000',
+    usd: '$29',
     desc: 'For solo creators.',
     features: [
       'Unlimited content generation',
@@ -27,8 +27,8 @@ const PLANS_NGN = [
   {
     id: 'smb',
     name: 'Growth',
-    price: '₦50,000',
-    priceRaw: 50000,
+    ngn: '₦50,000',
+    usd: '$49',
     desc: 'For growing businesses.',
     features: [
       'Everything in Starter',
@@ -41,8 +41,8 @@ const PLANS_NGN = [
   {
     id: 'pro',
     name: 'Pro',
-    price: '₦200,000',
-    priceRaw: 200000,
+    ngn: '₦200,000',
+    usd: '$99',
     desc: 'For agencies.',
     features: [
       'Everything in Growth',
@@ -210,6 +210,11 @@ export default function BillingPage() {
   } = useAppStore()
 
   const [loading, setLoading] = useState(null)          // plan id being checked out
+  // Auto-detect currency from timezone: Nigeria → NGN/Paystack, everywhere else → USD/Stripe
+  const [currency] = useState(() => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+    return tz.startsWith('Africa/') ? 'NGN' : 'USD'
+  })
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [showRemoveModal, setShowRemoveModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
@@ -335,13 +340,23 @@ export default function BillingPage() {
 
       {/* ── Plans ── */}
       <div className="mb-3">
-        <p className="text-xs font-semibold uppercase tracking-widest text-ink/40 mb-4">
-          {isSubscribed ? 'Switch plan' : 'Choose a plan'}
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-ink/40">
+            {isSubscribed ? 'Switch plan' : 'Choose a plan'}
+          </p>
+          <span className="text-xs text-ink/40">
+            {currency === 'NGN'
+              ? 'Paying in ₦ NGN via Paystack'
+              : 'Paying in $ USD via Stripe'}
+          </span>
+        </div>
+
         <div className="grid md:grid-cols-3 gap-4">
           {PLANS.map(plan => {
             const isCurrent = subscription?.plan === plan.id
             const isLoading = loading === plan.id
+            const price = currency === 'USD' ? plan.usd : plan.ngn
+            const provider = currency === 'USD' ? 'Stripe' : 'Paystack'
             return (
               <div
                 key={plan.id}
@@ -364,7 +379,7 @@ export default function BillingPage() {
 
                 <div className="mb-5">
                   <p className="text-ink/50 text-xs font-bold uppercase tracking-widest mb-2">{plan.name}</p>
-                  <p className="text-3xl font-bold text-ink mb-0.5" style={{ letterSpacing: '-0.02em' }}>{plan.price}</p>
+                  <p className="text-3xl font-bold text-ink mb-0.5" style={{ letterSpacing: '-0.02em' }}>{price}</p>
                   <p className="text-ink/40 text-xs">/month · billed monthly</p>
                   <p className="text-ink/40 text-xs mt-2 leading-relaxed">{plan.desc}</p>
                 </div>
