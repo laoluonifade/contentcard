@@ -1734,6 +1734,15 @@ async def list_content(
     rows = list(result.scalars().all())
     if month and year and not include_pending:
         rows = [c for c in rows if _item_ready_for_user(c)]
+
+    # Kick off background backfill for any post the calendar surfaces with an
+    # empty caption. Runs fire-and-forget so the listing returns immediately;
+    # the next reload picks up the filled-in caption.
+    import asyncio
+    for c in rows:
+        if _post_needs_caption_backfill(c):
+            asyncio.create_task(_backfill_caption_in_background(c.id))
+
     return [ContentOut.model_validate(c) for c in rows]
 
 
@@ -2138,7 +2147,14 @@ async def get_content_item(
     item = r.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Content not found")
-    await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=False)
+    brand = await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=False)
+    # Auto-fill missing captions on read so posts that landed with caption=NULL
+    # (e.g. from the custom_plan generation flow before the upstream fix) are
+    # transparently repaired the first time the user opens them.
+    if _post_needs_caption_backfill(item):
+        await _fill_caption_inline(db, item, brand)
+        await db.commit()
+        await db.refresh(item)
     return ContentOut.model_validate(item)
 
 
@@ -3006,6 +3022,71 @@ async def _do_generate_month(
                     await db.commit()
             except Exception as e:
                 logger.warning(f"quality gate/render failed for post {item.id}: {e}")
+
+
+# In-process dedup so concurrent requests for the same post don't fire
+# multiple parallel LLM calls. Cleared on completion.
+_caption_backfill_in_flight: set[str] = set()
+
+
+def _post_needs_caption_backfill(item: ContentItem) -> bool:
+    """True if `item` has an empty caption but enough context to regenerate one."""
+    cap = (item.caption or "").strip()
+    if cap:
+        return False
+    topic = (item.topic or "").strip() or (item.content_type or "").strip()
+    if not topic:
+        return False
+    return True
+
+
+async def _fill_caption_inline(db: AsyncSession, item: ContentItem, brand: Brand) -> None:
+    """Generate a caption (and hashtags/cta if missing) onto `item`. Caller commits."""
+    try:
+        result = await generate_single_caption(
+            brand=_brand_to_dict(brand),
+            topic=(item.topic or item.content_type or "content"),
+            platform=item.platform.value,
+            description=(item.description or item.visual_direction or None),
+        )
+    except Exception as exc:
+        logger.warning("caption backfill failed for %s: %s", item.id, exc)
+        return
+    if not isinstance(result, dict):
+        return
+    cap = result.get("caption")
+    if isinstance(cap, str) and cap.strip():
+        item.caption = cap.strip()
+    tags = result.get("hashtags")
+    if isinstance(tags, list) and not (item.hashtags or []):
+        item.hashtags = [str(t).lstrip("#") for t in tags][:2]
+    cta = result.get("cta")
+    if isinstance(cta, str) and cta.strip() and not (item.cta or "").strip():
+        item.cta = cta.strip()[:300]
+
+
+async def _backfill_caption_in_background(content_id: str) -> None:
+    """Fire-and-forget caption fill — opens its own session, dedups in-flight ids."""
+    if content_id in _caption_backfill_in_flight:
+        return
+    _caption_backfill_in_flight.add(content_id)
+    try:
+        from app.db.database import AsyncSessionLocal
+        async with AsyncSessionLocal() as db:
+            r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
+            item = r.scalar_one_or_none()
+            if not item or not _post_needs_caption_backfill(item):
+                return
+            br = await db.execute(select(Brand).where(Brand.id == item.brand_id))
+            brand = br.scalar_one_or_none()
+            if not brand:
+                return
+            await _fill_caption_inline(db, item, brand)
+            await db.commit()
+    except Exception as exc:
+        logger.warning("background caption backfill error for %s: %s", content_id, exc)
+    finally:
+        _caption_backfill_in_flight.discard(content_id)
 
 
 def _brand_to_dict(brand: Brand) -> dict:
