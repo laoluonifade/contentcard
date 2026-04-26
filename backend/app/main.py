@@ -207,6 +207,8 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token VARCHAR(128)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS visual_strategy_used VARCHAR(100)",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS composition_description TEXT",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))
