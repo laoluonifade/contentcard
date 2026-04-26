@@ -865,43 +865,75 @@ export default function TemplatesPage() {
           </div>
 
           {/* Title block */}
-          <div className="mb-6">
-            <h2 className="text-2xl font-bold text-ink" style={{ letterSpacing: '-0.02em' }}>{viewingTemplate.name}</h2>
-            <p className="text-sm text-ink/45 capitalize mt-0.5">
-              {viewingTemplate.category} · {viewingTemplate.recurrence} · {(viewingTemplate.source || 'manual').replace('_', ' ')}
-            </p>
+          <div className="mb-6 pb-6 border-b border-fog">
+            <div className="flex items-center gap-2.5 mb-1">
+              <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ background: viewingTemplate.color || '#7c3aed' }} />
+              <span className="text-xs font-semibold uppercase tracking-widest text-ink/40 capitalize">{viewingTemplate.category} · {viewingTemplate.recurrence}</span>
+            </div>
+            <h2 className="text-3xl font-bold text-ink" style={{ letterSpacing: '-0.02em' }}>{viewingTemplate.name}</h2>
+            {viewingTemplate.description && (
+              <p className="text-sm text-ink/50 mt-1 leading-relaxed">{viewingTemplate.description}</p>
+            )}
           </div>
 
           <div className="space-y-6">
             {/* Basic details */}
             <div className="bg-surface border border-fog rounded-2xl overflow-hidden">
-              <div className="px-5 py-3.5 border-b border-fog bg-mist/40">
-                <p className="text-xs font-semibold uppercase tracking-widest text-ink/40">Basic details</p>
+              <div className="px-6 py-4 border-b border-fog">
+                <p className="text-sm font-semibold text-ink">Basic details</p>
+                <p className="text-xs text-ink/40 mt-0.5">Edit the name, type, and description — then hit Save changes.</p>
               </div>
-              <div className="p-5 grid sm:grid-cols-2 gap-4">
+              <div className="p-6 grid sm:grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wide text-ink/45 font-semibold mb-1.5">Template name</label>
+                  <label className="block text-sm font-semibold text-ink mb-2">Template name</label>
                   <input
                     value={templateDraft?.name || ''}
                     onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), name: e.target.value }))}
-                    className="w-full h-10 rounded-xl border border-fog bg-mist px-3 text-sm text-ink focus:outline-none focus:border-brand-400 transition-colors"
+                    placeholder="e.g. Feature Spotlight"
+                    className="w-full h-11 rounded-xl border-2 border-fog bg-white px-4 text-base text-ink placeholder:text-ink/30 focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10 transition-all"
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase tracking-wide text-ink/45 font-semibold mb-1.5">Playbook content type</label>
+                  <label className="block text-sm font-semibold text-ink mb-2">Playbook content type</label>
                   <input
                     value={templateDraft?.playbook_content_type || ''}
                     onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), playbook_content_type: e.target.value }))}
-                    className="w-full h-10 rounded-xl border border-fog bg-mist px-3 text-sm text-ink focus:outline-none focus:border-brand-400 transition-colors"
+                    placeholder="e.g. Feature Spotlight, Testimonial…"
+                    className="w-full h-11 rounded-xl border-2 border-fog bg-white px-4 text-base text-ink placeholder:text-ink/30 focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10 transition-all"
                   />
                 </div>
+                <div>
+                  <label className="block text-sm font-semibold text-ink mb-2">Category</label>
+                  <select
+                    value={templateDraft?.category || viewingTemplate.category || 'service'}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), category: e.target.value }))}
+                    className="w-full h-11 rounded-xl border-2 border-fog bg-white px-4 text-base text-ink focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10 transition-all appearance-none cursor-pointer"
+                  >
+                    {['product', 'event', 'service', 'seasonal'].map((c) => (
+                      <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-ink mb-2">Recurrence</label>
+                  <select
+                    value={templateDraft?.recurrence || viewingTemplate.recurrence || 'weekly'}
+                    onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), recurrence: e.target.value }))}
+                    className="w-full h-11 rounded-xl border-2 border-fog bg-white px-4 text-base text-ink focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10 transition-all appearance-none cursor-pointer"
+                  >
+                    {['daily', 'weekly', 'monthly', 'yearly', 'custom'].map((r) => (
+                      <option key={r} value={r}>{r.charAt(0).toUpperCase() + r.slice(1)}</option>
+                    ))}
+                  </select>
+                </div>
                 <div className="sm:col-span-2">
-                  <label className="block text-[11px] uppercase tracking-wide text-ink/45 font-semibold mb-1.5">Description</label>
+                  <label className="block text-sm font-semibold text-ink mb-2">Description</label>
                   <textarea
-                    rows={3}
+                    rows={4}
                     value={templateDraft?.description || ''}
                     onChange={(e) => setTemplateDraft((d) => ({ ...(d || {}), description: e.target.value }))}
-                    className="w-full rounded-xl border border-fog bg-mist px-3 py-2.5 text-sm text-ink focus:outline-none focus:border-brand-400 transition-colors resize-none"
+                    placeholder="What this recurring content pattern is about…"
+                    className="w-full rounded-xl border-2 border-fog bg-white px-4 py-3 text-base text-ink placeholder:text-ink/30 focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10 transition-all resize-none"
                   />
                 </div>
               </div>
@@ -989,17 +1021,17 @@ export default function TemplatesPage() {
             {/* Visual direction slots */}
             {slotDrafts.length > 0 && (
               <div className="bg-surface border border-fog rounded-2xl overflow-hidden">
-                <div className="flex items-center justify-between px-5 py-3.5 border-b border-fog bg-mist/40">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-fog">
                   <div>
-                    <p className="text-xs font-semibold uppercase tracking-widest text-ink/40">Visual direction slots (VD01–VD10)</p>
-                    <p className="text-[11px] text-ink/35 mt-0.5">Edit each slot's direction then save. Click "Use this slot" to set it as the preferred slot for generation.</p>
+                    <p className="text-sm font-semibold text-ink">Visual direction slots</p>
+                    <p className="text-xs text-ink/40 mt-0.5">Edit each slot then save. Click "Use this slot" to mark it as the preferred slot for generation.</p>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <button
                       type="button"
                       disabled={savingDirection}
                       onClick={addSlotDraftRow}
-                      className="h-8 px-3 rounded-lg border border-fog bg-surface text-[11px] font-semibold text-ink/70 hover:text-ink disabled:opacity-60 transition-colors"
+                      className="h-9 px-3.5 rounded-xl border border-fog bg-mist hover:bg-fog text-sm font-semibold text-ink/70 hover:text-ink disabled:opacity-60 transition-colors"
                     >
                       + Add slot
                     </button>
@@ -1007,30 +1039,30 @@ export default function TemplatesPage() {
                       type="button"
                       disabled={savingDirection}
                       onClick={() => saveSlotDirections(viewingTemplate)}
-                      className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold disabled:opacity-60 transition-colors"
+                      className="h-9 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold disabled:opacity-60 transition-colors"
                     >
                       {savingDirection ? 'Saving…' : 'Save slot edits'}
                     </button>
                   </div>
                 </div>
-                <div className="p-5 space-y-3">
+                <div className="p-6 space-y-4">
                   {slotDrafts.map((opt, idx) => {
                     const selected = String(viewingTemplate?.design_spec?.playbook_selected_slot_key || '').trim().toUpperCase() === String(opt?.slot_key || '').trim().toUpperCase()
                     return (
                       <div
                         key={`${opt.slot_key}-${idx}`}
-                        className={`rounded-xl border px-4 py-4 transition-colors ${
-                          selected ? 'border-brand-400 bg-brand-500/5' : 'border-fog bg-mist/30'
+                        className={`rounded-2xl border-2 p-5 transition-all ${
+                          selected ? 'border-brand-400 bg-brand-500/3' : 'border-fog bg-white'
                         }`}
                       >
                         <div className="flex items-center gap-3 mb-3">
-                          <span className={`text-xs font-bold uppercase tracking-widest px-2.5 py-1 rounded-lg ${
-                            selected ? 'bg-brand-500/15 text-brand-600' : 'bg-fog text-ink/50'
+                          <span className={`text-xs font-bold uppercase tracking-wider px-3 py-1.5 rounded-lg ${
+                            selected ? 'bg-brand-500 text-white' : 'bg-mist text-ink/50 border border-fog'
                           }`}>
                             {opt.slot_key || `VD${String(idx + 1).padStart(2, '0')}`}
                           </span>
                           {selected && (
-                            <span className="text-[11px] font-semibold text-brand-500">&#10003; Preferred slot</span>
+                            <span className="text-xs font-semibold text-brand-500">&#10003; Preferred slot</span>
                           )}
                           <div className="flex items-center gap-2 ml-auto">
                             <select
@@ -1039,16 +1071,16 @@ export default function TemplatesPage() {
                                 const value = e.target.value === 'carousel' ? 'carousel' : 'single'
                                 setSlotDrafts((prev) => prev.map((s, sIdx) => (sIdx === idx ? { ...s, post_type: value } : s)))
                               }}
-                              className="h-8 rounded-lg border border-fog bg-surface px-2.5 text-xs text-ink/70 focus:outline-none focus:border-brand-400"
+                              className="h-9 rounded-lg border-2 border-fog bg-white px-3 text-sm text-ink focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10 transition-all appearance-none cursor-pointer"
                             >
-                              <option value="single">single</option>
-                              <option value="carousel">carousel</option>
+                              <option value="single">Single</option>
+                              <option value="carousel">Carousel</option>
                             </select>
                             <button
                               type="button"
                               disabled={savingDirection}
                               onClick={() => savePreferredDirection(viewingTemplate, opt, opt.slot_key)}
-                              className="h-8 px-3 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink/70 hover:border-brand-300 hover:text-brand-600 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                              className="h-9 px-4 rounded-lg border-2 border-fog bg-white text-sm font-semibold text-ink/60 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-500/5 disabled:opacity-60 transition-all"
                             >
                               Use this slot
                             </button>
@@ -1060,9 +1092,9 @@ export default function TemplatesPage() {
                             const value = e.target.value
                             setSlotDrafts((prev) => prev.map((s, sIdx) => (sIdx === idx ? { ...s, visual_direction: value } : s)))
                           }}
-                          rows={3}
-                          placeholder="Describe the visual direction for this slot…"
-                          className="w-full rounded-xl border border-fog bg-surface px-3 py-2.5 text-sm text-ink/80 focus:outline-none focus:border-brand-400 transition-colors resize-none"
+                          rows={4}
+                          placeholder="Describe the visual direction for this slot — layout, style, mood, imagery…"
+                          className="w-full rounded-xl border-2 border-fog bg-white px-4 py-3 text-base text-ink placeholder:text-ink/30 focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10 transition-all resize-none"
                         />
                       </div>
                     )
