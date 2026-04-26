@@ -3,6 +3,8 @@ Single subscription bucket per account owner: all workspaces owned by the same u
 share the highest plan and payment method (agency / multi-workspace).
 """
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +15,22 @@ PLAN_RANK = {"trial": 0, "starter": 1, "smb": 2, "pro": 3}
 
 def plan_rank(plan: str | None) -> int:
     return PLAN_RANK.get((plan or "trial").strip().lower(), 0)
+
+
+def effective_plan(ws: Workspace) -> str:
+    """
+    Returns the workspace's plan, downgrading to "trial" if the paid period has
+    ended without a renewal. This lets us keep `ws.plan` set after a cancellation
+    so the user retains access until next_payment_date.
+    """
+    plan = (ws.plan or "trial").strip().lower()
+    if plan == "trial":
+        return "trial"
+    if ws.subscription_id:
+        return plan
+    if ws.next_payment_date and ws.next_payment_date > datetime.now(timezone.utc):
+        return plan
+    return "trial"
 
 
 async def owned_workspaces(db: AsyncSession, owner_id: str) -> list[Workspace]:
@@ -27,10 +45,11 @@ async def effective_plan_for_owner(db: AsyncSession, owner_id: str) -> str:
     best = "trial"
     best_r = 0
     for w in owned:
-        pr = plan_rank(w.plan)
+        plan = effective_plan(w)
+        pr = plan_rank(plan)
         if pr > best_r:
             best_r = pr
-            best = (w.plan or "trial").strip().lower()
+            best = plan
     return best
 
 
