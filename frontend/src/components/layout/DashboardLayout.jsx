@@ -70,6 +70,13 @@ export default function DashboardLayout() {
     const params = new URLSearchParams()
     if (guestProfile?.brandName) params.set('brand', guestProfile.brandName)
     if (guestProfile?.website) params.set('website', guestProfile.website)
+    // Logo data URL is too long for the URL bar — stash it in localStorage so
+    // the brand-creation step after signup can pick it up.
+    try {
+      if (guestProfile?.logoDataUrl) {
+        localStorage.setItem('contentcard.signup.guestLogoDataUrl', guestProfile.logoDataUrl)
+      }
+    } catch { /* ignore */ }
     navigate(`/signup${params.toString() ? `?${params.toString()}` : ''}`)
   }
 
@@ -209,11 +216,22 @@ export default function DashboardLayout() {
               <button
                 type="button"
                 onClick={reopenGuestOnboarding}
-                className="w-full text-left px-2 py-1 rounded-lg hover:bg-mist transition-colors"
+                className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-mist transition-colors flex items-center gap-2.5"
                 title="Edit demo brand"
               >
-                <p className="text-ink/40 text-[10px] font-semibold uppercase tracking-widest">Demo brand</p>
-                <p className="text-ink text-xs font-semibold truncate">{guestProfile.brandName}</p>
+                <span className="w-7 h-7 rounded-lg overflow-hidden bg-mist border border-fog flex items-center justify-center flex-shrink-0">
+                  {guestProfile.logoDataUrl ? (
+                    <img src={guestProfile.logoDataUrl} alt="" className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-[10px] font-bold text-ink/30">
+                      {guestProfile.brandName.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-ink/40 text-[10px] font-semibold uppercase tracking-widest leading-none">Demo brand</span>
+                  <span className="block text-ink text-xs font-semibold truncate mt-0.5">{guestProfile.brandName}</span>
+                </span>
               </button>
             )}
             <button
@@ -249,6 +267,7 @@ export default function DashboardLayout() {
             setGuestProfile(profile)
             setShowGuestOnboarding(false)
           }}
+          onDismiss={guestProfile ? () => setShowGuestOnboarding(false) : null}
         />
       )}
       {newWsOpen && (

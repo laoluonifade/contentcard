@@ -7,6 +7,7 @@ export const GUEST_PROFILE_KEY = 'cc:guest:profile:v1'
 export const DEFAULT_GUEST_PROFILE = {
   brandName: 'Acme Coffee',
   website: 'acmecoffee.com',
+  logoDataUrl: '',
   intent: null,
 }
 
@@ -157,6 +158,7 @@ function buildBrand(profile) {
     workspace_id: `demo-ws-${brandSlug(p.brandName)}`,
     name: p.brandName,
     website: p.website,
+    logo_url: p.logoDataUrl || '',
     industry: 'Demo',
     voice: 'Confident, warm, and a little playful',
     description: `${p.brandName} — a guest demo brand.`,
