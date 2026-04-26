@@ -223,40 +223,61 @@ def _feature_row(icon: str, title: str, desc: str) -> str:
 
 
 def render_welcome(name: str | None, login_url: str) -> tuple[str, str]:
-    """Return (subject, html)."""
+    """Return (subject, html) — personal note from the founder, Laolu Onifade."""
     first = name.split()[0] if name else "there"
     body = f"""
-    <h1 style="margin:0 0 8px;font-size:23px;font-weight:800;color:{_TEXT};
-      letter-spacing:-0.025em;">
-      Welcome to ContentCard, {first}! &#127881;
-    </h1>
-    <p style="margin:0 0 26px;font-size:15px;color:{_MUTED};line-height:1.6;">
-      Your account is ready. Here's what you can do right now:
+    <p style="margin:0 0 22px;font-size:16px;color:{_TEXT};line-height:1.7;">
+      Hey {first},
+    </p>
+    <p style="margin:0 0 18px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      I'm Laolu — I built ContentCard because I kept watching small business owners and
+      creators waste hours every week just trying to stay consistent on social media.
+      Brief, edit, resize, caption, repeat. It shouldn't be that hard.
+    </p>
+    <p style="margin:0 0 18px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      So I made something that handles the heavy lifting — you describe your brand once,
+      and ContentCard generates a full month of on-brand posts, captions, and visuals
+      in minutes. Not templates. Actual content that sounds like you.
+    </p>
+    <p style="margin:0 0 28px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      You're in now. Here's the fastest way to get your first posts out:
     </p>
 
     <table cellpadding="0" cellspacing="0" role="presentation"
-      style="width:100%;margin:0 0 28px;
+      style="width:100%;margin:0 0 32px;
         background:{_LIGHT_GREEN};border-radius:10px;padding:6px 16px;"
       bgcolor="{_LIGHT_GREEN}">
-      {_feature_row("&#127912;", "Build your brand kit",
-          "Upload your logo, set your colours, and define your brand voice.")}
-      {_feature_row("&#128197;", "Plan your content calendar",
-          "Generate and schedule posts for Instagram, LinkedIn, X, and more.")}
-      {_feature_row("&#129309;", "Invite your team",
-          "Collaborate with teammates on a shared workspace.")}
+      {_feature_row("&#x2460;", "Complete your brand kit",
+          "Add your logo, colours, tone, and what you sell. Takes 3 minutes &mdash; this is what makes every post sound like you.")}
+      {_feature_row("&#x2461;", "Generate your first month",
+          "Pick a platform, set your posting frequency, and hit Generate. Your calendar fills up automatically.")}
+      {_feature_row("&#x2462;", "Review and schedule",
+          "Tweak anything you want, then approve the posts you love.")}
     </table>
 
-    <div style="text-align:center;margin-bottom:30px;">
-      {_btn("Go to your dashboard", login_url)}
+    <div style="text-align:center;margin-bottom:32px;">
+      {_btn("Open ContentCard →", login_url)}
     </div>
+
     {_divider()}
-    <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
-      Questions? Just reply to this email — we read everything.
+
+    <p style="margin:0 0 14px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      I personally read every reply to this email — so if you run into anything,
+      have a question, or just want to share feedback, hit reply. I mean it.
+    </p>
+    <p style="margin:0 0 6px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      Glad you're here.
+    </p>
+    <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:{_TEXT};">
+      Laolu Onifade
+    </p>
+    <p style="margin:0;font-size:13px;color:{_MUTED};">
+      Founder, ContentCard
     </p>"""
     return (
-        f"Welcome to ContentCard, {first}!",
+        f"You're in — welcome to ContentCard",
         _shell(
-            f"Welcome, {first}! Your ContentCard account is set up and ready to go.",
+            f"A quick note from Laolu, founder of ContentCard.",
             body,
         ),
     )
