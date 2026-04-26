@@ -35,6 +35,7 @@ from app.models.social import (
     SocialComment,
 )
 from app.models.shopify import ShopifyConnectionStatus, ShopifyConnection, ShopifyProductSnapshot
+from app.models.email_send import EmailSend
 
 __all__ = [
     "User",
@@ -52,4 +53,5 @@ __all__ = [
     "SocialPlatform", "SocialConnectionStatus", "SocialAutopilotMode", "SocialPostStatus", "SocialReplyStatus",
     "SocialConnection", "SocialAutopilotConfig", "SocialPost", "SocialWebhookEvent", "SocialComment",
     "ShopifyConnectionStatus", "ShopifyConnection", "ShopifyProductSnapshot",
+    "EmailSend",
 ]
