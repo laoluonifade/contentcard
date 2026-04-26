@@ -30,7 +30,7 @@ const MOBILE_NAV = [
 ]
 
 export default function DashboardLayout() {
-  const { user, logout, fetchMe }                 = useAuthStore()
+  const { user, logout, fetchMe, isAuthenticated } = useAuthStore()
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
           fetchTrends, createWorkspace }        = useAppStore()
@@ -46,12 +46,13 @@ export default function DashboardLayout() {
   }, [location.pathname])
 
   useEffect(() => {
+    fetchTrends().catch(() => {})
+    if (!isAuthenticated) return
     if (!workspaces.length) {
       fetchWorkspaces().catch(() => {})
     }
-    fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
-  }, [])
+  }, [isAuthenticated])
 
   const agencyMode = !!user?.agency_mode
 
@@ -155,20 +156,38 @@ export default function DashboardLayout() {
       </nav>
 
       <div className="px-2 py-3 border-t border-fog flex-shrink-0">
-        <div className="flex items-center gap-3 px-3 py-2 mb-0.5">
-          <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-            {initials}
+        {isAuthenticated ? (
+          <>
+            <div className="flex items-center gap-3 px-3 py-2 mb-0.5">
+              <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-ink text-xs font-semibold truncate">{user?.full_name || 'User'}</div>
+                <div className="text-ink/40 text-[10px] truncate">{user?.email || ''}</div>
+              </div>
+            </div>
+            <button onClick={handleLogout}
+              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-ink/40 hover:text-ink hover:bg-mist transition-all">
+              <LogOut size={16} className="flex-shrink-0" />
+              <span className="text-[13px] font-semibold">Sign out</span>
+            </button>
+          </>
+        ) : (
+          <div className="px-2 space-y-2">
+            <p className="px-1 text-ink/40 text-[11px] leading-snug">
+              Save your work and unlock generation by creating a free account.
+            </p>
+            <Link to="/signup"
+              className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-[13px] font-semibold transition-colors">
+              Sign up free
+            </Link>
+            <Link to="/login"
+              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-ink/60 hover:text-ink hover:bg-mist text-[13px] font-semibold transition-colors">
+              Log in
+            </Link>
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-ink text-xs font-semibold truncate">{user?.full_name || 'User'}</div>
-            <div className="text-ink/40 text-[10px] truncate">{user?.email || ''}</div>
-          </div>
-        </div>
-        <button onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-ink/40 hover:text-ink hover:bg-mist transition-all">
-          <LogOut size={16} className="flex-shrink-0" />
-          <span className="text-[13px] font-semibold">Sign out</span>
-        </button>
+        )}
       </div>
     </aside>
   )
