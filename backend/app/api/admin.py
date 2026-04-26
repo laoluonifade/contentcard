@@ -2547,3 +2547,32 @@ async def cron_billing_email_sweep(
     trial_report = await sweep_trial_ending(db)
     card_report = await sweep_card_expiring(db)
     return {"trial_ending": trial_report, "card_expiring": card_report}
+
+
+@router.post("/cron/autopilot-email-sweep", include_in_schema=False)
+async def cron_autopilot_email_sweep(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Daily Render Cron entry point for Phase 3 autopilot health emails.
+
+    Configure a Render Cron Job to POST here once a day:
+
+        URL:     {API_BASE}/api/v1/admin/cron/autopilot-email-sweep
+        Header:  X-Cron-Secret: <CRON_SHARED_SECRET>
+        Schedule: 0 9 * * *  (daily 09:00 UTC)
+
+    Idempotent — running twice in a day is safe; underlying send_once()
+    de-dups on the same key.
+    """
+    require_cron_secret(request)
+    from app.services.autopilot_email_sweeper import (
+        sweep_publish_failure_digest,
+        sweep_reconnect_required,
+    )
+    reconnect_report = await sweep_reconnect_required(db)
+    digest_report = await sweep_publish_failure_digest(db)
+    return {
+        "reconnect_required": reconnect_report,
+        "publish_failure_digest": digest_report,
+    }

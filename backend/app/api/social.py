@@ -1,7 +1,9 @@
+import asyncio
 import hashlib
 import hmac
 import json
 import base64
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
@@ -56,7 +58,56 @@ from app.schemas.social import (
     SocialTokenRefreshCallbackRequest,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/social", tags=["social"])
+
+
+# ── Phase 3: autopilot health email ──────────────────────────────────────────
+
+
+async def _email_autopilot_paused(
+    *, brand_id: str, platform: str, cooldown_until: datetime,
+    failure_reason: str | None,
+) -> None:
+    """Best-effort autopilot_paused email — opens its own session, never raises.
+
+    Run as `asyncio.create_task(...)` so the publish status update returns
+    quickly to the caller; SMTP latency must not block autopilot.
+    """
+    try:
+        from app.db.database import AsyncSessionLocal
+        from app.models.user import User as _User
+        from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
+        from app.services.email_service import send_autopilot_paused
+        async with AsyncSessionLocal() as session:
+            brand = (await session.execute(select(Brand).where(Brand.id == brand_id))).scalar_one_or_none()
+            if brand is None:
+                return
+            # Find the workspace owner — same pattern as billing emails.
+            owner = (await session.execute(
+                select(_User)
+                .join(Workspace, Workspace.owner_id == _User.id)
+                .where(Workspace.id == brand.workspace_id)
+                .limit(1)
+            )).scalar_one_or_none()
+            if owner is None or not owner.email:
+                return
+            prefs = owner.email_preferences if isinstance(owner.email_preferences, dict) else None
+            autopilot_url = f"{settings.FRONTEND_URL}/dashboard/social?brand={brand.id}"
+            await send_autopilot_paused(
+                to=owner.email,
+                brand_id=brand.id,
+                platform=platform,
+                cooldown_until=cooldown_until,
+                autopilot_url=autopilot_url,
+                failure_reason=failure_reason,
+                brand_name=brand.name,
+                name=owner.full_name,
+                user_preferences=prefs,
+            )
+    except Exception:
+        logger.exception("autopilot_paused email failed (non-fatal)")
 
 META_OAUTH_SCOPES = [
     "pages_show_list",
@@ -1187,7 +1238,23 @@ async def social_publish_callback(
                 )
             ).scalar_one()
             if int(fail_count or 0) >= int(config.circuit_breaker_failure_threshold or 5):
+                # Only fire the email on the trip TRANSITION — re-tripping
+                # before the cooldown elapses (i.e. circuit_breaker_until is
+                # already in the future) is the same outage and shouldn't
+                # spam.
+                already_paused = bool(
+                    config.circuit_breaker_until and config.circuit_breaker_until > _now()
+                )
                 config.circuit_breaker_until = _now() + timedelta(minutes=int(config.circuit_breaker_cooldown_minutes or 30))
+                if not already_paused:
+                    # Phase 3 — non-fatal autopilot health email. Caller's
+                    # error message (if any) becomes the failure_reason line.
+                    asyncio.create_task(_email_autopilot_paused(
+                        brand_id=body.brand_id,
+                        platform=str(body.platform.value if hasattr(body.platform, "value") else body.platform),
+                        cooldown_until=config.circuit_breaker_until,
+                        failure_reason=str(body.error_message or "")[:200] or None,
+                    ))
         elif body.status == SocialPostStatus.POSTED and config.circuit_breaker_until and config.circuit_breaker_until <= _now():
             config.circuit_breaker_until = None
     await db.commit()

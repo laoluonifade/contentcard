@@ -852,6 +852,141 @@ def render_subscription_cancelled(
     )
 
 
+# ── Templates: Autopilot health (Phase 3) ─────────────────────────────────────
+
+
+_PLATFORM_LABELS = {
+    "instagram": "Instagram",
+    "facebook": "Facebook",
+    "linkedin": "LinkedIn",
+    "x": "X (Twitter)",
+    "tiktok": "TikTok",
+}
+
+
+def _platform_label(platform: str | None) -> str:
+    return _PLATFORM_LABELS.get(str(platform or "").lower(), (platform or "").title() or "Social")
+
+
+def render_autopilot_paused(
+    *,
+    brand_name: str,
+    platform: str,
+    cooldown_until_label: str,
+    autopilot_url: str,
+    failure_reason: str | None = None,
+    name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 3 — sent when the autopilot circuit breaker trips for a brand+platform."""
+    p_label = _platform_label(platform)
+    reason_block = ""
+    if failure_reason:
+        reason_block = f"""
+        <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;
+          padding:14px 18px;margin:0 0 26px;">
+          <p style="margin:0;font-size:13px;color:#991B1B;line-height:1.6;">
+            <strong>What we saw:</strong> {failure_reason}
+          </p>
+        </div>"""
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">Autopilot paused on {p_label}</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {_greeting(name)}</p>
+    <p style="margin:0 0 18px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      Posting auto-stopped on <strong>{p_label}</strong> for
+      <strong>{brand_name}</strong> after several failures in a row.
+      Autopilot will retry on its own after <strong>{cooldown_until_label}</strong>,
+      but if the cause is something on your end (a revoked permission,
+      a disconnected account) it'll keep failing.
+    </p>
+    {reason_block}
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn("Open autopilot health", autopilot_url)}
+    </div>
+    {_divider()}
+    <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
+      Don't want autopilot health emails? Manage them in
+      <a href="{autopilot_url.split('/dashboard')[0]}/dashboard/settings?tab=Notifications" style="color:{_GREEN};">Settings &rsaquo; Notifications</a>.
+    </p>"""
+    return (
+        f"Autopilot paused on {p_label} for {brand_name}",
+        _shell(f"Autopilot paused on {p_label}. Open the dashboard to inspect.", body),
+    )
+
+
+def render_autopilot_reconnect_required(
+    *,
+    brand_name: str,
+    platform: str,
+    reconnect_url: str,
+    reason: str,
+    name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 3 — sent when a social connection's token expires or revokes."""
+    p_label = _platform_label(platform)
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">Reconnect your {p_label} account</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {_greeting(name)}</p>
+    <p style="margin:0 0 30px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      We can no longer post to <strong>{brand_name}'s {p_label}</strong> account
+      &mdash; {reason} Reconnect now and queued posts will resume on the next
+      scheduled slot.
+    </p>
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn(f"Reconnect {p_label}", reconnect_url)}
+    </div>"""
+    return (
+        f"Reconnect your {p_label} account",
+        _shell(f"Reconnect {brand_name}'s {p_label} account to resume posting.", body),
+    )
+
+
+def render_autopilot_publish_failed_digest(
+    *,
+    brand_name: str,
+    failure_count: int,
+    sample_lines: list[str],
+    autopilot_url: str,
+    name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 3 — daily digest, batches per-post failures into one email per brand.
+
+    Caller passes plain-language bullet lines; the template doesn't reformat
+    them. Caller is responsible for sanitising and capping length.
+    """
+    posts_word = "post" if failure_count == 1 else "posts"
+    bullets = "".join(
+        f'<li style="margin:0 0 6px;line-height:1.55;">{line}</li>'
+        for line in (sample_lines or [])[:8]
+    )
+    bullets_block = ""
+    if bullets:
+        bullets_block = f"""
+        <ul style="margin:0 0 26px;padding:0 0 0 22px;font-size:14px;
+          color:{_TEXT};">{bullets}</ul>"""
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">Autopilot couldn't publish {failure_count} {posts_word}</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {_greeting(name)}</p>
+    <p style="margin:0 0 14px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      Yesterday's autopilot run for <strong>{brand_name}</strong> hit
+      {failure_count} {posts_word} that didn't go out. We'll keep retrying,
+      but it's worth a glance.
+    </p>
+    {bullets_block}
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn("Open autopilot health", autopilot_url)}
+    </div>"""
+    return (
+        f"{failure_count} {posts_word} failed to publish for {brand_name}",
+        _shell(f"{failure_count} autopilot {posts_word} failed yesterday for {brand_name}.", body),
+    )
+
+
 # ── Convenience helpers ────────────────────────────────────────────────────────
 
 async def send_password_reset(
@@ -1073,4 +1208,119 @@ async def send_subscription_cancelled(
         dedupe_key=f"{workspace_id}:{cancellation_id}",
         subject=subject,
         html=html,
+    )
+
+
+# ── Phase 3: Autopilot health ─────────────────────────────────────────────────
+
+
+async def send_autopilot_paused(
+    *,
+    to: str,
+    brand_id: str,
+    platform: str,
+    cooldown_until: datetime,
+    autopilot_url: str,
+    failure_reason: str | None = None,
+    brand_name: str | None = None,
+    name: str | None = None,
+    user_preferences: dict | None = None,
+) -> bool:
+    """Fire when the autopilot circuit breaker trips.
+
+    Dedupe key includes the cooldown timestamp so a re-trip after the previous
+    cooldown elapsed is treated as a NEW pause and re-emails. A flapping
+    breaker that re-trips inside the same cooldown window is correctly de-duped.
+    """
+    if not settings.EMAIL_AUTOPILOT_HEALTH_ENABLED:
+        return False
+    try:
+        cooldown_label = cooldown_until.strftime("%b %d, %Y at %H:%M UTC")
+    except Exception:
+        cooldown_label = "the cooldown window"
+    subject, html = render_autopilot_paused(
+        brand_name=brand_name or "your brand",
+        platform=platform,
+        cooldown_until_label=cooldown_label,
+        autopilot_url=autopilot_url,
+        failure_reason=failure_reason,
+        name=name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="autopilot_paused",
+        dedupe_key=f"{brand_id}:{platform}:{int(cooldown_until.timestamp())}",
+        subject=subject,
+        html=html,
+        user_preferences=user_preferences,
+    )
+
+
+async def send_autopilot_reconnect_required(
+    *,
+    to: str,
+    brand_id: str,
+    platform: str,
+    reconnect_url: str,
+    reason: str,
+    reason_token: str,
+    brand_name: str | None = None,
+    name: str | None = None,
+    user_preferences: dict | None = None,
+) -> bool:
+    """Fire when a social connection token expires or is revoked.
+
+    `reason_token` is a stable string that uniquely identifies the failure
+    (e.g. "token_expired_2026-04-26", "permission_revoked"). Bake it into the
+    dedupe key so the same expiry doesn't email twice but a fresh disconnect
+    after a successful reconnect does.
+    """
+    if not settings.EMAIL_AUTOPILOT_HEALTH_ENABLED:
+        return False
+    subject, html = render_autopilot_reconnect_required(
+        brand_name=brand_name or "your brand",
+        platform=platform,
+        reconnect_url=reconnect_url,
+        reason=reason,
+        name=name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="autopilot_reconnect_required",
+        dedupe_key=f"{brand_id}:{platform}:{reason_token}",
+        subject=subject,
+        html=html,
+        user_preferences=user_preferences,
+    )
+
+
+async def send_autopilot_publish_failed_digest(
+    *,
+    to: str,
+    brand_id: str,
+    digest_date_iso: str,
+    failure_count: int,
+    sample_lines: list[str],
+    autopilot_url: str,
+    brand_name: str | None = None,
+    name: str | None = None,
+    user_preferences: dict | None = None,
+) -> bool:
+    """Daily digest. One email max per brand per day; dedupe on date string."""
+    if not settings.EMAIL_AUTOPILOT_HEALTH_ENABLED:
+        return False
+    subject, html = render_autopilot_publish_failed_digest(
+        brand_name=brand_name or "your brand",
+        failure_count=failure_count,
+        sample_lines=sample_lines,
+        autopilot_url=autopilot_url,
+        name=name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="autopilot_publish_failed_digest",
+        dedupe_key=f"{brand_id}:{digest_date_iso}",
+        subject=subject,
+        html=html,
+        user_preferences=user_preferences,
     )
