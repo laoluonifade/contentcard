@@ -114,6 +114,15 @@ class Settings(BaseSettings):
     API_BASE_URL: str = "http://localhost:8000"
     SHOPIFY_AUTH_ENABLED: bool = True
 
+    # Gmail SMTP — use a Google App Password (not your regular password).
+    # Enable 2FA on the Gmail account, then generate an App Password at
+    # https://myaccount.google.com/apppasswords
+    GMAIL_USER: str = ""               # e.g. hello@contentcard.co
+    GMAIL_APP_PASSWORD: str = ""       # 16-char App Password from Google
+    GMAIL_FROM_NAME: str = "ContentCard"
+    GMAIL_SMTP_HOST: str = "smtp.gmail.com"
+    GMAIL_SMTP_PORT: int = 587
+
     class Config:
         env_file = ".env"
         case_sensitive = True
