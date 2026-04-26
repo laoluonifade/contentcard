@@ -88,11 +88,6 @@ export default function DashboardLayout() {
     navigate('/login')
   }
 
-  const freeGenerationsUsed = useAppStore(s => s.subscription?.free_generations_used ?? null)
-  const planTier = activeWorkspace?.effective_plan || activeWorkspace?.plan
-  const isSubscribed = ['starter', 'smb', 'pro'].includes(planTier)
-  const freeRemaining = isSubscribed ? null : Math.max(0, 2 - (freeGenerationsUsed ?? 0))
-
   const initials = user?.full_name
     ? user.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : '??'
@@ -136,18 +131,6 @@ export default function DashboardLayout() {
         <div className="px-4 py-2 border-b border-fog flex-shrink-0">
           <p className="text-ink/40 text-[10px] font-semibold uppercase tracking-widest">Workspace</p>
           <p className="text-ink text-xs font-semibold truncate">{activeWorkspace.name}</p>
-        </div>
-      )}
-
-      {freeRemaining !== null && (
-        <div className={`mx-3 mt-2 px-3 py-2 rounded-lg text-xs font-medium flex-shrink-0 border ${
-          freeRemaining === 0
-            ? 'bg-red-50 border-red-200 text-red-600'
-            : 'bg-amber-50 border-amber-200 text-amber-700'
-        }`}>
-          {freeRemaining === 0
-            ? 'Free generations used up: subscribe to continue'
-            : `${freeRemaining} free generation${freeRemaining !== 1 ? 's' : ''} remaining`}
         </div>
       )}
 

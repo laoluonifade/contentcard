@@ -73,9 +73,10 @@ function softwareApplicationSchema() {
     applicationCategory: 'BusinessApplication',
     operatingSystem: 'Web',
     url: SITE_URL,
+    description: 'Free social media content generator and scheduler for small businesses and lean social teams.',
     offers: {
       '@type': 'Offer',
-      price: '25',
+      price: '0',
       priceCurrency: 'USD',
     },
   }
@@ -91,7 +92,7 @@ function faqSchema() {
         name: 'How quickly can I start creating with ContentCard?',
         acceptedAnswer: {
           '@type': 'Answer',
-          text: 'Most teams start creating their first campaign in under 10 minutes. You can set your brand basics, choose a direction, and generate ready-to-publish content immediately.',
+          text: 'Most teams create their first campaign in under 10 minutes. Add your brand basics, choose a direction, and start generating free social content right away.',
         },
       },
       {
@@ -99,15 +100,15 @@ function faqSchema() {
         name: 'Which social platforms does ContentCard support?',
         acceptedAnswer: {
           '@type': 'Answer',
-          text: 'ContentCard supports Instagram, X, and Facebook workflows out of the box, with post-ready formats, captions, and scheduling support.',
+          text: 'ContentCard supports Instagram, X, and Facebook with ready-to-post formats, captions, and scheduling workflows built in.',
         },
       },
       {
         '@type': 'Question',
-        name: 'Can I keep every post on-brand?',
+        name: 'Is ContentCard really free?',
         acceptedAnswer: {
           '@type': 'Answer',
-          text: 'Yes. ContentCard applies your brand voice, visual preferences, and content guardrails so every output stays consistent across campaigns.',
+          text: 'Yes. ContentCard is now positioned as a free social media content generator and scheduler, with 2,000 free generations available in the app and no credit card required to get started.',
         },
       },
     ],
@@ -118,9 +119,9 @@ function buildSeo(pathname) {
   const path = pathname || '/'
   const byPath = {
     '/': {
-      title: 'ContentCard | AI Social Media Content Platform for Small Businesses',
+      title: 'ContentCard | Free Social Media Content Generator and Scheduler',
       description:
-        'Create social content that drives sales. ContentCard helps teams generate on-brand visuals, captions, and campaign workflows for Instagram, X, and Facebook.',
+        'ContentCard is a free social media content generator and scheduler. Generate on-brand posts, captions, and visuals for Instagram, X, and Facebook with 2,000 free generations included.',
       includeFaqSchema: true,
     },
     '/features': {
@@ -129,9 +130,9 @@ function buildSeo(pathname) {
         'Explore ContentCard features for social media teams: playbook-driven generation, campaign calendar workflow, and approval-ready collaboration.',
     },
     '/pricing': {
-      title: 'ContentCard Pricing | Social Content Plans for Teams and Brands',
+      title: 'ContentCard Pricing | Free Social Media Content Generator Access',
       description:
-        'Choose a ContentCard plan for your team. Generate social content faster with on-brand visuals, captions, and workflow controls built for growth.',
+        'See how ContentCard is positioned around free social media content generation and scheduling, with generous access for teams that need to move fast.',
     },
     '/enterprise': {
       title: 'ContentCard Enterprise | Social Content Operations at Scale',
@@ -224,9 +225,9 @@ function buildSeo(pathname) {
   }
 
   const pageMeta = solutionMeta[path] || byPath[path] || {
-    title: 'ContentCard | AI Social Media Content Platform',
+    title: 'ContentCard | Free Social Media Content Generator and Scheduler',
     description:
-      'ContentCard helps social media managers and business owners create on-brand social content with playbook-driven AI generation and publishing workflows.',
+      'ContentCard helps social media managers and business owners create and schedule on-brand social content with a free, playbook-driven workflow.',
   }
 
   const structuredData = [organizationSchema(), websiteSchema(), softwareApplicationSchema()]
@@ -254,7 +255,7 @@ export default function MarketingLayout({ children }) {
         description={seo.description}
         path={location.pathname}
         image={DEFAULT_IMAGE}
-        keywords="ai social media content, content calendar, social media manager tools, social media content generator, brand content playbook"
+        keywords="free social media content generator, free social media scheduler, free ai content generator, contentcard free social media tool, social media content generator and scheduler"
         structuredData={seo.structuredData}
       />
       {/* Nav */}
@@ -263,7 +264,7 @@ export default function MarketingLayout({ children }) {
           <Link to="/"><LogoFull size={26} /></Link>
           <div className="flex items-center gap-3">
             <button onClick={() => navigate('/login')} className="text-ink/60 hover:text-ink text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
-            <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free <ArrowRight size={13} /></button>
+            <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free forever <ArrowRight size={13} /></button>
           </div>
         </div>
       </nav>
@@ -278,7 +279,7 @@ export default function MarketingLayout({ children }) {
           <div className="grid md:grid-cols-4 gap-8 mb-12">
             <div>
               <LogoFull size={24} />
-              <p className="text-ink/75 text-sm mt-4 leading-relaxed">Build consistent, on-brand social content at scale without expanding your team.</p>
+              <p className="text-ink/75 text-sm mt-4 leading-relaxed">Generate and schedule on-brand social content for free, without expanding your team.</p>
             </div>
             {Object.entries(FOOTER_LINKS).map(([heading, links]) => (
               <div key={heading}>
