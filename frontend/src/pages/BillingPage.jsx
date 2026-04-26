@@ -100,9 +100,10 @@ const PLANS_USD = [
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function GenerationMeter({ used }) {
-  const remaining = Math.max(0, 2 - used)
-  const pct = Math.min(100, (used / 2) * 100)
-  const exhausted = used >= 2
+  const FREE_LIMIT = 2000
+  const remaining = Math.max(0, FREE_LIMIT - used)
+  const pct = Math.min(100, (used / FREE_LIMIT) * 100)
+  const exhausted = used >= FREE_LIMIT
   return (
     <div
       className={`rounded-2xl p-5 border border-fog bg-mist ${
@@ -113,12 +114,12 @@ function GenerationMeter({ used }) {
         <AlertCircle size={18} className={`flex-shrink-0 mt-0.5 ${exhausted ? 'text-red-500' : 'text-amber-500'}`} />
         <div className="flex-1">
           <p className="text-sm font-semibold mb-0.5 text-ink">
-            {exhausted ? 'Free generations used up' : `${remaining} free generation${remaining !== 1 ? 's' : ''} remaining`}
+            {exhausted ? 'Free generation limit reached' : `${remaining.toLocaleString()} free generation${remaining !== 1 ? 's' : ''} remaining`}
           </p>
           <p className="text-xs mb-3 text-ink/60">
             {exhausted
-              ? 'Subscribe to unlock unlimited content generation.'
-              : `You've used ${used} of 2 free generations. Subscribe for unlimited access.`}
+              ? `You've used all ${FREE_LIMIT.toLocaleString()} included free generations for this workspace.`
+              : `You've used ${used.toLocaleString()} of ${FREE_LIMIT.toLocaleString()} free generations included with this workspace.`}
           </p>
           <div className="h-1.5 bg-fog/80 rounded-full overflow-hidden">
             <div
@@ -127,8 +128,8 @@ function GenerationMeter({ used }) {
             />
           </div>
           <div className="flex justify-between mt-1.5">
-            <span className="text-[10px] text-ink/45">{used} used</span>
-            <span className="text-[10px] text-ink/45">2 free</span>
+            <span className="text-[10px] text-ink/45">{used.toLocaleString()} used</span>
+            <span className="text-[10px] text-ink/45">{FREE_LIMIT.toLocaleString()} free</span>
           </div>
         </div>
       </div>

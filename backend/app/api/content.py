@@ -67,11 +67,9 @@ from app.services.image_service import (
 )
 from app.services.bannerbear_service import generate_post_images, detect_template_family
 from app.services.billing_entitlements import (
-    billing_anchor_workspace,
     effective_plan_for_owner,
     total_free_generations_used_by_owner,
 )
-from app.services.billing_service import PLANS, charge_saved_authorization
 from datetime import date, timedelta
 from calendar import monthrange
 import logging
@@ -86,8 +84,8 @@ MAX_POSTS_PER_PLATFORM_PER_MONTH = 15
 MAX_PREP_VISUAL_BATCH = 15
 MAX_MONTH_REGEN_BATCH = 100
 MAX_GENERATION_MONTHS_AHEAD = 3
-TRIAL_FREE_GENERATIONS = 2
-CARD_BONUS_FREE_GENERATIONS = 2
+TRIAL_FREE_GENERATIONS = 2000
+CARD_BONUS_FREE_GENERATIONS = 0
 PLAN_MONTHLY_POST_CAPS = {
     "starter": 30,
     "smb": 90,  # Growth
@@ -217,62 +215,20 @@ async def _enforce_generation_billing_gate(
 
     total_used = await total_free_generations_used_by_owner(db, workspace.owner_id)
     bonus_limit = TRIAL_FREE_GENERATIONS + CARD_BONUS_FREE_GENERATIONS
-    anchor = await billing_anchor_workspace(db, workspace.owner_id)
-    has_saved_card = bool(anchor and str(anchor.paystack_authorization_code or "").strip())
 
     if total_used < TRIAL_FREE_GENERATIONS:
         workspace.free_generations_used = (workspace.free_generations_used or 0) + 1
         await db.commit()
         return
 
-    if total_used < bonus_limit:
-        if not has_saved_card:
-            raise HTTPException(
-                status_code=402,
-                detail={
-                    "code": "CARD_REQUIRED_FOR_BONUS",
-                    "message": "Add your card to unlock 2 more free designs.",
-                    "remaining_bonus_designs": bonus_limit - total_used,
-                },
-            )
-        workspace.free_generations_used = (workspace.free_generations_used or 0) + 1
-        await db.commit()
-        return
-
-    if not has_saved_card:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "CARD_REQUIRED_FOR_AUTOPAY",
-                "message": "Add your card to continue generating designs.",
-            },
-        )
-
-    try:
-        amount_kobo = int((PLANS.get("starter") or {}).get("ngn_price") or 2000000)
-        await charge_saved_authorization(
-            email=current_user.email,
-            authorization_code=str(anchor.paystack_authorization_code),
-            amount_kobo=amount_kobo,
-            metadata={
-                "source": "autopay_generation",
-                "brand_id": brand_id,
-                "workspace_id": workspace.id,
-                "month": month,
-                "year": year,
-            },
-        )
-        anchor.plan = "starter"
-        anchor.payment_provider = "paystack"
-        await db.commit()
-    except Exception as e:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "AUTO_CHARGE_FAILED",
-                "message": f"Could not charge saved card automatically: {e}",
-            },
-        )
+    raise HTTPException(
+        status_code=402,
+        detail={
+            "code": "FREE_GENERATION_LIMIT_REACHED",
+            "message": f"You've reached the {bonus_limit:,} free generation limit for this workspace.",
+            "limit": bonus_limit,
+        },
+    )
 
 
 async def _assert_plan_monthly_generation_cap(
