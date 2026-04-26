@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
+import PaymentModal from '../components/ui/PaymentModal'
 
 // ── Plan definitions ──────────────────────────────────────────────────────────
 
@@ -218,6 +219,7 @@ export default function BillingPage() {
   const [showRemoveModal, setShowRemoveModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [removing, setRemoving] = useState(false)
+  const [paymentModal, setPaymentModal] = useState(null) // { mode, planId } | null
 
   // Choose plan list based on provider (stripe = USD, paystack/null = NGN)
   const isStripe = subscription?.stripe_publishable_key != null || subscription?.provider === 'stripe'
@@ -237,16 +239,9 @@ export default function BillingPage() {
     }
   }, [])
 
-  const handleSubscribe = async (planId) => {
+  const handleSubscribe = (planId) => {
     if (!activeWorkspace?.id) return
-    setLoading(planId)
-    try {
-      const { checkout_url } = await createCheckout(planId, currency)
-      window.location.href = checkout_url
-    } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Checkout failed: please try again', 'error')
-      setLoading(null)
-    }
+    setPaymentModal({ mode: 'subscribe', planId })
   }
 
   const handleCancel = async () => {
@@ -402,7 +397,7 @@ export default function BillingPage() {
 
                 <button
                   onClick={() => !isCurrent && handleSubscribe(plan.id)}
-                  disabled={isCurrent || !!loading}
+                  disabled={isCurrent}
                   className={`w-full py-3 rounded-xl text-sm font-medium transition-all flex items-center justify-center gap-2 ${
                     isCurrent
                       ? 'bg-mist text-ink/40 cursor-default'
@@ -411,9 +406,7 @@ export default function BillingPage() {
                         : 'bg-mist hover:bg-fog/40 text-ink border border-fog'
                   } disabled:opacity-60`}
                 >
-                  {isLoading ? (
-                    <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Redirecting to {providerName}…</>
-                  ) : isCurrent ? (
+                  {isCurrent ? (
                     <><Check size={14} />Current plan</>
                   ) : (
                     <><Zap size={13} />{card ? 'Switch plan' : 'Subscribe'}</>
@@ -454,6 +447,21 @@ export default function BillingPage() {
           onConfirm={handleRemoveCard}
           onClose={() => setShowRemoveModal(false)}
           loading={removing}
+        />
+      )}
+
+      {/* ── Inline payment modal (Paystack / Stripe — no redirect) ── */}
+      {paymentModal && (
+        <PaymentModal
+          mode={paymentModal.mode}
+          planId={paymentModal.planId}
+          workspaceId={activeWorkspace?.id}
+          onSuccess={() => {
+            setPaymentModal(null)
+            toast(paymentModal.mode === 'subscribe' ? 'Subscription activated!' : 'Card saved successfully!')
+            fetchSubscription().catch(() => {})
+          }}
+          onClose={() => setPaymentModal(null)}
         />
       )}
     </div>
