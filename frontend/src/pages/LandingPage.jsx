@@ -102,11 +102,10 @@ function HeroPlatformCards() {
 
 export default function LandingPage() {
   const [openFaqIdx, setOpenFaqIdx] = useState(0)
-  const [pricingCurrency, setPricingCurrency] = useState('USD')
   const metrics = [
-    ['30+', 'posts generated per month'],
-    ['3x', 'faster campaign turnaround'],
-    ['68%', 'lower content production cost'],
+    ['Free', 'social media content generation and scheduling'],
+    ['2000', 'free generations included inside the app'],
+    ['0', 'credit card prompts before you get started'],
   ]
   const discoverExamples = [
     {
@@ -149,11 +148,11 @@ export default function LandingPage() {
   const faqs = [
     {
       q: 'How quickly can I start creating with ContentCard?',
-      a: 'Most teams start creating their first campaign in under 10 minutes. You can set your brand basics, choose a direction, and generate ready-to-publish content immediately.',
+      a: 'Most teams create their first campaign in under 10 minutes. Add your brand basics, choose a direction, and start generating free social content right away.',
     },
     {
       q: 'Which social platforms does ContentCard support?',
-      a: 'ContentCard supports Instagram, X, and Facebook workflows out of the box, with post-ready formats, captions, and scheduling support.',
+      a: 'ContentCard supports Instagram, X, and Facebook with ready-to-post formats, captions, and scheduling workflows built in.',
     },
     {
       q: 'Can I keep every post on-brand?',
@@ -161,33 +160,27 @@ export default function LandingPage() {
     },
     {
       q: 'Do I need a designer or large team to use it?',
-      a: 'No. ContentCard is built for lean teams and business owners who need high-quality social content without adding design headcount.',
+      a: 'No. ContentCard is built for lean teams and business owners who need high-quality social content without hiring extra design or social media staff.',
     },
     {
-      q: 'How does pricing work?',
-      a: 'You can start free, then upgrade to a paid plan when you need more volume, advanced workflows, or multi-brand support.',
+      q: 'Is ContentCard really free?',
+      a: 'Yes. ContentCard is now positioned as a free social media content generator and scheduler, with 2,000 free generations available in the app and no credit card required to get started.',
     },
   ]
-  const pricingPlans = [
-    { name: 'Starter', usd: 25, ngn: 20000, blurb: 'For growing businesses ready to show up daily.' },
-    { name: 'Business', usd: 50, ngn: 50000, blurb: 'For teams serious about social as a revenue channel.' },
-    { name: 'Enterprise', usd: 100, ngn: 200000, blurb: 'For agencies and multi-brand organisations.' },
+  const freePillars = [
+    {
+      name: '2,000 free generations',
+      blurb: 'Create a serious volume of social posts before you ever have to think about limits.',
+    },
+    {
+      name: 'Free scheduling workflow',
+      blurb: 'Generate, review, and schedule content for Instagram, X, and Facebook from one place.',
+    },
+    {
+      name: 'No credit card to start',
+      blurb: 'Sign up, build your brand kit, and begin publishing without paywall friction.',
+    },
   ]
-
-  useEffect(() => {
-    let detected = 'USD'
-    try {
-      const locales = [navigator.language, ...(navigator.languages || [])].filter(Boolean)
-      const localeHint = locales.join(' ').toUpperCase()
-      const timezone = (Intl.DateTimeFormat().resolvedOptions().timeZone || '').toUpperCase()
-      if (localeHint.includes('-NG') || localeHint.includes('_NG') || timezone.includes('AFRICA/LAGOS')) {
-        detected = 'NGN'
-      }
-    } catch {
-      detected = 'USD'
-    }
-    setPricingCurrency(detected)
-  }, [])
 
   return (
     <MarketingLayout>
@@ -199,12 +192,12 @@ export default function LandingPage() {
         <MarketingContainer className="relative py-12 sm:py-16 lg:py-20">
           <div className="grid lg:grid-cols-[0.92fr_1.08fr] gap-12 items-center">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-4">Built for small businesses</p>
+              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-4">Now completely free</p>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.03] max-w-[12ch]">
-                Create social content that drives sales.
+                Free social media content generator and scheduler.
               </h1>
               <p className="mt-5 text-lg text-ink/65 leading-relaxed max-w-[28ch]">
-                ContentCard helps you design, caption, and publish brand-ready posts in minutes across Instagram, X, and Facebook.
+                ContentCard helps you generate, design, and schedule brand-ready posts in minutes across Instagram, X, and Facebook, with 2,000 free generations included.
               </p>
               <div className="mt-7 flex flex-col sm:flex-row gap-3 max-w-[520px]">
                 <input
@@ -213,14 +206,22 @@ export default function LandingPage() {
                   className="h-12 sm:flex-1 rounded-xl border border-fog bg-white px-4 text-sm text-ink placeholder:text-ink/45 focus:outline-none focus:ring-2 focus:ring-brand-300/60"
                 />
                 <PrimaryCta to="/signup" className="h-12 px-6 justify-center whitespace-nowrap">
-                  Start creating <ArrowRight size={14} className="ml-1" />
+                  Start free forever <ArrowRight size={14} className="ml-1" />
                 </PrimaryCta>
               </div>
               <div className="mt-3 text-xs text-ink/45">
-                No credit card required to start.
+                Free signup. No credit card required. 2,000 free generations included.
               </div>
-              <div className="mt-5">
-                <SecondaryCta to="/pricing">View pricing</SecondaryCta>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <span className="inline-flex items-center rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700">
+                  Free content generator
+                </span>
+                <span className="inline-flex items-center rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700">
+                  Free scheduler
+                </span>
+                <span className="inline-flex items-center rounded-full border border-brand-200 bg-white px-3 py-1 text-xs font-semibold text-brand-700">
+                  Free social workflow
+                </span>
               </div>
             </div>
             <div className="lg:pl-4">
@@ -242,8 +243,8 @@ export default function LandingPage() {
         <MarketingContainer>
           <SectionHeader
             eyebrow="Discover"
-            title="See what brands create with ContentCard"
-            subtitle="Explore campaign-ready social posts created for real business use cases across food, mobility, and retail."
+            title="See what brands can create for free with ContentCard"
+            subtitle="Explore campaign-ready social posts generated and scheduled with a free workflow built for real business use cases."
           />
           <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {discoverExamples.map((item, idx) => (
@@ -276,7 +277,7 @@ export default function LandingPage() {
       <section className="bg-gradient-to-b from-brand-700 via-brand-800 to-[#0f2a22] border-y border-brand-900 text-white">
         <MarketingContainer className="py-14 sm:py-16">
           <p className="text-3xl sm:text-4xl font-medium leading-tight max-w-4xl text-white/95">
-            Plan, create, and publish high-quality campaigns with speed and confidence.
+            Free should still feel powerful: generate, polish, and schedule social campaigns without the usual paywall friction.
           </p>
           <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-emerald-300/35 via-lime-200/30 to-teal-200/30 border border-white/20" />
           <div className="mt-10 grid sm:grid-cols-3 gap-6">
@@ -293,28 +294,23 @@ export default function LandingPage() {
       <SurfaceSection className="bg-white border-b border-fog">
         <MarketingContainer>
           <SectionHeader
-            eyebrow="Pricing preview"
-            title="Plans shown in your local currency"
-            subtitle={
-              pricingCurrency === 'NGN'
-                ? 'Showing estimated monthly pricing in ₦ based on your location.'
-                : 'Showing estimated monthly pricing in $.'
-            }
+            eyebrow="Free forever energy"
+            title="Everything on this page should make one thing clear: ContentCard is free"
+            subtitle="The product is now positioned around generous free access, fast setup, and real publishing momentum for small teams."
           />
           <div className="mt-8 grid md:grid-cols-3 gap-5">
-            {pricingPlans.map((plan) => (
-              <article key={plan.name} className="rounded-2xl border border-fog bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                <p className="text-[11px] uppercase tracking-widest text-ink/45 font-semibold">{plan.name}</p>
-                <p className="mt-2 text-4xl font-semibold text-ink tracking-tight">
-                  {pricingCurrency === 'NGN' ? `₦${plan.ngn.toLocaleString()}` : `$${plan.usd}`}
+            {freePillars.map((pillar) => (
+              <article key={pillar.name} className="rounded-2xl border border-brand-100 bg-gradient-to-br from-white to-brand-50/40 p-5 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+                <p className="text-[11px] uppercase tracking-widest text-brand-700 font-semibold">Free</p>
+                <p className="mt-2 text-2xl font-semibold text-ink tracking-tight">
+                  {pillar.name}
                 </p>
-                <p className="text-xs text-ink/45 mt-1">Billed monthly</p>
-                <p className="mt-3 text-sm text-ink/65 leading-relaxed">{plan.blurb}</p>
+                <p className="mt-3 text-sm text-ink/65 leading-relaxed">{pillar.blurb}</p>
               </article>
             ))}
           </div>
           <div className="mt-6">
-            <SecondaryCta to="/pricing">View full pricing</SecondaryCta>
+            <PrimaryCta to="/signup">Start free</PrimaryCta>
           </div>
         </MarketingContainer>
       </SurfaceSection>
@@ -339,8 +335,8 @@ export default function LandingPage() {
         <MarketingContainer>
           <SectionHeader
             eyebrow="Why teams switch"
-            title="Flexible growth workflows for every social operating model"
-            subtitle="Scale your brand system with clean, high-clarity campaign operations designed to work independently or together."
+            title="Why teams switch when they want a free social media engine that still looks polished"
+            subtitle="Move from expensive, slow content ops to a faster free workflow built for consistent generation, review, and scheduling."
             center
           />
           <div className="mt-10">
@@ -354,7 +350,7 @@ export default function LandingPage() {
           <SectionHeader
             eyebrow="FAQ"
             title="Frequently asked questions"
-            subtitle="Everything you need to know before you start creating with ContentCard."
+            subtitle="Everything you need to know before you start using ContentCard for free."
           />
           <div className="mt-8 space-y-3">
             {faqs.map((item, idx) => (
@@ -380,10 +376,10 @@ export default function LandingPage() {
       <SurfaceSection>
         <MarketingContainer>
           <CtaBand
-            title="Ready to run social like a high-performing team?"
-            body="Start free and launch your first campaign month in minutes."
-            primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
-            secondary={<SecondaryCta to="/pricing">View pricing</SecondaryCta>}
+            title="Ready to switch to a free social media content generator and scheduler?"
+            body="Start free, generate faster, and schedule your first campaign month in minutes."
+            primary={<PrimaryCta to="/signup">Start free forever</PrimaryCta>}
+            secondary={<SecondaryCta to="/features">See features</SecondaryCta>}
           />
         </MarketingContainer>
       </SurfaceSection>
