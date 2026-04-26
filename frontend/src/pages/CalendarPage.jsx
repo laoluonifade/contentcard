@@ -1388,7 +1388,11 @@ export default function CalendarPage() {
           remaining: Number(d.remaining_bonus_designs || 2),
         })
       }
-      const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
+      // Only surface server-provided detail messages. Raw JS exceptions (ReferenceError,
+      // TypeError, etc.) are noise to users — log them and show a generic fallback instead.
+      const serverMsg = typeof d === 'string' ? d : d?.message
+      if (!serverMsg) console.error('Generation failed:', err)
+      const msg = serverMsg || 'Something went wrong while generating. Please try again in a moment.'
       if (msg.toLowerCase().includes('taking longer than expected')) {
         try {
           const vpKey = visualPendingSessionKey(user?.id, activeBrandId, month, year)
