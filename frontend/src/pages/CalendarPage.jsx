@@ -10,6 +10,7 @@ import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
 import GenerationPlanModal from '../components/ui/GenerationPlanModal'
+import PaymentModal from '../components/ui/PaymentModal'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const MAX_GENERATION_MONTHS_AHEAD = 3
@@ -611,6 +612,7 @@ export default function CalendarPage() {
   const [genTemplateId, setGenTemplateId] = useState(null)
   const [layoutMode, setLayoutMode] = useState('grid')
   const [cardUpsellToast, setCardUpsellToast] = useState(null)
+  const [showCardModal, setShowCardModal] = useState(false)
   const [thisWeekOnly, setThisWeekOnly] = useState(false)
   const [selectedDate, setSelectedDate] = useState('')
   const cardRef = useRef(null)
@@ -2424,7 +2426,7 @@ export default function CalendarPage() {
               className="btn-primary text-xs px-3 py-2"
               onClick={() => {
                 setCardUpsellToast(null)
-                navigate('/dashboard/billing')
+                setShowCardModal(true)
               }}
             >
               Add card and continue
@@ -2438,6 +2440,19 @@ export default function CalendarPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── Inline card-save modal (opened from card upsell toast) ── */}
+      {showCardModal && (
+        <PaymentModal
+          mode="card-save"
+          workspaceId={activeWorkspaceId}
+          onSuccess={() => {
+            setShowCardModal(false)
+            toast('Card saved! You can now generate content freely.')
+          }}
+          onClose={() => setShowCardModal(false)}
+        />
       )}
     </div>
   )
