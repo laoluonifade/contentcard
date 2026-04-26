@@ -2630,8 +2630,9 @@ async def _do_generate_month(
 
             if custom_plan and len(custom_plan) > 0:
                 # User reviewed and edited the plan in the modal — use their schedule
-                # directly instead of running AI planning. The AI still generates
-                # captions and images for each slot; only dates/types/images are seeded.
+                # directly instead of running AI planning. We still need the AI to
+                # generate captions/hashtags for each slot; only dates/types/images
+                # come from the user's edits.
                 posts = []
                 for slot in custom_plan:
                     if not isinstance(slot, dict):
@@ -2654,10 +2655,37 @@ async def _do_generate_month(
                         "visual_direction": visual_direction,
                         "product_image_url": product_image_url,
                         "template_id": slot_template_id,
-                        # Leave topic/caption/image_prompt blank — AI fills these later
                         "topic": topic_override or content_type or "content",
                         "caption": None,
                     })
+
+                # Fill in captions/hashtags/cta for each custom-plan slot. Without this
+                # the post would land in the calendar with a blank caption field.
+                for post in posts:
+                    try:
+                        result = await generate_single_caption(
+                            brand=brand_for_planner,
+                            topic=str(post.get("topic") or post.get("content_type") or "content"),
+                            platform=str(post.get("platform") or "instagram"),
+                            description=str(post.get("visual_direction") or "") or None,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "custom_plan caption generation failed for slot %s: %s",
+                            post.get("date"), exc,
+                        )
+                        continue
+                    if isinstance(result, dict):
+                        cap = result.get("caption")
+                        if isinstance(cap, str) and cap.strip():
+                            post["caption"] = cap.strip()
+                        tags = result.get("hashtags")
+                        if isinstance(tags, list):
+                            post["hashtags"] = [str(t).lstrip("#") for t in tags][:2]
+                        cta = result.get("cta")
+                        if isinstance(cta, str) and cta.strip():
+                            post["cta"] = cta.strip()
+
                 logger.info(
                     "_do_generate_month: using custom_plan with %d slots for brand %s %s/%s",
                     len(posts), brand_id, month, year,
