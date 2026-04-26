@@ -93,6 +93,15 @@ export default function DashboardLayout() {
     ? user.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : '??'
 
+  const guestInteractionGate = (e) => {
+    if (isAuthenticated) return
+    const target = e.target.closest('button, a, input, textarea, select, [role="button"], [role="link"], [contenteditable="true"]')
+    if (!target) return
+    e.preventDefault()
+    e.stopPropagation()
+    navigate('/signup')
+  }
+
   const Sidebar = () => (
     <aside className="w-[220px] flex-shrink-0 flex flex-col bg-surface border-r border-fog h-full">
       <Link to="/" className="flex items-center gap-3 px-4 py-[18px] border-b border-fog hover:opacity-80 transition-opacity flex-shrink-0">
@@ -262,7 +271,12 @@ export default function DashboardLayout() {
           </Link>
         </div>
 
-        <div className="flex-1 overflow-y-auto pb-20 lg:pb-0">
+        <div
+          className="flex-1 overflow-y-auto pb-20 lg:pb-0"
+          onPointerDownCapture={guestInteractionGate}
+          onClickCapture={guestInteractionGate}
+          onSubmitCapture={guestInteractionGate}
+        >
           <Outlet />
         </div>
 
