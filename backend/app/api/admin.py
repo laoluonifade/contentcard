@@ -1070,18 +1070,21 @@ async def admin_stats(
     month_ago = now - timedelta(days=30)
     prev_week_start = now - timedelta(days=14)
 
-    # Total users
-    total_users = (await db.execute(select(func.count()).select_from(User))).scalar() or 0
+    # Total users (excludes soft-deleted accounts)
+    total_users = (await db.execute(
+        select(func.count()).select_from(User).where(User.is_active == True)
+    )).scalar() or 0
 
     # Users this week
     users_this_week = (await db.execute(
-        select(func.count()).select_from(User).where(User.created_at >= week_ago)
+        select(func.count()).select_from(User)
+        .where(User.is_active == True, User.created_at >= week_ago)
     )).scalar() or 0
 
     # Users prev week
     users_prev_week = (await db.execute(
         select(func.count()).select_from(User)
-        .where(User.created_at >= prev_week_start, User.created_at < week_ago)
+        .where(User.is_active == True, User.created_at >= prev_week_start, User.created_at < week_ago)
     )).scalar() or 0
 
     # Total workspaces (proxies for active subscriptions)
@@ -1111,7 +1114,7 @@ async def admin_stats(
         day_end   = now - timedelta(days=i)
         count = (await db.execute(
             select(func.count()).select_from(User)
-            .where(User.created_at >= day_start, User.created_at < day_end)
+            .where(User.is_active == True, User.created_at >= day_start, User.created_at < day_end)
         )).scalar() or 0
         daily_signups.append(count)
 
@@ -1130,7 +1133,8 @@ async def admin_stats(
     user_delta = users_this_week - users_prev_week
 
     users_last_30_days = (await db.execute(
-        select(func.count()).select_from(User).where(User.created_at >= month_ago)
+        select(func.count()).select_from(User)
+        .where(User.is_active == True, User.created_at >= month_ago)
     )).scalar() or 0
 
     content_last_30_days = (await db.execute(
@@ -1274,7 +1278,7 @@ async def admin_users(
     _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    q = select(User).order_by(desc(User.created_at))
+    q = select(User).where(User.is_active == True).order_by(desc(User.created_at))
     if search:
         from sqlalchemy import or_, ilike_op
         q = q.where(
