@@ -978,7 +978,8 @@ async def _reconcile_paystack_transaction_for_workspace(
         ws.customer_id = customer["customer_code"]
 
     auth = data.get("authorization") or {}
-    _apply_paystack_authorization_to_workspace(ws, auth)
+    if auth.get("last4"):
+        _apply_paystack_authorization_to_workspace(ws, auth)
 
     npd = data.get("next_payment_date")
     if npd and hasattr(ws, "next_payment_date"):
@@ -986,6 +987,18 @@ async def _reconcile_paystack_transaction_for_workspace(
             ws.next_payment_date = datetime.fromisoformat(str(npd).replace("Z", "+00:00"))
         except Exception:
             pass
+
+    # If verify didn't carry the authorization, fetch it from the subscription
+    # record (or customer authorizations list) — Paystack frequently omits the
+    # authorization block for subscription transaction verifies.
+    if hasattr(ws, "card_last4") and not getattr(ws, "card_last4", None):
+        from app.services.billing_service import fetch_paystack_authorization
+        fallback_auth = await fetch_paystack_authorization(
+            subscription_code=getattr(ws, "subscription_id", None),
+            customer_code=getattr(ws, "customer_id", None),
+        )
+        if fallback_auth:
+            _apply_paystack_authorization_to_workspace(ws, fallback_auth)
 
     await db.commit()
 
