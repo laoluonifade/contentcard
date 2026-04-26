@@ -158,7 +158,7 @@ function SavedCard({ card, onRemove, removing }) {
         onClick={onRemove}
         disabled={removing}
         className="flex items-center gap-1.5 text-xs text-ink/40 hover:text-red-500 font-medium transition-colors disabled:opacity-40"
-        title="Remove card and cancel subscription"
+        title="Remove card and stop renewal (subscription continues until period end)"
       >
         {removing
           ? <><RefreshCw size={13} className="animate-spin" /> Removing…</>
@@ -262,7 +262,12 @@ export default function BillingPage() {
     try {
       await removeCard()
       setShowRemoveModal(false)
-      toast('Card removed and subscription cancelled.')
+      const endDate = subscription?.next_payment_date
+      if (isSubscribed && endDate) {
+        toast(`Card removed. Your subscription stays active until ${formatDate(endDate)}.`)
+      } else {
+        toast('Card removed.')
+      }
     } catch (err) {
       toast(err.response?.data?.detail || 'Failed to remove card', 'error')
     } finally {
@@ -441,7 +446,11 @@ export default function BillingPage() {
       {showRemoveModal && (
         <ConfirmModal
           title="Remove saved card?"
-          body="This will cancel your active subscription and remove your card. You'll need to re-enter card details to subscribe again."
+          body={
+            isSubscribed && subscription?.next_payment_date
+              ? `Your card will be removed and renewal stopped, but your ${currentPlan?.name || 'paid'} plan stays active until ${formatDate(subscription.next_payment_date)} since you've already paid for this period. After that, your account moves to the free tier.`
+              : "Your card will be removed. You'll need to re-enter card details to subscribe again."
+          }
           confirmLabel="Remove card"
           confirmClass="bg-red-500 hover:bg-red-600"
           onConfirm={handleRemoveCard}
