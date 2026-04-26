@@ -678,162 +678,159 @@ export default function TemplatesPage() {
         </div>
       )}
 
-      {!showModal && (
-      <div className="space-y-6">
-        <div className="min-w-0 space-y-6">
-          {templatePlaybookCatalog && (
-            <div className="rounded-2xl border border-fog bg-mist/40 px-4 py-3">
-              <p className="text-xs uppercase tracking-wide text-ink/45 font-semibold">
-                Sub-industry playbook catalog
-              </p>
-              <p className="text-sm text-ink mt-1">
-                {(templatePlaybookCatalog.industry_name || 'Playbook')} · {(activeBrand?.sub_industry || 'General')}
-              </p>
-              <p className="text-xs text-ink/55 mt-0.5">
-                {(templatePlaybookCatalog.depth || []).length} content types in playbook (click one to view/edit or add to your brand playbook)
-              </p>
-              <div className="mt-3 grid md:grid-cols-2 gap-2">
-                {(templatePlaybookCatalog.depth || []).map((row) => (
-                  <button
-                    type="button"
-                    key={row.content_type}
-                    onClick={() => openNewTemplateFromCatalog(row.content_type)}
-                    className="rounded-xl border border-fog bg-surface px-3 py-2 text-left hover:border-brand-300 hover:bg-brand-500/5 transition-colors"
-                  >
-                    <p className="text-xs font-semibold text-ink">{row.content_type}</p>
-                    <p className="text-[11px] text-ink/55 mt-1">
-                      {row.total_directions} directions · {row.single_count} single · {row.carousel_count} carousel
-                    </p>
-                    <p className={`text-[10px] mt-1 font-semibold ${row.meets_minimum_depth ? 'text-emerald-500' : 'text-amber-500'}`}>
-                      {row.meets_minimum_depth ? 'Depth ok' : 'Needs 10 total / 5+5 split'}
-                    </p>
-                  </button>
-                ))}
+      {!showModal && (() => {
+        // Group user templates under their matching catalog content type
+        const catalogRows = templatePlaybookCatalog?.depth || []
+        const templatesByType = {}
+        const uncategorized = []
+        for (const t of filtered) {
+          const ct = String(t?.design_spec?.playbook_content_type || t.name || '').trim().toLowerCase()
+          const match = catalogRows.find(
+            (row) => String(row.content_type || '').trim().toLowerCase() === ct
+          )
+          if (match) {
+            if (!templatesByType[match.content_type]) templatesByType[match.content_type] = []
+            templatesByType[match.content_type].push(t)
+          } else {
+            uncategorized.push(t)
+          }
+        }
+
+        const TemplateCard = ({ t }) => (
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={() => openTemplate(t)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTemplate(t) } }}
+            className="text-left bg-surface border border-fog hover:border-ink/20 rounded-xl p-4 transition-colors"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ background: `${t.color}22`, border: `1px solid ${t.color}33` }}
+                >
+                  <span style={{ color: t.color }} className="text-[10px] font-bold">
+                    {t.category.slice(0, 2).toUpperCase()}
+                  </span>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-ink font-semibold text-sm truncate">{t.name}</p>
+                  <p className="text-[11px] font-medium capitalize" style={{ color: t.color }}>{t.recurrence}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${t.is_active ? 'bg-emerald-500/10 text-emerald-500' : 'bg-fog text-ink/40'}`}>
+                  {t.is_active ? 'Active' : 'Paused'}
+                </span>
+                <button type="button" onClick={(e) => { e.stopPropagation(); openTemplate(t) }}
+                  className="h-7 px-2 rounded-lg bg-mist hover:bg-fog text-ink/65 hover:text-ink text-[11px] font-semibold border border-fog">
+                  View/Edit
+                </button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); useTemplateForMonth(t.id) }}
+                  className="h-7 px-2 rounded-lg bg-brand-500/10 text-[11px] text-brand-600 hover:bg-brand-500/20 font-semibold flex items-center gap-1 transition-colors">
+                  <Layers size={10} /> Use this month
+                </button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); toggleActive(t) }}
+                  title={t.is_active ? 'Pause' : 'Activate'}
+                  className="w-7 h-7 rounded-lg bg-fog hover:bg-mist flex items-center justify-center text-ink/50 hover:text-ink transition-all">
+                  {t.is_active ? <Pause size={11} /> : <Play size={11} />}
+                </button>
+                <button type="button" onClick={(e) => { e.stopPropagation(); del(t.id) }}
+                  className="w-7 h-7 rounded-lg bg-fog hover:bg-mist flex items-center justify-center text-ink/50 hover:text-red-400 transition-all">
+                  <Trash2 size={11} />
+                </button>
               </div>
             </div>
-          )}
-          {filtered.length === 0 && !templatePlaybookCatalog ? (
-            <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
-              <p className="text-ink/40 text-sm mb-4">
-                No playbook items yet. Add one for recurring content like weekly services, monthly sales, or product
-                launches. Open Add playbook item to draft and save your first pattern.
-              </p>
-              <button
-                onClick={openNewTemplate}
-                className="inline-flex items-center gap-2 px-5 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors"
-              >
-                <Plus size={15} /> Create first playbook item
-              </button>
-            </div>
-          ) : filtered.length > 0 ? (
-            <div className="grid md:grid-cols-2 gap-4">
-              {filtered.map((t) => (
-                <div
-                  key={t.id}
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => openTemplate(t)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      openTemplate(t)
-                    }
-                  }}
-                  className="text-left bg-surface border border-fog hover:border-ink/20 rounded-2xl p-5 transition-colors"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
-                        style={{ background: `${t.color}22`, border: `1px solid ${t.color}33` }}
-                      >
-                        <span style={{ color: t.color }} className="text-xs font-bold">
-                          {t.category.slice(0, 2).toUpperCase()}
-                        </span>
-                      </div>
-                      <div>
-                        <p className="text-ink font-bold text-sm">{t.name}</p>
-                        <p className="text-xs font-semibold mt-0.5 capitalize" style={{ color: t.color }}>
-                          {t.recurrence}
+            {t.description && (
+              <p className="text-ink/40 text-[11px] mt-2 leading-relaxed line-clamp-1">{t.description}</p>
+            )}
+          </div>
+        )
+
+        return (
+          <div className="space-y-3">
+            {/* No catalog + no templates fallback */}
+            {!templatePlaybookCatalog && filtered.length === 0 && (
+              <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
+                <p className="text-ink/40 text-sm mb-4">
+                  No playbook items yet. Add one for recurring content like weekly services, monthly sales, or product launches.
+                </p>
+                <button onClick={openNewTemplate}
+                  className="inline-flex items-center gap-2 px-5 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
+                  <Plus size={15} /> Create first playbook item
+                </button>
+              </div>
+            )}
+
+            {/* Industry label */}
+            {templatePlaybookCatalog && (
+              <div className="flex items-center gap-2 pb-1">
+                <p className="text-xs uppercase tracking-widest text-ink/35 font-semibold">
+                  {templatePlaybookCatalog.industry_name || 'Playbook'} · {activeBrand?.sub_industry || 'General'}
+                </p>
+                <div className="flex-1 h-px bg-fog" />
+              </div>
+            )}
+
+            {/* Catalog rows — each with nested user templates */}
+            {catalogRows.map((row) => {
+              const myTemplates = templatesByType[row.content_type] || []
+              const hasTemplates = myTemplates.length > 0
+              return (
+                <div key={row.content_type} className="rounded-2xl border border-fog bg-surface overflow-hidden">
+                  {/* Catalog header row */}
+                  <div className="flex items-center justify-between gap-3 px-4 py-3 bg-mist/40">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className={`w-2 h-2 rounded-full flex-shrink-0 ${hasTemplates ? 'bg-emerald-400' : 'bg-fog'}`} />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-ink">{row.content_type}</p>
+                        <p className="text-[11px] text-ink/45">
+                          {row.total_directions} directions · {row.single_count} single · {row.carousel_count} carousel
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openTemplate(t)
-                        }}
-                        className="h-8 px-2.5 rounded-lg bg-mist hover:bg-fog text-ink/65 hover:text-ink text-[11px] font-semibold border border-fog"
-                      >
-                        View/Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          toggleActive(t)
-                        }}
-                        title={t.is_active ? 'Pause' : 'Activate'}
-                        className="w-8 h-8 rounded-lg bg-fog hover:bg-mist flex items-center justify-center text-ink/50 hover:text-ink transition-all"
-                      >
-                        {t.is_active ? <Pause size={13} /> : <Play size={13} />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          del(t.id)
-                        }}
-                        className="w-8 h-8 rounded-lg bg-fog hover:bg-mist flex items-center justify-center text-ink/50 hover:text-red-400 transition-all"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openNewTemplateFromCatalog(row.content_type)}
+                      className="flex-shrink-0 h-7 px-2.5 rounded-lg border border-fog bg-surface text-[11px] font-semibold text-ink/60 hover:border-brand-300 hover:text-brand-600 hover:bg-brand-500/5 transition-colors flex items-center gap-1"
+                    >
+                      <Plus size={11} />
+                      {hasTemplates ? 'Add another' : 'Add to playbook'}
+                    </button>
                   </div>
-                  <p className="text-ink/40 text-xs mb-3 leading-relaxed">{t.description || 'No description'}</p>
-                  <div className="flex flex-wrap gap-1.5 mb-3">
-                    <span className="text-[10px] font-semibold px-2 py-1 rounded-lg border border-fog bg-mist text-ink/60">
-                      Content: {String(contentTemplateType(t)).replace(/_/g, ' ')}
-                    </span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5 mb-4">
-                    {(t.topics || []).slice(0, 4).map((tp) => (
-                      <span
-                        key={tp}
-                        className="text-[10px] font-semibold px-2 py-1 rounded-lg capitalize"
-                        style={{ background: `${t.color}15`, color: t.color, border: `1px solid ${t.color}25` }}
-                      >
-                        {tp}
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-xs font-bold px-2 py-1 rounded-full ${t.is_active ? 'bg-emerald-500/10 text-emerald-400' : 'bg-fog text-ink/40'}`}>
-                      {t.is_active ? 'Active' : 'Paused'}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          useTemplateForMonth(t.id)
-                        }}
-                        className="h-8 px-2.5 rounded-lg bg-brand-500/10 text-xs text-brand-600 hover:bg-brand-500/20 font-semibold flex items-center gap-1 transition-colors"
-                      >
-                        <Layers size={11} /> Use this month
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
 
-      </div>
-      )}
+                  {/* User's templates for this type */}
+                  {hasTemplates && (
+                    <div className="px-4 py-3 space-y-2 border-t border-fog">
+                      {myTemplates.map((t) => <TemplateCard key={t.id} t={t} />)}
+                    </div>
+                  )}
+
+                  {/* Empty nudge */}
+                  {!hasTemplates && (
+                    <div className="px-4 py-2.5 border-t border-fog">
+                      <p className="text-[11px] text-ink/30 italic">Not added to your playbook yet</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Uncategorized templates (not matched to any catalog type) */}
+            {uncategorized.length > 0 && (
+              <div className="rounded-2xl border border-fog bg-surface overflow-hidden">
+                <div className="flex items-center gap-3 px-4 py-3 bg-mist/40">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-ink/40">Custom playbook items</p>
+                </div>
+                <div className="px-4 py-3 space-y-2 border-t border-fog">
+                  {uncategorized.map((t) => <TemplateCard key={t.id} t={t} />)}
+                </div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Add playbook item modal */}
       {viewingTemplate && (
