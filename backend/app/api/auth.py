@@ -225,12 +225,12 @@ async def delete_account(
                 select(WorkspaceMember).where(
                     WorkspaceMember.workspace_id == ws_id,
                     WorkspaceMember.user_id != current_user.id,
-                    WorkspaceMember.role == WorkspaceRole.owner,
+                    WorkspaceMember.role == WorkspaceRole.OWNER,
                 )
             )
         ).scalars().all()
 
-        if mem.role == WorkspaceRole.owner and not other_owners:
+        if mem.role == WorkspaceRole.OWNER and not other_owners:
             ws.name = f"[Archived workspace – {uid_short}]"
             ws.is_active = False
             # Revoke other members' access — content rows are intentionally kept
