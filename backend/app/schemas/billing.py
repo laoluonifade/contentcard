@@ -5,11 +5,12 @@ from datetime import datetime
 class CheckoutRequest(BaseModel):
     plan: str           # starter | smb | pro
     workspace_id: str
+    currency: str = "NGN"   # NGN → Paystack, USD → Stripe
 
 
 class CheckoutResponse(BaseModel):
     checkout_url: str
-    provider: str       # paystack
+    provider: str       # paystack | stripe
 
 
 class CardOut(BaseModel):

@@ -1,6 +1,10 @@
+import asyncio
 import httpx
 import logging
+import stripe
 from app.core.config import settings
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
 
 logger = logging.getLogger(__name__)
 
@@ -9,14 +13,18 @@ PLANS = {
     "starter": {
         "name": "Starter",
         "paystack_name": "ContentCard Starter",
-        "ngn_price": 2000000,   # ₦20,000
+        "ngn_price": 2000000,       # ₦20,000 in kobo
+        "usd_price_cents": 2900,    # $29.00 in cents
+        "stripe_price_id": settings.STRIPE_PRICE_STARTER,
         "max_brands": 1,
         "max_members": 1,
     },
     "smb": {
         "name": "Growth",
         "paystack_name": "ContentCard Growth",
-        "ngn_price": 5000000,   # ₦50,000
+        "ngn_price": 5000000,       # ₦50,000
+        "usd_price_cents": 4900,    # $49.00
+        "stripe_price_id": settings.STRIPE_PRICE_SMB,
         "max_brands": 3,
         "max_members": 5,
         "featured": True,
@@ -24,7 +32,9 @@ PLANS = {
     "pro": {
         "name": "Pro",
         "paystack_name": "ContentCard Pro",
-        "ngn_price": 20000000,  # ₦200,000
+        "ngn_price": 20000000,      # ₦200,000
+        "usd_price_cents": 9900,    # $99.00
+        "stripe_price_id": settings.STRIPE_PRICE_PRO,
         "max_brands": 10,
         "max_members": None,
     },
@@ -231,6 +241,68 @@ async def charge_saved_authorization(
             msg = body.get("message") if isinstance(body, dict) else None
             raise ValueError(msg or f"Paystack charge_authorization failed ({resp.status_code})")
         return body
+
+
+# ── Stripe ───────────────────────────────────────────────────────────────────
+
+async def create_stripe_checkout(
+    *,
+    email: str,
+    plan: str,
+    workspace_id: str,
+    success_url: str,
+    cancel_url: str,
+) -> str:
+    """
+    Create a Stripe Checkout Session for a recurring subscription.
+    Returns the hosted checkout URL to redirect the user to.
+    """
+    price_id = PLANS[plan].get("stripe_price_id", "")
+    if not price_id:
+        raise ValueError(f"No Stripe price ID configured for plan '{plan}'. Set STRIPE_PRICE_{plan.upper()} in env.")
+
+    session = await asyncio.to_thread(
+        stripe.checkout.Session.create,
+        customer_email=email,
+        payment_method_types=["card"],
+        line_items=[{"price": price_id, "quantity": 1}],
+        mode="subscription",
+        success_url=success_url,
+        cancel_url=cancel_url,
+        metadata={"plan": plan, "workspace_id": workspace_id},
+        subscription_data={"metadata": {"plan": plan, "workspace_id": workspace_id}},
+    )
+    return session.url
+
+
+async def verify_stripe_session(session_id: str) -> dict:
+    """Retrieve and return a Stripe Checkout Session (with subscription expanded)."""
+    session = await asyncio.to_thread(
+        stripe.checkout.Session.retrieve,
+        session_id,
+        expand=["subscription"],
+    )
+    return session
+
+
+async def cancel_stripe_subscription(subscription_id: str) -> None:
+    """Cancel a Stripe subscription immediately."""
+    await asyncio.to_thread(stripe.Subscription.cancel, subscription_id)
+
+
+async def handle_stripe_webhook(payload: bytes, sig_header: str) -> dict | None:
+    """Verify Stripe webhook signature and return the parsed event, or None on failure."""
+    try:
+        event = await asyncio.to_thread(
+            stripe.Webhook.construct_event,
+            payload,
+            sig_header,
+            settings.STRIPE_WEBHOOK_SECRET,
+        )
+        return event
+    except Exception as e:
+        logger.warning(f"Stripe webhook signature verification failed: {e}")
+        return None
 
 
 def get_plan_limits(plan: str) -> dict:

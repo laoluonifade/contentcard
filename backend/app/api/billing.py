@@ -16,6 +16,10 @@ from app.services.billing_service import (
     create_paystack_checkout,
     verify_paystack_transaction,
     cancel_paystack_subscription,
+    create_stripe_checkout,
+    verify_stripe_session,
+    cancel_stripe_subscription,
+    handle_stripe_webhook,
     PLANS,
 )
 from app.services.billing_entitlements import (
@@ -112,24 +116,53 @@ async def create_checkout(
 
     ws = await _require_owner(body.workspace_id, current_user.id, db)
     target_ws = await checkout_target_workspace(db, current_user.id, ws)
-    target_ws.payment_provider = "paystack"
-    await db.flush()
 
+    use_stripe = body.currency.upper() == "USD"
     api_base = str(request.base_url).rstrip("/")
-    callback_url = (
-        f"{api_base}/api/v1/billing/webhook/paystack/verify"
-        f"?workspace={target_ws.id}&plan={body.plan}"
-    )
 
-    checkout_url = await create_paystack_checkout(
-        email=current_user.email,
-        plan=body.plan,
-        workspace_id=target_ws.id,
-        callback_url=callback_url,
-    )
+    if use_stripe:
+        if not settings.STRIPE_SECRET_KEY:
+            raise HTTPException(status_code=503, detail="Stripe is not configured on this server")
 
-    await db.commit()
-    return CheckoutResponse(checkout_url=checkout_url, provider="paystack")
+        target_ws.payment_provider = "stripe"
+        await db.flush()
+
+        # Stripe replaces {CHECKOUT_SESSION_ID} automatically in the success URL
+        success_url = (
+            f"{api_base}/api/v1/billing/webhook/stripe/verify"
+            f"?session_id={{CHECKOUT_SESSION_ID}}&workspace={target_ws.id}&plan={body.plan}"
+        )
+        cancel_url = f"{settings.FRONTEND_URL}/dashboard/billing?cancelled=1"
+
+        checkout_url = await create_stripe_checkout(
+            email=current_user.email,
+            plan=body.plan,
+            workspace_id=target_ws.id,
+            success_url=success_url,
+            cancel_url=cancel_url,
+        )
+        await db.commit()
+        return CheckoutResponse(checkout_url=checkout_url, provider="stripe")
+
+    else:
+        if not settings.PAYSTACK_SECRET_KEY:
+            raise HTTPException(status_code=503, detail="Paystack is not configured on this server")
+
+        target_ws.payment_provider = "paystack"
+        await db.flush()
+
+        callback_url = (
+            f"{api_base}/api/v1/billing/webhook/paystack/verify"
+            f"?workspace={target_ws.id}&plan={body.plan}"
+        )
+        checkout_url = await create_paystack_checkout(
+            email=current_user.email,
+            plan=body.plan,
+            workspace_id=target_ws.id,
+            callback_url=callback_url,
+        )
+        await db.commit()
+        return CheckoutResponse(checkout_url=checkout_url, provider="paystack")
 
 
 @router.delete("/card/{workspace_id}", status_code=204)
@@ -190,9 +223,12 @@ async def cancel_subscription(
 
     if ws.subscription_id:
         try:
-            await cancel_paystack_subscription(ws.subscription_id)
+            if ws.payment_provider == "stripe":
+                await cancel_stripe_subscription(ws.subscription_id)
+            else:
+                await cancel_paystack_subscription(ws.subscription_id)
         except Exception as e:
-            logger.warning(f"Paystack cancel failed: {e}")
+            logger.warning(f"Subscription cancel failed: {e}")
 
     ws.plan = "trial"
     ws.subscription_id = None
@@ -264,6 +300,121 @@ async def paystack_verify_redirect(
         url=f"{settings.FRONTEND_URL}/dashboard/billing?success=1&workspace={workspace_id or ''}&plan={plan_name}",
         status_code=302,
     )
+
+
+# ── Stripe callback redirect (user returning from Stripe Checkout) ─────────────
+
+@router.get("/webhook/stripe/verify")
+async def stripe_verify_redirect(
+    session_id: str,
+    workspace: str | None = None,
+    plan: str | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Stripe redirects here after the user completes (or abandons) checkout.
+    We verify the session and activate the plan immediately so the UI updates
+    before the server-side webhook arrives.
+    """
+    try:
+        session = await verify_stripe_session(session_id)
+    except Exception as e:
+        logger.error(f"Stripe session verify failed: {e}")
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/dashboard/billing?error=payment_failed",
+            status_code=302,
+        )
+
+    payment_status = session.get("payment_status", "")
+    if payment_status not in ("paid", "no_payment_required"):
+        return RedirectResponse(
+            url=f"{settings.FRONTEND_URL}/dashboard/billing?error=payment_failed",
+            status_code=302,
+        )
+
+    metadata = session.get("metadata") or {}
+    plan_name = metadata.get("plan") or plan or "starter"
+    workspace_id = metadata.get("workspace_id") or workspace
+
+    if workspace_id:
+        ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        ws = ws_r.scalar_one_or_none()
+        if ws:
+            ws.plan = plan_name
+            ws.payment_provider = "stripe"
+            sub = session.get("subscription")
+            if sub:
+                ws.subscription_id = sub.get("id") if isinstance(sub, dict) else sub
+            customer = session.get("customer")
+            if customer:
+                ws.customer_id = customer.get("id") if isinstance(customer, dict) else customer
+            await db.commit()
+            logger.info(f"Stripe payment verified: workspace {ws.id} → {plan_name}")
+
+    return RedirectResponse(
+        url=f"{settings.FRONTEND_URL}/dashboard/billing?success=1&plan={plan_name}",
+        status_code=302,
+    )
+
+
+# ── Stripe server-side webhook ─────────────────────────────────────────────────
+
+@router.post("/webhook/stripe", include_in_schema=False)
+async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+    event = await handle_stripe_webhook(payload, sig)
+    if not event:
+        raise HTTPException(status_code=400, detail="Invalid Stripe webhook signature")
+
+    event_type = event.get("type", "")
+    data = event.get("data", {}).get("object", {})
+    logger.info(f"Stripe webhook: {event_type}")
+
+    if event_type == "checkout.session.completed":
+        metadata = data.get("metadata") or {}
+        workspace_id = metadata.get("workspace_id")
+        plan_name = metadata.get("plan", "starter")
+        if workspace_id:
+            ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+            ws = ws_r.scalar_one_or_none()
+            if ws:
+                ws.plan = plan_name
+                ws.payment_provider = "stripe"
+                ws.subscription_id = data.get("subscription")
+                ws.customer_id = data.get("customer")
+                await db.commit()
+
+    elif event_type in ("customer.subscription.deleted", "customer.subscription.updated"):
+        sub_id = data.get("id")
+        status = data.get("status", "")
+        if sub_id:
+            ws_r = await db.execute(select(Workspace).where(Workspace.subscription_id == sub_id))
+            ws = ws_r.scalar_one_or_none()
+            if ws:
+                if status in ("canceled", "unpaid", "incomplete_expired"):
+                    ws.plan = "trial"
+                    ws.subscription_id = None
+                    ws.next_payment_date = None
+                await db.commit()
+
+    elif event_type == "invoice.payment_succeeded":
+        sub_id = data.get("subscription")
+        if sub_id:
+            ws_r = await db.execute(select(Workspace).where(Workspace.subscription_id == sub_id))
+            ws = ws_r.scalar_one_or_none()
+            if ws:
+                npd = data.get("next_payment_attempt")
+                if npd:
+                    from datetime import datetime, timezone
+                    ws.next_payment_date = datetime.fromtimestamp(npd, tz=timezone.utc)
+                await db.commit()
+
+    elif event_type == "invoice.payment_failed":
+        sub_id = data.get("subscription")
+        logger.warning(f"Stripe invoice payment failed for subscription {sub_id}")
+
+    return {"received": True}
 
 
 # ── Paystack server-side webhook ───────────────────────────────────────────────
