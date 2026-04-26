@@ -1259,61 +1259,94 @@ def _playbook_from_brand(brand: dict | None) -> dict | None:
     }
 
 
-def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, seed_key: str) -> list[dict]:
+def _build_playbook_schedule(
+    posting_dates: list[str],
+    playbook: dict | None,
+    seed_key: str,
+    *,
+    format_pref: str | None = None,
+) -> list[dict]:
+    """Plan a strategic, mix-balanced calendar for these dates.
+
+    The pipeline is now two stages:
+
+      1. ``content_planner.plan_calendar`` chooses the canonical content slot
+         (Product Spotlight, Educational, Promotional, Social Proof,
+         Engagement, Story), the content_intent (awareness/engagement/
+         conversion), and the post format (single/carousel) per date,
+         honouring the per-8 mix, format rules, and repetition guard.
+
+      2. ``visual_strategy.schedule_month`` then assigns a structured
+         visual_strategy (subject_type / composition / medium / lighting /
+         context / pose / dominance) per date, honouring the per-10
+         distribution buckets, 50% human cap, ≥40% non-human floor, and
+         3-of-4-axis repetition guard.
+
+    The brand's design_playbook is still consulted — its content_type names
+    feed the planner's label pool so each row keeps a brand-flavoured label,
+    and any matching free-form visual_direction is preserved as
+    ``brand_visual_direction_hint`` for the LLM to draw inspiration from.
+    The authoritative visual direction served downstream is the structured
+    seven-axis brief produced by ``visual_strategy``.
+    """
     if not posting_dates:
         return []
-    if not playbook:
-        return []
-    content_types = [ct for ct in (playbook.get("content_types") or []) if isinstance(ct, dict)]
-    if not content_types:
-        return []
-    import random, hashlib
-    seed = int(hashlib.md5(seed_key.encode()).hexdigest(), 16)
-    rng = random.Random(seed)
-    ct_pool = content_types[:]
-    rng.shuffle(ct_pool)
+
+    from app.services import content_planner as _cp
+    from app.services import visual_strategy as _vs
+
+    # ── Brand label pool & VD lookup ─────────────────────────────────────────
+    label_pool: list[str] = []
+    vd_index: dict[str, dict[str, list[str]]] = {}
+    if isinstance(playbook, dict):
+        for ct in (playbook.get("content_types") or []):
+            if not isinstance(ct, dict):
+                continue
+            name = str(ct.get("name") or "").strip()
+            if not name:
+                continue
+            label_pool.append(name)
+            opts = [o for o in (ct.get("options") or []) if isinstance(o, dict)]
+            slot_key = _cp.slot_for_label(name)
+            slot_bucket = vd_index.setdefault(slot_key, {"single": [], "carousel": []})
+            for opt in opts:
+                pt = "carousel" if "carousel" in str(opt.get("post_type") or "").lower() else "single"
+                vd_text = str(opt.get("visual_direction") or "").strip()
+                if vd_text:
+                    slot_bucket[pt].append(vd_text)
+
+    # ── Stage 1: content mix engine ─────────────────────────────────────────
+    planned = _cp.plan_calendar(
+        posting_dates=posting_dates,
+        seed_key=seed_key + "::content_planner",
+        label_pool=label_pool or None,
+        format_pref=format_pref,
+    )
+
     plan: list[dict] = []
-    prev_ct = None
-    recent_vds: list[str] = []
-    cursor = 0
-    for d in posting_dates:
-        if not ct_pool:
-            ct_pool = content_types[:]
-            rng.shuffle(ct_pool)
-        ct = ct_pool[cursor % len(ct_pool)]
-        cursor += 1
-        if prev_ct and str(ct.get("name")) == prev_ct and len(ct_pool) > 1:
-            for candidate in ct_pool:
-                if str(candidate.get("name")) != prev_ct:
-                    ct = candidate
-                    break
-        options = [o for o in (ct.get("options") or []) if isinstance(o, dict)]
-        if not options:
-            continue
-        ranked = options[:]
-        rng.shuffle(ranked)
-        ranked.sort(key=lambda x: 1 if str(x.get("visual_direction") or "") in recent_vds[-2:] else 0)
-        selected = ranked[0]
-        vd = str(selected.get("visual_direction") or "")
-        recent_vds.append(vd)
+    for row in planned:
+        # Pick a brand-flavoured VD hint matching slot+format if any exists.
+        slot_bucket = vd_index.get(row.content_type, {})
+        candidates = slot_bucket.get(row.post_format) or slot_bucket.get("single") or slot_bucket.get("carousel") or []
+        brand_vd_hint = candidates[0] if candidates else ""
         plan.append(
             {
-                "date": d,
-                "content_type": str(ct.get("name") or ""),
-                "post_type": "carousel" if str(selected.get("post_type") or "") == "carousel" else "single",
-                "visual_direction": vd,
+                "date": row.date,
+                "content_type": row.content_type_label,           # brand-flavoured label for prompt
+                "content_type_slot": row.content_type,            # canonical slot key
+                "content_intent": row.content_intent,
+                "post_type": row.post_format,                     # legacy field kept
+                "post_format": row.post_format,
+                "variation_id": row.variation_id,
+                "visual_direction": "",                           # filled by stage 2
+                "brand_visual_direction_hint": brand_vd_hint,
+                "planner_rejections": list(row.rejected),
             }
         )
-        prev_ct = str(ct.get("name") or "")
 
-    # ── Visual diversity engine: assign a structured visual_strategy per date ──
-    # Runs *after* content_type assignment so the strategy can honour each type's
-    # contract (Product Spotlight=no humans, Testimonial=text-led, etc.) and
-    # enforce the monthly distribution + 50% human cap + pose rotation.
+    # ── Stage 2: visual diversity engine ─────────────────────────────────────
     try:
-        from app.services import visual_strategy as _vs
-
-        ct_per_date = {row["date"]: row["content_type"] for row in plan}
+        ct_per_date = {row["date"]: row["content_type_slot"] for row in plan}
         scheduled = _vs.schedule_month(
             posting_dates=[row["date"] for row in plan],
             content_type_per_date=ct_per_date,
@@ -1325,24 +1358,63 @@ def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, se
             if not s:
                 continue
             row["visual_strategy"] = s.strategy.to_dict()
-            row["composition_description"] = _vs.composition_description(s.strategy, row["content_type"])
+            row["composition_description"] = _vs.composition_description(s.strategy, row["content_type_slot"])
+            row["visual_direction"] = _vs.render_structured_visual_direction(
+                s.strategy, row["content_type_slot"]
+            )
             if s.rejected:
                 row["visual_strategy_rejections"] = s.rejected
     except Exception:
-        # Diversity engine is best-effort. If it fails for any reason the
-        # caller still gets a valid plan with the legacy fields.
-        logger.exception("visual_strategy scheduler failed; falling back to legacy plan")
+        logger.exception("visual_strategy scheduler failed; falling back to free-form VD only")
+        for row in plan:
+            if not row["visual_direction"] and row.get("brand_visual_direction_hint"):
+                row["visual_direction"] = row["brand_visual_direction_hint"]
+
+    if logger.isEnabledFor(logging.INFO):
+        try:
+            summary = _cp.summarize_plan(planned)
+            logger.info(
+                "calendar_plan summary slots=%s intents=%s formats=%s",
+                summary["slots"], summary["intents"], summary["formats"],
+            )
+        except Exception:
+            pass
 
     return plan
 
 
 def _playbook_assignment_text(plan: list[dict]) -> str:
-    return "\n".join(
-        [
-            f"• {row.get('date')}: content_type={row.get('content_type')} | post_type={row.get('post_type')} | visual_direction={row.get('visual_direction')}"
-            for row in plan
-        ]
-    )
+    """Render the per-date assignment block fed to the planner LLM.
+
+    The block is verbose by design — every assigned axis (slot, intent,
+    format, structured visual direction, brand VD hint when present) is on
+    its own line so the model can see them as one indivisible brief and
+    cannot drift between fields.
+    """
+    blocks: list[str] = []
+    for row in plan:
+        date = row.get("date") or ""
+        ct_label = row.get("content_type") or row.get("content_type_slot") or ""
+        slot = row.get("content_type_slot") or ""
+        intent = row.get("content_intent") or ""
+        fmt = row.get("post_format") or row.get("post_type") or "single"
+        var_id = row.get("variation_id") or ""
+        vd = (row.get("visual_direction") or "").strip()
+        brand_hint = (row.get("brand_visual_direction_hint") or "").strip()
+
+        header = (
+            f"• {date} | content_type={ct_label} (slot={slot}) | "
+            f"intent={intent} | post_format={fmt} | variation_id={var_id}"
+        )
+        block_lines = [header]
+        if vd:
+            block_lines.append("  visual_direction (structured — use VERBATIM as the art brief):")
+            for line in vd.splitlines():
+                block_lines.append(f"    {line}")
+        if brand_hint:
+            block_lines.append(f"  brand_vd_hint (inspiration only, do not copy verbatim): {brand_hint}")
+        blocks.append("\n".join(block_lines))
+    return "\n".join(blocks)
 
 
 def _unique_dates_per_platform_batch(
@@ -1407,16 +1479,26 @@ def _enforce_playbook_assignments(posts: list[dict], plan: list[dict]) -> list[d
         if not assigned:
             continue
         post["content_type"] = assigned.get("content_type")
-        fmt = "carousel" if str(assigned.get("post_type") or "") == "carousel" else "single"
+        post["content_type_slot"] = assigned.get("content_type_slot")
+        if assigned.get("content_intent"):
+            post["content_intent"] = assigned["content_intent"]
+        fmt_assigned = assigned.get("post_format") or assigned.get("post_type") or "single"
+        fmt = "carousel" if str(fmt_assigned) == "carousel" else "single"
         post["format"] = fmt
+        post["post_format"] = fmt
         post["slide_count"] = max(4, int(post.get("slide_count") or 1)) if fmt == "carousel" else 1
-        post["visual_direction"] = assigned.get("visual_direction")
+        if assigned.get("visual_direction"):
+            post["visual_direction"] = assigned["visual_direction"]
+        if assigned.get("variation_id"):
+            post["variation_id"] = assigned["variation_id"]
         if assigned.get("visual_strategy"):
             post["visual_strategy"] = assigned["visual_strategy"]
         if assigned.get("composition_description"):
             post["composition_description"] = assigned["composition_description"]
         if assigned.get("visual_strategy_rejections"):
             post["visual_strategy_rejections"] = assigned["visual_strategy_rejections"]
+        if assigned.get("brand_visual_direction_hint"):
+            post["brand_visual_direction_hint"] = assigned["brand_visual_direction_hint"]
     return posts
 
 
@@ -1444,30 +1526,22 @@ async def _generate_for_platform(
     fmt_pref = str(format_mix or "").strip().lower()
     single_only = any(k in fmt_pref for k in ("single_only", "single", "no_carousel", "single-post"))
     playbook = _playbook_from_brand(brand_dict)
+    # The planner now ALWAYS runs — even without a brand playbook — so every
+    # calendar gets the strategic per-8 mix + per-10 visual diversity.
     playbook_plan = _build_playbook_schedule(
         posting_dates,
         playbook,
         seed_key=f"{month_name}{year}{platform}",
+        format_pref=("single_only" if single_only else (fmt_pref or None)),
     )
     if single_only and playbook_plan:
         for row in playbook_plan:
             row["post_type"] = "single"
+            row["post_format"] = "single"
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
     rng = random.Random(seed)
-    if playbook_plan:
-        assignment_instructions = _playbook_assignment_text(playbook_plan)
-    else:
-        content_types = [
-            "Educational Tip", "Meme / Relatable Humour", "CTA / Promotion",
-            "Trending Moment", "Behind the Scenes", "Customer Testimonial",
-            "Hot Take", "Engagement Question", "Product Spotlight",
-            "Monday Motivation", "Founder Story", "Industry Insight",
-        ]
-        assigned_types = [content_types[rng.randint(0, len(content_types) - 1)] for _ in posting_dates]
-        assignment_instructions = "\n".join(
-            [f"• {d}: content_type={t} | post_type=single" for d, t in zip(posting_dates, assigned_types)]
-        )
+    assignment_instructions = _playbook_assignment_text(playbook_plan) if playbook_plan else ""
 
     platform_notes = {
         "instagram": "Instagram square 1:1",
@@ -1555,7 +1629,7 @@ For EACH post return ALL these fields:
 4. caption: full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
 5. cta: REQUIRED non-empty string, standalone imperative, max 12 words. Must ask for ONE clear action: order food or book a table, visit the website or tap link in bio, or engage (comment, DM, save, share). Never omit, never use placeholders.
 6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
-7. visual_direction: 4-7 sentences as a single design brief. MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster, (f) two sentences that quote the on-card copy using these exact prefixes so layout and raster stay aligned: Headline for layout: \"...hook...\" and Subhead for layout: \"...support...\" where the quoted strings are identical to message_architecture.hook and message_architecture.support from field 16, (g) one sentence that ties this post to strategy_note and the first content goal in BRAND CONTEXT so the scene advances commercial strategy, not random decoration. Plan composition so headline and subcopy read before the caption (leave headline-safe negative space when the scene is busy).
+7. visual_direction: REQUIRED. Return the structured seven-axis art brief verbatim from the assignment map (the lines beginning Subject:, Composition:, Environment:, Lighting:, Human Usage:, Style:, Depth:). After that block, append two extra lines on their own rows: Headline for layout: "<copy>" and Subhead for layout: "<copy>" where the quoted strings are identical to message_architecture.hook and message_architecture.support. Then add one final line beginning "Strategy bridge:" that ties the scene to strategy_note and the first content goal from BRAND CONTEXT. Do NOT rewrite, paraphrase, or "improve" the seven structured axes — they are the executable art brief and the scheduler enforces them downstream. Do NOT use abstract words like "editorial", "campaign quality", or "modern design"; every line must describe what the image looks like.
 8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable letters, numbers, prices, hashtags, titles, or watermarks and must NOT ask the raster model to paint any logo, wordmark, or trademark. On-image story copy belongs in message_architecture only.
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
@@ -1570,6 +1644,8 @@ For EACH post return ALL these fields:
     - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim.
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
+17. content_intent: REQUIRED — exactly one of "awareness", "engagement", "conversion". Use the value from the assignment map verbatim. The caption, hook, and CTA must reflect that intent (awareness teaches/introduces, engagement invites response, conversion drives action).
+18. variation_id: REQUIRED — copy the variation_id from the assignment map verbatim. Used downstream for de-duplication.
 
 HARD RULES:
 • Every post MUST have a non-empty "cta" string (see field 5); if unsure, default to "Visit our site via the link in bio." adapted to brand voice and website if known
@@ -1590,7 +1666,7 @@ HARD RULES:
 {_hard_visual_type_rule(ips)}
 • image_prompt must never ask for text, titles, captions, prices, currency, hashtags, or watermarks, or for any drawn logo or wordmark; reserve logo_safe_zone only
 • message_architecture carries every headline, subhead, and CTA line meant to be read on the graphic; the raster image stays photo or illustration only
-• visual_direction must include the literal prefix Headline for layout: with quoted copy matching message_architecture.hook exactly; when message_architecture.support is non-empty, also include Subhead for layout: with quoted support matching exactly; when strategy_note or content goals exist in BRAND CONTEXT, include one strategy bridge sentence; field 7 and field 16 must never contradict each other
+• visual_direction must include the literal prefix Headline for layout: with quoted copy matching message_architecture.hook exactly; when message_architecture.support is non-empty, also include Subhead for layout: with quoted support matching exactly; when strategy_note or content goals exist in BRAND CONTEXT, include the Strategy bridge: line; field 7 and field 16 must never contradict each other; the seven structured axes (Subject/Composition/Environment/Lighting/Human Usage/Style/Depth) must be returned verbatim from the assignment map and must NOT be paraphrased
 • visual_direction should plan final logo lockup placement and breathing room for compositing after generation, not an in-model logo
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
 • If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning
