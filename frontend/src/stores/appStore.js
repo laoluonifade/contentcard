@@ -224,7 +224,11 @@ const useAppStore = create(
       fetchMonthContent: async (month, year) => {
         const brandId = get().activeBrandId
         if (!brandId) return []
-        const items = await contentApi.list({ brand_id: brandId, month, year })
+        // include_pending=true so posts whose visuals failed/stalled still
+        // appear in the calendar. Otherwise the GET /content month listing
+        // hides them and users lose access to posts they can no longer
+        // regenerate visuals for.
+        const items = await contentApi.list({ brand_id: brandId, month, year, include_pending: true })
         const key = `${year}-${month}`
         set(s => ({ contentByMonth: { ...s.contentByMonth, [key]: items } }))
         return items
