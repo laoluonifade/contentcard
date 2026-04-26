@@ -1794,6 +1794,18 @@ async def generation_prep_chat(
         )
     )
     msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
+
+    # Live web search for the prep assistant
+    research_context: str | None = None
+    last_text = body.messages[-1].content or "" if body.messages else ""
+    if body.enable_web_search and last_text:
+        try:
+            from app.services.brand_research_fetch import needs_web_search, web_search_for_coach
+            if needs_web_search(last_text):
+                research_context, _ = await web_search_for_coach(last_text)
+        except Exception as e:
+            logger.warning("prep chat web search skipped: %s", e)
+
     raw = await run_generation_prep_chat(
         _brand_to_dict(brand),
         body.month,
@@ -1801,6 +1813,7 @@ async def generation_prep_chat(
         msgs,
         playbook_summary=playbook_summary,
         product_context=product_context,
+        research_context=research_context,
     )
     design_intent = None
     if isinstance(raw.get("design_intent"), dict):
