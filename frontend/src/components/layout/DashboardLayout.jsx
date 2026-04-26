@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus, Smile, Share2, Sparkles } from 'lucide-react'
+import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus, Smile, Share2, Sparkles, BookmarkPlus } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
 import Seo from '../seo/Seo'
+import GuestOnboarding from '../dashboard/GuestOnboarding'
+import { loadGuestProfile } from '../../utils/demoData'
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
@@ -41,6 +43,8 @@ export default function DashboardLayout() {
   const [newWsOpen, setNewWsOpen] = useState(false)
   const [newWsName, setNewWsName] = useState('')
   const [creatingWs, setCreatingWs] = useState(false)
+  const [guestProfile, setGuestProfile] = useState(() => (typeof window !== 'undefined' ? loadGuestProfile() : null))
+  const [showGuestOnboarding, setShowGuestOnboarding] = useState(false)
 
   useEffect(() => {
     setSidebarOpen(false)
@@ -48,15 +52,28 @@ export default function DashboardLayout() {
 
   useEffect(() => {
     if (!isAuthenticated) {
-      seedDemoData()
+      const stored = loadGuestProfile()
+      setGuestProfile(stored)
+      seedDemoData(stored || undefined)
+      setShowGuestOnboarding(!stored)
       return
     }
+    setShowGuestOnboarding(false)
     if (!workspaces.length) {
       fetchWorkspaces().catch(() => {})
     }
     fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
   }, [isAuthenticated])
+
+  const handleSaveProgress = () => {
+    const params = new URLSearchParams()
+    if (guestProfile?.brandName) params.set('brand', guestProfile.brandName)
+    if (guestProfile?.website) params.set('website', guestProfile.website)
+    navigate(`/signup${params.toString() ? `?${params.toString()}` : ''}`)
+  }
+
+  const reopenGuestOnboarding = () => setShowGuestOnboarding(true)
 
   const agencyMode = !!user?.agency_mode
 
@@ -188,16 +205,28 @@ export default function DashboardLayout() {
           </>
         ) : (
           <div className="px-2 space-y-2">
-            <p className="px-1 text-ink/40 text-[11px] leading-snug">
-              Save your work and unlock generation by creating a free account.
-            </p>
-            <Link to="/signup"
-              className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-[13px] font-semibold transition-colors">
-              Sign up free
-            </Link>
+            {guestProfile?.brandName && (
+              <button
+                type="button"
+                onClick={reopenGuestOnboarding}
+                className="w-full text-left px-2 py-1 rounded-lg hover:bg-mist transition-colors"
+                title="Edit demo brand"
+              >
+                <p className="text-ink/40 text-[10px] font-semibold uppercase tracking-widest">Demo brand</p>
+                <p className="text-ink text-xs font-semibold truncate">{guestProfile.brandName}</p>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSaveProgress}
+              className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-[13px] font-semibold transition-colors shadow-sm shadow-brand-500/20"
+            >
+              <BookmarkPlus size={14} />
+              Save your progress
+            </button>
             <Link to="/login"
-              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-ink/60 hover:text-ink hover:bg-mist text-[13px] font-semibold transition-colors">
-              Log in
+              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-ink/60 hover:text-ink hover:bg-mist text-[12px] font-semibold transition-colors">
+              Already have an account? Log in
             </Link>
           </div>
         )}
@@ -213,6 +242,15 @@ export default function DashboardLayout() {
         path={location.pathname}
         noindex
       />
+      {!isAuthenticated && showGuestOnboarding && (
+        <GuestOnboarding
+          initialProfile={guestProfile}
+          onDone={(profile) => {
+            setGuestProfile(profile)
+            setShowGuestOnboarding(false)
+          }}
+        />
+      )}
       {newWsOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
           <div className="bg-surface rounded-2xl border border-fog shadow-xl max-w-md w-full p-6">

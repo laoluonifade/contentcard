@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, ArrowRight, Check, Instagram, Facebook, Twitter, Linkedin } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
 import ShopifyIcon from '../components/ui/ShopifyIcon'
@@ -57,10 +57,18 @@ export const COUNTRIES_LIST = [
 ]
 
 export default function SignupPage() {
+  const [searchParams] = useSearchParams()
+  const initialBrand   = searchParams.get('brand')   || ''
+  const initialWebsite = searchParams.get('website') || ''
   const [step, setStep]     = useState(1)
-  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '', workspace_name: '' })
-  const [quickFillWebsite, setQuickFillWebsite] = useState('')
-  const [quickFillEnabled, setQuickFillEnabled] = useState(false)
+  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '', workspace_name: initialBrand })
+  const [quickFillWebsite, setQuickFillWebsite] = useState(initialWebsite)
+  const [quickFillEnabled, setQuickFillEnabled] = useState(Boolean(initialWebsite))
+
+  useEffect(() => {
+    if (initialBrand && !form.workspace_name) setForm((f) => ({ ...f, workspace_name: initialBrand }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialBrand])
   const [showPw, setShowPw] = useState(false)
   const [shopDomain, setShopDomain] = useState('')
   const [showShopifyPrompt, setShowShopifyPrompt] = useState(false)

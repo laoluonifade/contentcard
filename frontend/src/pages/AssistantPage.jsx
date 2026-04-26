@@ -19,10 +19,10 @@ const PLATFORMS = [
 ]
 
 const SUGGESTIONS = [
-  'Generate my Instagram posts for this month',
-  "What's trending in my niche?",
-  'Create a product launch campaign',
-  'Plan content around upcoming holidays',
+  '🛍️  Promote a product or limited-time offer',
+  '📣  Announce something — a launch, event, or update',
+  '🎓  Educate my audience with tips or tutorials',
+  '✨  Tell my brand story',
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────

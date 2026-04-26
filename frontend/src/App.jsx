@@ -64,7 +64,7 @@ function PrivateRoute({ children }) {
 
 function GuestRoute({ children }) {
   const { isAuthenticated } = useAuthStore()
-  return !isAuthenticated ? children : <Navigate to="/dashboard/assistant" replace />
+  return !isAuthenticated ? children : <Navigate to="/dashboard/calendar" replace />
 }
 
 function AdminRoute({ children }) {
@@ -78,7 +78,7 @@ export default function App() {
       <ToastProvider />
       <Routes>
         {/* Marketing */}
-        <Route path="/"                      element={<Navigate to="/dashboard/assistant" replace />} />
+        <Route path="/"                      element={<Navigate to="/dashboard/calendar" replace />} />
         <Route path="/landing"               element={<LandingPage />} />
         <Route path="/features"              element={<FeaturesPage />} />
         <Route path="/pricing"               element={<PricingPage />} />
