@@ -438,9 +438,14 @@ TRANSACTIONAL_KINDS: frozenset[str] = frozenset({
     "password_reset",
     "welcome",
     "team_invite",
+    # Phase 2 — billing notices are non-negotiable transactional. A failed
+    # charge or expiring card threatens the user's access; trial-ending
+    # warnings are required for fair-billing compliance.
     "charge_failed",
     "subscription_renewed",
     "subscription_cancelled",
+    "trial_ending",
+    "card_expiring",
 })
 
 
@@ -666,6 +671,187 @@ def render_generation_failed(
     )
 
 
+# ── Templates: Billing & trial (Phase 2) ──────────────────────────────────────
+
+
+def _greeting(name: str | None) -> str:
+    first = name.split()[0] if name else None
+    return f"Hi {first}," if first else "Hi there,"
+
+
+def render_trial_ending(
+    *,
+    days_remaining: int,
+    upgrade_url: str,
+    name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 2 — sent at T-3 / T-1 / T-0 of `workspaces.trial_ends_at`."""
+    if days_remaining <= 0:
+        head = "Your trial ends today"
+        body_intro = (
+            "Your ContentCard trial ends today. Upgrade now to keep your monthly "
+            "plans, generations, and scheduled posts running without interruption."
+        )
+    elif days_remaining == 1:
+        head = "Your trial ends tomorrow"
+        body_intro = (
+            "Your ContentCard trial ends tomorrow. Upgrade now and you won't lose "
+            "access to your brand kits, generated content, or scheduled posts."
+        )
+    else:
+        head = f"Your trial ends in {days_remaining} days"
+        body_intro = (
+            f"Your ContentCard trial ends in {days_remaining} days. Pick a plan now "
+            "and we'll keep your generations and scheduled posts going seamlessly."
+        )
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">{head}</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {_greeting(name)}</p>
+    <p style="margin:0 0 30px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      {body_intro}
+    </p>
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn("Pick a plan", upgrade_url)}
+    </div>
+    {_divider()}
+    <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
+      Questions about plans? Reply to this email and we'll help.
+    </p>"""
+    return (head, _shell(body_intro, body))
+
+
+def render_charge_failed(
+    *,
+    update_card_url: str,
+    failure_reason: str,
+    name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 2 — sent on Paystack `invoice.payment_failed` and Stripe equivalent."""
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">We couldn't charge your card</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {_greeting(name)}</p>
+    <p style="margin:0 0 18px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      Your latest ContentCard payment didn't go through, so your subscription
+      is at risk of pausing. Update your payment method now to keep generating.
+    </p>
+    <div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;
+      padding:14px 18px;margin:0 0 26px;">
+      <p style="margin:0;font-size:13px;color:#991B1B;line-height:1.6;">
+        <strong>Why this happened:</strong> {failure_reason}
+      </p>
+    </div>
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn("Update payment method", update_card_url)}
+    </div>
+    {_divider()}
+    <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
+      We'll retry the charge automatically over the next few days. Updating
+      your card stops further attempts and restores access immediately.
+    </p>"""
+    return (
+        "Your ContentCard payment failed",
+        _shell("Update your payment method to keep ContentCard active.", body),
+    )
+
+
+def render_card_expiring(
+    *,
+    last4: str | None,
+    update_card_url: str,
+    name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 2 — monthly cron, fires when `workspaces.card_exp_month/year` hits this month."""
+    suffix = f" ending in {last4}" if last4 else ""
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">Your card expires this month</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {_greeting(name)}</p>
+    <p style="margin:0 0 30px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      The card on file{suffix} expires this month. Update it now to avoid an
+      interruption when your subscription next renews.
+    </p>
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn("Update card", update_card_url)}
+    </div>"""
+    return (
+        "Your card on file expires this month",
+        _shell("Update your card before it expires to keep your plan active.", body),
+    )
+
+
+def render_subscription_renewed(
+    *,
+    plan_label: str,
+    amount_label: str,
+    next_payment_label: str | None,
+    receipt_url: str,
+    name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 2 — sent on successful renewal (Stripe `invoice.payment_succeeded` or
+    Paystack subscription `charge.success` after the initial purchase)."""
+    next_line = (
+        f"Next payment: <strong>{next_payment_label}</strong>"
+        if next_payment_label else "We'll let you know before the next renewal."
+    )
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">Payment received — thank you</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {_greeting(name)}</p>
+    <p style="margin:0 0 22px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      We've successfully renewed your <strong>{plan_label}</strong> plan
+      for <strong>{amount_label}</strong>. {next_line}
+    </p>
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn("View receipt", receipt_url)}
+    </div>"""
+    return (
+        f"Payment received — {plan_label}",
+        _shell(f"Your {plan_label} plan renewed successfully.", body),
+    )
+
+
+def render_subscription_cancelled(
+    *,
+    plan_label: str,
+    access_until_label: str | None,
+    reactivate_url: str,
+    name: str | None = None,
+) -> tuple[str, str]:
+    """Phase 2 — sent on cancellation (Paystack `subscription.disable` /
+    `subscription.not_renew`, Stripe `customer.subscription.deleted`)."""
+    until_line = (
+        f"You'll keep access until <strong>{access_until_label}</strong>."
+        if access_until_label else "Access has ended."
+    )
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">Your subscription is cancelled</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {_greeting(name)}</p>
+    <p style="margin:0 0 22px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      We've cancelled your <strong>{plan_label}</strong> subscription.
+      {until_line} Your brand kits, generated content, and history all stay
+      intact — reactivate any time and pick up where you left off.
+    </p>
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn("Reactivate", reactivate_url)}
+    </div>
+    {_divider()}
+    <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
+      Mind sharing what didn't work? Reply and let us know — we read every note.
+    </p>"""
+    return (
+        "Your ContentCard subscription is cancelled",
+        _shell("Subscription cancelled. Reactivate any time.", body),
+    )
+
+
 # ── Convenience helpers ────────────────────────────────────────────────────────
 
 async def send_password_reset(
@@ -769,4 +955,122 @@ async def send_generation_failed(
         subject=subject,
         html=html,
         user_preferences=user_preferences,
+    )
+
+
+# ── Phase 2: Billing & trial ──────────────────────────────────────────────────
+
+
+async def send_trial_ending(
+    *,
+    to: str,
+    workspace_id: str,
+    days_remaining: int,
+    upgrade_url: str,
+    name: str | None = None,
+) -> bool:
+    """Cron-driven; one send per workspace per `days_remaining` slot (3, 1, 0)."""
+    subject, html = render_trial_ending(
+        days_remaining=days_remaining, upgrade_url=upgrade_url, name=name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="trial_ending",
+        dedupe_key=f"{workspace_id}:{int(days_remaining)}",
+        subject=subject,
+        html=html,
+    )
+
+
+async def send_charge_failed(
+    *,
+    to: str,
+    workspace_id: str,
+    invoice_id: str,
+    update_card_url: str,
+    failure_reason: str,
+    name: str | None = None,
+) -> bool:
+    """Webhook-driven; one send per (workspace, invoice). Different invoice = new send."""
+    subject, html = render_charge_failed(
+        update_card_url=update_card_url, failure_reason=failure_reason, name=name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="charge_failed",
+        dedupe_key=f"{workspace_id}:{invoice_id}",
+        subject=subject,
+        html=html,
+    )
+
+
+async def send_card_expiring(
+    *,
+    to: str,
+    workspace_id: str,
+    expiry_year: int,
+    expiry_month: int,
+    last4: str | None,
+    update_card_url: str,
+    name: str | None = None,
+) -> bool:
+    """Cron-driven; one send per card per expiry month."""
+    subject, html = render_card_expiring(
+        last4=last4, update_card_url=update_card_url, name=name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="card_expiring",
+        dedupe_key=f"{workspace_id}:{int(expiry_year):04d}-{int(expiry_month):02d}",
+        subject=subject,
+        html=html,
+    )
+
+
+async def send_subscription_renewed(
+    *,
+    to: str,
+    workspace_id: str,
+    invoice_id: str,
+    plan_label: str,
+    amount_label: str,
+    next_payment_label: str | None,
+    receipt_url: str,
+    name: str | None = None,
+) -> bool:
+    """Webhook-driven; one send per (workspace, invoice)."""
+    subject, html = render_subscription_renewed(
+        plan_label=plan_label, amount_label=amount_label,
+        next_payment_label=next_payment_label, receipt_url=receipt_url, name=name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="subscription_renewed",
+        dedupe_key=f"{workspace_id}:{invoice_id}",
+        subject=subject,
+        html=html,
+    )
+
+
+async def send_subscription_cancelled(
+    *,
+    to: str,
+    workspace_id: str,
+    cancellation_id: str,
+    plan_label: str,
+    access_until_label: str | None,
+    reactivate_url: str,
+    name: str | None = None,
+) -> bool:
+    """Webhook-driven; one send per (workspace, cancellation)."""
+    subject, html = render_subscription_cancelled(
+        plan_label=plan_label, access_until_label=access_until_label,
+        reactivate_url=reactivate_url, name=name,
+    )
+    return await send_once(
+        recipient=to,
+        kind="subscription_cancelled",
+        dedupe_key=f"{workspace_id}:{cancellation_id}",
+        subject=subject,
+        html=html,
     )

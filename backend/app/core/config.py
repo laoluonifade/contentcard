@@ -135,6 +135,12 @@ class Settings(BaseSettings):
     # publish-failure digest. Same staged rollout discipline as Phase 1.
     EMAIL_AUTOPILOT_HEALTH_ENABLED: bool = False
 
+    # Shared secret for cron-only HTTP endpoints (Phase 2 trial/card sweepers,
+    # Phase 3 autopilot digest). Must be set in production; if empty the cron
+    # endpoint fails closed with 503 so misconfigurations don't let cron run
+    # without auth.
+    CRON_SHARED_SECRET: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = True
