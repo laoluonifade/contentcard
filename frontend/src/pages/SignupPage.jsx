@@ -5,7 +5,6 @@ import { LogoFull } from '../components/ui/Logo'
 import ShopifyIcon from '../components/ui/ShopifyIcon'
 import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
-import useAppStore from '../stores/appStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
 import { authApi } from '../api'
@@ -66,7 +65,6 @@ export default function SignupPage() {
   const [shopDomain, setShopDomain] = useState('')
   const [showShopifyPrompt, setShowShopifyPrompt] = useState(false)
   const { signup, isLoading } = useAuthStore()
-  const { fetchWorkspaces } = useAppStore()
   const navigate = useNavigate()
   const authLightThemeVars = {
     '--cc-ink-rgb': '15 23 42',
@@ -102,16 +100,16 @@ export default function SignupPage() {
     const fullPhone = selectedCountry && form.phone.trim()
       ? `${selectedCountry.dial} ${form.phone.trim()}`
       : form.phone.trim() || undefined
+    const email = form.email.trim().toLowerCase()
     try {
       await signup({
         full_name: `${form.first_name.trim()} ${form.last_name.trim()}`,
-        email: form.email.trim().toLowerCase(),
+        email,
         password: form.password,
         phone: fullPhone,
         country_code: form.country_code || undefined,
         workspace_name: form.workspace_name.trim() || undefined,
       })
-      await fetchWorkspaces().catch(() => {})
       try {
         if (quickFillEnabled && quickFillWebsite.trim()) {
           localStorage.setItem('contentcard.signup.quickFillWebsite', quickFillWebsite.trim())
@@ -121,7 +119,7 @@ export default function SignupPage() {
       } catch {
         /* ignore */
       }
-      navigate('/onboarding')
+      navigate(`/verify-email?email=${encodeURIComponent(email)}`)
     } catch (err) {
       toast(err.message || 'Account creation failed. Please try again.', 'error')
     }

@@ -23,16 +23,30 @@ from app.schemas.auth import (
     LoginRequest,
     PasswordChangeRequest,
     PostSignupDecisionRequest,
+    ResendVerificationRequest,
     ShopifyAuthStartResponse,
     ShopifyOnboardingCompleteRequest,
     ShopifyOnboardingStatusOut,
     SignupRequest,
+    SignupResponse,
     TokenResponse,
     UserOut,
+    VerifyEmailRequest,
 )
 from app.services.geo_service import get_country_from_ip, get_payment_provider
-from app.services.email_service import send_password_reset, send_welcome
+from app.services.email_service import send_email_verification, send_password_reset, send_welcome
 from app.core.config import settings
+
+
+VERIFICATION_TOKEN_TTL = timedelta(hours=24)
+
+
+def _new_verification_token(user: User) -> str:
+    """Mint a fresh email-verification token on the user (caller commits)."""
+    token = secrets.token_urlsafe(48)
+    user.email_verification_token = token
+    user.email_verification_token_expires = datetime.now(timezone.utc) + VERIFICATION_TOKEN_TTL
+    return token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -53,7 +67,7 @@ async def ensure_unique_slug(db: AsyncSession, base: str) -> str:
         i += 1
 
 
-@router.post("/signup", response_model=TokenResponse, status_code=201)
+@router.post("/signup", response_model=SignupResponse, status_code=201)
 async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depends(get_db)):
     # Check duplicate email
     existing = await db.execute(select(User).where(User.email == body.email))
@@ -72,7 +86,7 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     country_code = (body.country_code or detected_country or "").upper() or None
     payment_provider = get_payment_provider(country_code)
 
-    # Create user
+    # Create user (email_verified=False — verification email sent below)
     user = User(
         full_name=body.full_name,
         email=body.email,
@@ -108,17 +122,20 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
         role=WorkspaceRole.OWNER,
     )
     db.add(member)
+
+    # Mint verification token before commit
+    verification_token = _new_verification_token(user)
     await db.commit()
     await db.refresh(user)
 
-    # Send welcome email (fire-and-forget — never block the signup response)
+    # Send verification email (fire-and-forget)
     import asyncio
+    verify_url = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
     asyncio.create_task(
-        send_welcome(user.email, user.full_name, settings.FRONTEND_URL + "/dashboard")
+        send_email_verification(user.email, verify_url, user.full_name)
     )
 
-    token = create_access_token(user.id)
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+    return SignupResponse(email=user.email)
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -128,8 +145,76 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
+    if not user.email_verified:
+        raise HTTPException(
+            status_code=403,
+            detail="Please verify your email before signing in. Check your inbox for the verification link.",
+        )
+
     token = create_access_token(user.id)
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+
+
+@router.post("/verify-email", response_model=TokenResponse)
+async def verify_email(body: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Consume a verification token. On success the user is marked verified,
+    the welcome email fires, and a session token is returned so the client
+    can drop them straight into onboarding.
+    """
+    token = body.token.strip()
+    if not token:
+        raise HTTPException(status_code=422, detail="Verification token is required.")
+
+    result = await db.execute(
+        select(User).where(User.email_verification_token == token, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="Invalid or already-used verification link.")
+    if user.email_verification_token_expires is None or datetime.now(timezone.utc) > user.email_verification_token_expires:
+        raise HTTPException(
+            status_code=400,
+            detail="This verification link has expired. Request a new one to continue.",
+        )
+
+    already_verified = user.email_verified
+    user.email_verified = True
+    user.email_verification_token = None
+    user.email_verification_token_expires = None
+    await db.commit()
+    await db.refresh(user)
+
+    # Welcome email only on first successful verification
+    if not already_verified:
+        import asyncio
+        asyncio.create_task(
+            send_welcome(user.email, user.full_name, settings.FRONTEND_URL + "/dashboard")
+        )
+
+    access = create_access_token(user.id)
+    return TokenResponse(access_token=access, user=UserOut.model_validate(user))
+
+
+@router.post("/resend-verification", status_code=204)
+async def resend_verification(body: ResendVerificationRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Request a fresh verification email. Always returns 204 — never reveals
+    whether the email exists or is already verified.
+    """
+    import asyncio
+    email = body.email.strip().lower()
+    result = await db.execute(
+        select(User).where(User.email == email, User.is_active == True)
+    )
+    user = result.scalar_one_or_none()
+    if user and not user.email_verified:
+        token = _new_verification_token(user)
+        await db.commit()
+        verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
+        asyncio.create_task(
+            send_email_verification(user.email, verify_url, user.full_name)
+        )
 
 
 @router.get("/me", response_model=UserOut)
@@ -542,6 +627,7 @@ async def shopify_callback(
             country_code=(shop_info.get("country_code") or None),
             auth_provider="shopify",
             shopify_shop_domain=shop_domain,
+            email_verified=True,  # Shopify already verified the shop owner's email
         )
         db.add(user)
         await db.flush()
@@ -549,6 +635,8 @@ async def shopify_callback(
         if user.auth_provider == "password":
             user.auth_provider = "mixed"
         user.shopify_shop_domain = shop_domain
+        # A successful Shopify OAuth confirms ownership of this email
+        user.email_verified = True
 
     connection_result = await db.execute(select(ShopifyConnection).where(ShopifyConnection.shop_domain == shop_domain))
     connection = connection_result.scalar_one_or_none()

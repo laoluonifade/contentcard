@@ -40,7 +40,14 @@ export default function LoginPage() {
       toast.success('Welcome back!')
       navigate('/dashboard')
     } catch (err) {
-      toast.error(err.message || 'Sign in failed. Please check your credentials.')
+      const msg = err.message || 'Sign in failed. Please check your credentials.'
+      // 403 from backend includes the word "verify" — bounce them to the verify page.
+      if (/verify your email/i.test(msg)) {
+        toast.error('Please verify your email before signing in.')
+        navigate(`/verify-email?email=${encodeURIComponent(form.email.trim().toLowerCase())}`)
+        return
+      }
+      toast.error(msg)
     }
   }
 

@@ -9,6 +9,7 @@ import OnboardingPage       from './pages/OnboardingPage'
 import AcceptInvite         from './pages/AcceptInvite'
 import ForgotPasswordPage   from './pages/ForgotPasswordPage'
 import ResetPasswordPage    from './pages/ResetPasswordPage'
+import VerifyEmailPage      from './pages/VerifyEmailPage'
 import FeaturesPage         from './pages/FeaturesPage'
 import PricingPage          from './pages/PricingPage'
 import EnterprisePage       from './pages/EnterprisePage'
@@ -101,6 +102,7 @@ export default function App() {
         <Route path="/signup"                element={<GuestRoute><SignupPage /></GuestRoute>} />
         <Route path="/forgot-password"       element={<ForgotPasswordPage />} />
         <Route path="/reset-password"        element={<ResetPasswordPage />} />
+        <Route path="/verify-email"          element={<VerifyEmailPage />} />
         <Route path="/accept-invite"         element={<AcceptInvite />} />
         <Route path="/onboarding"            element={<PrivateRoute><OnboardingPage /></PrivateRoute>} />
         <Route path="/shopify/callback"      element={<ShopifyAuthCallbackPage />} />

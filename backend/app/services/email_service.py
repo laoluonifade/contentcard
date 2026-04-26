@@ -160,6 +160,39 @@ def render_password_reset(reset_url: str, name: str | None = None) -> tuple[str,
     )
 
 
+# ── Template: Email verification ──────────────────────────────────────────────
+
+def render_email_verification(verify_url: str, name: str | None = None) -> tuple[str, str]:
+    """Return (subject, html)."""
+    first = name.split()[0] if name else None
+    greeting = f"Hi {first}," if first else "Hi there,"
+    body = f"""
+    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
+      letter-spacing:-0.025em;">Verify your email</h1>
+    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
+      {greeting}</p>
+    <p style="margin:0 0 30px;font-size:15px;color:{_TEXT};line-height:1.75;">
+      Welcome to ContentCard! Please confirm your email so we know it's really you.
+      Click the button below — this link expires in <strong>24&nbsp;hours</strong>.
+    </p>
+    <div style="text-align:center;margin-bottom:30px;">
+      {_btn("Verify my email", verify_url)}
+    </div>
+    {_divider()}
+    <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
+      If you didn't create a ContentCard account, you can safely ignore this email.<br><br>
+      Having trouble with the button? Paste this URL into your browser:<br>
+      <a href="{verify_url}" style="color:{_GREEN};word-break:break-all;">{verify_url}</a>
+    </p>"""
+    return (
+        "Verify your ContentCard email",
+        _shell(
+            "Click to verify your ContentCard email. Link expires in 24 hours.",
+            body,
+        ),
+    )
+
+
 # ── Template: Team invite ──────────────────────────────────────────────────────
 
 def render_team_invite(
@@ -393,6 +426,15 @@ async def send_password_reset(
     name: str | None = None,
 ) -> None:
     subject, html = render_password_reset(reset_url, name)
+    await send_email(to, subject, html)
+
+
+async def send_email_verification(
+    to: str,
+    verify_url: str,
+    name: str | None = None,
+) -> None:
+    subject, html = render_email_verification(verify_url, name)
     await send_email(to, subject, html)
 
 

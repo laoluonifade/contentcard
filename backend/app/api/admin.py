@@ -1330,6 +1330,7 @@ async def admin_sales_sandbox_bootstrap(
             hashed_password=hash_password(secrets.token_urlsafe(16)),
             country_code=country_code,
             is_active=True,
+            email_verified=True,  # admin-created accounts skip the verification flow
         )
         db.add(owner)
         await db.flush()
@@ -1467,6 +1468,7 @@ async def admin_adopt_workspace_owner(
             hashed_password=hash_password(secrets.token_urlsafe(16)),
             country_code=((body.country_code or "NG").strip().upper() or None),
             is_active=True,
+            email_verified=True,  # admin-created accounts skip the verification flow
         )
         db.add(user)
         await db.flush()
