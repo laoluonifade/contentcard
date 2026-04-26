@@ -209,6 +209,17 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires TIMESTAMPTZ",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS visual_strategy_used VARCHAR(100)",
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS composition_description TEXT",
+            # ── Visual diversity engine (20260426_02) ─────────────────────
+            # SQLAlchemy emits these columns in every SELECT against
+            # content_items, so they MUST exist or every query 500s.
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS visual_strategy JSON",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS diversity_checks_passed BOOLEAN NOT NULL DEFAULT FALSE",
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS rejection_log JSON",
+            # ── Email verification (20260426_01) ──────────────────────────
+            # Added defensively — same SELECT-everything failure mode as above.
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(128)",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token_expires TIMESTAMPTZ",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))
