@@ -204,6 +204,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_window_minutes INTEGER DEFAULT 30",
             "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_cooldown_minutes INTEGER DEFAULT 30",
             "ALTER TABLE social_autopilot_configs ADD COLUMN IF NOT EXISTS circuit_breaker_until TIMESTAMPTZ",
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))
