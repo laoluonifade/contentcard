@@ -11,6 +11,12 @@ Usage:
     await send_team_invite(to="new@example.com", invite_url="...", workspace_name="Acme", ...)
     await send_welcome(to="user@example.com", name="Ada")
 
+Idempotent transactional / lifecycle sends (Phase 1+ of the email
+notifications PRD) go through `send_once(...)`, which checks the
+`email_sends` audit table for a matching `(recipient, kind, dedupe_key)`
+before sending and writes a row regardless of outcome. See PRD for the
+full kinds list and dedupe-key conventions.
+
 Email is silently skipped (with a warning log) when GMAIL_USER / GMAIL_APP_PASSWORD
 are not configured — this keeps local dev and CI from crashing.
 """
@@ -22,8 +28,12 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 import aiosmtplib
+from sqlalchemy import select
 
 from app.core.config import settings
+from app.db.database import AsyncSessionLocal
+from app.models.email_send import EmailSend
+from app.models.user import DEFAULT_EMAIL_PREFERENCES
 
 logger = logging.getLogger(__name__)
 
@@ -416,6 +426,138 @@ async def send_email(to: str, subject: str, html: str) -> None:
         logger.info("Email sent  to=%s  subject=%r", to, subject)
     except Exception as exc:
         logger.error("Email failed to=%s  subject=%r  error=%s", to, subject, exc)
+
+
+# ── Idempotent send + preferences ─────────────────────────────────────────────
+
+
+# Categories that ALWAYS send regardless of user preferences. Verification,
+# password reset, and billing-failure notices are non-negotiable transactional.
+TRANSACTIONAL_KINDS: frozenset[str] = frozenset({
+    "email_verification",
+    "password_reset",
+    "welcome",
+    "team_invite",
+    "charge_failed",
+    "subscription_renewed",
+    "subscription_cancelled",
+})
+
+
+def _category_for_kind(kind: str) -> str:
+    """Map an email kind to the preference category that gates it."""
+    if kind in TRANSACTIONAL_KINDS:
+        return "transactional"
+    # Phase 4 marketing emails (drip / re-engagement) should be tagged here
+    # when they exist. Until then, every non-transactional kind is a
+    # product update (Phase 1: generation lifecycle, Phase 3: autopilot health).
+    return "product_updates"
+
+
+def respects_preferences(prefs: dict | None, kind: str) -> bool:
+    """Return True if a user with these prefs should receive this kind.
+
+    Treats missing / malformed prefs as the default state (product_updates on,
+    marketing off). Transactional kinds always pass.
+    """
+    category = _category_for_kind(kind)
+    if category == "transactional":
+        return True
+    effective = dict(DEFAULT_EMAIL_PREFERENCES)
+    if isinstance(prefs, dict):
+        effective.update({k: bool(v) for k, v in prefs.items() if k in effective})
+    return bool(effective.get(category, False))
+
+
+async def send_once(
+    *,
+    recipient: str,
+    kind: str,
+    dedupe_key: str,
+    subject: str,
+    html: str,
+    user_preferences: dict | None = None,
+) -> bool:
+    """Send a transactional / lifecycle email exactly once.
+
+    Looks up `(recipient, kind, dedupe_key)` in the `email_sends` audit table
+    and skips if a prior 'sent' row exists. Honors `user_preferences` for
+    non-transactional kinds. Records every attempt (sent / skipped / failed).
+
+    Returns True iff a fresh send was attempted (regardless of SMTP outcome).
+    Returns False if de-duped or if user opted out.
+    """
+    if not respects_preferences(user_preferences, kind):
+        logger.info(
+            "Email opt-out  to=%s  kind=%s  dedupe=%s — recipient prefs disable this category",
+            recipient, kind, dedupe_key,
+        )
+        return False
+
+    async with AsyncSessionLocal() as session:
+        # Idempotency check — only treat prior 'sent' rows as blockers. A
+        # previous 'failed' or 'skipped' row should not prevent a retry.
+        existing = (await session.execute(
+            select(EmailSend.id, EmailSend.status)
+            .where(
+                EmailSend.recipient == recipient,
+                EmailSend.kind == kind,
+                EmailSend.dedupe_key == dedupe_key,
+                EmailSend.status == "sent",
+            )
+            .limit(1)
+        )).first()
+        if existing is not None:
+            logger.info(
+                "Email already sent  to=%s  kind=%s  dedupe=%s — skipping",
+                recipient, kind, dedupe_key,
+            )
+            return False
+
+        # Determine status BEFORE attempting send so we can record the attempt
+        # even if SMTP raises (which `send_email` already swallows).
+        status = "sent"
+        error: str | None = None
+        if not settings.GMAIL_USER or not settings.GMAIL_APP_PASSWORD:
+            status = "skipped"
+            error = "SMTP credentials not configured"
+        else:
+            # `send_email` swallows its own exceptions and only logs. Capture
+            # outcome by wrapping aiosmtplib.send directly, mirroring its
+            # internals so we can write 'failed' rows on the audit trail.
+            try:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = subject
+                msg["From"] = f"{settings.GMAIL_FROM_NAME} <{settings.GMAIL_USER}>"
+                msg["To"] = recipient
+                msg["X-Mailer"] = "ContentCard/1.0"
+                msg.attach(MIMEText(html, "html", "utf-8"))
+                await aiosmtplib.send(
+                    msg,
+                    hostname=settings.GMAIL_SMTP_HOST,
+                    port=settings.GMAIL_SMTP_PORT,
+                    start_tls=True,
+                    username=settings.GMAIL_USER,
+                    password=settings.GMAIL_APP_PASSWORD,
+                    timeout=20,
+                )
+                logger.info("Email sent  to=%s  kind=%s  dedupe=%s", recipient, kind, dedupe_key)
+            except Exception as exc:
+                status = "failed"
+                error = str(exc)[:1000]
+                logger.error("Email failed  to=%s  kind=%s  dedupe=%s  error=%s", recipient, kind, dedupe_key, exc)
+
+        # Audit row — always written so the operator can spot SMTP issues
+        # and rate-limited retries without scraping logs.
+        session.add(EmailSend(
+            recipient=recipient,
+            kind=kind,
+            dedupe_key=dedupe_key,
+            status=status,
+            error=error,
+        ))
+        await session.commit()
+    return True
 
 
 # ── Convenience helpers ────────────────────────────────────────────────────────

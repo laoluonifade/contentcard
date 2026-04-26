@@ -165,6 +165,8 @@ export const authApi = {
   login:          (data) => postPublicAuth('/auth/login', data),
   me:             ()     => api.get('/auth/me').then(r => r.data),
   updateProfile:  (data) => api.put('/auth/me', data).then(r => r.data),
+  getEmailPreferences:    ()     => api.get('/auth/me/email-preferences').then(r => r.data),
+  updateEmailPreferences: (data) => api.put('/auth/me/email-preferences', data).then(r => r.data),
   changePassword: (data) => api.post('/auth/change-password', data).then(r => r.data),
   deleteAccount:    (data) => api.delete('/auth/me', { data }).then(r => r.data),
   forgotPassword:   (data) => postPublicAuth('/auth/forgot-password', data),
