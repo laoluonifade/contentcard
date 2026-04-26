@@ -26,7 +26,9 @@ class GenerateMonthRequest(BaseModel):
 
 class GenerationPrepMessage(BaseModel):
     role: str  # user | assistant
-    content: str
+    content: str = ""
+    # Optional image URLs attached to the message (vision input).
+    image_urls: list[str] = Field(default_factory=list)
 
 
 class GenerationPrepChatRequest(BaseModel):

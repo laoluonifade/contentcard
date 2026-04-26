@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Send, Globe, Sparkles, ArrowRight, RotateCcw } from 'lucide-react'
+import { Send, Globe, Sparkles, ArrowRight, RotateCcw, Paperclip, X } from 'lucide-react'
 import useAppStore from '../stores/appStore'
-import { contentApi } from '../api'
+import { contentApi, uploadApi } from '../api'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -29,9 +29,80 @@ const SUGGESTIONS = [
 
 function buildBrief(messages) {
   const raw = messages
-    .map((m) => `${m.role}: ${m.content}`)
+    .map((m) => {
+      const text = m.content || ''
+      const imgs = Array.isArray(m.image_urls) && m.image_urls.length
+        ? `\n[attached images: ${m.image_urls.join(', ')}]`
+        : ''
+      return `${m.role}: ${text}${imgs}`
+    })
     .join('\n')
   return raw.slice(0, 12000)
+}
+
+// Coerce any error detail (string, FastAPI 422 array, object) into a readable string.
+function formatErrorDetail(err) {
+  const detail = err?.response?.data?.detail
+  if (typeof detail === 'string' && detail.trim()) return detail.trim()
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((d) => {
+        if (typeof d === 'string') return d
+        if (d && typeof d === 'object') {
+          const loc = Array.isArray(d.loc) ? d.loc.join('.') : ''
+          const msg = d.msg || d.message || ''
+          return loc ? `${loc}: ${msg}` : msg
+        }
+        return ''
+      })
+      .filter(Boolean)
+    if (parts.length) return parts.join('; ')
+  }
+  if (detail && typeof detail === 'object') {
+    if (typeof detail.message === 'string') return detail.message
+    try { return JSON.stringify(detail) } catch { /* ignore */ }
+  }
+  if (typeof err?.message === 'string' && err.message.trim()) return err.message.trim()
+  return 'Something went wrong'
+}
+
+const CHAT_STORAGE_KEY = 'cc:assistant:chat:v1'
+
+function loadStoredChat(brandId) {
+  if (!brandId) return null
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY)
+    if (!raw) return null
+    const all = JSON.parse(raw)
+    const entry = all?.[brandId]
+    if (!entry || !Array.isArray(entry.messages)) return null
+    return entry
+  } catch {
+    return null
+  }
+}
+
+function saveStoredChat(brandId, payload) {
+  if (!brandId) return
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY)
+    const all = raw ? JSON.parse(raw) : {}
+    all[brandId] = { ...payload, updated_at: Date.now() }
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(all))
+  } catch {
+    /* localStorage may be full or unavailable */
+  }
+}
+
+function clearStoredChat(brandId) {
+  if (!brandId) return
+  try {
+    const raw = localStorage.getItem(CHAT_STORAGE_KEY)
+    if (!raw) return
+    const all = JSON.parse(raw)
+    delete all[brandId]
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(all))
+  } catch { /* ignore */ }
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -112,10 +183,24 @@ function AssistantBubble({ message, onNavigate }) {
 }
 
 function UserBubble({ message }) {
+  const imgs = Array.isArray(message.image_urls) ? message.image_urls : []
   return (
     <div className="flex justify-end">
       <div className="max-w-[75%] rounded-2xl rounded-tr-sm px-4 py-3 bg-slate-900 text-white text-sm leading-relaxed">
-        <p className="whitespace-pre-wrap">{message.content}</p>
+        {imgs.length > 0 && (
+          <div className={`grid gap-1.5 mb-2 ${imgs.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            {imgs.map((url) => (
+              <a key={url} href={url} target="_blank" rel="noreferrer" className="block">
+                <img
+                  src={url}
+                  alt="attachment"
+                  className="rounded-lg max-h-48 w-full object-cover"
+                />
+              </a>
+            ))}
+          </div>
+        )}
+        {message.content && <p className="whitespace-pre-wrap">{message.content}</p>}
       </div>
     </div>
   )
@@ -169,14 +254,54 @@ export default function AssistantPage() {
   const [selYear]               = useState(now.getFullYear())
   const [selPlatform, setSelPlatform] = useState('instagram')
 
-  const [messages, setMessages] = useState([])                    // { role, content, type? }
+  const [messages, setMessages] = useState([])                    // { role, content, type?, image_urls? }
   const [input, setInput]       = useState('')
   const [thinking, setThinking] = useState(false)
   const [browsing, setBrowsing] = useState(false)
+  const [pendingImages, setPendingImages] = useState([])           // [{ url, uploading?, name }]
+  const [hydrated, setHydrated] = useState(false)
 
   const chatEndRef   = useRef(null)
   const textareaRef  = useRef(null)
+  const fileInputRef = useRef(null)
   const browsingTimer = useRef(null)
+
+  // Restore chat from localStorage when brand changes
+  useEffect(() => {
+    setHydrated(false)
+    if (!activeBrandId) {
+      setMessages([])
+      setPendingImages([])
+      setHydrated(true)
+      return
+    }
+    const stored = loadStoredChat(activeBrandId)
+    if (stored) {
+      setMessages(stored.messages || [])
+      if (stored.month) setSelMonth(stored.month)
+      if (stored.platform) setSelPlatform(stored.platform)
+    } else {
+      setMessages([])
+    }
+    setPendingImages([])
+    setHydrated(true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrandId])
+
+  // Save chat whenever messages change (after hydration)
+  useEffect(() => {
+    if (!hydrated || !activeBrandId) return
+    if (messages.length === 0) {
+      clearStoredChat(activeBrandId)
+      return
+    }
+    saveStoredChat(activeBrandId, {
+      messages,
+      month: selMonth,
+      year: selYear,
+      platform: selPlatform,
+    })
+  }, [messages, hydrated, activeBrandId, selMonth, selYear, selPlatform])
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -241,10 +366,9 @@ export default function AssistantPage() {
           content: `Your posts for ${MONTHS[month - 1]} are ready! Head to the calendar to review them.`,
         })
       } catch (err) {
-        const detail = err?.response?.data?.detail || err?.message || 'Generation failed'
         updateLastAssistantMessage({
           type: 'error',
-          content: `Sorry, something went wrong: ${detail}`,
+          content: `Sorry, something went wrong: ${formatErrorDetail(err)}`,
         })
       }
     },
@@ -254,11 +378,18 @@ export default function AssistantPage() {
   const sendMessage = useCallback(
     async (text) => {
       const txt = (text ?? input).trim()
-      if (!txt || thinking) return
+      const readyImages = pendingImages.filter((p) => p.url && !p.uploading).map((p) => p.url)
+      if (pendingImages.some((p) => p.uploading)) return // wait for uploads
+      if ((!txt && readyImages.length === 0) || thinking) return
 
       setInput('')
+      setPendingImages([])
 
-      const userMsg = { role: 'user', content: txt }
+      const userMsg = {
+        role: 'user',
+        content: txt,
+        ...(readyImages.length ? { image_urls: readyImages } : {}),
+      }
       const nextMessages = [...messages, userMsg]
       setMessages(nextMessages)
 
@@ -269,11 +400,17 @@ export default function AssistantPage() {
       browsingTimer.current = setTimeout(() => setBrowsing(false), 2000)
 
       try {
+        // Strip frontend-only fields and pass image_urls through to backend
+        const apiMessages = nextMessages.map((m) => ({
+          role: m.role,
+          content: m.content || '',
+          ...(Array.isArray(m.image_urls) && m.image_urls.length ? { image_urls: m.image_urls } : {}),
+        }))
         const data = await contentApi.generationPrepChat({
           brand_id: activeBrandId,
           month: selMonth,
           year: selYear,
-          messages: nextMessages,
+          messages: apiMessages,
           enable_web_search: true,
         })
 
@@ -303,19 +440,52 @@ export default function AssistantPage() {
         setBrowsing(false)
         setThinking(false)
 
-        const detail = err?.response?.data?.detail || err?.message || 'Something went wrong'
         appendMessage({
           role: 'assistant',
           type: 'error',
-          content: `Sorry, I couldn't process that: ${detail}`,
+          content: `Sorry, I couldn't process that: ${formatErrorDetail(err)}`,
         })
       }
     },
     [
-      input, thinking, messages, activeBrandId, selMonth, selYear, selPlatform,
+      input, thinking, messages, pendingImages, activeBrandId, selMonth, selYear, selPlatform,
       handleGenerate, appendMessage,
     ],
   )
+
+  const handleAttachImages = useCallback(async (files) => {
+    const list = Array.from(files || []).filter((f) => f.type.startsWith('image/'))
+    if (!list.length) return
+    const placeholders = list.map((f) => ({
+      id: `${Date.now()}-${f.name}-${Math.random().toString(36).slice(2, 7)}`,
+      name: f.name,
+      uploading: true,
+      url: null,
+    }))
+    setPendingImages((prev) => [...prev, ...placeholders])
+    await Promise.all(
+      list.map(async (file, idx) => {
+        const placeholder = placeholders[idx]
+        try {
+          const res = await uploadApi.photo(file)
+          setPendingImages((prev) =>
+            prev.map((p) => (p.id === placeholder.id ? { ...p, url: res.url, uploading: false } : p)),
+          )
+        } catch (err) {
+          setPendingImages((prev) => prev.filter((p) => p.id !== placeholder.id))
+          appendMessage({
+            role: 'assistant',
+            type: 'error',
+            content: `Couldn't upload ${file.name}: ${formatErrorDetail(err)}`,
+          })
+        }
+      }),
+    )
+  }, [appendMessage])
+
+  const removePendingImage = useCallback((id) => {
+    setPendingImages((prev) => prev.filter((p) => p.id !== id))
+  }, [])
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -327,9 +497,11 @@ export default function AssistantPage() {
   const handleReset = () => {
     setMessages([])
     setInput('')
+    setPendingImages([])
     setThinking(false)
     setBrowsing(false)
     clearTimeout(browsingTimer.current)
+    clearStoredChat(activeBrandId)
   }
 
   const activeBrand = brands.find((b) => b.id === activeBrandId)
@@ -428,21 +600,74 @@ export default function AssistantPage() {
       {/* ── Input bar — sticky at the bottom of the scroll container ─────── */}
       <div className="sticky bottom-0 border-t border-fog bg-surface/95 backdrop-blur-sm px-4 py-3">
         <div className="max-w-2xl mx-auto">
+          {/* Attachment previews */}
+          {pendingImages.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {pendingImages.map((p) => (
+                <div
+                  key={p.id}
+                  className="relative w-16 h-16 rounded-lg overflow-hidden border border-fog bg-mist flex items-center justify-center"
+                >
+                  {p.url ? (
+                    <img src={p.url} alt={p.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-4 h-4 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => removePendingImage(p.id)}
+                    className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
+                    title="Remove"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              handleAttachImages(e.target.files)
+              e.target.value = ''
+            }}
+          />
+
           <div className="flex items-end gap-2 bg-mist border border-fog rounded-2xl px-4 py-3 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-300/30 transition-all">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={thinking || generatingMonth}
+              title="Attach image"
+              className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-ink/50 hover:text-ink hover:bg-fog/60 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Paperclip size={16} />
+            </button>
+
             <textarea
               ref={textareaRef}
               rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything or say 'generate my posts for this month'…"
+              placeholder="Ask anything or attach an image…"
               disabled={thinking || generatingMonth}
               className="flex-1 resize-none bg-transparent text-sm text-ink placeholder:text-ink/40 focus:outline-none leading-relaxed disabled:opacity-50 min-h-[22px] max-h-[160px]"
             />
 
             <button
               onClick={() => sendMessage()}
-              disabled={!input.trim() || thinking || generatingMonth}
+              disabled={
+                (!input.trim() && pendingImages.filter((p) => p.url).length === 0) ||
+                pendingImages.some((p) => p.uploading) ||
+                thinking ||
+                generatingMonth
+              }
               className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200
                 bg-slate-900 text-white hover:bg-slate-800 shadow-sm
                 disabled:bg-fog disabled:text-ink/30 disabled:shadow-none disabled:cursor-not-allowed"

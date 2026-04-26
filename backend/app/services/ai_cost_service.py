@@ -28,7 +28,15 @@ def _estimate_tokens(text: str) -> int:
 def _estimate_messages_tokens(messages: list[dict[str, Any]]) -> int:
     total = 0
     for m in messages:
-        total += _estimate_tokens(str(m.get("content") or ""))
+        content = m.get("content")
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    total += _estimate_tokens(str(part.get("text") or ""))
+                elif isinstance(part, dict) and part.get("type") == "image_url":
+                    total += 250  # rough placeholder for image input
+        else:
+            total += _estimate_tokens(str(content or ""))
     return total
 
 
@@ -90,6 +98,40 @@ def summarize_history_locally(messages: list[dict[str, Any]], keep_last: int = 1
     return [{"role": "system", "content": summary}] + tail
 
 
+def _content_text_len(content: Any) -> int:
+    """Length of textual portion of a message's content (handles list/multimodal)."""
+    if isinstance(content, list):
+        total = 0
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                total += len(str(part.get("text") or ""))
+        return total
+    return len(str(content or ""))
+
+
+def _trim_content_text(content: Any, max_chars: int) -> Any:
+    """Trim only the textual portion. Image parts in multimodal content are preserved."""
+    if isinstance(content, list):
+        # Collapse text parts under the limit; preserve image parts.
+        text_total = 0
+        out: list[Any] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                txt = str(part.get("text") or "")
+                remaining = max_chars - text_total
+                if remaining <= 0:
+                    continue
+                if len(txt) > remaining:
+                    txt = txt[:remaining]
+                text_total += len(txt)
+                out.append({"type": "text", "text": txt})
+            else:
+                out.append(part)
+        return out
+    s = str(content or "")
+    return s[:max_chars] if len(s) > max_chars else s
+
+
 def enforce_message_limits(messages: list[dict[str, Any]], endpoint_name: str) -> list[dict[str, Any]]:
     if not settings.AI_COST_OPTIMIZATION_ENABLED:
         return messages
@@ -97,15 +139,17 @@ def enforce_message_limits(messages: list[dict[str, Any]], endpoint_name: str) -
     max_per_message = max(200, int(settings.AI_MAX_INPUT_CHARS_PER_MESSAGE))
     trimmed: list[dict[str, Any]] = []
     for m in messages:
-        content = str(m.get("content") or "")
-        if len(content) > max_per_message:
-            content = content[:max_per_message]
+        content = m.get("content")
+        content = _trim_content_text(content, max_per_message)
         trimmed.append({"role": m.get("role") or "user", "content": content})
 
     if len(trimmed) > settings.AI_CHAT_SUMMARY_TRIGGER_MESSAGES:
-        trimmed = summarize_history_locally(trimmed, keep_last=settings.AI_CHAT_SUMMARY_KEEP_LAST_MESSAGES)
+        # summarize_history_locally only handles string content; skip if any list content present.
+        has_multimodal = any(isinstance(m.get("content"), list) for m in trimmed)
+        if not has_multimodal:
+            trimmed = summarize_history_locally(trimmed, keep_last=settings.AI_CHAT_SUMMARY_KEEP_LAST_MESSAGES)
 
-    total_chars = sum(len(str(m.get("content") or "")) for m in trimmed)
+    total_chars = sum(_content_text_len(m.get("content")) for m in trimmed)
     max_total = max(2000, int(settings.AI_MAX_INPUT_CHARS_TOTAL))
     if total_chars <= max_total:
         return trimmed
@@ -115,7 +159,7 @@ def enforce_message_limits(messages: list[dict[str, Any]], endpoint_name: str) -
     i = 0
     while total_chars > max_total and i < len(out):
         if str(out[i].get("role") or "") != "system":
-            total_chars -= len(str(out[i].get("content") or ""))
+            total_chars -= _content_text_len(out[i].get("content"))
             out.pop(i)
         else:
             i += 1
@@ -133,12 +177,34 @@ def build_fingerprint(
 ) -> str:
     compact = []
     for m in messages:
-        compact.append(
-            {
-                "r": str(m.get("role") or "user"),
-                "c": _normalize_text(str(m.get("content") or "")),
-            }
-        )
+        content = m.get("content")
+        if isinstance(content, list):
+            # Multimodal: include image URLs verbatim so different images yield different fingerprints.
+            text_parts: list[str] = []
+            img_parts: list[str] = []
+            for part in content:
+                if not isinstance(part, dict):
+                    continue
+                if part.get("type") == "text":
+                    text_parts.append(_normalize_text(str(part.get("text") or "")))
+                elif part.get("type") == "image_url":
+                    url = part.get("image_url", {}).get("url") if isinstance(part.get("image_url"), dict) else ""
+                    if url:
+                        img_parts.append(str(url))
+            compact.append(
+                {
+                    "r": str(m.get("role") or "user"),
+                    "c": " ".join(text_parts).strip(),
+                    "i": img_parts,
+                }
+            )
+        else:
+            compact.append(
+                {
+                    "r": str(m.get("role") or "user"),
+                    "c": _normalize_text(str(content or "")),
+                }
+            )
     payload = {
         "e": endpoint_name,
         "m": model,
