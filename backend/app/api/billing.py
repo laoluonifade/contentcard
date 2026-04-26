@@ -18,6 +18,7 @@ from app.services.billing_service import (
     create_paystack_checkout,
     verify_paystack_transaction,
     cancel_paystack_subscription,
+    fetch_paystack_authorization,
     # Stripe
     create_stripe_checkout,
     verify_stripe_session,
@@ -113,6 +114,23 @@ async def get_subscription(
     anchor = await billing_anchor_workspace(db, owner_id) or ws
     owned_list = await owned_workspaces(db, owner_id)
     shared = len(owned_list) > 1
+
+    # One-time backfill: subscriptions activated before the inline-checkout fix
+    # may have a subscription_id without card_last4. Pull the authorization from
+    # Paystack the next time the owner loads this page so the saved card surfaces.
+    if (
+        anchor.payment_provider == "paystack"
+        and not anchor.card_last4
+        and (anchor.subscription_id or anchor.customer_id)
+    ):
+        fallback_auth = await fetch_paystack_authorization(
+            subscription_code=anchor.subscription_id,
+            customer_code=anchor.customer_id,
+        )
+        if fallback_auth:
+            _save_card_from_authorization(anchor, fallback_auth)
+            await db.commit()
+
     return SubscriptionOut(
         plan=effective,
         provider=anchor.payment_provider,
@@ -411,8 +429,8 @@ async def card_save_complete(
         if data.get("status") != "success":
             raise HTTPException(status_code=402, detail="Payment not confirmed by Paystack")
 
-        auth = data.get("authorization", {})
-        if auth:
+        auth = data.get("authorization") or {}
+        if auth.get("last4"):
             _save_card_from_authorization(anchor, auth)
         anchor.payment_provider = "paystack"
 
@@ -433,6 +451,23 @@ async def card_save_complete(
             customer = data.get("customer", {})
             if customer.get("customer_code"):
                 anchor.customer_id = customer["customer_code"]
+
+        # Paystack's verify response sometimes omits `authorization` for subscription
+        # transactions — fall back to the subscription record (which always carries
+        # the active authorization), then to the customer's authorizations list.
+        if not anchor.card_last4:
+            fallback_auth = await fetch_paystack_authorization(
+                subscription_code=anchor.subscription_id,
+                customer_code=anchor.customer_id,
+            )
+            if fallback_auth:
+                _save_card_from_authorization(anchor, fallback_auth)
+            else:
+                logger.warning(
+                    "card_save_complete: no card details persisted for workspace=%s "
+                    "reference=%s subscription=%s customer=%s",
+                    anchor.id, reference, anchor.subscription_id, anchor.customer_id,
+                )
 
         await db.commit()
         return {"ok": True, "card": _build_card(anchor)}
@@ -569,8 +604,8 @@ async def paystack_verify_redirect(
         ws.plan = plan_name
         ws.payment_provider = "paystack"
 
-        auth = data.get("authorization", {})
-        if auth:
+        auth = data.get("authorization") or {}
+        if auth.get("last4"):
             _save_card_from_authorization(ws, auth)
 
         sub_code = data.get("subscription_code")
@@ -587,6 +622,16 @@ async def paystack_verify_redirect(
         customer = data.get("customer", {})
         if customer.get("customer_code"):
             ws.customer_id = customer["customer_code"]
+
+        # Same fallback as /card-save/complete — verify response often omits the
+        # authorization for subscription transactions.
+        if not ws.card_last4:
+            fallback_auth = await fetch_paystack_authorization(
+                subscription_code=ws.subscription_id,
+                customer_code=ws.customer_id,
+            )
+            if fallback_auth:
+                _save_card_from_authorization(ws, fallback_auth)
 
         await db.commit()
         logger.info(f"Paystack payment verified: workspace {ws.id} → {plan_name}")
