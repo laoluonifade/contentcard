@@ -72,6 +72,14 @@ function AdminRoute({ children }) {
   return admin ? children : <Navigate to="/admindash/login" replace />
 }
 
+// Inside the dashboard, some pages aren't ready for the guest demo yet
+// (Playbook, e.g., relies on backend playbook catalog). Bounce guests to
+// the calendar instead of letting them land on a broken page.
+function AuthOnlyDashRoute({ children }) {
+  const { isAuthenticated } = useAuthStore()
+  return isAuthenticated ? children : <Navigate to="/dashboard/calendar" replace />
+}
+
 export default function App() {
   return (
     <>
@@ -115,7 +123,7 @@ export default function App() {
           <Route index             element={<DashboardPage />} />
           <Route path="generate"   element={<GeneratePage />} />
           <Route path="calendar"   element={<CalendarPage />} />
-          <Route path="templates"  element={<TemplatesPage />} />
+          <Route path="templates"  element={<AuthOnlyDashRoute><TemplatesPage /></AuthOnlyDashRoute>} />
           <Route path="brand-kit"  element={<BrandKitPage />} />
           <Route path="settings"   element={<SettingsPage />} />
           <Route path="billing"    element={<BillingPage />} />
