@@ -2,6 +2,13 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { workspaceApi, brandApi, contentApi, templateApi, trendsApi, billingApi } from '../api'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
+import {
+  DEMO_WORKSPACE,
+  DEMO_BRAND,
+  DEMO_TRENDS,
+  DEMO_TEMPLATES,
+  buildDemoContentByMonth,
+} from '../utils/demoData'
 
 /** Billing tier for the active workspace (owner subscription pool or row plan). */
 function workspacePlanTier(ws) {
@@ -27,6 +34,26 @@ const useAppStore = create(
       trends: [],
       subscription: null,
       error: null,
+
+      // ── Demo / guest mode ───────────────────────────────────────
+      // Populate the store with mock workspace/brand/content so the dashboard
+      // looks alive for logged-out visitors. Action handlers are gated in
+      // DashboardLayout so demo data is read-only.
+      seedDemoData: () => {
+        set({
+          workspaces: [DEMO_WORKSPACE],
+          activeWorkspaceId: DEMO_WORKSPACE.id,
+          activeWorkspace: DEMO_WORKSPACE,
+          brands: [DEMO_BRAND],
+          activeBrandId: DEMO_BRAND.id,
+          contentByMonth: buildDemoContentByMonth(),
+          trends: DEMO_TRENDS,
+          templates: DEMO_TEMPLATES,
+          subscription: null,
+          generatingMonth: false,
+          generationProgress: null,
+        })
+      },
 
       // ── Workspaces ──────────────────────────────────────────────
       fetchWorkspaces: async () => {

@@ -33,7 +33,8 @@ export default function DashboardLayout() {
   const { user, logout, fetchMe, isAuthenticated } = useAuthStore()
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
-          fetchTrends, createWorkspace }        = useAppStore()
+          fetchTrends, createWorkspace,
+          seedDemoData }                        = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -46,11 +47,14 @@ export default function DashboardLayout() {
   }, [location.pathname])
 
   useEffect(() => {
-    fetchTrends().catch(() => {})
-    if (!isAuthenticated) return
+    if (!isAuthenticated) {
+      seedDemoData()
+      return
+    }
     if (!workspaces.length) {
       fetchWorkspaces().catch(() => {})
     }
+    fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
   }, [isAuthenticated])
 
