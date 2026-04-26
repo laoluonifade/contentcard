@@ -207,10 +207,9 @@ export default function BillingPage() {
   const [searchParams] = useSearchParams()
   const {
     activeWorkspace, subscription,
-    fetchSubscription, createCheckout, cancelSubscription, removeCard,
+    fetchSubscription, cancelSubscription, removeCard,
   } = useAppStore()
 
-  const [loading, setLoading] = useState(null)          // plan id being checked out
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [showRemoveModal, setShowRemoveModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
@@ -357,7 +356,6 @@ export default function BillingPage() {
         <div className="grid md:grid-cols-3 gap-4">
           {PLANS.map(plan => {
             const isCurrent = subscription?.plan === plan.id
-            const isLoading = loading === plan.id
             const price = isStripe ? plan.price : plan.ngn
             return (
               <div
