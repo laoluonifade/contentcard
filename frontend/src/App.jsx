@@ -72,6 +72,14 @@ function AdminRoute({ children }) {
   return admin ? children : <Navigate to="/admindash/login" replace />
 }
 
+// Inside the dashboard, some pages aren't ready for the guest demo yet
+// (Playbook, e.g., relies on backend playbook catalog). Bounce guests to
+// the calendar instead of letting them land on a broken page.
+function AuthOnlyDashRoute({ children }) {
+  const { isAuthenticated } = useAuthStore()
+  return isAuthenticated ? children : <Navigate to="/dashboard/calendar" replace />
+}
+
 export default function App() {
   return (
     <>
@@ -112,17 +120,17 @@ export default function App() {
 
         {/* Dashboard — open to guests, ChatGPT-style */}
         <Route path="/dashboard" element={<DashboardLayout />}>
-          <Route index             element={<DashboardPage />} />
-          <Route path="generate"   element={<GeneratePage />} />
+          <Route index             element={<AuthOnlyDashRoute><DashboardPage /></AuthOnlyDashRoute>} />
+          <Route path="generate"   element={<AuthOnlyDashRoute><GeneratePage /></AuthOnlyDashRoute>} />
           <Route path="calendar"   element={<CalendarPage />} />
-          <Route path="templates"  element={<TemplatesPage />} />
+          <Route path="templates"  element={<AuthOnlyDashRoute><TemplatesPage /></AuthOnlyDashRoute>} />
           <Route path="brand-kit"  element={<BrandKitPage />} />
           <Route path="settings"   element={<SettingsPage />} />
-          <Route path="billing"    element={<BillingPage />} />
-          <Route path="directory"  element={<DirectoryPage />} />
-          <Route path="memes"      element={<MemesPage />} />
-          <Route path="social"     element={<SocialAutopilotPage />} />
-          <Route path="calendar/editor/:contentId" element={<DesignEditorPage />} />
+          <Route path="billing"    element={<AuthOnlyDashRoute><BillingPage /></AuthOnlyDashRoute>} />
+          <Route path="directory"  element={<AuthOnlyDashRoute><DirectoryPage /></AuthOnlyDashRoute>} />
+          <Route path="memes"      element={<AuthOnlyDashRoute><MemesPage /></AuthOnlyDashRoute>} />
+          <Route path="social"     element={<AuthOnlyDashRoute><SocialAutopilotPage /></AuthOnlyDashRoute>} />
+          <Route path="calendar/editor/:contentId" element={<AuthOnlyDashRoute><DesignEditorPage /></AuthOnlyDashRoute>} />
           <Route path="assistant"  element={<AssistantPage />} />
         </Route>
 

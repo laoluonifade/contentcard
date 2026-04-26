@@ -17,23 +17,23 @@ import {
 import { marketingApi } from '../../api'
 
 const NAV = [
-  { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
+  { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard', authOnly: true },
   { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'         },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
-  { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Playbook'  },
+  { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Playbook',  authOnly: true },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand Kit'  },
-  { to: '/dashboard/directory',  icon: Images,           label: 'Directory'  },
-  { to: '/dashboard/memes',      icon: Smile,            label: 'Memes'      },
-  { to: '/dashboard/social',     icon: Share2,           label: 'Social'     },
+  { to: '/dashboard/directory',  icon: Images,           label: 'Directory', authOnly: true },
+  { to: '/dashboard/memes',      icon: Smile,            label: 'Memes',     authOnly: true },
+  { to: '/dashboard/social',     icon: Share2,           label: 'Social',    authOnly: true },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'   },
-  { to: '/dashboard/billing',    icon: CreditCard,       label: 'Billing'    },
+  { to: '/dashboard/billing',    icon: CreditCard,       label: 'Billing',   authOnly: true },
 ]
 
 const MOBILE_NAV = [
-  { to: '/dashboard',            icon: LayoutDashboard, label: 'Home'      },
+  { to: '/dashboard',            icon: LayoutDashboard, label: 'Home',     authOnly: true },
   { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'        },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'  },
-  { to: '/dashboard/directory',  icon: Images,           label: 'Directory' },
+  { to: '/dashboard/directory',  icon: Images,           label: 'Directory', authOnly: true },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand'     },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'  },
 ]
@@ -224,7 +224,7 @@ export default function DashboardLayout() {
       )}
 
       <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto">
-        {NAV.map(({ to, icon: Icon, label }) => (
+        {NAV.filter((item) => isAuthenticated || !item.authOnly).map(({ to, icon: Icon, label }) => (
           <NavLink key={to} to={to} end={to === '/dashboard'}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 ${
@@ -412,7 +412,7 @@ export default function DashboardLayout() {
 
         {/* Mobile bottom nav */}
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface border-t border-fog z-30 flex">
-          {MOBILE_NAV.map(({ to, icon: Icon, label }) => (
+          {MOBILE_NAV.filter((item) => isAuthenticated || !item.authOnly).map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} end={to === '/dashboard'}
               className={({ isActive }) =>
                 `flex-1 flex flex-col items-center gap-1 py-2.5 transition-all ${
