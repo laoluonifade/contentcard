@@ -59,7 +59,7 @@ export const COUNTRIES_LIST = [
 
 export default function SignupPage() {
   const [step, setStep]     = useState(1)
-  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '' })
+  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '', workspace_name: '' })
   const [quickFillWebsite, setQuickFillWebsite] = useState('')
   const [quickFillEnabled, setQuickFillEnabled] = useState(false)
   const [showPw, setShowPw] = useState(false)
@@ -84,6 +84,7 @@ export default function SignupPage() {
   }
 
   const validateStep1 = () => {
+    if (!form.workspace_name.trim()) { toast('Please enter your brand or workspace name.', 'error'); return false }
     if (!form.first_name.trim()) { toast('Please enter your first name.', 'error'); return false }
     if (!form.last_name.trim())  { toast('Please enter your last name.', 'error'); return false }
     if (!form.email.trim())      { toast('Please enter your email address.', 'error'); return false }
@@ -108,6 +109,7 @@ export default function SignupPage() {
         password: form.password,
         phone: fullPhone,
         country_code: form.country_code || undefined,
+        workspace_name: form.workspace_name.trim() || undefined,
       })
       await fetchWorkspaces().catch(() => {})
       try {
@@ -208,10 +210,17 @@ export default function SignupPage() {
               </div>
             )}
             <form onSubmit={nextStep} className="space-y-4">
+              <div>
+                <label className="label">Brand / workspace name</label>
+                <input autoFocus value={form.workspace_name}
+                  onChange={e => setForm(f => ({ ...f, workspace_name: e.target.value }))}
+                  placeholder="Acme Inc." className="input" required />
+                <p className="text-[11px] text-ink/40 mt-1">This becomes your workspace name — you can change it later.</p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">First name</label>
-                  <input autoFocus value={form.first_name}
+                  <input value={form.first_name}
                     onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))}
                     placeholder="Ada" className="input" required />
                 </div>
@@ -314,6 +323,7 @@ export default function SignupPage() {
             <p className="text-ink/60 mb-6 text-sm">Review your details, then create your account.</p>
             <div className="bg-surface border border-fog rounded-2xl p-5 mb-6 space-y-3">
               {[
+                { label: 'Brand name', val: form.workspace_name.trim() || `${form.first_name} ${form.last_name}'s Workspace` },
                 { label: 'Name',    val: `${form.first_name} ${form.last_name}` },
                 { label: 'Email',   val: form.email },
                 { label: 'Country', val: selectedCountry?.name || 'Not specified' },
