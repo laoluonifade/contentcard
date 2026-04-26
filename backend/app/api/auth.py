@@ -83,13 +83,15 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     db.add(user)
     await db.flush()  # get user.id
 
-    # Create default workspace
-    base_slug = slugify(body.full_name + " workspace")
+    # Create default workspace — use the brand/workspace name the user typed at signup,
+    # or fall back to "{full_name}'s Workspace" if they didn't provide one.
+    ws_display_name = (body.workspace_name or "").strip() or f"{body.full_name}'s Workspace"
+    base_slug = slugify(ws_display_name)
     slug = await ensure_unique_slug(db, base_slug)
     trial_ends = datetime.now(timezone.utc) + timedelta(days=settings.FREE_TRIAL_DAYS)
 
     workspace = Workspace(
-        name=f"{body.full_name}'s Workspace",
+        name=ws_display_name,
         slug=slug,
         owner_id=user.id,
         plan="trial",
