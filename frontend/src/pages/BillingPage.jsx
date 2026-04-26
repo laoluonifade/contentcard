@@ -211,19 +211,18 @@ export default function BillingPage() {
   } = useAppStore()
 
   const [loading, setLoading] = useState(null)          // plan id being checked out
-  // Auto-detect currency from timezone: Nigeria → NGN/Paystack, everywhere else → USD/Stripe
-  const [currency] = useState(() => {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
-    return tz.startsWith('Africa/') ? 'NGN' : 'USD'
-  })
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [showRemoveModal, setShowRemoveModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [paymentModal, setPaymentModal] = useState(null) // { mode, planId } | null
 
-  // Choose plan list based on provider (stripe = USD, paystack/null = NGN)
-  const isStripe = subscription?.stripe_publishable_key != null || subscription?.provider === 'stripe'
+  // Determine payment provider: when subscription has loaded use backend-authoritative value
+  // (set from the country_code stored at signup). Before load, fall back to timezone as a
+  // pre-render hint so the correct currency appears immediately without a flash.
+  const isStripe = subscription
+    ? (subscription.stripe_publishable_key != null || subscription.provider === 'stripe')
+    : !Intl.DateTimeFormat().resolvedOptions().timeZone.startsWith('Africa/')
   const PLANS = isStripe ? PLANS_USD : PLANS_NGN
   const providerName = isStripe ? 'Stripe' : 'Paystack'
 
@@ -305,7 +304,7 @@ export default function BillingPage() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-ink/40 mb-1">Active plan</p>
             <p className="text-xl font-bold text-ink" style={{ letterSpacing: '-0.01em' }}>
-              {currentPlan?.name}: {currentPlan?.price}<span className="text-ink/40 font-normal text-sm">/mo</span>
+              {currentPlan?.name}: {isStripe ? currentPlan?.price : currentPlan?.ngn}<span className="text-ink/40 font-normal text-sm">/mo</span>
             </p>
             {subscription?.next_payment_date && (
               <p className="text-xs text-ink/40 mt-1">
@@ -351,9 +350,7 @@ export default function BillingPage() {
             {isSubscribed ? 'Switch plan' : 'Choose a plan'}
           </p>
           <span className="text-xs text-ink/40">
-            {currency === 'NGN'
-              ? 'Paying in ₦ NGN via Paystack'
-              : 'Paying in $ USD via Stripe'}
+            {isStripe ? 'Paying in $ USD via Stripe' : 'Paying in ₦ NGN via Paystack'}
           </span>
         </div>
 
@@ -361,8 +358,7 @@ export default function BillingPage() {
           {PLANS.map(plan => {
             const isCurrent = subscription?.plan === plan.id
             const isLoading = loading === plan.id
-            const price = currency === 'USD' ? plan.usd : plan.ngn
-            const provider = currency === 'USD' ? 'Stripe' : 'Paystack'
+            const price = isStripe ? plan.price : plan.ngn
             return (
               <div
                 key={plan.id}
