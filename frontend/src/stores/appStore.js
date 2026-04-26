@@ -127,6 +127,14 @@ const useAppStore = create(
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
+        // Snapshot how many posts already exist so the poller knows when *new* ones land.
+        let baselineTotal = 0
+        try {
+          const s = await contentApi.getStatus(brandId, year, month)
+          baselineTotal = Number(s?.total ?? s?.with_visuals ?? s?.count ?? 0) || 0
+        } catch {
+          /* status fetch is best-effort; baseline 0 just means the poller exits on the first ready signal */
+        }
         set({
           generatingMonth: true,
           generationStartedAt: Date.now(),
@@ -167,7 +175,7 @@ const useAppStore = create(
               throw e
             }
           }
-          const count = await get()._pollForContent(brandId, month, year, Number(baseline_total || 0))
+          const count = await get()._pollForContent(brandId, month, year, baselineTotal)
           return count
         } finally {
           set({ generatingMonth: false, generationStartedAt: null, generationProgress: null })
