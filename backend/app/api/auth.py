@@ -142,6 +142,7 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     allowed = {"full_name", "phone", "country_code", "agency_mode"}
+    country_changed = False
     for key, val in body.items():
         if key not in allowed:
             continue
@@ -150,8 +151,24 @@ async def update_profile(
                 current_user.agency_mode = val.strip().lower() in ("1", "true", "yes", "on")
             else:
                 current_user.agency_mode = bool(val)
+        elif key == "country_code":
+            new_code = (val or "").strip().upper() or None
+            if new_code != current_user.country_code:
+                current_user.country_code = new_code
+                country_changed = True
         else:
             setattr(current_user, key, val)
+
+    # When billing country changes, sync payment_provider on all owned workspaces
+    # so subscription queries immediately reflect the correct provider.
+    if country_changed:
+        new_provider = get_payment_provider(current_user.country_code)
+        owned = await db.execute(
+            select(Workspace).where(Workspace.owner_id == current_user.id)
+        )
+        for ws in owned.scalars().all():
+            ws.payment_provider = new_provider
+
     await db.commit()
     await db.refresh(current_user)
     return UserOut.model_validate(current_user)

@@ -25,7 +25,7 @@ const inputCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink
 
 export default function SettingsPage() {
   const { user, updateUser, fetchMe, deleteAccount } = useAuthStore()
-  const { activeWorkspace, activeWorkspaceId, fetchWorkspaces, renameWorkspace } = useAppStore()
+  const { activeWorkspace, activeWorkspaceId, fetchWorkspaces, renameWorkspace, fetchSubscription } = useAppStore()
   const navigate = useNavigate()
   const { theme, setTheme } = useTheme()
   const [searchParams] = useSearchParams()
@@ -91,8 +91,15 @@ export default function SettingsPage() {
     if (!full_name) { toast('Enter your name', 'error'); return }
     setSaving(true)
     try {
-      await authApi.updateProfile({ full_name, country_code: profileForm.country_code || null })
-      updateUser({ full_name, country_code: profileForm.country_code || null })
+      const prev_country = user?.country_code || ''
+      const new_country  = profileForm.country_code || null
+      await authApi.updateProfile({ full_name, country_code: new_country })
+      updateUser({ full_name, country_code: new_country })
+      // If billing country changed, refresh subscription so billing page
+      // immediately reflects the correct provider (Paystack ↔ Stripe).
+      if ((new_country || '') !== prev_country) {
+        fetchSubscription().catch(() => {})
+      }
       toast('Profile saved!')
     } catch (err) { toast(err.message, 'error') }
     finally { setSaving(false) }
@@ -253,7 +260,7 @@ export default function SettingsPage() {
                     </select>
                   </div>
                 </div>
-                <p className="text-ink/30 text-xs mb-4">Country is used to show local public holidays on your content calendar.</p>
+                <p className="text-ink/30 text-xs mb-4">Country determines your payment method (Nigeria → Paystack in ₦, all other countries → Stripe in $) and local public holidays on your calendar.</p>
                 <div className="flex justify-end">
                   <button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors">
                     <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
