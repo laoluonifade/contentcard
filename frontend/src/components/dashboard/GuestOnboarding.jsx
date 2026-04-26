@@ -1,24 +1,59 @@
-import { useState } from 'react'
-import { ArrowRight, Sparkles } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ArrowRight, ImagePlus, Sparkles, X } from 'lucide-react'
 import { INTENT_OPTIONS, saveGuestProfile, DEFAULT_GUEST_PROFILE } from '../../utils/demoData'
 import useAppStore from '../../stores/appStore'
 
-// Two-step guest onboarding: brand details → intent. Personalises the demo
-// state so the dashboard the visitor browses uses their own brand name.
-export default function GuestOnboarding({ initialProfile, onDone }) {
+const MAX_LOGO_BYTES = 600 * 1024 // 600 KB before base64 encoding
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+// Two-step guest onboarding: brand details (name + website + logo) → intent.
+// Personalises the demo state so the dashboard the visitor browses uses
+// their own brand name and logo.
+export default function GuestOnboarding({ initialProfile, onDone, onDismiss }) {
   const seedDemoData = useAppStore((s) => s.seedDemoData)
   const [step, setStep] = useState(1)
   const [brandName, setBrandName] = useState(initialProfile?.brandName || '')
   const [website, setWebsite] = useState(initialProfile?.website || '')
+  const [logoDataUrl, setLogoDataUrl] = useState(initialProfile?.logoDataUrl || '')
+  const [logoError, setLogoError] = useState('')
   const [intent, setIntent] = useState(initialProfile?.intent || null)
+  const fileInputRef = useRef(null)
+
+  const websiteValid = website.trim().length >= 4 && /\./.test(website.trim())
+  const canContinue = brandName.trim().length > 0 && websiteValid && Boolean(logoDataUrl)
+
+  const handlePickLogo = async (file) => {
+    setLogoError('')
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setLogoError('Please pick an image file.')
+      return
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      setLogoError(`Logo must be under ${Math.round(MAX_LOGO_BYTES / 1024)} KB.`)
+      return
+    }
+    try {
+      const dataUrl = await readFileAsDataUrl(file)
+      setLogoDataUrl(String(dataUrl))
+    } catch {
+      setLogoError("Couldn't read that image. Try another file.")
+    }
+  }
 
   const goStep2 = (e) => {
     e.preventDefault()
-    const trimmedName = brandName.trim()
-    const trimmedSite = website.trim()
-    if (!trimmedName) return
-    setBrandName(trimmedName)
-    setWebsite(trimmedSite)
+    if (!canContinue) return
+    setBrandName(brandName.trim())
+    setWebsite(website.trim())
     setStep(2)
   }
 
@@ -26,15 +61,9 @@ export default function GuestOnboarding({ initialProfile, onDone }) {
     const profile = {
       brandName: brandName.trim() || DEFAULT_GUEST_PROFILE.brandName,
       website: website.trim() || DEFAULT_GUEST_PROFILE.website,
+      logoDataUrl: logoDataUrl || '',
       intent: chosenIntent || intent,
     }
-    saveGuestProfile(profile)
-    seedDemoData(profile)
-    onDone?.(profile)
-  }
-
-  const skip = () => {
-    const profile = { ...DEFAULT_GUEST_PROFILE }
     saveGuestProfile(profile)
     seedDemoData(profile)
     onDone?.(profile)
@@ -58,17 +87,20 @@ export default function GuestOnboarding({ initialProfile, onDone }) {
             </h2>
             <p className="text-ink/50 text-xs sm:text-sm mt-1">
               {step === 1
-                ? 'Two quick details and we\'ll fill the dashboard with content for your brand.'
+                ? 'Three quick details and we\'ll fill the dashboard with content for your brand.'
                 : 'Pick an intent — we\'ll line up posts that match.'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={skip}
-            className="text-xs text-ink/40 hover:text-ink/70 font-medium px-2 py-1 -mr-2 -mt-1"
-          >
-            Skip
-          </button>
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              aria-label="Close"
+              className="w-7 h-7 -mt-1 -mr-1 flex items-center justify-center rounded-lg text-ink/40 hover:text-ink hover:bg-mist transition-all"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
 
         {step === 1 ? (
@@ -90,7 +122,7 @@ export default function GuestOnboarding({ initialProfile, onDone }) {
 
             <div>
               <label htmlFor="brand-website" className="block text-[11px] font-semibold text-ink/50 uppercase tracking-wider mb-1.5">
-                Website <span className="text-ink/30 normal-case font-normal">(optional)</span>
+                Website
               </label>
               <input
                 id="brand-website"
@@ -101,14 +133,59 @@ export default function GuestOnboarding({ initialProfile, onDone }) {
                 maxLength={120}
               />
               <p className="text-ink/35 text-[11px] mt-1.5">
-                We'll use this to personalize the calendar — no signup required to look around.
+                We'll personalize the calendar with copy and tone tuned for your brand.
               </p>
+            </div>
+
+            <div>
+              <span className="block text-[11px] font-semibold text-ink/50 uppercase tracking-wider mb-1.5">
+                Logo
+              </span>
+              <div className="flex items-center gap-3">
+                <div className="w-14 h-14 rounded-xl border border-fog bg-mist flex-shrink-0 overflow-hidden flex items-center justify-center">
+                  {logoDataUrl ? (
+                    <img src={logoDataUrl} alt="logo preview" className="w-full h-full object-contain" />
+                  ) : (
+                    <ImagePlus size={20} className="text-ink/30" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => handlePickLogo(e.target.files?.[0])}
+                  />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink/70 hover:text-ink hover:border-brand-300 transition-all"
+                    >
+                      {logoDataUrl ? 'Replace logo' : 'Upload logo'}
+                    </button>
+                    {logoDataUrl && (
+                      <button
+                        type="button"
+                        onClick={() => { setLogoDataUrl(''); setLogoError('') }}
+                        className="text-[11px] text-ink/40 hover:text-ink/70 inline-flex items-center gap-1"
+                      >
+                        <X size={11} /> Remove
+                      </button>
+                    )}
+                  </div>
+                  <p className={`text-[11px] mt-1.5 ${logoError ? 'text-red-500' : 'text-ink/35'}`}>
+                    {logoError || `PNG, JPG, or SVG · under ${Math.round(MAX_LOGO_BYTES / 1024)} KB`}
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="flex justify-end pt-1">
               <button
                 type="submit"
-                disabled={!brandName.trim()}
+                disabled={!canContinue}
                 className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Continue <ArrowRight size={14} />
