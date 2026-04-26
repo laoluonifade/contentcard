@@ -131,9 +131,13 @@ async def get_subscription(
             _save_card_from_authorization(anchor, fallback_auth)
             await db.commit()
 
+    # Provider for display follows the user's current country, not the stored workspace
+    # value — a country change in settings is reflected immediately even if prior data
+    # on the workspace row is stale.
+    nigeria = is_nigeria_user(current_user.country_code)
     return SubscriptionOut(
         plan=effective,
-        provider=anchor.payment_provider,
+        provider="paystack" if nigeria else "stripe",
         trial_ends_at=anchor.trial_ends_at,
         is_active=anchor.is_active,
         subscription_id=anchor.subscription_id,
@@ -142,8 +146,7 @@ async def get_subscription(
         next_payment_date=anchor.next_payment_date,
         billing_workspace_id=anchor.id,
         subscription_covers_owned_workspaces=shared and effective in ("starter", "smb", "pro"),
-        # Let frontend know which processor so it can display the right logo/copy
-        stripe_publishable_key=settings.STRIPE_PUBLISHABLE_KEY if not is_nigeria_user(current_user.country_code) else None,
+        stripe_publishable_key=settings.STRIPE_PUBLISHABLE_KEY if not nigeria else None,
     )
 
 
