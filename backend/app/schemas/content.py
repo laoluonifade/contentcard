@@ -102,6 +102,8 @@ class BrandFormCoachRequest(BaseModel):
     research_urls: list[str] = Field(default_factory=list)
     # When true, https:// URLs in the latest user message are fetched server-side (SSRF-hardened).
     fetch_urls_from_message: bool = True
+    # When true (default), the coach performs a live web search if the message needs external info.
+    enable_web_search: bool = True
 
 
 class BrandFormCoachResponse(BaseModel):

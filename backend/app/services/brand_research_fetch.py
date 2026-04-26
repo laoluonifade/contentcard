@@ -202,3 +202,93 @@ async def gather_research_context(
         + "\n".join(parts)
     )
     return block[:120000], records
+
+
+# ── Web search via OpenAI Responses API (web_search_preview tool) ─────────────
+
+_SEARCH_TRIGGER = re.compile(
+    r"\b("
+    r"search|find|look ?up|research|what is|who is|tell me about|"
+    r"competitors?|market|industry|trend|news|latest|recent|"
+    r"overview|summary|background|history|founded|revenue|"
+    r"pricing|compared? to|vs\.?|alternative"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def needs_web_search(text: str) -> bool:
+    """Return True when the user message looks like it needs external research."""
+    return bool(_SEARCH_TRIGGER.search(text or ""))
+
+
+async def web_search_for_coach(query: str) -> tuple[str, list[dict]]:
+    """
+    Run a web search using OpenAI Responses API (web_search_preview hosted tool).
+    Returns (research_block, sources).
+
+    The model automatically decides whether to actually search and cites its sources.
+    Falls back gracefully if the Responses API is unavailable or the key is missing.
+    """
+    from app.core.config import settings
+
+    api_key = settings.OPENAI_API_KEY
+    if not api_key:
+        return "", []
+
+    payload = {
+        "model": "gpt-4o-mini",
+        "tools": [{"type": "web_search_preview"}],
+        "input": query,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            resp = await client.post(
+                "https://api.openai.com/v1/responses",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            if resp.status_code != 200:
+                logger.warning("web_search_for_coach: HTTP %s — %s", resp.status_code, resp.text[:300])
+                return "", []
+
+            data = resp.json()
+    except Exception as e:
+        logger.warning("web_search_for_coach request failed: %s", e)
+        return "", []
+
+    # Parse Responses API output format
+    sources: list[dict] = []
+    text_parts: list[str] = []
+
+    for item in data.get("output", []):
+        item_type = item.get("type", "")
+
+        if item_type == "message":
+            for block in item.get("content", []):
+                if block.get("type") == "output_text":
+                    raw_text = block.get("text", "")
+                    # Extract citations from annotations
+                    for ann in block.get("annotations", []):
+                        if ann.get("type") == "url_citation":
+                            sources.append({
+                                "url": ann.get("url", ""),
+                                "title": ann.get("title", ""),
+                                "fetched": True,
+                                "via": "web_search",
+                            })
+                    text_parts.append(raw_text)
+
+    combined = "\n\n".join(text_parts).strip()
+    if not combined:
+        return "", []
+
+    block = (
+        "\n\nWEB SEARCH RESULTS (live internet search performed for this request):\n\n"
+        + combined[:80000]
+    )
+    return block, sources
