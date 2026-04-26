@@ -331,6 +331,10 @@ export const billingApi = {
   createCheckout:     (data) => api.post('/billing/checkout', data).then(r => r.data),
   cancelSubscription: (wsId) => api.post(`/billing/cancel/${wsId}`).then(r => r.data),
   removeCard:         (wsId) => api.delete(`/billing/card/${wsId}`).then(r => r.data),
+  // Inline (no-redirect) card collection
+  inlineCheckout:    (data) => api.post('/billing/inline-checkout', data).then(r => r.data),
+  cardSave:          (data) => api.post('/billing/card-save', data).then(r => r.data),
+  cardSaveComplete:  (data) => api.post('/billing/card-save/complete', data).then(r => r.data),
 }
 
 // ─── Trends ─────────────────────────────────────────────────────

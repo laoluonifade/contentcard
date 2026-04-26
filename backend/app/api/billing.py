@@ -2,6 +2,7 @@ import json
 import hmac
 import hashlib
 import logging
+import secrets
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -23,6 +24,8 @@ from app.services.billing_service import (
     retrieve_stripe_subscription,
     # Shared
     PLANS,
+    PAYSTACK_BASE,
+    _headers as _paystack_headers,
     is_nigeria_user,
 )
 from app.services.billing_entitlements import (
@@ -35,6 +38,7 @@ from app.services.billing_entitlements import (
 from app.schemas.billing import (
     CheckoutRequest, CheckoutResponse, SubscriptionOut, CardOut,
 )
+import httpx
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -177,6 +181,287 @@ async def create_checkout(
         )
         await db.commit()
         return CheckoutResponse(checkout_url=checkout_url, provider="stripe")
+
+
+# ── Inline payment endpoints (no redirect) ────────────────────────────────────
+
+@router.post("/inline-checkout")
+async def inline_checkout(
+    body: CheckoutRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Return credentials for inline (in-app) payment collection.
+
+    Nigeria  → Paystack transaction reference + public key for PaystackPop.
+    Others   → Stripe PaymentIntent client_secret + publishable key for Elements.
+
+    The frontend opens the payment UI inside a modal; no full-page redirect.
+    """
+    if body.plan not in PLANS:
+        raise HTTPException(status_code=400, detail=f"Invalid plan: {body.plan}")
+
+    ws = await _require_owner(body.workspace_id, current_user.id, db)
+    target_ws = await checkout_target_workspace(db, current_user.id, ws)
+    nigeria = is_nigeria_user(current_user.country_code)
+
+    if nigeria:
+        plan_config = PLANS[body.plan]
+        from app.services.billing_service import _PLAN_CODES
+        plan_code = _PLAN_CODES.get(body.plan)
+
+        reference = f"cc-inline-{secrets.token_hex(12)}"
+        payload: dict = {
+            "email": current_user.email,
+            "amount": plan_config["ngn_price"],
+            "currency": "NGN",
+            "reference": reference,
+            "callback_url": (
+                f"{settings.FRONTEND_URL}/dashboard/billing?success=1&plan={body.plan}"
+            ),
+            "metadata": {
+                "plan": body.plan,
+                "workspace_id": target_ws.id,
+                "purpose": "subscription",
+                "custom_fields": [
+                    {"display_name": "Plan", "variable_name": "plan", "value": plan_config["name"]},
+                ],
+            },
+        }
+        if plan_code:
+            payload["plan"] = plan_code
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{PAYSTACK_BASE}/transaction/initialize",
+                json=payload,
+                headers=_paystack_headers(),
+            )
+            data = resp.json()
+            if not data.get("status"):
+                raise HTTPException(status_code=502, detail=f"Paystack error: {data.get('message','Unknown')}")
+
+        target_ws.payment_provider = "paystack"
+        await db.commit()
+
+        return {
+            "provider": "paystack",
+            "public_key": settings.PAYSTACK_PUBLIC_KEY,
+            "reference": reference,
+            "email": current_user.email,
+            "amount": plan_config["ngn_price"],
+            "plan_code": plan_code,
+            "plan": body.plan,
+            "workspace_id": target_ws.id,
+        }
+
+    else:
+        # ── Stripe: create subscription in default_incomplete mode ──────────
+        import stripe as stripe_mod
+        stripe_mod.api_key = settings.STRIPE_SECRET_KEY
+
+        from app.services.billing_service import _STRIPE_PRICE_IDS
+        price_id = _STRIPE_PRICE_IDS.get(body.plan)
+        if not price_id:
+            raise HTTPException(status_code=502, detail="Stripe price not configured. Contact support.")
+
+        # Find or create a Stripe customer for this user
+        customer_id = target_ws.customer_id
+        if not customer_id:
+            customer = stripe_mod.Customer.create(email=current_user.email)
+            customer_id = customer.id
+            target_ws.customer_id = customer_id
+
+        subscription = stripe_mod.Subscription.create(
+            customer=customer_id,
+            items=[{"price": price_id}],
+            payment_behavior="default_incomplete",
+            payment_settings={"save_default_payment_method": "on_subscription"},
+            expand=["latest_invoice.payment_intent"],
+            metadata={"plan": body.plan, "workspace_id": target_ws.id},
+        )
+        client_secret = subscription["latest_invoice"]["payment_intent"]["client_secret"]
+        target_ws.payment_provider = "stripe"
+        target_ws.subscription_id = subscription.id
+        target_ws.plan = body.plan  # pre-set; webhook confirms on payment
+        await db.commit()
+
+        return {
+            "provider": "stripe",
+            "publishable_key": settings.STRIPE_PUBLISHABLE_KEY,
+            "client_secret": client_secret,
+            "subscription_id": subscription.id,
+            "plan": body.plan,
+            "workspace_id": target_ws.id,
+        }
+
+
+@router.post("/card-save")
+async def card_save_init(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Initialise a card-save flow (no immediate subscription charge).
+
+    Nigeria  → Paystack transaction for ₦100 to tokenise the card.
+    Others   → Stripe SetupIntent so card details can be saved for later charges.
+
+    Used for the bonus-generation upsell where the user adds a card
+    but is not subscribing to a plan yet.
+    """
+    workspace_id = str(body.get("workspace_id") or "")
+    ws = await _require_owner(workspace_id, current_user.id, db)
+    anchor = await billing_anchor_workspace(db, current_user.id)
+    target_ws = anchor or ws
+    nigeria = is_nigeria_user(current_user.country_code)
+
+    if nigeria:
+        # ₦100 tokenisation charge to get the authorization_code
+        reference = f"cc-cardsave-{secrets.token_hex(12)}"
+        payload = {
+            "email": current_user.email,
+            "amount": 10000,   # ₦100 in kobo
+            "currency": "NGN",
+            "reference": reference,
+            "metadata": {
+                "purpose": "card_save",
+                "workspace_id": target_ws.id,
+            },
+        }
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                f"{PAYSTACK_BASE}/transaction/initialize",
+                json=payload,
+                headers=_paystack_headers(),
+            )
+            data = resp.json()
+            if not data.get("status"):
+                raise HTTPException(status_code=502, detail=f"Paystack error: {data.get('message','Unknown')}")
+
+        target_ws.payment_provider = "paystack"
+        await db.commit()
+        return {
+            "provider": "paystack",
+            "public_key": settings.PAYSTACK_PUBLIC_KEY,
+            "reference": reference,
+            "email": current_user.email,
+            "amount": 10000,
+            "workspace_id": target_ws.id,
+        }
+
+    else:
+        import stripe as stripe_mod
+        stripe_mod.api_key = settings.STRIPE_SECRET_KEY
+
+        customer_id = target_ws.customer_id
+        if not customer_id:
+            customer = stripe_mod.Customer.create(email=current_user.email)
+            customer_id = customer.id
+            target_ws.customer_id = customer_id
+
+        intent = stripe_mod.SetupIntent.create(
+            customer=customer_id,
+            usage="off_session",
+            metadata={"workspace_id": target_ws.id, "purpose": "card_save"},
+        )
+        target_ws.payment_provider = "stripe"
+        await db.commit()
+        return {
+            "provider": "stripe",
+            "publishable_key": settings.STRIPE_PUBLISHABLE_KEY,
+            "client_secret": intent.client_secret,
+            "setup_intent_id": intent.id,
+            "workspace_id": target_ws.id,
+        }
+
+
+@router.post("/card-save/complete")
+async def card_save_complete(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Confirm that a card-save (or subscription-payment) completed successfully
+    and persist card details on the workspace.
+
+    Called by the frontend after PaystackPop callback or Stripe confirmCardSetup/Payment.
+    """
+    workspace_id = str(body.get("workspace_id") or "")
+    provider = str(body.get("provider") or "")
+    anchor = await billing_anchor_workspace(db, current_user.id)
+    if not anchor or anchor.id != workspace_id:
+        ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        anchor = ws_r.scalar_one_or_none()
+    if not anchor:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+
+    if provider == "paystack":
+        reference = str(body.get("reference") or "")
+        if not reference:
+            raise HTTPException(status_code=400, detail="reference is required")
+        result = await verify_paystack_transaction(reference)
+        data = result.get("data", {})
+        if data.get("status") != "success":
+            raise HTTPException(status_code=402, detail="Payment not confirmed by Paystack")
+
+        auth = data.get("authorization", {})
+        if auth:
+            _save_card_from_authorization(anchor, auth)
+        anchor.payment_provider = "paystack"
+
+        # If this was a subscription transaction, save sub details too
+        purpose = str((data.get("metadata") or {}).get("purpose") or "")
+        if purpose == "subscription":
+            plan_name = str((data.get("metadata") or {}).get("plan") or "starter")
+            anchor.plan = plan_name
+            sub_code = data.get("subscription_code")
+            if sub_code:
+                anchor.subscription_id = sub_code
+            npd = data.get("next_payment_date")
+            if npd:
+                try:
+                    anchor.next_payment_date = datetime.fromisoformat(npd.replace("Z", "+00:00"))
+                except Exception:
+                    pass
+            customer = data.get("customer", {})
+            if customer.get("customer_code"):
+                anchor.customer_id = customer["customer_code"]
+
+        await db.commit()
+        return {"ok": True, "card": _build_card(anchor)}
+
+    elif provider == "stripe":
+        import stripe as stripe_mod
+        stripe_mod.api_key = settings.STRIPE_SECRET_KEY
+
+        payment_method_id = str(body.get("payment_method_id") or "")
+        setup_intent_id   = str(body.get("setup_intent_id") or "")
+
+        # Retrieve payment method from SetupIntent or direct ID
+        pm = None
+        if setup_intent_id:
+            try:
+                si = stripe_mod.SetupIntent.retrieve(setup_intent_id, expand=["payment_method"])
+                pm = si.payment_method
+            except Exception as e:
+                logger.warning("Stripe SetupIntent retrieve failed: %s", e)
+        if not pm and payment_method_id:
+            try:
+                pm = stripe_mod.PaymentMethod.retrieve(payment_method_id)
+            except Exception as e:
+                logger.warning("Stripe PaymentMethod retrieve failed: %s", e)
+
+        if pm:
+            _save_card_from_stripe(anchor, pm if isinstance(pm, dict) else pm.to_dict())
+        anchor.payment_provider = "stripe"
+        await db.commit()
+        return {"ok": True, "card": _build_card(anchor)}
+
+    raise HTTPException(status_code=400, detail="provider must be 'paystack' or 'stripe'")
 
 
 @router.delete("/card/{workspace_id}", status_code=204)
