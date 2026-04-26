@@ -9,6 +9,7 @@ import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
+import GenerationPlanModal from '../components/ui/GenerationPlanModal'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const MAX_GENERATION_MONTHS_AHEAD = 3
@@ -489,7 +490,9 @@ export default function CalendarPage() {
   const { user } = useAuthStore()
   const {
     activeBrandId,
+    activeWorkspaceId,
     brands,
+    templates,
     fetchMonthContent,
     generateMonth,
     generatingMonth,
@@ -601,9 +604,11 @@ export default function CalendarPage() {
   const [regenVis, setRegenVis] = useState(false)
   const [filterPlat, setFilterPlat] = useState('all')
   const [showGenPanel, setShowGenPanel] = useState(false)
+  const [showPlanModal, setShowPlanModal] = useState(false)
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
+  const [genTemplateId, setGenTemplateId] = useState(null)
   const [layoutMode, setLayoutMode] = useState('grid')
   const [cardUpsellToast, setCardUpsellToast] = useState(null)
   const [thisWeekOnly, setThisWeekOnly] = useState(false)
@@ -778,10 +783,9 @@ export default function CalendarPage() {
   }, [generatingMonth, generationStartedAt])
 
   useEffect(() => {
-    if (generatingMonth && showGenPanel) {
-      setShowGenPanel(false)
-    }
-  }, [generatingMonth, showGenPanel])
+    if (generatingMonth && showGenPanel) setShowGenPanel(false)
+    if (generatingMonth && showPlanModal) setShowPlanModal(false)
+  }, [generatingMonth, showGenPanel, showPlanModal])
 
   useEffect(() => {
     if (!showGenPanel || !activeBrandId) return
@@ -1259,7 +1263,7 @@ export default function CalendarPage() {
     }
   }
 
-  const runGenerate = async (confirmDuplicate) => {
+  const runGenerate = async (confirmDuplicate, customPlan = null) => {
     const generation_brief =
       prepMessages.length > 0
         ? prepMessages
@@ -1274,9 +1278,11 @@ export default function CalendarPage() {
       format_mix: 'single_only',
       posts_per_week: genPPW,
       topic_override: genTopic.trim() || null,
+      template_id: genTemplateId || null,
       include_holidays_in_content: includeHolidays,
       generation_brief,
       confirm_duplicate: confirmDuplicate,
+      custom_plan: customPlan || null,
     })
   }
 
@@ -1286,7 +1292,7 @@ export default function CalendarPage() {
     return { total: scoped.length, ready }
   }
 
-  const handleGenerate = async () => {
+  const handleGenerate = () => {
     if (!activeBrandId) { toast('Select a brand first', 'error'); return false }
     if (generationLockedForMonth) {
       toast(`You can only generate up to ${MAX_GENERATION_MONTHS_AHEAD} months ahead.`, 'error')
@@ -1298,6 +1304,14 @@ export default function CalendarPage() {
       toast(visErr, 'error')
       return false
     }
+    // Open plan modal — actual generation fires after user reviews/edits the plan
+    setShowGenPanel(false)
+    setShowPlanModal(true)
+    return true
+  }
+
+  const handlePlanConfirmed = async (customPlan) => {
+    setShowPlanModal(false)
     try {
       setGenerationBaseline({
         with: posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length,
@@ -1313,7 +1327,7 @@ export default function CalendarPage() {
       ])
       const before = platformReadyCounts(posts, genPlatform)
       try {
-        await runGenerate(false)
+        await runGenerate(false, customPlan)
       } catch (err) {
         const st = err.response?.status
         const d = err.response?.data?.detail
@@ -1322,7 +1336,7 @@ export default function CalendarPage() {
             `${d.message || 'This month already has posts for the selected platform.'}\n\nGenerate additional posts anyway?`
           )
           if (!ok) return false
-          await runGenerate(true)
+          await runGenerate(true, customPlan)
         } else {
           throw err
         }
@@ -2000,6 +2014,29 @@ export default function CalendarPage() {
                 className="input"/>
             </div>
 
+            {(templates || []).filter(t => t.is_active).length > 0 && (
+              <div>
+                <p className="label mb-2">Playbook template <span className="text-ink/20 font-normal normal-case tracking-normal">(optional)</span></p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    onClick={() => setGenTemplateId(null)}
+                    className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all ${!genTemplateId ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}
+                  >
+                    Auto
+                  </button>
+                  {(templates || []).filter(t => t.is_active).slice(0, 6).map(t => (
+                    <button
+                      key={t.id}
+                      onClick={() => setGenTemplateId(t.id)}
+                      className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all truncate max-w-[120px] ${genTemplateId === t.id ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}
+                    >
+                      {t.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="rounded-xl border border-fog bg-mist/50 p-3 space-y-2">
               <label className="flex items-start gap-2 cursor-pointer">
                 <input
@@ -2035,10 +2072,27 @@ export default function CalendarPage() {
               {generatingMonth
                 ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
                     {generationPollCount < 1 ? 'Starting…' : generationPollCount < 3 ? 'Writing captions…' : generationPollCount < 7 ? 'Crafting posts…' : 'Almost done…'}</>
-                : <><Zap size={15}/>Generate {MONTHS[month-1]} {year}</>}
+                : <><Zap size={15}/>Review &amp; Generate {MONTHS[month-1]} →</>}
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── Generation plan modal ── */}
+      {showPlanModal && (
+        <GenerationPlanModal
+          month={month}
+          year={year}
+          platform={genPlatform}
+          postsPerWeek={genPPW}
+          templateId={genTemplateId}
+          templates={(templates || []).filter(t => t.is_active)}
+          brand={activeBrand}
+          workspaceId={activeWorkspaceId}
+          onConfirm={handlePlanConfirmed}
+          onBack={() => { setShowPlanModal(false); setShowGenPanel(true) }}
+          onClose={() => setShowPlanModal(false)}
+        />
       )}
 
       {/* ── Post modal ── */}

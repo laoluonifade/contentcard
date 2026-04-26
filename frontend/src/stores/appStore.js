@@ -123,6 +123,7 @@ const useAppStore = create(
         use_reference_research,
         variant_count,
         confirm_duplicate,
+        custom_plan,
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
@@ -144,6 +145,7 @@ const useAppStore = create(
             use_website_intelligence: use_website_intelligence !== false,
             only_new_changes: !!only_new_changes,
             confirm_duplicate: !!confirm_duplicate,
+            custom_plan: Array.isArray(custom_plan) && custom_plan.length > 0 ? custom_plan : null,
           }
           try {
             await contentApi.generateMonthV2(reqV2)

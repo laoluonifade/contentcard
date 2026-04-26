@@ -1491,6 +1491,7 @@ async def generate_month_v2(
         existing_counts=dict(existing_counts),
         monthly_post_cap=monthly_post_cap,
         current_month_total=current_month_total,
+        custom_plan=body.custom_plan or None,
     )
     await db.commit()
     return {
@@ -2574,6 +2575,7 @@ async def _do_generate_month(
     existing_counts: dict[str, int] | None = None,
     monthly_post_cap: int | None = None,
     current_month_total: int = 0,
+    custom_plan: list[dict] | None = None,
 ):
     from app.db.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
@@ -2619,14 +2621,49 @@ async def _do_generate_month(
                 brief_parts.append(meme_addon)
             combined_generation_brief = "\n\n".join(brief_parts) if brief_parts else None
 
-            posts = await generate_monthly_plan(
-                brand=brand_for_planner, month=month, year=year,
-                platforms=platforms, format_mix=format_mix,
-                posts_per_week=posts_per_week,
-                topic_override=topic_override, template_topics=template_topics,
-                holiday_context=holiday_context or None,
-                generation_brief=combined_generation_brief,
-            )
+            if custom_plan and len(custom_plan) > 0:
+                # User reviewed and edited the plan in the modal — use their schedule
+                # directly instead of running AI planning. The AI still generates
+                # captions and images for each slot; only dates/types/images are seeded.
+                posts = []
+                for slot in custom_plan:
+                    if not isinstance(slot, dict):
+                        continue
+                    raw_date = str(slot.get("date") or "").strip()
+                    if not raw_date:
+                        continue
+                    platform_val = str(slot.get("platform") or (platforms[0] if platforms else "instagram")).lower()
+                    fmt_val = str(slot.get("format") or "single").lower()
+                    content_type = str(slot.get("content_type") or "").strip()
+                    visual_direction = str(slot.get("visual_direction") or "").strip() or None
+                    product_image_url = str(slot.get("product_image_url") or "").strip() or None
+                    # Merge override template_id from slot (if any) or fall back to global
+                    slot_template_id = str(slot.get("template_id") or "").strip() or template_id or None
+                    posts.append({
+                        "date": raw_date,
+                        "platform": platform_val,
+                        "format": fmt_val,
+                        "content_type": content_type,
+                        "visual_direction": visual_direction,
+                        "product_image_url": product_image_url,
+                        "template_id": slot_template_id,
+                        # Leave topic/caption/image_prompt blank — AI fills these later
+                        "topic": topic_override or content_type or "content",
+                        "caption": None,
+                    })
+                logger.info(
+                    "_do_generate_month: using custom_plan with %d slots for brand %s %s/%s",
+                    len(posts), brand_id, month, year,
+                )
+            else:
+                posts = await generate_monthly_plan(
+                    brand=brand_for_planner, month=month, year=year,
+                    platforms=platforms, format_mix=format_mix,
+                    posts_per_week=posts_per_week,
+                    topic_override=topic_override, template_topics=template_topics,
+                    holiday_context=holiday_context or None,
+                    generation_brief=combined_generation_brief,
+                )
             ec = existing_counts or {}
             slots = {p: max(0, MAX_POSTS_PER_PLATFORM_PER_MONTH - int(ec.get(p, 0))) for p in platforms}
             filtered_posts = []
@@ -2814,6 +2851,15 @@ async def _do_generate_month(
                             "product_image_url": fallback_img,
                             "product_image_urls": fallback_urls,
                         }
+                # Custom plan: if user pinned a specific image to this post, honour it
+                # (overrides whatever the website-grounding system resolved).
+                pinned_image_url = str(post.get("product_image_url") or "").strip()
+                if pinned_image_url:
+                    product_ctx = {
+                        **(product_ctx or {}),
+                        "product_image_url": pinned_image_url,
+                        "product_image_urls": [pinned_image_url],
+                    }
                 if product_ctx:
                     enriched.update(product_ctx)
                 if isinstance(matched_op, dict):
