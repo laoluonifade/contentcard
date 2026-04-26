@@ -2538,6 +2538,7 @@ async def run_generation_prep_chat(
     *,
     playbook_summary: str | None = None,
     product_context: str | None = None,
+    research_context: str | None = None,
 ) -> dict:
     import calendar
 
@@ -2552,6 +2553,8 @@ async def run_generation_prep_chat(
         intro += f"\n\nBrand playbook templates:\n{str(playbook_summary).strip()}"
     if product_context and str(product_context).strip():
         intro += f"\n\nProduct catalog context:\n{str(product_context).strip()}"
+    if research_context and str(research_context).strip():
+        intro += f"\n\n{str(research_context).strip()[:80000]}"
     msgs: list[dict] = [
         {"role": "system", "content": intro},
         {"role": "system", "content": _visual_system_prompt_block(brand)},

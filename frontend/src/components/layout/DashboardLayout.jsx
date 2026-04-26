@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus, Smile, Share2 } from 'lucide-react'
+import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus, Smile, Share2, Sparkles } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
@@ -9,6 +9,7 @@ import Seo from '../seo/Seo'
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
+  { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'         },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
   { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Playbook'  },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand Kit'  },
@@ -21,9 +22,9 @@ const NAV = [
 
 const MOBILE_NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Home'      },
+  { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'        },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'  },
   { to: '/dashboard/directory',  icon: Images,           label: 'Directory' },
-  { to: '/dashboard/social',     icon: Share2,           label: 'Social'    },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand'     },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'  },
 ]

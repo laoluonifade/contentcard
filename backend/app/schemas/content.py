@@ -34,6 +34,8 @@ class GenerationPrepChatRequest(BaseModel):
     month: int
     year: int
     messages: list[GenerationPrepMessage]
+    # Live web search when the message needs external information
+    enable_web_search: bool = True
 
 
 class PrepChatChoice(BaseModel):
