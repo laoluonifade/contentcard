@@ -2861,6 +2861,31 @@ async def _do_generate_month(
                 if not comp_desc and vs_obj is not None:
                     comp_desc = _vs.composition_description(vs_obj, post.get("content_type"))
 
+                # ── Design critic + design_mode plumbing (no schema change) ──
+                # Stash design_mode / surprise_post / critic_* in the visual_strategy
+                # JSON column alongside the strategy dict. critic_reasons is appended
+                # to rejection_log with a stable prefix.
+                strategy_payload = vs_obj.to_dict() if vs_obj else {}
+                if post.get("design_mode"):
+                    strategy_payload["design_mode"] = str(post.get("design_mode"))
+                if post.get("surprise_post"):
+                    strategy_payload["surprise_post"] = True
+                if post.get("critic_score") is not None:
+                    try:
+                        strategy_payload["critic_score"] = float(post.get("critic_score"))
+                    except (TypeError, ValueError):
+                        pass
+                if post.get("regenerated_by_critic"):
+                    strategy_payload["regenerated_by_critic"] = True
+                critic_reasons = post.get("critic_reasons")
+                if isinstance(critic_reasons, list):
+                    for reason in critic_reasons:
+                        if reason:
+                            rejection_log.append(f"critic: {str(reason)[:200]}")
+                fix_directive = post.get("critic_fix_directive")
+                if fix_directive:
+                    strategy_payload["critic_fix_directive"] = str(fix_directive)[:300]
+
                 item = ContentItem(
                     brand_id=brand_id,
                     template_id=template_id,
@@ -2882,7 +2907,7 @@ async def _do_generate_month(
                     scheduled_date=post_date,
                     generation_month=month,
                     generation_year=year,
-                    visual_strategy=vs_obj.to_dict() if vs_obj else None,
+                    visual_strategy=strategy_payload or None,
                     composition_description=comp_desc,
                     diversity_checks_passed=contract_passed,
                     rejection_log=rejection_log or None,
