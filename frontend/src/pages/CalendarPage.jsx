@@ -8,6 +8,7 @@ import { contentApi, holidaysApi, uploadApi } from '../api'
 import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
+import { buildCampaignBrief } from '../utils/campaignBrief'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
 import GenerationPlanModal from '../components/ui/GenerationPlanModal'
 import PaymentModal from '../components/ui/PaymentModal'
@@ -248,7 +249,7 @@ function CalendarPrepBody({
               <Sparkles size={14} className="text-brand-500" />
             </div>
             <p className="text-ink/40 text-[11px] leading-relaxed max-w-[200px]">
-              Chat to brief the AI, then say &ldquo;generate&rdquo; when ready.
+              Brief the AI, review the month plan, then generate when it looks right.
             </p>
           </div>
         )}
@@ -352,8 +353,8 @@ function CalendarPrepBody({
                       </div>
                     )}
 
-                    {/* Generate CTA — shown on last assistant message */}
-                    {(m.cta?.action === 'start_generation' || i === messages.length - 1) && (() => {
+                    {/* Generate CTA — shown only when the plan is explicitly ready */}
+                    {m.cta?.action === 'start_generation' && (() => {
                       const ctaKey = String(i)
                       const isUsed = usedCtaKeys?.has(ctaKey)
                       const busy = Boolean(isUsed || ctaBusy || generatingMonth || prepServiceDown)
@@ -370,8 +371,9 @@ function CalendarPrepBody({
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors"
                           >
                             <Zap size={10} />
-                            {generatingMonth ? 'Generating…' : (m.cta?.label || 'Generate posts now')}
+                            {generatingMonth ? 'Generating…' : (m.cta?.label || 'Approve plan and generate')}
                           </button>
+                          <p className="mt-1 text-[10px] text-ink/35">Review the plan above first, then launch generation.</p>
                         </div>
                       )
                     })()}
@@ -458,7 +460,7 @@ function CalendarPrepBody({
           </button>
         </div>
 
-        {/* Generate button — always visible */}
+        {/* Generate button — always visible for manual runs */}
         <button
           type="button"
           onClick={() => onRunCta({ action: 'start_generation' }, '')}
@@ -466,7 +468,7 @@ function CalendarPrepBody({
           className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors"
         >
           <Zap size={11} />
-          {generatingMonth ? 'Generating…' : 'Generate posts'}
+          {generatingMonth ? 'Generating…' : 'Generate with current brief'}
         </button>
       </div>
     </div>
@@ -1041,12 +1043,6 @@ export default function CalendarPage() {
       }))
       setPrepMessages([...next, ...assistantRows])
 
-      // Auto-trigger generation when the AI signals it's ready
-      if (data.cta?.action === 'start_generation' && !generatingMonth) {
-        setTimeout(() => {
-          handleGenerate()
-        }, 600)
-      }
     } catch (e) {
       if (isAiCapacityError(e)) {
         setPrepServiceDown(true)
@@ -1273,16 +1269,24 @@ export default function CalendarPage() {
             .join('\n')
             .slice(0, 12000)
         : null
+    const campaign_brief = buildCampaignBrief({
+      brand: activeBrand,
+      messages: prepMessages,
+      topicOverride: genTopic.trim() || null,
+      platform: genPlatform,
+      monthLabel: `${MONTHS[month - 1]} ${year}`,
+    })
     await generateMonth({
       month,
       year,
       platforms: [genPlatform],
-      format_mix: 'single_only',
+      format_mix: 'mixed',
       posts_per_week: genPPW,
       topic_override: genTopic.trim() || null,
       template_id: genTemplateId || null,
       include_holidays_in_content: includeHolidays,
       generation_brief,
+      campaign_brief,
       confirm_duplicate: confirmDuplicate,
       custom_plan: customPlan || null,
     })
@@ -1388,11 +1392,7 @@ export default function CalendarPage() {
           remaining: Number(d.remaining_bonus_designs || 2),
         })
       }
-      // Only surface server-provided detail messages. Raw JS exceptions (ReferenceError,
-      // TypeError, etc.) are noise to users — log them and show a generic fallback instead.
-      const serverMsg = typeof d === 'string' ? d : d?.message
-      if (!serverMsg) console.error('Generation failed:', err)
-      const msg = serverMsg || 'Something went wrong while generating. Please try again in a moment.'
+      const msg = typeof d === 'string' ? d : (d?.message || err.message || 'Generation failed')
       if (msg.toLowerCase().includes('taking longer than expected')) {
         try {
           const vpKey = visualPendingSessionKey(user?.id, activeBrandId, month, year)

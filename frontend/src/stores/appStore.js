@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { workspaceApi, brandApi, contentApi, templateApi, trendsApi, billingApi } from '../api'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
-import { buildDemoState, buildGeneratedState, loadGuestProfile } from '../utils/demoData'
 
 /** Billing tier for the active workspace (owner subscription pool or row plan). */
 function workspacePlanTier(ws) {
@@ -29,45 +28,8 @@ const useAppStore = create(
       subscription: null,
       error: null,
 
-      // ── Demo / guest mode ───────────────────────────────────────
-      // Populate the store with mock workspace/brand/content so the dashboard
-      // looks alive for logged-out visitors. Action handlers are gated in
-      // DashboardLayout so demo data is read-only.
-      seedDemoData: (profile) => {
-        const guestProfile = profile || loadGuestProfile() || undefined
-        set({
-          ...buildDemoState(guestProfile),
-          subscription: null,
-          generatingMonth: false,
-          generationProgress: null,
-        })
-      },
-
-      // Replace the demo content for the current month with posts that came
-      // back from /public/guest-preview-generate so the calendar shows the
-      // visitor's freshly generated content.
-      seedGuestGeneratedPosts: (profile, apiPosts) => {
-        if (!Array.isArray(apiPosts) || !apiPosts.length) return
-        set({
-          ...buildGeneratedState(profile, apiPosts),
-          subscription: null,
-          generatingMonth: false,
-          generationProgress: null,
-        })
-      },
-
-      // ── Demo helper ─────────────────────────────────────────────
-      // Demo brands/workspaces have IDs prefixed with `demo-`. Skip backend
-      // fetches for those so the seeded demo data isn't blown away by an
-      // empty/auth-failed API response.
-      _isDemoActive: () => {
-        const s = get()
-        return (s.activeBrandId || '').startsWith('demo-') || (s.activeWorkspaceId || '').startsWith('demo-')
-      },
-
       // ── Workspaces ──────────────────────────────────────────────
       fetchWorkspaces: async () => {
-        if (get()._isDemoActive()) return get().workspaces
         const workspaces = await workspaceApi.list()
         const savedId = get().activeWorkspaceId
         const active = workspaces.find(w => w.id === savedId) || workspaces[0] || null
@@ -121,7 +83,6 @@ const useAppStore = create(
       fetchBrands: async (workspaceId) => {
         const wsId = workspaceId || get().activeWorkspaceId
         if (!wsId) return []
-        if (wsId.startsWith('demo-')) return get().brands
         const brands = await brandApi.list(wsId)
         const savedBrandId = get().activeBrandId
         const activeBrandId = brands.find(b => b.id === savedBrandId)?.id || brands[0]?.id || null
@@ -163,17 +124,10 @@ const useAppStore = create(
         variant_count,
         confirm_duplicate,
         custom_plan,
+        campaign_brief,
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
-        // Snapshot how many posts already exist so the poller knows when *new* ones land.
-        let baselineTotal = 0
-        try {
-          const s = await contentApi.getStatus(brandId, year, month)
-          baselineTotal = Number(s?.total ?? s?.with_visuals ?? s?.count ?? 0) || 0
-        } catch {
-          /* status fetch is best-effort; baseline 0 just means the poller exits on the first ready signal */
-        }
         set({
           generatingMonth: true,
           generationStartedAt: Date.now(),
@@ -189,6 +143,7 @@ const useAppStore = create(
             use_reference_research: use_reference_research !== false,
             variant_count: Number(variant_count || 2),
             generation_brief: generation_brief || null,
+            campaign_brief: campaign_brief || null,
             use_website_intelligence: use_website_intelligence !== false,
             only_new_changes: !!only_new_changes,
             confirm_duplicate: !!confirm_duplicate,
@@ -208,13 +163,14 @@ const useAppStore = create(
                 template_id: template_id || null,
                 include_holidays_in_content: include_holidays_in_content !== false,
                 generation_brief: generation_brief || null,
+                campaign_brief: campaign_brief || null,
                 confirm_duplicate: !!confirm_duplicate,
               })
             } else {
               throw e
             }
           }
-          const count = await get()._pollForContent(brandId, month, year, baselineTotal)
+          const count = await get()._pollForContent(brandId, month, year)
           return count
         } finally {
           set({ generatingMonth: false, generationStartedAt: null, generationProgress: null })
@@ -222,7 +178,7 @@ const useAppStore = create(
       },
 
       // Poll with exponential backoff: returns number of posts found
-      _pollForContent: async (brandId, month, year, baselineTotal = 0) => {
+      _pollForContent: async (brandId, month, year) => {
         const maxAttempts = 36
         const delays = [3000, 3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
 
@@ -241,20 +197,20 @@ const useAppStore = create(
                 ? { with: withV, total }
                 : { with: 0, total: 0 },
             })
-            if (status.ready && total > baselineTotal) {
+            if (status.ready && withV > 0) {
               const items = await get().fetchMonthContent(month, year)
               return items.length
             }
           } catch (e) {
             if (e.message && !e.message.includes('fetch') && !e.message.includes('Network')) throw e
             const items = await get().fetchMonthContent(month, year)
-            if (items.length > baselineTotal) return items.length
+            if (items.length > 0) return items.length
           }
         }
         const items = await get().fetchMonthContent(month, year)
-        if (items.length <= baselineTotal) {
+        if (items.length === 0) {
           throw new Error(
-            'Generation request was accepted but no new posts were created yet. This usually means the worker failed or is still processing. Please retry once and check again in 1-2 minutes.'
+            'Generation is taking longer than expected. Finished posts will appear on the calendar automatically; check back in a minute.'
           )
         }
         return items.length
@@ -263,12 +219,7 @@ const useAppStore = create(
       fetchMonthContent: async (month, year) => {
         const brandId = get().activeBrandId
         if (!brandId) return []
-        if (brandId.startsWith('demo-')) return get().getMonthContent(month, year)
-        // include_pending=true so posts whose visuals failed/stalled still
-        // appear in the calendar. Otherwise the GET /content month listing
-        // hides them and users lose access to posts they can no longer
-        // regenerate visuals for.
-        const items = await contentApi.list({ brand_id: brandId, month, year, include_pending: true })
+        const items = await contentApi.list({ brand_id: brandId, month, year })
         const key = `${year}-${month}`
         set(s => ({ contentByMonth: { ...s.contentByMonth, [key]: items } }))
         return items
@@ -302,7 +253,6 @@ const useAppStore = create(
       fetchTemplates: async () => {
         const brandId = get().activeBrandId
         if (!brandId) return []
-        if (brandId.startsWith('demo-')) return get().templates
         const templates = await templateApi.list(brandId)
         set({ templates })
         return templates
@@ -311,7 +261,6 @@ const useAppStore = create(
       fetchTemplatePlaybookCatalog: async () => {
         const brandId = get().activeBrandId
         if (!brandId) return null
-        if (brandId.startsWith('demo-')) return get().templatePlaybookCatalog
         const catalog = await templateApi.playbookCatalog(brandId)
         set({ templatePlaybookCatalog: catalog })
         return catalog
@@ -358,7 +307,6 @@ const useAppStore = create(
           set({ trends: [] })
           return []
         }
-        if (wsId.startsWith('demo-')) return get().trends
         try {
           const trends = await trendsApi.list(wsId)
           set({ trends })
@@ -397,7 +345,6 @@ const useAppStore = create(
       fetchSubscription: async () => {
         const wsId = get().activeWorkspaceId
         if (!wsId) return null
-        if (wsId.startsWith('demo-')) return get().subscription
         const sub = await billingApi.getSubscription(wsId)
         set({ subscription: sub })
         set(s => ({
@@ -413,10 +360,10 @@ const useAppStore = create(
         return sub
       },
 
-      createCheckout: async (plan, currency = 'NGN') => {
+      createCheckout: async (plan) => {
         const wsId = get().activeWorkspaceId
         if (!wsId) throw new Error('No active workspace')
-        return billingApi.createCheckout({ plan, workspace_id: wsId, currency })
+        return billingApi.createCheckout({ plan, workspace_id: wsId })
       },
 
       cancelSubscription: async () => {

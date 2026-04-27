@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     STRIPE_SECRET_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
     STRIPE_PUBLISHABLE_KEY: str = ""
-    # Set pre-created Stripe Price IDs from the Stripe dashboard (price_xxx)
+    # Optional: set pre-created Stripe Price IDs; if blank they are created at startup
     STRIPE_PRICE_STARTER: str = ""
     STRIPE_PRICE_SMB: str = ""
     STRIPE_PRICE_PRO: str = ""
@@ -57,16 +57,13 @@ class Settings(BaseSettings):
     QUALITY_GATE_MIN_SCORE: float = 0.66
     QUALITY_GATE_MAX_RETRIES: int = 2
     MAX_REAL_PEOPLE_SHARE: float = 0.35
-    # Visual diversity engine — vision-based subject_type validation.
-    # Off by default (adds ~$0.002/post + ~0.5-1s latency); enable to A/B.
-    VISUAL_DIVERSITY_VISION_ENABLED: bool = False
 
     # AI cost optimization (safe-by-default rollout flags)
     AI_COST_OPTIMIZATION_ENABLED: bool = True
     AI_CACHE_ENABLED: bool = True
     AI_MODEL_ROUTING_ENABLED: bool = True
     AI_STRICT_TOKEN_BUDGET_ENABLED: bool = True
-    AI_LOW_COST_PREP_MODE: bool = True
+    AI_LOW_COST_PREP_MODE: bool = False
     AI_IMAGE_VARIANT_MIN_MODE: bool = True
     AI_HIGH_QUALITY_FINAL_ONLY: bool = True
 
@@ -74,16 +71,16 @@ class Settings(BaseSettings):
     OPENAI_LOW_COST_MODEL: str = "gpt-4o-mini"
 
     AI_MAX_OUTPUT_TOKENS_DEFAULT: int = 2000
-    AI_PREP_MAX_OUTPUT_TOKENS: int = 1100
+    AI_PREP_MAX_OUTPUT_TOKENS: int = 1800
     AI_BRAND_COACH_MAX_OUTPUT_TOKENS: int = 1800
-    AI_MONTHLY_PLAN_MAX_OUTPUT_TOKENS: int = 6000
+    AI_MONTHLY_PLAN_MAX_OUTPUT_TOKENS: int = 9000
     AI_CAPTION_MAX_OUTPUT_TOKENS: int = 900
     AI_TRENDS_MAX_OUTPUT_TOKENS: int = 1500
 
     AI_MAX_INPUT_CHARS_PER_MESSAGE: int = 12000
     AI_MAX_INPUT_CHARS_TOTAL: int = 70000
-    AI_CHAT_SUMMARY_TRIGGER_MESSAGES: int = 14
-    AI_CHAT_SUMMARY_KEEP_LAST_MESSAGES: int = 10
+    AI_CHAT_SUMMARY_TRIGGER_MESSAGES: int = 18
+    AI_CHAT_SUMMARY_KEEP_LAST_MESSAGES: int = 14
 
     AI_CACHE_TTL_CHAT_SEC: int = 900          # 15 min — text generation dedup window
     AI_CACHE_TTL_DETERMINISTIC_SEC: int = 1800 # 30 min — image generation dedup window (was 4 h)
@@ -125,21 +122,6 @@ class Settings(BaseSettings):
     GMAIL_FROM_NAME: str = "ContentCard"
     GMAIL_SMTP_HOST: str = "smtp.gmail.com"
     GMAIL_SMTP_PORT: int = 587
-
-    # ── Email notifications feature flags ──────────────────────────────────
-    # Phase 1: generation_complete + generation_failed. Default False so the
-    # plumbing PR can land without any user-visible behaviour change. Flip to
-    # True once internal users have baked it for a week (per PRD rollout plan).
-    EMAIL_GENERATION_LIFECYCLE_ENABLED: bool = False
-    # Phase 3: autopilot_paused, autopilot_reconnect_required, autopilot
-    # publish-failure digest. Same staged rollout discipline as Phase 1.
-    EMAIL_AUTOPILOT_HEALTH_ENABLED: bool = False
-
-    # Shared secret for cron-only HTTP endpoints (Phase 2 trial/card sweepers,
-    # Phase 3 autopilot digest). Must be set in production; if empty the cron
-    # endpoint fails closed with 503 so misconfigurations don't let cron run
-    # without auth.
-    CRON_SHARED_SECRET: str = ""
 
     class Config:
         env_file = ".env"

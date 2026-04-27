@@ -11,6 +11,7 @@ import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/Br
 import LogoCropModal from '../components/brand/LogoCropModal'
 import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
+import { getMissingFields } from '../utils/brandReadiness'
 
 const TABS = ['Basics', 'Products', 'Reviews', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
 
@@ -507,7 +508,12 @@ export default function BrandKitPage() {
     setSaving(true)
     try {
       await updateBrand(activeBrandId, form)
-      toast('Brand kit saved!')
+      const missing = getMissingFields(form)
+      toast(
+        missing.length
+          ? `Saved. ${missing.length} required ${missing.length === 1 ? 'field is' : 'fields are'} still missing before AI generation is unlocked.`
+          : 'Brand kit saved and ready for AI generation!'
+      )
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to save', 'error')
     } finally { setSaving(false) }
@@ -935,6 +941,7 @@ export default function BrandKitPage() {
 
   // Live scores: recomputed on every keystroke
   const { S, overall, overallLevel } = useBrandScores(form)
+  const missingRequiredFields = getMissingFields(form)
 
   if (!brand) {
     return (
@@ -973,6 +980,34 @@ export default function BrandKitPage() {
 
       {/* Brand Strength Banner */}
       <StrengthBanner overall={overall} overallLevel={overallLevel} />
+      {missingRequiredFields.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-800/70 mb-1">Required before AI generation</p>
+              <h2 className="text-sm font-bold text-amber-900 mb-1.5">
+                Fill these {missingRequiredFields.length} fields so generated posts sound ready to publish.
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {missingRequiredFields.map((field) => (
+                  <button
+                    key={`${field.tab}:${field.label}`}
+                    type="button"
+                    onClick={() => setTab(field.tab)}
+                    className="px-2.5 py-1 rounded-lg border border-amber-200 bg-white text-[11px] font-semibold text-amber-900 hover:border-amber-300"
+                  >
+                    {field.label} · {field.tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-amber-900">{missingRequiredFields.length}</div>
+              <div className="text-[11px] text-amber-800/75">left to complete</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={clsx(
         'grid gap-8 items-start',

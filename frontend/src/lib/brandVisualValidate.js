@@ -12,6 +12,10 @@ export function normalizeHex(h) {
 export function brandVisualBlockReason(brand) {
   if (!brand) return null
   const vs = (brand.brand_kit || {}).visual_system || {}
+  const colors = Array.isArray(brand.brand_colors) ? brand.brand_colors.filter(Boolean) : []
+  if (colors.length < 2 && !['primary_hex', 'secondary_hex', 'accent_hex'].every((k) => String(vs?.[k] || '').trim())) {
+    return 'Add at least two brand colors or complete the Visual brand system palette in Brand kit → Visual before generating.'
+  }
   for (const k of ['primary_hex', 'secondary_hex', 'accent_hex']) {
     const v = vs[k]
     if (v != null && String(v).trim() !== '' && !normalizeHex(String(v))) {
