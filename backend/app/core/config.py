@@ -126,6 +126,21 @@ class Settings(BaseSettings):
     GMAIL_SMTP_HOST: str = "smtp.gmail.com"
     GMAIL_SMTP_PORT: int = 587
 
+    # ── Email notifications feature flags ──────────────────────────────────
+    # Phase 1: generation_complete + generation_failed. Default False so the
+    # plumbing PR can land without any user-visible behaviour change. Flip to
+    # True once internal users have baked it for a week (per PRD rollout plan).
+    EMAIL_GENERATION_LIFECYCLE_ENABLED: bool = False
+    # Phase 3: autopilot_paused, autopilot_reconnect_required, autopilot
+    # publish-failure digest. Same staged rollout discipline as Phase 1.
+    EMAIL_AUTOPILOT_HEALTH_ENABLED: bool = False
+
+    # Shared secret for cron-only HTTP endpoints (Phase 2 trial/card sweepers,
+    # Phase 3 autopilot digest). Must be set in production; if empty the cron
+    # endpoint fails closed with 503 so misconfigurations don't let cron run
+    # without auth.
+    CRON_SHARED_SECRET: str = ""
+
     class Config:
         env_file = ".env"
         case_sensitive = True

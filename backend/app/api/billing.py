@@ -885,8 +885,19 @@ async def paystack_webhook(request: Request, db: AsyncSession = Depends(get_db))
     elif event_type in ("subscription.disable", "subscription.not_renew"):
         await _handle_subscription_disable(data, db)
     elif event_type == "invoice.payment_failed":
-        sub_code = data.get("subscription", {}).get("subscription_code")
+        sub_code = data.get("subscription", {}).get("subscription_code") if isinstance(data.get("subscription"), dict) else None
         logger.warning(f"Paystack invoice payment failed for subscription {sub_code}")
+        # Phase 2 — notify the workspace owner so they can update the card
+        # before the next retry. Idempotent on (workspace, transaction id).
+        if sub_code:
+            ws_r = await db.execute(select(Workspace).where(Workspace.subscription_id == sub_code))
+            ws = ws_r.scalar_one_or_none()
+            if ws:
+                invoice_id = str(data.get("id") or data.get("reference") or sub_code)
+                reason = str(data.get("gateway_response") or data.get("message") or "Your bank declined the charge.")
+                await _notify_charge_failed(
+                    ws=ws, db=db, invoice_id=invoice_id, failure_reason=reason,
+                )
 
     return {"status": "ok"}
 
@@ -939,6 +950,25 @@ async def stripe_webhook(request: Request, db: AsyncSession = Depends(get_db)):
         sub_id = (data_obj.get("subscription") if isinstance(data_obj, dict)
                   else getattr(data_obj, "subscription", None))
         logger.warning(f"Stripe invoice payment failed for subscription {sub_id}")
+        # Phase 2 — notify the workspace owner. Stripe surfaces the bank's
+        # decline reason on `last_payment_error.message`; fall back to a
+        # generic line if it's missing.
+        if sub_id:
+            ws_r = await db.execute(select(Workspace).where(Workspace.subscription_id == sub_id))
+            ws = ws_r.scalar_one_or_none()
+            if ws:
+                invoice_id = str(data_obj.get("id") if isinstance(data_obj, dict) else getattr(data_obj, "id", sub_id))
+                last_err = (
+                    data_obj.get("last_payment_error") if isinstance(data_obj, dict)
+                    else getattr(data_obj, "last_payment_error", None)
+                ) or {}
+                reason = str(
+                    (last_err.get("message") if isinstance(last_err, dict) else getattr(last_err, "message", None))
+                    or "Your bank declined the charge."
+                )
+                await _notify_charge_failed(
+                    ws=ws, db=db, invoice_id=invoice_id, failure_reason=reason,
+                )
 
     return {"status": "ok"}
 
@@ -1006,11 +1036,27 @@ async def _stripe_handle_subscription_change(data, db: AsyncSession) -> None:
         return
 
     if status in ("canceled", "unpaid", "incomplete_expired"):
+        prior_plan = _plan_label(ws.plan)
+        access_until: str | None = None
+        if ws.next_payment_date is not None:
+            try:
+                access_until = ws.next_payment_date.strftime("%b %d, %Y")
+            except Exception:
+                access_until = None
         ws.plan = "trial"
         ws.subscription_id = None
         ws.next_payment_date = None
         await db.commit()
         logger.info(f"Stripe subscription {sub_id} cancelled → workspace {ws.id} reset to trial")
+        # Phase 2 — fire subscription_cancelled with prior plan label captured
+        # before reset. Dedupe on (workspace, sub_id) so a flapping webhook
+        # doesn't double-send.
+        await _notify_subscription_cancelled(
+            ws=ws, db=db,
+            cancellation_id=str(sub_id or "unknown"),
+            prior_plan_label=prior_plan,
+            access_until_label=access_until,
+        )
     elif status == "active" and not cancel_at_end:
         # Renewal — update next payment date
         current_period_end = (data.get("current_period_end") if isinstance(data, dict)
@@ -1021,7 +1067,12 @@ async def _stripe_handle_subscription_change(data, db: AsyncSession) -> None:
 
 
 async def _stripe_handle_invoice_paid(data, db: AsyncSession) -> None:
-    """invoice.payment_succeeded — keep next_payment_date in sync on renewals."""
+    """invoice.payment_succeeded — keep next_payment_date in sync on renewals.
+
+    Also fires the Phase 2 `subscription_renewed` receipt (idempotent on
+    invoice id, so the very first invoice from initial purchase doesn't
+    double up with checkout.session.completed handling).
+    """
     sub_id = data.get("subscription") if isinstance(data, dict) else getattr(data, "subscription", None)
     if not sub_id:
         return
@@ -1029,6 +1080,26 @@ async def _stripe_handle_invoice_paid(data, db: AsyncSession) -> None:
     ws = ws_r.scalar_one_or_none()
     if not ws:
         return
+    invoice_id = str(data.get("id") if isinstance(data, dict) else getattr(data, "id", sub_id))
+    amount_paid_cents = (
+        data.get("amount_paid") if isinstance(data, dict)
+        else getattr(data, "amount_paid", None)
+    ) or 0
+    currency = (
+        data.get("currency") if isinstance(data, dict)
+        else getattr(data, "currency", None)
+    ) or "usd"
+    # Format the amount label without depending on currency tables — Stripe
+    # gives integer minor units. Best-effort: render dollars/cents for USD,
+    # fall back to "X.YZ <CCY>" for everything else.
+    try:
+        amount_label = (
+            f"${amount_paid_cents/100:.2f}"
+            if str(currency).lower() == "usd"
+            else f"{amount_paid_cents/100:.2f} {str(currency).upper()}"
+        )
+    except Exception:
+        amount_label = "your plan amount"
     # Fetch updated subscription to get next billing date
     try:
         import stripe
@@ -1039,6 +1110,12 @@ async def _stripe_handle_invoice_paid(data, db: AsyncSession) -> None:
             await db.commit()
     except Exception as e:
         logger.warning(f"Stripe invoice.payment_succeeded fetch: {e}")
+
+    # Phase 2 — receipt email. Dedupe key is the invoice id, so a re-fired
+    # webhook never double-sends.
+    await _notify_subscription_renewed(
+        ws=ws, db=db, invoice_id=invoice_id, amount_label=amount_label,
+    )
 
 
 # ── Paystack webhook sub-handlers ──────────────────────────────────────────────
@@ -1112,6 +1189,14 @@ async def _handle_subscription_disable(data: dict, db: AsyncSession) -> None:
     if not ws:
         return
 
+    prior_plan = _plan_label(ws.plan)
+    access_until: str | None = None
+    if ws.next_payment_date is not None:
+        try:
+            access_until = ws.next_payment_date.strftime("%b %d, %Y")
+        except Exception:
+            access_until = None
+
     period_still_active = bool(
         ws.next_payment_date
         and ws.next_payment_date > datetime.now(timezone.utc)
@@ -1134,6 +1219,111 @@ async def _handle_subscription_disable(data: dict, db: AsyncSession) -> None:
         ws.next_payment_date = None
         await db.commit()
         logger.info(f"Paystack subscription disabled: {sub_code}, workspace {ws.id} → trial")
+
+    # Phase 2 — cancellation receipt. Dedupe on (workspace, sub_code).
+    # Sent in both branches so users always get an acknowledgement; access_until
+    # tells them whether they keep paid access until the period ends or downgrade now.
+    await _notify_subscription_cancelled(
+        ws=ws, db=db,
+        cancellation_id=str(sub_code),
+        prior_plan_label=prior_plan,
+        access_until_label=access_until,
+    )
+
+
+# ── Phase 2: Billing email helpers ────────────────────────────────────────────
+
+
+async def _resolve_workspace_owner(ws: Workspace, db: AsyncSession) -> User | None:
+    """Return the User who owns this workspace, or None if missing/deleted."""
+    if not ws or not ws.owner_id:
+        return None
+    r = await db.execute(select(User).where(User.id == ws.owner_id))
+    return r.scalar_one_or_none()
+
+
+def _plan_label(plan: str | None) -> str:
+    raw = (plan or "trial").strip().lower()
+    return {"trial": "Trial", "starter": "Starter", "smb": "Growth", "pro": "Pro"}.get(raw, raw.title())
+
+
+def _ws_billing_url(ws: Workspace) -> str:
+    """The single place users go to update their card / view receipts."""
+    return f"{settings.FRONTEND_URL}/dashboard/billing?ws={ws.id}"
+
+
+async def _notify_charge_failed(
+    *, ws: Workspace, db: AsyncSession,
+    invoice_id: str, failure_reason: str,
+) -> None:
+    """Best-effort transactional notice — never raise into the webhook path."""
+    try:
+        from app.services.email_service import send_charge_failed
+        owner = await _resolve_workspace_owner(ws, db)
+        if owner is None or not owner.email:
+            return
+        await send_charge_failed(
+            to=owner.email,
+            workspace_id=ws.id,
+            invoice_id=invoice_id,
+            update_card_url=_ws_billing_url(ws),
+            failure_reason=failure_reason or "Your bank declined the charge.",
+            name=owner.full_name,
+        )
+    except Exception:
+        logger.exception("charge_failed email failed (non-fatal)")
+
+
+async def _notify_subscription_renewed(
+    *, ws: Workspace, db: AsyncSession,
+    invoice_id: str, amount_label: str,
+) -> None:
+    try:
+        from app.services.email_service import send_subscription_renewed
+        owner = await _resolve_workspace_owner(ws, db)
+        if owner is None or not owner.email:
+            return
+        next_label: str | None = None
+        if ws.next_payment_date is not None:
+            try:
+                next_label = ws.next_payment_date.strftime("%b %d, %Y")
+            except Exception:
+                next_label = None
+        await send_subscription_renewed(
+            to=owner.email,
+            workspace_id=ws.id,
+            invoice_id=invoice_id,
+            plan_label=_plan_label(ws.plan),
+            amount_label=amount_label or "your plan amount",
+            next_payment_label=next_label,
+            receipt_url=_ws_billing_url(ws),
+            name=owner.full_name,
+        )
+    except Exception:
+        logger.exception("subscription_renewed email failed (non-fatal)")
+
+
+async def _notify_subscription_cancelled(
+    *, ws: Workspace, db: AsyncSession,
+    cancellation_id: str, prior_plan_label: str,
+    access_until_label: str | None,
+) -> None:
+    try:
+        from app.services.email_service import send_subscription_cancelled
+        owner = await _resolve_workspace_owner(ws, db)
+        if owner is None or not owner.email:
+            return
+        await send_subscription_cancelled(
+            to=owner.email,
+            workspace_id=ws.id,
+            cancellation_id=cancellation_id,
+            plan_label=prior_plan_label,
+            access_until_label=access_until_label,
+            reactivate_url=_ws_billing_url(ws),
+            name=owner.full_name,
+        )
+    except Exception:
+        logger.exception("subscription_cancelled email failed (non-fatal)")
 
 
 # ── Utility ────────────────────────────────────────────────────────────────────
