@@ -8,6 +8,7 @@ import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
 import { COUNTRIES_LIST } from './SignupPage'
 import { useTheme } from '../hooks/useTheme'
+import SettingsExtras from '../components/settings/SettingsExtras'
 
 const TABS = ['Profile', 'Company', 'Team', 'Social', 'Notifications', 'Appearance']
 
@@ -246,6 +247,8 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Settings</h1>
         <p className="text-ink/40 text-sm">Manage your account and workspace</p>
       </div>
+
+      <SettingsExtras />
 
       <div className="grid grid-cols-1 lg:grid-cols-[185px_1fr] gap-6 items-start">
         <nav className="bg-surface border border-fog rounded-2xl p-2 flex flex-row flex-wrap lg:flex-col gap-0.5">
