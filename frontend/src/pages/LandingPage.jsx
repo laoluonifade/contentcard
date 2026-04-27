@@ -1,392 +1,353 @@
-import { useEffect, useState } from 'react'
-import { ArrowRight, ChevronRight, Facebook, Instagram, Twitter } from 'lucide-react'
-import MarketingLayout from '../components/layout/MarketingLayout'
-import {
-  CtaBand,
-  MarketingContainer,
-  PrimaryCta,
-  SecondaryCta,
-  SectionHeader,
-  SurfaceSection,
-} from '../components/marketing/MarketingPrimitives'
-import { WhyTeamsSwitchShowcase } from '../components/marketing/AppDashboardMockups'
+import { useState } from 'react'
+import { ArrowRight, Calendar, ChevronLeft, ChevronRight, MessageSquare, Plus, Sparkles, Wand2, Image as ImageIcon, LogIn } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import Seo from '../components/seo/Seo'
+import { LogoFull, LogoMark } from '../components/ui/Logo'
+import AuthEntryModal from '../components/auth/AuthEntryModal'
 
-function HeroPlatformCards() {
-  const [activeCard, setActiveCard] = useState(0)
-  const cards = [
-    {
-      platform: 'Instagram',
-      handle: '@juicyjunction_',
-      icon: Instagram,
-      image: '/marketing-examples/juicy-jollof.png',
-      caption:
-        'Dinner plans sorted. Fresh smoky jollof, grilled protein, and fast doorstep delivery. Tap to order now. #JuicyJunction #LagosFood',
-      status: 'Queued',
-      time: 'Today · 6:30 PM',
-      border: 'border-pink-200',
-    },
-    {
-      platform: 'X',
-      handle: '@uberlagos',
-      icon: Twitter,
-      image: '/marketing-examples/uber-ride.png',
-      caption:
-        'Beat evening traffic with smarter ETAs and safer pickups. Open Uber and get moving in minutes. #UberLagos #MoveBetter',
-      status: 'Ready',
-      time: 'Today · 7:00 PM',
-      border: 'border-slate-200',
-    },
-    {
-      platform: 'Facebook',
-      handle: 'Krispy Kreme NG',
-      icon: Facebook,
-      image: '/marketing-examples/krispy-fresh.png',
-      caption:
-        'Freshly glazed and ready for your team treat. Order a box today and share the joy in every bite.',
-      status: 'Scheduled',
-      time: 'Tomorrow · 9:00 AM',
-      border: 'border-blue-200',
-    },
-  ]
+const sidebarItems = [
+  { label: 'Dashboard' },
+  { label: 'AI' },
+  { label: 'Calendar', active: true },
+  { label: 'Playbook' },
+  { label: 'Brand Kit' },
+  { label: 'Directory' },
+  { label: 'Social' },
+]
 
-  useEffect(() => {
-    const iv = setInterval(() => {
-      setActiveCard((prev) => (prev + 1) % cards.length)
-    }, 3000)
-    return () => clearInterval(iv)
-  }, [cards.length])
+const inspirationCards = [
+  { title: 'Promo burst', subtitle: 'Launch a full month of June posts', tone: 'from-[#101828] via-[#19253f] to-[#24476b]' },
+  { title: 'Caption polish', subtitle: 'Turn rough notes into on-brand copy', tone: 'from-[#173b2f] via-[#245f4c] to-[#3aa07b]' },
+  { title: 'Visual refresh', subtitle: 'Create branded post graphics in seconds', tone: 'from-[#201c38] via-[#3a3562] to-[#5d5aa6]' },
+  { title: 'Schedule week', subtitle: 'Queue content across Instagram and X', tone: 'from-[#5d2b17] via-[#8e4c2d] to-[#d48b56]' },
+]
 
+function LandingSidebar() {
   return (
-    <div className="relative min-h-[330px] sm:min-h-[390px]">
-      {cards.map((card, idx) => {
-        const Icon = card.icon
-        const isActive = activeCard === idx
-        return (
+    <aside className="hidden xl:flex w-[280px] flex-col border-r border-fog bg-white/86 backdrop-blur-xl">
+      <div className="border-b border-fog px-6 py-6">
+        <LogoFull size={28} />
+      </div>
+
+      <div className="border-b border-fog px-6 py-5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-ink/35">Workspace</p>
+        <p className="mt-2 text-[15px] font-semibold text-ink">Your ContentCard Workspace</p>
+      </div>
+
+      <nav className="flex-1 px-3 py-5">
+        {sidebarItems.map((item) => (
           <div
-            key={card.platform}
-            className={`absolute w-[82%] sm:w-[76%] rounded-2xl border ${card.border} bg-white shadow-[0_12px_34px_rgba(15,23,42,0.14)] overflow-hidden transition-all duration-700`}
-            style={{
-              top: `${idx * 48}px`,
-              left: `${idx * 9}%`,
-              transform: `translateY(${isActive ? '-8px' : '0px'}) rotate(${idx === 1 ? '-2.2deg' : idx === 2 ? '2.2deg' : '-1deg'}) scale(${isActive ? 1.02 : 1})`,
-              zIndex: isActive ? 50 : 30 - idx,
-              boxShadow: isActive ? '0 18px 45px rgba(16,185,129,0.25)' : undefined,
-            }}
+            key={item.label}
+            className={`mb-1 flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition-all ${
+              item.active
+                ? 'bg-emerald-50 text-brand-700'
+                : 'text-ink/45'
+            }`}
           >
-            <div className="px-3.5 py-2.5 border-b border-fog flex items-center justify-between bg-mist/60">
-              <div className="flex items-center gap-2">
-                <span className="w-7 h-7 rounded-full bg-surface border border-fog flex items-center justify-center text-ink/70">
-                  <Icon size={14} />
-                </span>
-                <div>
-                  <p className="text-xs font-semibold text-ink">{card.platform}</p>
-                  <p className="text-[10px] text-ink/45">{card.handle}</p>
-                </div>
-              </div>
-              <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{card.status}</span>
-            </div>
-            <img src={card.image} alt={`${card.platform} example post`} className="w-full h-36 sm:h-44 object-cover" />
-            <div className="px-3.5 py-2.5 border-t border-fog">
-              <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
-              <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
-                {card.caption}
-              </p>
-              <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
-            </div>
+            <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl border ${item.active ? 'border-emerald-200 bg-white' : 'border-fog bg-mist/70'}`}>
+              {item.label === 'Calendar' ? <Calendar size={15} /> : <Sparkles size={15} />}
+            </span>
+            {item.label}
           </div>
-        )
-      })}
-    </div>
+        ))}
+      </nav>
+
+      <div className="border-t border-fog px-6 py-5">
+        <div className="flex items-center gap-3">
+          <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-brand-500 text-sm font-semibold text-white">
+            CC
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-ink">Get tailored responses</p>
+            <p className="text-xs text-ink/45">Log in to save chats, brands, and generated posts.</p>
+          </div>
+        </div>
+      </div>
+    </aside>
+  )
+}
+
+function InspirationRail({ onOpenAuth }) {
+  return (
+    <section className="mt-10">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-ink/35">Start with</p>
+          <h3 className="mt-1 text-2xl font-semibold tracking-tight text-ink">Generate content fast</h3>
+        </div>
+        <button type="button" onClick={() => onOpenAuth('signup')} className="hidden rounded-full border border-fog px-4 py-2 text-sm font-semibold text-ink/65 transition-colors hover:text-ink md:inline-flex">
+          Open ContentCard <ArrowRight size={14} className="ml-1" />
+        </button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {inspirationCards.map((card) => (
+          <button
+            key={card.title}
+            type="button"
+            onClick={() => onOpenAuth('signup')}
+            className={`group overflow-hidden rounded-[30px] border border-white/50 bg-gradient-to-br ${card.tone} p-5 text-left shadow-[0_20px_60px_rgba(15,23,42,0.12)] transition-transform duration-200 hover:-translate-y-1`}
+          >
+            <div className="flex h-full min-h-[200px] flex-col justify-between">
+              <div className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10 text-white backdrop-blur-sm">
+                <Wand2 size={18} />
+              </div>
+              <div>
+                <p className="text-xl font-semibold tracking-tight text-white">{card.title}</p>
+                <p className="mt-2 max-w-[18ch] text-sm leading-relaxed text-white/72">{card.subtitle}</p>
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </section>
   )
 }
 
 export default function LandingPage() {
-  const [openFaqIdx, setOpenFaqIdx] = useState(0)
-  const [pricingCurrency, setPricingCurrency] = useState('USD')
-  const metrics = [
-    ['30+', 'posts generated per month'],
-    ['3x', 'faster campaign turnaround'],
-    ['68%', 'lower content production cost'],
-  ]
-  const discoverExamples = [
-    {
-      brand: 'Juicy Junction',
-      platform: 'Instagram',
-      image: '/marketing-examples/juicy-wrap.png',
-      caption: 'Lunch hour campaign creative generated and scheduled in minutes.',
-    },
-    {
-      brand: 'Uber Lagos',
-      platform: 'X',
-      image: '/marketing-examples/uber-ride.png',
-      caption: 'City mobility promo designed with clear CTA and platform-ready format.',
-    },
-    {
-      brand: 'Krispy Kreme NG',
-      platform: 'Facebook',
-      image: '/marketing-examples/krispy-fresh.png',
-      caption: 'Offer-driven post with conversion-focused copy and timing controls.',
-    },
-    {
-      brand: 'Juicy Junction',
-      platform: 'Instagram',
-      image: '/marketing-examples/juicy-jollof.png',
-      caption: 'Seasonal food promo with strong visual hierarchy and brand consistency.',
-    },
-    {
-      brand: 'Nike Campaign',
-      platform: 'Instagram',
-      image: '/marketing-examples/nike-campaign.png',
-      caption: 'High-impact launch visual built for mobile-first social engagement.',
-    },
-    {
-      brand: 'Uber Lagos',
-      platform: 'Facebook',
-      image: '/marketing-examples/uber-ride.png',
-      caption: 'Route-aware campaign post adapted for broader audience targeting.',
-    },
-  ]
-  const faqs = [
-    {
-      q: 'How quickly can I start creating with ContentCard?',
-      a: 'Most teams start creating their first campaign in under 10 minutes. You can set your brand basics, choose a direction, and generate ready-to-publish content immediately.',
-    },
-    {
-      q: 'Which social platforms does ContentCard support?',
-      a: 'ContentCard supports Instagram, X, and Facebook workflows out of the box, with post-ready formats, captions, and scheduling support.',
-    },
-    {
-      q: 'Can I keep every post on-brand?',
-      a: 'Yes. ContentCard applies your brand voice, visual preferences, and content guardrails so every output stays consistent across campaigns.',
-    },
-    {
-      q: 'Do I need a designer or large team to use it?',
-      a: 'No. ContentCard is built for lean teams and business owners who need high-quality social content without adding design headcount.',
-    },
-    {
-      q: 'How does pricing work?',
-      a: 'You can start free, then upgrade to a paid plan when you need more volume, advanced workflows, or multi-brand support.',
-    },
-  ]
-  const pricingPlans = [
-    { name: 'Starter', usd: 25, ngn: 20000, blurb: 'For growing businesses ready to show up daily.' },
-    { name: 'Business', usd: 50, ngn: 50000, blurb: 'For teams serious about social as a revenue channel.' },
-    { name: 'Enterprise', usd: 100, ngn: 200000, blurb: 'For agencies and multi-brand organisations.' },
-  ]
+  const [authModal, setAuthModal] = useState({ open: false, mode: 'signup', email: '' })
+  const [heroEmail, setHeroEmail] = useState('')
 
-  useEffect(() => {
-    let detected = 'USD'
-    try {
-      const locales = [navigator.language, ...(navigator.languages || [])].filter(Boolean)
-      const localeHint = locales.join(' ').toUpperCase()
-      const timezone = (Intl.DateTimeFormat().resolvedOptions().timeZone || '').toUpperCase()
-      if (localeHint.includes('-NG') || localeHint.includes('_NG') || timezone.includes('AFRICA/LAGOS')) {
-        detected = 'NGN'
-      }
-    } catch {
-      detected = 'USD'
-    }
-    setPricingCurrency(detected)
-  }, [])
+  const openAuth = (mode = 'signup', email = '') => {
+    setAuthModal({
+      open: true,
+      mode,
+      email: email && email.includes('@') ? email.trim() : '',
+    })
+  }
+
+  const closeAuth = () => {
+    setAuthModal((current) => ({ ...current, open: false }))
+  }
+
+  const handlePromptSubmit = (event) => {
+    event.preventDefault()
+    openAuth('signup', heroEmail)
+  }
 
   return (
-    <MarketingLayout>
-      <section className="relative border-b border-fog overflow-hidden bg-[#f3f4f2]">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute -right-16 top-12 w-[340px] h-[340px] rounded-full border border-ink/10" />
-          <div className="absolute right-24 top-28 w-[420px] h-[420px] rounded-full border border-ink/5 hidden lg:block" />
-        </div>
-        <MarketingContainer className="relative py-12 sm:py-16 lg:py-20">
-          <div className="grid lg:grid-cols-[0.92fr_1.08fr] gap-12 items-center">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-4">Built for small businesses</p>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.03] max-w-[12ch]">
-                Create social content that drives sales.
-              </h1>
-              <p className="mt-5 text-lg text-ink/65 leading-relaxed max-w-[28ch]">
-                ContentCard helps you design, caption, and publish brand-ready posts in minutes across Instagram, X, and Facebook.
-              </p>
-              <div className="mt-7 flex flex-col sm:flex-row gap-3 max-w-[520px]">
-                <input
-                  type="email"
-                  placeholder="Enter your email address"
-                  className="h-12 sm:flex-1 rounded-xl border border-fog bg-white px-4 text-sm text-ink placeholder:text-ink/45 focus:outline-none focus:ring-2 focus:ring-brand-300/60"
-                />
-                <PrimaryCta to="/signup" className="h-12 px-6 justify-center whitespace-nowrap">
-                  Start creating <ArrowRight size={14} className="ml-1" />
-                </PrimaryCta>
-              </div>
-              <div className="mt-3 text-xs text-ink/45">
-                No credit card required to start.
-              </div>
-              <div className="mt-5">
-                <SecondaryCta to="/pricing">View pricing</SecondaryCta>
-              </div>
-            </div>
-            <div className="lg:pl-4">
-              <div className="relative">
-                <div className="absolute -top-8 -right-6 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
-                  <img src="/marketing-examples/meme-wow-badge.svg" alt="Meme wow sticker" className="w-full h-full rounded-2xl object-cover" />
-                </div>
-                <div className="absolute -bottom-6 -left-6 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
-                  <img src="/marketing-examples/cartoon-creator-mascot.svg" alt="Cartoon creator mascot" className="w-full h-full rounded-2xl object-cover" />
-                </div>
-                <HeroPlatformCards />
-              </div>
-            </div>
-          </div>
-        </MarketingContainer>
-      </section>
+    <>
+      <Seo
+        title="ContentCard | Free Social Media Content Generator and Scheduler"
+        description="ContentCard is a free social media content generator and scheduler with an app-like workflow for planning, generating, and queuing your next month of posts."
+        path="/"
+        image="/og-image.svg"
+        keywords="free social media content generator, free social media scheduler, content calendar ai, contentcard"
+        structuredData={[
+          {
+            '@context': 'https://schema.org',
+            '@type': 'SoftwareApplication',
+            name: 'ContentCard',
+            applicationCategory: 'BusinessApplication',
+            operatingSystem: 'Web',
+            offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+            description: 'Free social media content generator and scheduler.',
+          },
+        ]}
+      />
 
-      <SurfaceSection className="bg-white border-b border-fog">
-        <MarketingContainer>
-          <SectionHeader
-            eyebrow="Discover"
-            title="See what brands create with ContentCard"
-            subtitle="Explore campaign-ready social posts created for real business use cases across food, mobility, and retail."
-          />
-          <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {discoverExamples.map((item, idx) => (
-              <article
-                key={`${item.brand}-${item.platform}-${idx}`}
-                className="rounded-3xl border border-fog bg-white overflow-hidden shadow-[0_14px_36px_rgba(15,23,42,0.08)]"
+      <div className="min-h-screen bg-[radial-gradient(circle_at_top_left,rgba(16,163,127,0.12),transparent_24%),radial-gradient(circle_at_top_right,rgba(148,163,184,0.12),transparent_22%),linear-gradient(180deg,#f7f7f5_0%,#fbfbfa_45%,#f5f7fa_100%)]">
+        <header className="sticky top-0 z-40 border-b border-fog/80 bg-white/76 backdrop-blur-xl">
+          <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
+            <div className="flex items-center gap-3">
+              <LogoFull size={28} />
+              <span className="hidden rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-brand-700 md:inline-flex">
+                Free forever
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 sm:gap-3">
+              <button
+                type="button"
+                onClick={() => openAuth('login', heroEmail)}
+                className="inline-flex items-center justify-center rounded-full bg-[#101828] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0b1320]"
               >
-                <img src={item.image} alt={`${item.brand} ${item.platform} post design`} className="w-full h-64 object-cover bg-mist/60" />
-                <div className="p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-base font-semibold text-ink">{item.brand}</p>
-                    <span className="rounded-full w-7 h-7 bg-brand-50 text-brand-700 border border-brand-100 inline-flex items-center justify-center">
-                      {item.platform === 'Instagram' ? (
-                        <Instagram size={13} />
-                      ) : item.platform === 'Facebook' ? (
-                        <Facebook size={13} />
-                      ) : (
-                        <Twitter size={13} />
-                      )}
-                    </span>
+                Log in
+              </button>
+              <button
+                type="button"
+                onClick={() => openAuth('signup', heroEmail)}
+                className="inline-flex items-center justify-center rounded-full border border-fog bg-white px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist"
+              >
+                Sign up for free
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-[1600px] px-4 py-6 sm:px-6 lg:py-8">
+          <div className="overflow-hidden rounded-[34px] border border-white/80 bg-white/70 shadow-[0_24px_80px_rgba(15,23,42,0.08)] backdrop-blur-xl">
+            <div className="flex min-h-[760px]">
+              <LandingSidebar />
+
+              <div className="flex-1">
+                <div className="border-b border-fog/80 px-5 py-5 sm:px-8">
+                  <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-brand-700">Free social media content generator and scheduler</p>
+                      <h1 className="mt-3 max-w-[12ch] text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
+                        Your content calendar, before sign-up friction.
+                      </h1>
+                      <p className="mt-4 max-w-2xl text-base leading-relaxed text-ink/60 sm:text-lg">
+                        Explore the product like an app. Then, when you are ready to generate, schedule, or publish, open a quick pop-up to sign up or log in.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-full border border-fog bg-white px-3 py-1 text-xs font-semibold text-ink/60">2,000 free generations</span>
+                      <span className="inline-flex rounded-full border border-fog bg-white px-3 py-1 text-xs font-semibold text-ink/60">No credit card</span>
+                      <span className="inline-flex rounded-full border border-fog bg-white px-3 py-1 text-xs font-semibold text-ink/60">Instagram, X, Facebook</span>
+                    </div>
                   </div>
-                  <p className="mt-2 text-sm text-ink/65 leading-relaxed">{item.caption}</p>
+
+                  <form onSubmit={handlePromptSubmit} className="mt-7">
+                    <div className="flex flex-col gap-3 rounded-[30px] border border-fog bg-white px-4 py-4 shadow-[0_10px_30px_rgba(15,23,42,0.06)] sm:flex-row sm:items-center">
+                      <div className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-mist text-ink/55">
+                        <ImageIcon size={18} />
+                      </div>
+                      <input
+                        value={heroEmail}
+                        onChange={(event) => setHeroEmail(event.target.value)}
+                        placeholder="Enter your email to start generating free social content"
+                        className="min-w-0 flex-1 border-0 bg-transparent px-1 text-base text-ink outline-none placeholder:text-ink/35"
+                      />
+                      <button type="submit" className="inline-flex h-12 items-center justify-center rounded-full bg-brand-500 px-5 text-sm font-semibold text-white transition-colors hover:bg-brand-600">
+                        Open free workspace <ArrowRight size={15} className="ml-1" />
+                      </button>
+                    </div>
+                  </form>
                 </div>
-              </article>
-            ))}
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
 
-      <section className="bg-gradient-to-b from-brand-700 via-brand-800 to-[#0f2a22] border-y border-brand-900 text-white">
-        <MarketingContainer className="py-14 sm:py-16">
-          <p className="text-3xl sm:text-4xl font-medium leading-tight max-w-4xl text-white/95">
-            Plan, create, and publish high-quality campaigns with speed and confidence.
-          </p>
-          <div className="mt-10 h-36 rounded-2xl bg-gradient-to-r from-emerald-300/35 via-lime-200/30 to-teal-200/30 border border-white/20" />
-          <div className="mt-10 grid sm:grid-cols-3 gap-6">
-            {metrics.map(([value, label]) => (
-              <div key={label} className="rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-sm">
-                <p className="text-5xl font-semibold tracking-tight text-emerald-200">{value}</p>
-                <p className="mt-1 text-white/75">{label}</p>
+                <div className="grid gap-5 px-5 py-5 xl:grid-cols-[minmax(0,1fr)_360px] sm:px-8">
+                  <section className="min-w-0">
+                    <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h2 className="text-2xl font-semibold tracking-tight text-ink">Content Calendar</h2>
+                        <p className="mt-1 text-sm text-ink/42">ContentCard Workspace · 0 posts in June 2026</p>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-3">
+                        <div className="inline-flex items-center rounded-[22px] border border-fog bg-white px-3 py-2 text-sm font-semibold text-ink shadow-sm">
+                          <button type="button" onClick={() => openAuth('signup', heroEmail)} className="rounded-full p-1 text-ink/35 transition-colors hover:text-ink">
+                            <ChevronLeft size={18} />
+                          </button>
+                          <span className="px-4">Jun 2026</span>
+                          <button type="button" onClick={() => openAuth('signup', heroEmail)} className="rounded-full p-1 text-ink/35 transition-colors hover:text-ink">
+                            <ChevronRight size={18} />
+                          </button>
+                        </div>
+                        <button type="button" onClick={() => openAuth('signup', heroEmail)} className="btn-primary rounded-[18px] px-5 py-3">
+                          <Plus size={16} /> Generate
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="rounded-[34px] border border-dashed border-fog bg-white px-5 py-10 shadow-[0_10px_40px_rgba(15,23,42,0.04)] sm:px-8 sm:py-16">
+                      <div className="mx-auto max-w-2xl text-center">
+                        <div className="mx-auto inline-flex h-16 w-16 items-center justify-center rounded-[22px] bg-emerald-50 text-brand-700">
+                          <Calendar size={28} />
+                        </div>
+                        <h3 className="mt-6 text-3xl font-semibold tracking-tight text-ink">No content for June 2026</h3>
+                        <p className="mt-3 text-lg leading-relaxed text-ink/45">
+                          Generate a full month of posts in under a minute, then review, polish, and schedule everything from one place.
+                        </p>
+                        <div className="mt-7 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                          <button type="button" onClick={() => openAuth('signup', heroEmail)} className="btn-primary rounded-[18px] px-6 py-3 text-base">
+                            <Plus size={18} /> Generate content
+                          </button>
+                          <button type="button" onClick={() => openAuth('login', heroEmail)} className="btn-secondary rounded-[18px] px-6 py-3 text-base">
+                            <LogIn size={17} /> Log in to continue
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <InspirationRail onOpenAuth={openAuth} />
+                  </section>
+
+                  <aside className="min-w-0 rounded-[34px] border border-fog bg-white shadow-[0_14px_36px_rgba(15,23,42,0.05)]">
+                    <div className="border-b border-fog px-5 py-5">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start gap-3">
+                          <span className="mt-0.5 inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-mist text-ink/45">
+                            <MessageSquare size={18} />
+                          </span>
+                          <div>
+                            <p className="text-[28px] font-semibold leading-none tracking-tight text-ink">Your social media manager</p>
+                            <p className="mt-2 text-sm leading-relaxed text-ink/42">
+                              Ask questions or share updates before you generate your next month of posts.
+                            </p>
+                          </div>
+                        </div>
+                        <button type="button" onClick={() => openAuth('login', heroEmail)} className="rounded-xl border border-fog p-2 text-ink/35 transition-colors hover:text-ink">
+                          <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="px-5 py-8">
+                      <div className="flex min-h-[320px] flex-col items-center justify-center rounded-[28px] border border-dashed border-fog bg-[#fbfbfa] px-5 text-center">
+                        <div className="inline-flex h-14 w-14 items-center justify-center rounded-[18px] bg-emerald-50 text-brand-700">
+                          <Sparkles size={24} />
+                        </div>
+                        <p className="mt-5 text-base font-medium text-ink/62">Chat to brief the AI, then say “generate” when ready.</p>
+                        <p className="mt-2 max-w-[22ch] text-sm leading-relaxed text-ink/38">
+                          The assistant will help shape captions, themes, and post timing before anything goes live.
+                        </p>
+                      </div>
+
+                      <div className="mt-4 flex items-center gap-2 rounded-[18px] border border-fog bg-white px-3 py-3 text-sm text-ink/35">
+                        <button type="button" onClick={() => openAuth('signup', heroEmail)} className="inline-flex rounded-full border border-fog px-3 py-2 font-semibold text-ink/55">
+                          + Attach
+                        </button>
+                        <span>screenshot or recording</span>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => openAuth('signup', heroEmail)}
+                        className="mt-4 flex w-full items-center gap-2 rounded-[18px] border border-fog bg-white px-4 py-4 text-left text-sm text-ink/35"
+                      >
+                        <span className="flex-1">Chat or say “generate my posts”...</span>
+                        <ArrowRight size={16} />
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => openAuth('signup', heroEmail)}
+                        className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-[18px] bg-[#101828] px-5 py-4 text-base font-semibold text-white transition-colors hover:bg-[#0b1320]"
+                      >
+                        <Sparkles size={17} /> Generate posts
+                      </button>
+                    </div>
+                  </aside>
+                </div>
               </div>
-            ))}
+            </div>
           </div>
-        </MarketingContainer>
-      </section>
 
-      <SurfaceSection className="bg-white border-b border-fog">
-        <MarketingContainer>
-          <SectionHeader
-            eyebrow="Pricing preview"
-            title="Plans shown in your local currency"
-            subtitle={
-              pricingCurrency === 'NGN'
-                ? 'Showing estimated monthly pricing in ₦ based on your location.'
-                : 'Showing estimated monthly pricing in $.'
-            }
-          />
-          <div className="mt-8 grid md:grid-cols-3 gap-5">
-            {pricingPlans.map((plan) => (
-              <article key={plan.name} className="rounded-2xl border border-fog bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-                <p className="text-[11px] uppercase tracking-widest text-ink/45 font-semibold">{plan.name}</p>
-                <p className="mt-2 text-4xl font-semibold text-ink tracking-tight">
-                  {pricingCurrency === 'NGN' ? `₦${plan.ngn.toLocaleString()}` : `$${plan.usd}`}
-                </p>
-                <p className="text-xs text-ink/45 mt-1">Billed monthly</p>
-                <p className="mt-3 text-sm text-ink/65 leading-relaxed">{plan.blurb}</p>
-              </article>
-            ))}
-          </div>
-          <div className="mt-6">
-            <SecondaryCta to="/pricing">View full pricing</SecondaryCta>
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <SurfaceSection className="border-b border-fog bg-white">
-        <MarketingContainer className="max-w-4xl text-center">
-          <img
-            src="https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=96&h=96&auto=format&fit=crop&q=80"
-            alt="Customer testimonial avatar"
-            className="w-14 h-14 rounded-full object-cover mx-auto mb-6 border border-fog"
-          />
-          <p className="text-3xl sm:text-4xl leading-tight text-ink/80">
-            “We used to spend hours on one post. Now we schedule a full week of quality content in under 30 minutes.”
-          </p>
-          <p className="mt-5 text-ink/65">
-            <strong className="text-ink">Amaka Eze</strong>, Founder, Fresh Basket Mart
-          </p>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <SurfaceSection className="bg-gradient-to-b from-white via-[#fcfcff] to-white border-b border-fog/80">
-        <MarketingContainer>
-          <SectionHeader
-            eyebrow="Why teams switch"
-            title="Flexible growth workflows for every social operating model"
-            subtitle="Scale your brand system with clean, high-clarity campaign operations designed to work independently or together."
-            center
-          />
-          <div className="mt-10">
-            <WhyTeamsSwitchShowcase />
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <SurfaceSection className="bg-white border-b border-fog">
-        <MarketingContainer className="max-w-5xl">
-          <SectionHeader
-            eyebrow="FAQ"
-            title="Frequently asked questions"
-            subtitle="Everything you need to know before you start creating with ContentCard."
-          />
-          <div className="mt-8 space-y-3">
-            {faqs.map((item, idx) => (
-              <div key={item.q} className="rounded-2xl border border-fog bg-white p-5">
-                <button
-                  type="button"
-                  onClick={() => setOpenFaqIdx(idx)}
-                  className="w-full text-left flex items-center justify-between gap-4"
-                  aria-expanded={openFaqIdx === idx}
-                >
-                  <p className="text-base font-semibold text-ink">{item.q}</p>
-                  <span className={`text-ink/45 transition-transform text-xl leading-none ${openFaqIdx === idx ? 'rotate-45' : ''}`}>+</span>
-                </button>
-                {openFaqIdx === idx && (
-                  <p className="mt-3 text-sm text-ink/65 leading-relaxed">{item.a}</p>
-                )}
+          <footer className="px-2 py-10">
+            <div className="flex flex-col gap-4 rounded-[30px] border border-white/70 bg-white/65 px-6 py-5 text-sm text-ink/45 shadow-[0_10px_30px_rgba(15,23,42,0.05)] sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <LogoMark size={24} />
+                <span>Free social media content generation and scheduling, designed to feel like the real app from the first click.</span>
               </div>
-            ))}
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
+              <div className="flex flex-wrap gap-4">
+                <Link to="/features" className="transition-colors hover:text-ink">Features</Link>
+                <Link to="/pricing" className="transition-colors hover:text-ink">Pricing</Link>
+                <Link to="/about" className="transition-colors hover:text-ink">About</Link>
+              </div>
+            </div>
+          </footer>
+        </main>
+      </div>
 
-      <SurfaceSection>
-        <MarketingContainer>
-          <CtaBand
-            title="Ready to run social like a high-performing team?"
-            body="Start free and launch your first campaign month in minutes."
-            primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
-            secondary={<SecondaryCta to="/pricing">View pricing</SecondaryCta>}
-          />
-        </MarketingContainer>
-      </SurfaceSection>
-    </MarketingLayout>
+      <AuthEntryModal
+        open={authModal.open}
+        mode={authModal.mode}
+        initialEmail={authModal.email}
+        onClose={closeAuth}
+      />
+    </>
   )
 }

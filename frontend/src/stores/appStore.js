@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { workspaceApi, brandApi, contentApi, templateApi, trendsApi, billingApi } from '../api'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
+import { buildDemoState, buildGeneratedState, loadGuestProfile } from '../utils/demoData'
 
 /** Billing tier for the active workspace (owner subscription pool or row plan). */
 function workspacePlanTier(ws) {
@@ -28,8 +29,45 @@ const useAppStore = create(
       subscription: null,
       error: null,
 
+      // ── Demo / guest mode ───────────────────────────────────────
+      // Populate the store with mock workspace/brand/content so the dashboard
+      // looks alive for logged-out visitors. Action handlers are gated in
+      // DashboardLayout so demo data is read-only.
+      seedDemoData: (profile) => {
+        const guestProfile = profile || loadGuestProfile() || undefined
+        set({
+          ...buildDemoState(guestProfile),
+          subscription: null,
+          generatingMonth: false,
+          generationProgress: null,
+        })
+      },
+
+      // Replace the demo content for the current month with posts that came
+      // back from /public/guest-preview-generate so the calendar shows the
+      // visitor's freshly generated content.
+      seedGuestGeneratedPosts: (profile, apiPosts) => {
+        if (!Array.isArray(apiPosts) || !apiPosts.length) return
+        set({
+          ...buildGeneratedState(profile, apiPosts),
+          subscription: null,
+          generatingMonth: false,
+          generationProgress: null,
+        })
+      },
+
+      // ── Demo helper ─────────────────────────────────────────────
+      // Demo brands/workspaces have IDs prefixed with `demo-`. Skip backend
+      // fetches for those so the seeded demo data isn't blown away by an
+      // empty/auth-failed API response.
+      _isDemoActive: () => {
+        const s = get()
+        return (s.activeBrandId || '').startsWith('demo-') || (s.activeWorkspaceId || '').startsWith('demo-')
+      },
+
       // ── Workspaces ──────────────────────────────────────────────
       fetchWorkspaces: async () => {
+        if (get()._isDemoActive()) return get().workspaces
         const workspaces = await workspaceApi.list()
         const savedId = get().activeWorkspaceId
         const active = workspaces.find(w => w.id === savedId) || workspaces[0] || null
@@ -83,6 +121,7 @@ const useAppStore = create(
       fetchBrands: async (workspaceId) => {
         const wsId = workspaceId || get().activeWorkspaceId
         if (!wsId) return []
+        if (wsId.startsWith('demo-')) return get().brands
         const brands = await brandApi.list(wsId)
         const savedBrandId = get().activeBrandId
         const activeBrandId = brands.find(b => b.id === savedBrandId)?.id || brands[0]?.id || null
@@ -224,6 +263,7 @@ const useAppStore = create(
       fetchMonthContent: async (month, year) => {
         const brandId = get().activeBrandId
         if (!brandId) return []
+        if (brandId.startsWith('demo-')) return get().getMonthContent(month, year)
         // include_pending=true so posts whose visuals failed/stalled still
         // appear in the calendar. Otherwise the GET /content month listing
         // hides them and users lose access to posts they can no longer
@@ -262,6 +302,7 @@ const useAppStore = create(
       fetchTemplates: async () => {
         const brandId = get().activeBrandId
         if (!brandId) return []
+        if (brandId.startsWith('demo-')) return get().templates
         const templates = await templateApi.list(brandId)
         set({ templates })
         return templates
@@ -270,6 +311,7 @@ const useAppStore = create(
       fetchTemplatePlaybookCatalog: async () => {
         const brandId = get().activeBrandId
         if (!brandId) return null
+        if (brandId.startsWith('demo-')) return get().templatePlaybookCatalog
         const catalog = await templateApi.playbookCatalog(brandId)
         set({ templatePlaybookCatalog: catalog })
         return catalog
@@ -316,6 +358,7 @@ const useAppStore = create(
           set({ trends: [] })
           return []
         }
+        if (wsId.startsWith('demo-')) return get().trends
         try {
           const trends = await trendsApi.list(wsId)
           set({ trends })
@@ -354,6 +397,7 @@ const useAppStore = create(
       fetchSubscription: async () => {
         const wsId = get().activeWorkspaceId
         if (!wsId) return null
+        if (wsId.startsWith('demo-')) return get().subscription
         const sub = await billingApi.getSubscription(wsId)
         set({ subscription: sub })
         set(s => ({

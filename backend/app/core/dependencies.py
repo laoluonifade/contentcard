@@ -95,10 +95,10 @@ def check_trial_or_active(workspace: Workspace) -> None:
     """Raise 402 if workspace has exhausted free generations and has no paid plan."""
     if workspace.plan in ("starter", "smb", "pro"):
         return  # paid plan — always allowed
-    # Free / trial: enforce 2-generation cap
+    # Free / trial: enforce 2,000-generation cap
     used = workspace.free_generations_used or 0
-    if used >= 2:
+    if used >= 2000:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="You've used your 2 free content generations. Subscribe to continue generating unlimited content.",
+            detail="You've reached your 2,000 free content generations for this workspace.",
         )

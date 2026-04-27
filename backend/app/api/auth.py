@@ -22,6 +22,7 @@ from app.core.dependencies import get_current_user
 from app.schemas.auth import (
     LoginRequest,
     PasswordChangeRequest,
+    EmailPreferencesUpdate,
     PostSignupDecisionRequest,
     ResendVerificationRequest,
     ShopifyAuthStartResponse,
@@ -33,6 +34,7 @@ from app.schemas.auth import (
     UserOut,
     VerifyEmailRequest,
 )
+from app.models.user import DEFAULT_EMAIL_PREFERENCES
 from app.services.geo_service import get_country_from_ip, get_payment_provider
 from app.services.email_service import send_email_verification, send_password_reset, send_welcome
 from app.core.config import settings
@@ -259,6 +261,44 @@ async def update_profile(
     await db.commit()
     await db.refresh(current_user)
     return UserOut.model_validate(current_user)
+
+
+@router.get("/me/email-preferences")
+async def get_email_preferences(current_user: User = Depends(get_current_user)):
+    """Return the user's email opt-in state, filling defaults for legacy rows.
+
+    Transactional is reported as a permanent True so the UI can show it as
+    a non-editable line without confusing users about why it can't be turned off.
+    """
+    stored = current_user.email_preferences if isinstance(current_user.email_preferences, dict) else {}
+    effective = dict(DEFAULT_EMAIL_PREFERENCES)
+    for k in effective:
+        if k in stored:
+            effective[k] = bool(stored[k])
+    return effective
+
+
+@router.put("/me/email-preferences")
+async def update_email_preferences(
+    body: EmailPreferencesUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update editable email preferences. Transactional is fixed True.
+
+    Accepts a partial body — only the keys the caller submits are touched.
+    Returns the full effective state, mirroring GET.
+    """
+    current = dict(current_user.email_preferences) if isinstance(current_user.email_preferences, dict) else dict(DEFAULT_EMAIL_PREFERENCES)
+    if body.product_updates is not None:
+        current["product_updates"] = bool(body.product_updates)
+    if body.marketing is not None:
+        current["marketing"] = bool(body.marketing)
+    # Always pin transactional True — never let the client flip it off.
+    current["transactional"] = True
+    current_user.email_preferences = current
+    await db.commit()
+    return current
 
 
 @router.delete("/me", status_code=204)

@@ -1,22 +1,31 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus, Smile, Share2, Sparkles, ShieldAlert, ShieldCheck, Inbox, BarChart3, Megaphone, Keyboard } from 'lucide-react'
+import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus, Smile, Share2, Sparkles, BookmarkPlus, ShieldAlert, ShieldCheck, Inbox, BarChart3, Megaphone, Keyboard } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
 import Seo from '../seo/Seo'
-import { socialApi } from '../../api'
+import { socialApi, marketingApi } from '../../api'
 import { useFeatureFlag } from '../../lib/featureFlags'
 import { track } from '../../lib/telemetry'
 import ConnectionHealthModal from '../social/ConnectionHealthModal'
 import { useThemeBootstrap } from '../../lib/theme'
 import { useGlobalShortcuts, KeyboardShortcutsCheatsheet } from '../../lib/keyboardShortcuts'
 import ChangelogDrawer from '../ui/ChangelogDrawer'
+import GuestOnboarding from '../dashboard/GuestOnboarding'
+import GuestGenerationLoader from '../dashboard/GuestGenerationLoader'
+import {
+  loadGuestProfile,
+  loadGuestGeneratedPosts,
+  saveGuestGeneratedPosts,
+  brandKeyForProfile,
+} from '../../utils/demoData'
 
-function NavItem({ item }) {
+function NavItem({ item, isAuthenticated }) {
   const enabled = useFeatureFlag(item.flag || '')
   if (item.flag && !enabled) return null
+  if (item.authOnly && !isAuthenticated) return null
   const { to, icon: Icon, label } = item
   return (
     <NavLink
@@ -37,34 +46,36 @@ function NavItem({ item }) {
 }
 
 const NAV = [
-  { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/dashboard/ai',         icon: Sparkles,         label: 'AI Studio', flag: 'ai.page' },
+  { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard', authOnly: true },
+  { to: '/dashboard/ai',         icon: Sparkles,         label: 'AI Studio', flag: 'ai.page', authOnly: true },
+  { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'         },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
-  { to: '/dashboard/inbox',      icon: Inbox,            label: 'Inbox',     flag: 'inbox.page' },
-  { to: '/dashboard/analytics',  icon: BarChart3,        label: 'Analytics', flag: 'analytics.page' },
-  { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Playbook'   },
+  { to: '/dashboard/inbox',      icon: Inbox,            label: 'Inbox',     flag: 'inbox.page', authOnly: true },
+  { to: '/dashboard/analytics',  icon: BarChart3,        label: 'Analytics', flag: 'analytics.page', authOnly: true },
+  { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Playbook',  authOnly: true },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand Kit'  },
-  { to: '/dashboard/directory',  icon: Images,           label: 'Directory'  },
-  { to: '/dashboard/memes',      icon: Smile,            label: 'Memes'      },
-  { to: '/dashboard/social',     icon: Share2,           label: 'Social'     },
+  { to: '/dashboard/directory',  icon: Images,           label: 'Directory', authOnly: true },
+  { to: '/dashboard/memes',      icon: Smile,            label: 'Memes',     authOnly: true },
+  { to: '/dashboard/social',     icon: Share2,           label: 'Social',    authOnly: true },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'   },
-  { to: '/dashboard/billing',    icon: CreditCard,       label: 'Billing'    },
+  { to: '/dashboard/billing',    icon: CreditCard,       label: 'Billing',   authOnly: true },
 ]
 
 const MOBILE_NAV = [
-  { to: '/dashboard',            icon: LayoutDashboard, label: 'Home'      },
+  { to: '/dashboard',            icon: LayoutDashboard, label: 'Home',     authOnly: true },
   { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'        },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'  },
-  { to: '/dashboard/directory',  icon: Images,           label: 'Directory' },
+  { to: '/dashboard/directory',  icon: Images,           label: 'Directory', authOnly: true },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand'     },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'  },
 ]
 
 export default function DashboardLayout() {
-  const { user, logout, fetchMe }                 = useAuthStore()
+  const { user, logout, fetchMe, isAuthenticated } = useAuthStore()
   const { workspaces, activeWorkspace, activeBrandId,
           fetchWorkspaces, setActiveWorkspace,
-          fetchTrends, createWorkspace }        = useAppStore()
+          fetchTrends, createWorkspace,
+          seedDemoData, seedGuestGeneratedPosts } = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -75,6 +86,10 @@ export default function DashboardLayout() {
   const [connHealthOpen, setConnHealthOpen] = useState(false)
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false)
   const [changelogOpen, setChangelogOpen] = useState(false)
+  const [guestProfile, setGuestProfile] = useState(() => (typeof window !== 'undefined' ? loadGuestProfile() : null))
+  const [showGuestOnboarding, setShowGuestOnboarding] = useState(false)
+  const [guestGenPending, setGuestGenPending] = useState(false)
+  const [guestGenError, setGuestGenError] = useState(null)
   const connectionBadgeEnabled = useFeatureFlag('nav.connection_health_badge')
   const shortcutsEnabled = useFeatureFlag('nav.keyboard_shortcuts')
   const changelogEnabled = useFeatureFlag('nav.changelog_drawer')
@@ -94,12 +109,78 @@ export default function DashboardLayout() {
   }, [location.pathname])
 
   useEffect(() => {
+    if (!isAuthenticated) {
+      const stored = loadGuestProfile()
+      setGuestProfile(stored)
+      // If we already generated posts for this exact brand profile, restore
+      // them straight from localStorage instead of burning another OpenAI call.
+      const cached = stored ? loadGuestGeneratedPosts() : null
+      const cacheMatches = cached && cached.brandKey === brandKeyForProfile(stored)
+      if (cacheMatches) {
+        seedGuestGeneratedPosts(stored, cached.posts)
+      } else {
+        seedDemoData(stored || undefined)
+      }
+      setShowGuestOnboarding(!stored)
+      return
+    }
+    setShowGuestOnboarding(false)
+    setGuestGenPending(false)
+    setGuestGenError(null)
     if (!workspaces.length) {
       fetchWorkspaces().catch(() => {})
     }
     fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
-  }, [])
+  }, [isAuthenticated])
+
+  const runGuestGeneration = async (profile) => {
+    setGuestGenError(null)
+    setGuestGenPending(true)
+    try {
+      const res = await marketingApi.guestPreviewGenerate({
+        brand_name: profile.brandName,
+        website: profile.website,
+        intent: profile.intent || undefined,
+      })
+      if (!res?.posts || !Array.isArray(res.posts) || !res.posts.length) {
+        throw new Error('No posts returned')
+      }
+      seedGuestGeneratedPosts(profile, res.posts)
+      saveGuestGeneratedPosts({
+        brandKey: brandKeyForProfile(profile),
+        posts: res.posts,
+      })
+      setGuestGenPending(false)
+    } catch (err) {
+      const status = err?.response?.status
+      const detail = err?.response?.data?.detail
+      const friendly =
+        status === 429
+          ? 'You\'ve generated a few previews already. Sign up to keep generating.'
+          : typeof detail === 'string' && detail
+            ? detail
+            : 'Generation took longer than expected.'
+      setGuestGenError(friendly)
+      setGuestGenPending(false)
+    }
+  }
+
+  const handleSaveProgress = () => {
+    const params = new URLSearchParams()
+    if (guestProfile?.brandName) params.set('brand', guestProfile.brandName)
+    if (guestProfile?.website) params.set('website', guestProfile.website)
+    // Logo data URL is too long for the URL bar — stash it in localStorage so
+    // the brand-creation step after signup can pick it up.
+    try {
+      if (guestProfile?.logoDataUrl) {
+        localStorage.setItem('contentcard.signup.guestLogoDataUrl', guestProfile.logoDataUrl)
+      }
+    } catch { /* ignore */ }
+    navigate(`/signup${params.toString() ? `?${params.toString()}` : ''}`)
+  }
+
+  const reopenGuestOnboarding = () => setShowGuestOnboarding(true)
 
   useEffect(() => {
     if (!connectionBadgeEnabled || !activeBrandId) {
@@ -170,14 +251,23 @@ export default function DashboardLayout() {
     navigate('/login')
   }
 
-  const freeGenerationsUsed = useAppStore(s => s.subscription?.free_generations_used ?? null)
-  const planTier = activeWorkspace?.effective_plan || activeWorkspace?.plan
-  const isSubscribed = ['starter', 'smb', 'pro'].includes(planTier)
-  const freeRemaining = isSubscribed ? null : Math.max(0, 2 - (freeGenerationsUsed ?? 0))
-
   const initials = user?.full_name
     ? user.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : '??'
+
+  const freeGenerationsUsed = useAppStore(s => s.subscription?.free_generations_used ?? null)
+  const planTier = activeWorkspace?.effective_plan || activeWorkspace?.plan
+  const isSubscribed = ['starter', 'smb', 'pro'].includes(planTier)
+  const freeRemaining = !isAuthenticated || isSubscribed ? null : Math.max(0, 2 - (freeGenerationsUsed ?? 0))
+
+  const guestInteractionGate = (e) => {
+    if (isAuthenticated) return
+    const target = e.target.closest('button, a, input, textarea, select, [role="button"], [role="link"], [contenteditable="true"]')
+    if (!target) return
+    e.preventDefault()
+    e.stopPropagation()
+    navigate('/signup')
+  }
 
   const Sidebar = () => (
     <aside className="w-[220px] flex-shrink-0 flex flex-col bg-surface border-r border-fog h-full">
@@ -266,7 +356,7 @@ export default function DashboardLayout() {
       )}
 
       <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto">
-        {NAV.map((item) => <NavItem key={item.to} item={item} />)}
+        {NAV.map((item) => <NavItem key={item.to} item={item} isAuthenticated={isAuthenticated} />)}
       </nav>
       <div className="px-3 pb-2 flex items-center gap-2 flex-wrap">
         {changelogEnabled && (
@@ -288,20 +378,61 @@ export default function DashboardLayout() {
       </div>
 
       <div className="px-2 py-3 border-t border-fog flex-shrink-0">
-        <div className="flex items-center gap-3 px-3 py-2 mb-0.5">
-          <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-            {initials}
+        {isAuthenticated ? (
+          <>
+            <div className="flex items-center gap-3 px-3 py-2 mb-0.5">
+              <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-ink text-xs font-semibold truncate">{user?.full_name || 'User'}</div>
+                <div className="text-ink/40 text-[10px] truncate">{user?.email || ''}</div>
+              </div>
+            </div>
+            <button onClick={handleLogout}
+              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-ink/40 hover:text-ink hover:bg-mist transition-all">
+              <LogOut size={16} className="flex-shrink-0" />
+              <span className="text-[13px] font-semibold">Sign out</span>
+            </button>
+          </>
+        ) : (
+          <div className="px-2 space-y-2">
+            {guestProfile?.brandName && (
+              <button
+                type="button"
+                onClick={reopenGuestOnboarding}
+                className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-mist transition-colors flex items-center gap-2.5"
+                title="Edit demo brand"
+              >
+                <span className="w-7 h-7 rounded-lg overflow-hidden bg-mist border border-fog flex items-center justify-center flex-shrink-0">
+                  {guestProfile.logoDataUrl ? (
+                    <img src={guestProfile.logoDataUrl} alt="" className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-[10px] font-bold text-ink/30">
+                      {guestProfile.brandName.slice(0, 2).toUpperCase()}
+                    </span>
+                  )}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-ink/40 text-[10px] font-semibold uppercase tracking-widest leading-none">Demo brand</span>
+                  <span className="block text-ink text-xs font-semibold truncate mt-0.5">{guestProfile.brandName}</span>
+                </span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleSaveProgress}
+              className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-[13px] font-semibold transition-colors shadow-sm shadow-brand-500/20"
+            >
+              <BookmarkPlus size={14} />
+              Save your progress
+            </button>
+            <Link to="/login"
+              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-xl text-ink/60 hover:text-ink hover:bg-mist text-[12px] font-semibold transition-colors">
+              Already have an account? Log in
+            </Link>
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-ink text-xs font-semibold truncate">{user?.full_name || 'User'}</div>
-            <div className="text-ink/40 text-[10px] truncate">{user?.email || ''}</div>
-          </div>
-        </div>
-        <button onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-ink/40 hover:text-ink hover:bg-mist transition-all">
-          <LogOut size={16} className="flex-shrink-0" />
-          <span className="text-[13px] font-semibold">Sign out</span>
-        </button>
+        )}
       </div>
     </aside>
   )
@@ -328,6 +459,34 @@ export default function DashboardLayout() {
         <ChangelogDrawer open={changelogOpen} onClose={() => setChangelogOpen(false)} />
       )}
 
+      {!isAuthenticated && showGuestOnboarding && (
+        <GuestOnboarding
+          initialProfile={guestProfile}
+          onDone={(profile) => {
+            setGuestProfile(profile)
+            setShowGuestOnboarding(false)
+            // Only burn an OpenAI call if we don't already have posts for
+            // this exact brand profile cached locally.
+            const cached = loadGuestGeneratedPosts()
+            const cacheMatches = cached && cached.brandKey === brandKeyForProfile(profile)
+            if (cacheMatches) {
+              seedGuestGeneratedPosts(profile, cached.posts)
+            } else {
+              runGuestGeneration(profile)
+            }
+          }}
+          onDismiss={guestProfile ? () => setShowGuestOnboarding(false) : null}
+        />
+      )}
+      {!isAuthenticated && !showGuestOnboarding && (guestGenPending || guestGenError) && (
+        <GuestGenerationLoader
+          brandName={guestProfile?.brandName}
+          isPending={guestGenPending}
+          error={guestGenError}
+          onRetry={() => guestProfile && runGuestGeneration(guestProfile)}
+          onDismiss={() => setGuestGenError(null)}
+        />
+      )}
       {newWsOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
           <div className="bg-surface rounded-2xl border border-fog shadow-xl max-w-md w-full p-6">
@@ -390,13 +549,18 @@ export default function DashboardLayout() {
           </Link>
         </div>
 
-        <div className="flex-1 overflow-y-auto pb-20 lg:pb-0">
+        <div
+          className="flex-1 overflow-y-auto pb-20 lg:pb-0"
+          onPointerDownCapture={guestInteractionGate}
+          onClickCapture={guestInteractionGate}
+          onSubmitCapture={guestInteractionGate}
+        >
           <Outlet />
         </div>
 
         {/* Mobile bottom nav */}
         <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-surface border-t border-fog z-30 flex">
-          {MOBILE_NAV.map(({ to, icon: Icon, label }) => (
+          {MOBILE_NAV.filter((item) => isAuthenticated || !item.authOnly).map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} end={to === '/dashboard'}
               className={({ isActive }) =>
                 `flex-1 flex flex-col items-center gap-1 py-2.5 transition-all ${

@@ -230,7 +230,11 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(128)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token_expires TIMESTAMPTZ",
-            # ── Wave 3 dashboard rebuild (20260426_04) ─────────────────
+            # ── Email notifications plumbing ──────────────────────────────
+            # Per-user opt-in state for non-transactional emails. NULL is
+            # treated as default opt-in by send_once() — see email_service.py.
+            "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_preferences JSON",
+            # ── Wave 3 dashboard rebuild (20260426_04) ────────────────────
             "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS campaign_id VARCHAR(80)",
         ]:
             try:

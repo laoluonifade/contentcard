@@ -60,8 +60,19 @@ class UserOut(BaseModel):
     agency_mode: bool = False
     auth_provider: str = "password"
     email_verified: bool = False
+    # Per-user opt-in for non-transactional emails. NULL on legacy rows is
+    # surfaced as the default state by /me/email-preferences.
+    email_preferences: dict | None = None
 
     model_config = {"from_attributes": True}
+
+
+class EmailPreferencesUpdate(BaseModel):
+    # Only the editable categories are accepted — transactional is implicit
+    # and never changes. Caller may submit either or both keys; the rest of
+    # the prefs dict is preserved.
+    product_updates: bool | None = None
+    marketing: bool | None = None
 
 
 class PasswordChangeRequest(BaseModel):

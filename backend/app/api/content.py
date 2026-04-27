@@ -67,11 +67,9 @@ from app.services.image_service import (
 )
 from app.services.bannerbear_service import generate_post_images, detect_template_family
 from app.services.billing_entitlements import (
-    billing_anchor_workspace,
     effective_plan_for_owner,
     total_free_generations_used_by_owner,
 )
-from app.services.billing_service import PLANS, charge_saved_authorization
 from datetime import date, timedelta
 from calendar import monthrange
 import logging
@@ -86,8 +84,8 @@ MAX_POSTS_PER_PLATFORM_PER_MONTH = 15
 MAX_PREP_VISUAL_BATCH = 15
 MAX_MONTH_REGEN_BATCH = 100
 MAX_GENERATION_MONTHS_AHEAD = 3
-TRIAL_FREE_GENERATIONS = 2
-CARD_BONUS_FREE_GENERATIONS = 2
+TRIAL_FREE_GENERATIONS = 2000
+CARD_BONUS_FREE_GENERATIONS = 0
 PLAN_MONTHLY_POST_CAPS = {
     "starter": 30,
     "smb": 90,  # Growth
@@ -217,62 +215,20 @@ async def _enforce_generation_billing_gate(
 
     total_used = await total_free_generations_used_by_owner(db, workspace.owner_id)
     bonus_limit = TRIAL_FREE_GENERATIONS + CARD_BONUS_FREE_GENERATIONS
-    anchor = await billing_anchor_workspace(db, workspace.owner_id)
-    has_saved_card = bool(anchor and str(anchor.paystack_authorization_code or "").strip())
 
     if total_used < TRIAL_FREE_GENERATIONS:
         workspace.free_generations_used = (workspace.free_generations_used or 0) + 1
         await db.commit()
         return
 
-    if total_used < bonus_limit:
-        if not has_saved_card:
-            raise HTTPException(
-                status_code=402,
-                detail={
-                    "code": "CARD_REQUIRED_FOR_BONUS",
-                    "message": "Add your card to unlock 2 more free designs.",
-                    "remaining_bonus_designs": bonus_limit - total_used,
-                },
-            )
-        workspace.free_generations_used = (workspace.free_generations_used or 0) + 1
-        await db.commit()
-        return
-
-    if not has_saved_card:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "CARD_REQUIRED_FOR_AUTOPAY",
-                "message": "Add your card to continue generating designs.",
-            },
-        )
-
-    try:
-        amount_kobo = int((PLANS.get("starter") or {}).get("ngn_price") or 2000000)
-        await charge_saved_authorization(
-            email=current_user.email,
-            authorization_code=str(anchor.paystack_authorization_code),
-            amount_kobo=amount_kobo,
-            metadata={
-                "source": "autopay_generation",
-                "brand_id": brand_id,
-                "workspace_id": workspace.id,
-                "month": month,
-                "year": year,
-            },
-        )
-        anchor.plan = "starter"
-        anchor.payment_provider = "paystack"
-        await db.commit()
-    except Exception as e:
-        raise HTTPException(
-            status_code=402,
-            detail={
-                "code": "AUTO_CHARGE_FAILED",
-                "message": f"Could not charge saved card automatically: {e}",
-            },
-        )
+    raise HTTPException(
+        status_code=402,
+        detail={
+            "code": "FREE_GENERATION_LIMIT_REACHED",
+            "message": f"You've reached the {bonus_limit:,} free generation limit for this workspace.",
+            "limit": bonus_limit,
+        },
+    )
 
 
 async def _assert_plan_monthly_generation_cap(
@@ -2721,7 +2677,147 @@ def _differentiate_if_topic_reused(
 
 # ── Background task ─────────────────────────────────────────────────
 
+
+async def _email_generation_outcome(
+    *,
+    user_id: str,
+    brand_id: str,
+    month: int,
+    year: int,
+    error_summary: str | None,
+) -> None:
+    """Phase 1: notify the user when a monthly generation finishes (or fails).
+
+    Opens its own session because the caller's session may have been rolled
+    back, returned, or partially committed. Counts user-ready posts directly
+    from the DB so the decision doesn't depend on local state surviving the
+    failure path. Swallows every error — the email is best-effort and must
+    never propagate up into the background-task pipeline.
+    """
+    try:
+        if not settings.EMAIL_GENERATION_LIFECYCLE_ENABLED:
+            return
+        from app.db.database import AsyncSessionLocal
+        from app.models.user import User as _User
+        from app.services.email_service import (
+            send_generation_complete,
+            send_generation_failed,
+        )
+        async with AsyncSessionLocal() as session:
+            user = (await session.execute(select(_User).where(_User.id == user_id))).scalar_one_or_none()
+            if user is None or not user.email:
+                return
+            brand = (await session.execute(select(Brand).where(Brand.id == brand_id))).scalar_one_or_none()
+            brand_name = brand.name if brand is not None else None
+            # Count posts that actually made it through the render pipeline.
+            # Mirrors the readiness rule used by /content/status so the email
+            # only celebrates posts the user can act on.
+            items = (
+                await session.execute(
+                    select(ContentItem).where(
+                        ContentItem.brand_id == brand_id,
+                        ContentItem.generation_month == month,
+                        ContentItem.generation_year == year,
+                    )
+                )
+            ).scalars().all()
+            ready_count = sum(1 for i in items if _item_ready_for_user(i))
+
+        prefs = user.email_preferences if isinstance(user.email_preferences, dict) else None
+        calendar_url = f"{settings.FRONTEND_URL}/dashboard/calendar?m={int(month)}&y={int(year)}"
+
+        if error_summary is None and ready_count > 0:
+            await send_generation_complete(
+                to=user.email,
+                month=month,
+                year=year,
+                post_count=ready_count,
+                calendar_url=calendar_url,
+                brand_id=brand_id,
+                name=user.full_name,
+                brand_name=brand_name,
+                user_preferences=prefs,
+            )
+        else:
+            # Either an explicit error or zero usable posts — both are user-
+            # facing failures. Provide a plain-language summary; never leak
+            # tracebacks into the email.
+            summary = error_summary or (
+                "The run finished but didn't produce any posts that were ready to use."
+            )
+            await send_generation_failed(
+                to=user.email,
+                month=month,
+                year=year,
+                retry_url=calendar_url,
+                failure_summary=summary,
+                brand_id=brand_id,
+                name=user.full_name,
+                brand_name=brand_name,
+                user_preferences=prefs,
+            )
+    except Exception:
+        logger.exception("Generation outcome email failed (non-fatal)")
+
+
 async def _do_generate_month(
+    brand_id: str, brand_dict: dict, month: int, year: int,
+    platforms: list[str], format_mix: str, posts_per_week: int,
+    topic_override: str | None, template_topics: list[str] | None,
+    template_id: str | None,
+    user_id: str,
+    country_code: str | None,
+    include_holidays_in_content: bool,
+    generation_brief: str | None,
+    website_grounding_text: str | None = None,
+    approved_website_opportunities: list[dict] | None = None,
+    only_new_website_changes: bool = False,
+    campaign_plan_id: str | None = None,
+    variant_count: int = 1,
+    existing_counts: dict[str, int] | None = None,
+    monthly_post_cap: int | None = None,
+    current_month_total: int = 0,
+    custom_plan: list[dict] | None = None,
+):
+    """Background-task entry point for monthly generation.
+
+    Thin wrapper around `_do_generate_month_impl` that captures success /
+    failure outcome and dispatches the Phase 1 email. The wrapper exists so
+    early `return`s inside the impl (no posts after cap, JSON parse error,
+    etc.) and exceptions both flow through one email-decision path.
+    """
+    error_summary: str | None = None
+    try:
+        await _do_generate_month_impl(
+            brand_id=brand_id, brand_dict=brand_dict, month=month, year=year,
+            platforms=platforms, format_mix=format_mix, posts_per_week=posts_per_week,
+            topic_override=topic_override, template_topics=template_topics,
+            template_id=template_id, user_id=user_id, country_code=country_code,
+            include_holidays_in_content=include_holidays_in_content,
+            generation_brief=generation_brief,
+            website_grounding_text=website_grounding_text,
+            approved_website_opportunities=approved_website_opportunities,
+            only_new_website_changes=only_new_website_changes,
+            campaign_plan_id=campaign_plan_id, variant_count=variant_count,
+            existing_counts=existing_counts, monthly_post_cap=monthly_post_cap,
+            current_month_total=current_month_total, custom_plan=custom_plan,
+        )
+    except Exception as exc:
+        # Tracebacks must never reach the user-facing email — keep this terse
+        # and human-readable. The full exception is already in logger output.
+        logger.exception("Generation worker crashed for brand %s %s/%s", brand_id, month, year)
+        error_summary = "An unexpected error stopped the generation worker."
+        # Don't re-raise — background_tasks doesn't surface it anyway and we
+        # still want the email to fire below.
+    finally:
+        await _email_generation_outcome(
+            user_id=user_id, brand_id=brand_id, month=month, year=year,
+            error_summary=error_summary,
+        )
+
+
+async def _do_generate_month_impl(
+    *,
     brand_id: str, brand_dict: dict, month: int, year: int,
     platforms: list[str], format_mix: str, posts_per_week: int,
     topic_override: str | None, template_topics: list[str] | None,
@@ -2947,6 +3043,31 @@ async def _do_generate_month(
                 if not comp_desc and vs_obj is not None:
                     comp_desc = _vs.composition_description(vs_obj, post.get("content_type"))
 
+                # ── Design critic + design_mode plumbing (no schema change) ──
+                # Stash design_mode / surprise_post / critic_* in the visual_strategy
+                # JSON column alongside the strategy dict. critic_reasons is appended
+                # to rejection_log with a stable prefix.
+                strategy_payload = vs_obj.to_dict() if vs_obj else {}
+                if post.get("design_mode"):
+                    strategy_payload["design_mode"] = str(post.get("design_mode"))
+                if post.get("surprise_post"):
+                    strategy_payload["surprise_post"] = True
+                if post.get("critic_score") is not None:
+                    try:
+                        strategy_payload["critic_score"] = float(post.get("critic_score"))
+                    except (TypeError, ValueError):
+                        pass
+                if post.get("regenerated_by_critic"):
+                    strategy_payload["regenerated_by_critic"] = True
+                critic_reasons = post.get("critic_reasons")
+                if isinstance(critic_reasons, list):
+                    for reason in critic_reasons:
+                        if reason:
+                            rejection_log.append(f"critic: {str(reason)[:200]}")
+                fix_directive = post.get("critic_fix_directive")
+                if fix_directive:
+                    strategy_payload["critic_fix_directive"] = str(fix_directive)[:300]
+
                 item = ContentItem(
                     brand_id=brand_id,
                     template_id=template_id,
@@ -2968,7 +3089,7 @@ async def _do_generate_month(
                     scheduled_date=post_date,
                     generation_month=month,
                     generation_year=year,
-                    visual_strategy=vs_obj.to_dict() if vs_obj else None,
+                    visual_strategy=strategy_payload or None,
                     composition_description=comp_desc,
                     diversity_checks_passed=contract_passed,
                     rejection_log=rejection_log or None,

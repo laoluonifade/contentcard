@@ -12,17 +12,17 @@ const MONTHS = [
 ]
 
 const PLATFORMS = [
-  { id: 'instagram', label: 'Instagram' },
-  { id: 'facebook',  label: 'Facebook'  },
-  { id: 'twitter',   label: 'Twitter/X' },
-  { id: 'linkedin',  label: 'LinkedIn'  },
+  { id: 'instagram', label: 'Instagram', short: 'IG' },
+  { id: 'facebook',  label: 'Facebook',  short: 'FB' },
+  { id: 'twitter',   label: 'Twitter/X', short: 'X'  },
+  { id: 'linkedin',  label: 'LinkedIn',  short: 'LI' },
 ]
 
 const SUGGESTIONS = [
-  'Generate my Instagram posts for this month',
-  "What's trending in my niche?",
-  'Create a product launch campaign',
-  'Plan content around upcoming holidays',
+  '🛍️  Promote a product or limited-time offer',
+  '📣  Announce something — a launch, event, or update',
+  '🎓  Educate my audience with tips or tutorials',
+  '✨  Tell my brand story',
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -510,25 +510,25 @@ export default function AssistantPage() {
     <div className="flex flex-col min-h-full bg-surface">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-20 flex items-center justify-between px-5 py-3.5 border-b border-fog bg-surface/90 backdrop-blur-sm">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-brand-500 flex items-center justify-center">
+      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-y-2 gap-x-3 px-4 sm:px-5 py-3 sm:py-3.5 border-b border-fog bg-surface/90 backdrop-blur-sm">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-7 h-7 rounded-lg bg-brand-500 flex items-center justify-center flex-shrink-0">
             <Sparkles size={14} className="text-white" />
           </div>
-          <div>
+          <div className="min-w-0">
             <span className="font-semibold text-ink text-sm">ContentCard AI</span>
             {activeBrand && (
-              <span className="ml-2 text-xs text-ink/40">{activeBrand.name}</span>
+              <span className="ml-2 text-xs text-ink/40 hidden sm:inline">{activeBrand.name}</span>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end overflow-x-auto">
           {/* Month selector */}
           <select
             value={selMonth}
             onChange={(e) => setSelMonth(Number(e.target.value))}
-            className="text-xs bg-mist border border-fog rounded-lg px-2.5 py-1.5 text-ink focus:outline-none focus:ring-2 focus:ring-brand-300/40 focus:border-brand-400 transition-all cursor-pointer"
+            className="text-xs bg-mist border border-fog rounded-lg px-2.5 py-1.5 text-ink focus:outline-none focus:ring-2 focus:ring-brand-300/40 focus:border-brand-400 transition-all cursor-pointer flex-shrink-0"
           >
             {MONTHS.map((m, i) => (
               <option key={m} value={i + 1}>
@@ -537,19 +537,21 @@ export default function AssistantPage() {
             ))}
           </select>
 
-          {/* Platform toggle */}
-          <div className="flex items-center gap-0.5 bg-mist border border-fog rounded-lg p-0.5">
+          {/* Platform toggle — abbreviated on small screens */}
+          <div className="flex items-center gap-0.5 bg-mist border border-fog rounded-lg p-0.5 flex-shrink-0">
             {PLATFORMS.map((p) => (
               <button
                 key={p.id}
                 onClick={() => setSelPlatform(p.id)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-150 ${
+                title={p.label}
+                className={`px-2 sm:px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-150 ${
                   selPlatform === p.id
                     ? 'bg-surface shadow-sm text-ink'
                     : 'text-ink/40 hover:text-ink/70'
                 }`}
               >
-                {p.label}
+                <span className="sm:hidden">{p.short}</span>
+                <span className="hidden sm:inline">{p.label}</span>
               </button>
             ))}
           </div>
@@ -559,7 +561,7 @@ export default function AssistantPage() {
             <button
               onClick={handleReset}
               title="Start new chat"
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-ink/40 hover:text-ink hover:bg-mist transition-all"
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-ink/40 hover:text-ink hover:bg-mist transition-all flex-shrink-0"
             >
               <RotateCcw size={14} />
             </button>
@@ -597,8 +599,8 @@ export default function AssistantPage() {
         )}
       </div>
 
-      {/* ── Input bar — sticky at the bottom of the scroll container ─────── */}
-      <div className="sticky bottom-0 border-t border-fog bg-surface/95 backdrop-blur-sm px-4 py-3">
+      {/* ── Input bar — sticky; bottom-16 leaves room for the mobile nav ─── */}
+      <div className="sticky bottom-16 lg:bottom-0 border-t border-fog bg-surface/95 backdrop-blur-sm px-4 py-3">
         <div className="max-w-2xl mx-auto">
           {/* Attachment previews */}
           {pendingImages.length > 0 && (

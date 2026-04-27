@@ -1,8 +1,8 @@
 """dashboard rebuild — Wave 2 / 3 / 4 schema
 
-Revision ID: 20260426_04
-Revises: 20260426_03
-Create Date: 2026-04-26
+Revision ID: 20260427_02
+Revises: 20260427_01
+Create Date: 2026-04-27
 
 Adds:
   - dashboard_briefings        — cached daily briefing per workspace+brand
@@ -20,8 +20,8 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "20260426_04"
-down_revision: Union[str, None] = "20260426_03"
+revision: str = "20260427_02"
+down_revision: Union[str, None] = "20260427_01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
