@@ -100,9 +100,10 @@ const PLANS_USD = [
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function GenerationMeter({ used }) {
-  const remaining = Math.max(0, 2 - used)
-  const pct = Math.min(100, (used / 2) * 100)
-  const exhausted = used >= 2
+  const FREE_LIMIT = 2000
+  const remaining = Math.max(0, FREE_LIMIT - used)
+  const pct = Math.min(100, (used / FREE_LIMIT) * 100)
+  const exhausted = used >= FREE_LIMIT
   return (
     <div
       className={`rounded-2xl p-5 border border-fog bg-mist ${
@@ -113,12 +114,12 @@ function GenerationMeter({ used }) {
         <AlertCircle size={18} className={`flex-shrink-0 mt-0.5 ${exhausted ? 'text-red-500' : 'text-amber-500'}`} />
         <div className="flex-1">
           <p className="text-sm font-semibold mb-0.5 text-ink">
-            {exhausted ? 'Free generations used up' : `${remaining} free generation${remaining !== 1 ? 's' : ''} remaining`}
+            {exhausted ? 'Free generation limit reached' : `${remaining.toLocaleString()} free generation${remaining !== 1 ? 's' : ''} remaining`}
           </p>
           <p className="text-xs mb-3 text-ink/60">
             {exhausted
-              ? 'Subscribe to unlock unlimited content generation.'
-              : `You've used ${used} of 2 free generations. Subscribe for unlimited access.`}
+              ? `You've used all ${FREE_LIMIT.toLocaleString()} included free generations for this workspace.`
+              : `You've used ${used.toLocaleString()} of ${FREE_LIMIT.toLocaleString()} free generations included with this workspace.`}
           </p>
           <div className="h-1.5 bg-fog/80 rounded-full overflow-hidden">
             <div
@@ -127,8 +128,8 @@ function GenerationMeter({ used }) {
             />
           </div>
           <div className="flex justify-between mt-1.5">
-            <span className="text-[10px] text-ink/45">{used} used</span>
-            <span className="text-[10px] text-ink/45">2 free</span>
+            <span className="text-[10px] text-ink/45">{used.toLocaleString()} used</span>
+            <span className="text-[10px] text-ink/45">{FREE_LIMIT.toLocaleString()} free</span>
           </div>
         </div>
       </div>
@@ -158,7 +159,7 @@ function SavedCard({ card, onRemove, removing }) {
         onClick={onRemove}
         disabled={removing}
         className="flex items-center gap-1.5 text-xs text-ink/40 hover:text-red-500 font-medium transition-colors disabled:opacity-40"
-        title="Remove card and cancel subscription"
+        title="Remove card and stop renewal (subscription continues until period end)"
       >
         {removing
           ? <><RefreshCw size={13} className="animate-spin" /> Removing…</>
@@ -262,7 +263,12 @@ export default function BillingPage() {
     try {
       await removeCard()
       setShowRemoveModal(false)
-      toast('Card removed and subscription cancelled.')
+      const endDate = subscription?.next_payment_date
+      if (isSubscribed && endDate) {
+        toast(`Card removed. Your subscription stays active until ${formatDate(endDate)}.`)
+      } else {
+        toast('Card removed.')
+      }
     } catch (err) {
       toast(err.response?.data?.detail || 'Failed to remove card', 'error')
     } finally {
@@ -441,7 +447,11 @@ export default function BillingPage() {
       {showRemoveModal && (
         <ConfirmModal
           title="Remove saved card?"
-          body="This will cancel your active subscription and remove your card. You'll need to re-enter card details to subscribe again."
+          body={
+            isSubscribed && subscription?.next_payment_date
+              ? `Your card will be removed and renewal stopped, but your ${currentPlan?.name || 'paid'} plan stays active until ${formatDate(subscription.next_payment_date)} since you've already paid for this period. After that, your account moves to the free tier.`
+              : "Your card will be removed. You'll need to re-enter card details to subscribe again."
+          }
           confirmLabel="Remove card"
           confirmClass="bg-red-500 hover:bg-red-600"
           onConfirm={handleRemoveCard}

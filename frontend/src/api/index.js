@@ -158,6 +158,7 @@ api.interceptors.response.use(
 // ─── Auth ──────────────────────────────────────────────────────
 export const marketingApi = {
   submitDemoRequest: (data) => publicApi.post('/public/demo-request', data).then((r) => r.data),
+  guestPreviewGenerate: (data) => publicApi.post('/public/guest-preview-generate', data).then((r) => r.data),
 }
 
 export const authApi = {

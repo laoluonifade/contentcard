@@ -131,9 +131,13 @@ async def get_subscription(
             _save_card_from_authorization(anchor, fallback_auth)
             await db.commit()
 
+    # Provider for display follows the user's current country, not the stored workspace
+    # value — a country change in settings is reflected immediately even if prior data
+    # on the workspace row is stale.
+    nigeria = is_nigeria_user(current_user.country_code)
     return SubscriptionOut(
         plan=effective,
-        provider=anchor.payment_provider,
+        provider="paystack" if nigeria else "stripe",
         trial_ends_at=anchor.trial_ends_at,
         is_active=anchor.is_active,
         subscription_id=anchor.subscription_id,
@@ -142,8 +146,7 @@ async def get_subscription(
         next_payment_date=anchor.next_payment_date,
         billing_workspace_id=anchor.id,
         subscription_covers_owned_workspaces=shared and effective in ("starter", "smb", "pro"),
-        # Let frontend know which processor so it can display the right logo/copy
-        stripe_publishable_key=settings.STRIPE_PUBLISHABLE_KEY if not is_nigeria_user(current_user.country_code) else None,
+        stripe_publishable_key=settings.STRIPE_PUBLISHABLE_KEY if not nigeria else None,
     )
 
 
@@ -508,17 +511,29 @@ async def remove_card(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Remove the saved card and cancel the active subscription."""
+    """
+    Remove the saved card and stop subscription renewal.
+    The current paid period is preserved — the user keeps their plan until
+    next_payment_date, then it downgrades to trial.
+    """
     await _require_owner(workspace_id, current_user.id, db)
     anchor = await billing_anchor_workspace(db, current_user.id)
     if not anchor:
         raise HTTPException(status_code=404, detail="Workspace not found")
     ws = anchor
 
+    period_still_active = bool(
+        ws.next_payment_date
+        and ws.next_payment_date > datetime.now(timezone.utc)
+        and ws.plan in ("starter", "smb", "pro")
+    )
+
     if ws.payment_provider == "stripe":
         if ws.subscription_id:
             try:
-                await cancel_stripe_subscription(ws.subscription_id)
+                await cancel_stripe_subscription(
+                    ws.subscription_id, at_period_end=period_still_active
+                )
             except Exception as e:
                 logger.warning(f"Stripe cancel on card removal failed: {e}")
     else:
@@ -528,17 +543,20 @@ async def remove_card(
             except Exception as e:
                 logger.warning(f"Paystack cancel on card removal failed: {e}")
 
-    ws.plan = "trial"
-    ws.subscription_id = None
-    ws.customer_id = None
     ws.paystack_authorization_code = None
     ws.card_last4 = None
     ws.card_type = None
     ws.card_bank = None
     ws.card_exp_month = None
     ws.card_exp_year = None
-    ws.next_payment_date = None
-    ws.payment_provider = None
+
+    if not period_still_active:
+        ws.plan = "trial"
+        ws.subscription_id = None
+        ws.customer_id = None
+        ws.next_payment_date = None
+        ws.payment_provider = None
+
     await db.commit()
 
 
@@ -1168,26 +1186,49 @@ async def _handle_subscription_disable(data: dict, db: AsyncSession) -> None:
         return
     ws_r = await db.execute(select(Workspace).where(Workspace.subscription_id == sub_code))
     ws = ws_r.scalar_one_or_none()
-    if ws:
-        prior_plan = _plan_label(ws.plan)
-        access_until: str | None = None
-        if ws.next_payment_date is not None:
-            try:
-                access_until = ws.next_payment_date.strftime("%b %d, %Y")
-            except Exception:
-                access_until = None
+    if not ws:
+        return
+
+    prior_plan = _plan_label(ws.plan)
+    access_until: str | None = None
+    if ws.next_payment_date is not None:
+        try:
+            access_until = ws.next_payment_date.strftime("%b %d, %Y")
+        except Exception:
+            access_until = None
+
+    period_still_active = bool(
+        ws.next_payment_date
+        and ws.next_payment_date > datetime.now(timezone.utc)
+        and ws.plan in ("starter", "smb", "pro")
+    )
+
+    if period_still_active:
+        # User cancelled but already paid through this period — keep their plan
+        # active until next_payment_date. effective_plan_for_owner downgrades
+        # them when the period ends.
+        ws.subscription_id = None
+        await db.commit()
+        logger.info(
+            f"Paystack subscription disabled: {sub_code}, workspace {ws.id} "
+            f"keeps {ws.plan} until {ws.next_payment_date.isoformat()}"
+        )
+    else:
         ws.plan = "trial"
         ws.subscription_id = None
         ws.next_payment_date = None
         await db.commit()
         logger.info(f"Paystack subscription disabled: {sub_code}, workspace {ws.id} → trial")
-        # Phase 2 — cancellation receipt. Dedupe on (workspace, sub_code).
-        await _notify_subscription_cancelled(
-            ws=ws, db=db,
-            cancellation_id=str(sub_code),
-            prior_plan_label=prior_plan,
-            access_until_label=access_until,
-        )
+
+    # Phase 2 — cancellation receipt. Dedupe on (workspace, sub_code).
+    # Sent in both branches so users always get an acknowledgement; access_until
+    # tells them whether they keep paid access until the period ends or downgrade now.
+    await _notify_subscription_cancelled(
+        ws=ws, db=db,
+        cancellation_id=str(sub_code),
+        prior_plan_label=prior_plan,
+        access_until_label=access_until,
+    )
 
 
 # ── Phase 2: Billing email helpers ────────────────────────────────────────────
