@@ -5,6 +5,8 @@ import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import { contentApi, holidaysApi, uploadApi } from '../api'
+import { detectConflicts } from '../utils/calendarConflicts'
+import { useFeatureFlag } from '../lib/featureFlags'
 import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
@@ -1457,8 +1459,28 @@ export default function CalendarPage() {
     : Number(renderStatusPoll?.total ?? 0)
   const showFinishingCounts = finishingBannerActive && finishingTotal > 0
 
+  const conflictWarningsEnabled = useFeatureFlag('calendar.conflict_warnings')
+  const calendarConflicts = conflictWarningsEnabled ? detectConflicts(posts) : []
+
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
+
+      {/* Conflict warnings (R2.6) */}
+      {conflictWarningsEnabled && calendarConflicts.length > 0 && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <p className="text-[10px] uppercase tracking-widest text-amber-700 font-bold mb-1">
+            {calendarConflicts.length} potential conflict{calendarConflicts.length === 1 ? '' : 's'}
+          </p>
+          <ul className="text-amber-900 text-xs space-y-0.5">
+            {calendarConflicts.slice(0, 4).map((c, i) => (
+              <li key={i}>• {c.reason}</li>
+            ))}
+            {calendarConflicts.length > 4 && (
+              <li className="text-amber-700/80">…and {calendarConflicts.length - 4} more</li>
+            )}
+          </ul>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">

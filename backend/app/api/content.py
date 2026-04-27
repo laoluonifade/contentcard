@@ -2403,6 +2403,48 @@ async def delete_content(
     await db.commit()
 
 
+@router.post("/{content_id}/approve", response_model=ContentOut)
+async def approve_content(
+    content_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Mark a post as approved. Used by the dashboard "What's next" hero card and
+    the (Wave 3) approval queue. Editor-level access required because approval
+    is a write that affects the publish pipeline.
+    """
+    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
+    item = r.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    await _get_brand_and_check_access(item.brand_id, current_user.id, db)
+    item.status = ContentStatus.APPROVED
+    await db.commit()
+    await db.refresh(item)
+    return ContentOut.model_validate(item)
+
+
+@router.post("/{content_id}/reject", response_model=ContentOut)
+async def reject_content(
+    content_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Send a post back to draft for revisions.
+    """
+    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
+    item = r.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    await _get_brand_and_check_access(item.brand_id, current_user.id, db)
+    item.status = ContentStatus.DRAFT
+    await db.commit()
+    await db.refresh(item)
+    return ContentOut.model_validate(item)
+
+
 async def _existing_platform_dates_in_month(
     db: AsyncSession, brand_id: str, month: int, year: int
 ) -> set[tuple[str, str]]:

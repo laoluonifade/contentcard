@@ -37,6 +37,9 @@ import MemesPage            from './pages/MemesPage'
 import SocialAutopilotPage  from './pages/SocialAutopilotPage'
 import DesignEditorPage from './pages/DesignEditorPage'
 import AssistantPage   from './pages/AssistantPage'
+import AnalyticsPage   from './pages/AnalyticsPage'
+import InboxPage       from './pages/InboxPage'
+import AIPage          from './pages/AIPage'
 import ShopifyAuthCallbackPage from './pages/ShopifyAuthCallbackPage'
 import ShopifyOnboardingCompletionPage from './pages/ShopifyOnboardingCompletionPage'
 import ShopifyPostSignupDecisionPage from './pages/ShopifyPostSignupDecisionPage'
@@ -123,6 +126,9 @@ export default function App() {
           <Route path="social"     element={<SocialAutopilotPage />} />
           <Route path="calendar/editor/:contentId" element={<DesignEditorPage />} />
           <Route path="assistant"  element={<AssistantPage />} />
+          <Route path="ai"         element={<AIPage />} />
+          <Route path="inbox"      element={<InboxPage />} />
+          <Route path="analytics"  element={<AnalyticsPage />} />
         </Route>
 
         {/* Admin */}
