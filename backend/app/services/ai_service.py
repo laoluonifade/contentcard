@@ -1477,12 +1477,23 @@ def _build_playbook_schedule(
             surprise_promotions,
         )
 
+    # ── Stage 3: visual decision layer ─────────────────────────────────────
+    # Collapses the structured strategy to one of five named mediums and
+    # wraps the visual_direction with a "LEAD WITH …" directive plus a
+    # design-reduction reminder. Idempotent.
+    try:
+        from app.services import visual_decision_layer as _vdl
+        _vdl.apply_decision_layer(plan, seed_key=seed_key)
+    except Exception:
+        logger.exception("visual_decision_layer failed; serving structured VD without medium overlay")
+
     if logger.isEnabledFor(logging.INFO):
         try:
             summary = _cp.summarize_plan(planned)
+            mediums = [r.get("visual_medium") for r in plan if r.get("visual_medium")]
             logger.info(
-                "calendar_plan summary slots=%s intents=%s formats=%s",
-                summary["slots"], summary["intents"], summary["formats"],
+                "calendar_plan summary slots=%s intents=%s formats=%s mediums=%s",
+                summary["slots"], summary["intents"], summary["formats"], mediums,
             )
         except Exception:
             pass
@@ -1508,6 +1519,7 @@ def _playbook_assignment_text(plan: list[dict]) -> str:
         var_id = row.get("variation_id") or ""
         vd = (row.get("visual_direction") or "").strip()
         brand_hint = (row.get("brand_visual_direction_hint") or "").strip()
+        medium = (row.get("visual_medium") or "").strip()
         design_mode = _dc.coerce_design_mode(row.get("design_mode"))
         is_surprise = bool(row.get("surprise_post"))
         mode_prose = _dc.DESIGN_MODE_PROSE.get(design_mode, {})
@@ -1517,6 +1529,8 @@ def _playbook_assignment_text(plan: list[dict]) -> str:
             f"intent={intent} | post_format={fmt} | variation_id={var_id} | "
             f"design_mode={design_mode}{' | surprise=true' if is_surprise else ''}"
         )
+        if medium:
+            header += f" | visual_medium={medium}"
         block_lines = [header]
         if mode_prose:
             block_lines.append(f"  design_mode rule: {mode_prose.get('rule','')}")
@@ -1614,6 +1628,10 @@ def _enforce_playbook_assignments(posts: list[dict], plan: list[dict]) -> list[d
             post["visual_strategy_rejections"] = assigned["visual_strategy_rejections"]
         if assigned.get("brand_visual_direction_hint"):
             post["brand_visual_direction_hint"] = assigned["brand_visual_direction_hint"]
+        if assigned.get("visual_medium"):
+            post["visual_medium"] = assigned["visual_medium"]
+        if assigned.get("visual_medium_directive"):
+            post["visual_medium_directive"] = assigned["visual_medium_directive"]
         if assigned.get("design_mode"):
             post["design_mode"] = assigned["design_mode"]
         if assigned.get("surprise_post"):
@@ -1732,11 +1750,16 @@ When writing captions:
 
     quality_playbook = _industry_quality_playbook_block(industry)
 
+    from app.services import visual_decision_layer as _vdl
+    visual_decision_block = _vdl.prompt_injection_block()
+
     creative_brief = f"""Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
 
 Platform: {platform} ({platform_format})
 Format preference: {format_mix}
 {topics_hint}
+
+{visual_decision_block}
 
 Assign one post to each date using this exact assignment map:
 {assignment_instructions}
@@ -1766,7 +1789,8 @@ For EACH post return ALL these fields:
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
 17. content_intent: REQUIRED — exactly one of "awareness", "engagement", "conversion". Use the value from the assignment map verbatim. The caption, hook, and CTA must reflect that intent (awareness teaches/introduces, engagement invites response, conversion drives action).
 18. variation_id: REQUIRED — copy the variation_id from the assignment map verbatim. Used downstream for de-duplication.
-19. design_mode: REQUIRED — copy the design_mode from the assignment map verbatim. Exactly one of: luxury_minimal, bold_typography, cinematic_realism, editorial_magazine, ui_product, street_lifestyle, abstract_conceptual, brutalist_design, soft_premium, experimental_layout. The composition, palette, and image_prompt MUST execute that mode's rule (see "design_mode rule" line in the assignment map). No two consecutive posts in this batch share a design_mode.
+19. visual_medium: REQUIRED — copy the visual_medium token from the assignment map verbatim. Allowed values: "product_first", "human_lifestyle", "typography_led", "ui_mockup", "abstract_graphic". The visual_direction, image_prompt, and image_prompt_explanation must all execute the chosen medium. If the medium is NOT "human_lifestyle", do not include any human, face, or hand in the image_prompt unless a hand is mid-interaction with the product (and only when the medium is "product_first").
+20. design_mode: REQUIRED — copy the design_mode from the assignment map verbatim. Exactly one of: luxury_minimal, bold_typography, cinematic_realism, editorial_magazine, ui_product, street_lifestyle, abstract_conceptual, brutalist_design, soft_premium, experimental_layout. The composition, palette, and image_prompt MUST execute that mode's rule (see "design_mode rule" line in the assignment map). No two consecutive posts in this batch share a design_mode. The design_mode must be compatible with visual_medium — e.g. ui_product pairs with ui_mockup, street_lifestyle with human_lifestyle, bold_typography with typography_led; never let the design_mode override the visual_medium contract.
 
 HARD RULES:
 • Every post MUST have a non-empty "cta" string (see field 5); if unsure, default to "Visit our site via the link in bio." adapted to brand voice and website if known
@@ -1799,6 +1823,8 @@ HARD RULES:
 • Ensure monthly composition variety: include at least one product/device hero, one lifestyle context scene, one abstract/graphic metaphor, and one trust-proof frame where batch size allows
 • Realism QA for human photos: reject and rewrite prompts that would likely create uncanny outputs (waxy skin, duplicated faces, malformed hands, doll-like eyes, over-airbrushed complexion, impossible lighting reflections)
 • Prefer believable editorial camera realism over synthetic polish: natural skin pores, realistic texture, grounded shadows, and candid body language
+• visual_medium is a HARD CONTRACT: humans appear ONLY when visual_medium="human_lifestyle"; icons or decorative graphics appear ONLY when content_type is structured (Educational) and visual_medium is "typography_led" or "abstract_graphic". Never default to humans for product_first, typography_led, ui_mockup, or abstract_graphic posts.
+• Design reduction pass: before returning each post, audit the visual_direction. If three or more elements are competing for attention, demote all but the strongest. There must be ONE dominant subject; everything else supports it. Negative space is a feature, not absence.
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""
