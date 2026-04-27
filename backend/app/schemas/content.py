@@ -22,13 +22,13 @@ class GenerateMonthRequest(BaseModel):
     only_new_changes: bool = False
     # Set true after the UI confirms generating again for a month that already has posts.
     confirm_duplicate: bool = False
+    # Optional structured brief collected by prep or onboarding.
+    campaign_brief: dict | None = None
 
 
 class GenerationPrepMessage(BaseModel):
     role: str  # user | assistant
-    content: str = ""
-    # Optional image URLs attached to the message (vision input).
-    image_urls: list[str] = Field(default_factory=list)
+    content: str
 
 
 class GenerationPrepChatRequest(BaseModel):
@@ -191,11 +191,6 @@ class ContentOut(BaseModel):
     scheduled_date: date | None
     generation_month: int | None
     generation_year: int | None
-    # Visual diversity engine — full strategy object, audit trail, human-readable description
-    visual_strategy: dict | None = None
-    composition_description: str | None = None
-    diversity_checks_passed: bool | None = None
-    rejection_log: list | None = None
     created_at: datetime
     updated_at: datetime
 

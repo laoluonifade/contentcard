@@ -9,7 +9,14 @@ export function mergeBrandFormPatch(form, patch) {
   const next = { ...form }
   for (const [k, v] of Object.entries(patch)) {
     if (k === 'brand_kit' && v && typeof v === 'object') {
-      next.brand_kit = { ...(form.brand_kit || {}), ...v }
+      const incomingBrandKit = { ...v }
+      if (incomingBrandKit.visual_system && typeof incomingBrandKit.visual_system === 'object') {
+        incomingBrandKit.visual_system = {
+          ...((form.brand_kit || {}).visual_system || {}),
+          ...incomingBrandKit.visual_system,
+        }
+      }
+      next.brand_kit = { ...(form.brand_kit || {}), ...incomingBrandKit }
     } else if (v !== undefined && v !== null) {
       next[k] = v
     }
