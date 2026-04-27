@@ -38,6 +38,18 @@ class StyleFingerprintOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CampaignBriefIn(BaseModel):
+    objective: str | None = None
+    primary_offer: str | None = None
+    audience_focus: str | None = None
+    campaign_angle: str | None = None
+    key_proof_points: list[str] | None = None
+    content_themes: list[str] | None = None
+    asset_notes: list[str] | None = None
+    tone_overrides: list[str] | None = None
+    cta_goal: str | None = None
+
+
 class GenerateMonthV2Request(BaseModel):
     brand_id: str
     month: int
@@ -51,6 +63,7 @@ class GenerateMonthV2Request(BaseModel):
     only_new_changes: bool = False
     use_reference_research: bool = True
     variant_count: int = 2
+    campaign_brief: CampaignBriefIn | None = None
     # User-reviewed plan from GenerationPlanModal: when provided, these post
     # slots are used instead of having the AI compute a schedule from scratch.
     # Each entry: {date, platform, format, content_type, visual_direction, product_image_url, template_id}

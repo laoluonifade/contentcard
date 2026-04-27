@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Send, Globe, Sparkles, ArrowRight, RotateCcw, Paperclip, X } from 'lucide-react'
+import { Send, Globe, Sparkles, ArrowRight, RotateCcw } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import { contentApi, uploadApi } from '../api'
+import { buildCampaignBrief } from '../utils/campaignBrief'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -12,97 +13,26 @@ const MONTHS = [
 ]
 
 const PLATFORMS = [
-  { id: 'instagram', label: 'Instagram', short: 'IG' },
-  { id: 'facebook',  label: 'Facebook',  short: 'FB' },
-  { id: 'twitter',   label: 'Twitter/X', short: 'X'  },
-  { id: 'linkedin',  label: 'LinkedIn',  short: 'LI' },
+  { id: 'instagram', label: 'Instagram' },
+  { id: 'facebook',  label: 'Facebook'  },
+  { id: 'twitter',   label: 'Twitter/X' },
+  { id: 'linkedin',  label: 'LinkedIn'  },
 ]
 
 const SUGGESTIONS = [
-  '🛍️  Promote a product or limited-time offer',
-  '📣  Announce something — a launch, event, or update',
-  '🎓  Educate my audience with tips or tutorials',
-  '✨  Tell my brand story',
+  'Generate my Instagram posts for this month',
+  "What's trending in my niche?",
+  'Create a product launch campaign',
+  'Plan content around upcoming holidays',
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function buildBrief(messages) {
   const raw = messages
-    .map((m) => {
-      const text = m.content || ''
-      const imgs = Array.isArray(m.image_urls) && m.image_urls.length
-        ? `\n[attached images: ${m.image_urls.join(', ')}]`
-        : ''
-      return `${m.role}: ${text}${imgs}`
-    })
+    .map((m) => `${m.role}: ${m.content}`)
     .join('\n')
   return raw.slice(0, 12000)
-}
-
-// Coerce any error detail (string, FastAPI 422 array, object) into a readable string.
-function formatErrorDetail(err) {
-  const detail = err?.response?.data?.detail
-  if (typeof detail === 'string' && detail.trim()) return detail.trim()
-  if (Array.isArray(detail)) {
-    const parts = detail
-      .map((d) => {
-        if (typeof d === 'string') return d
-        if (d && typeof d === 'object') {
-          const loc = Array.isArray(d.loc) ? d.loc.join('.') : ''
-          const msg = d.msg || d.message || ''
-          return loc ? `${loc}: ${msg}` : msg
-        }
-        return ''
-      })
-      .filter(Boolean)
-    if (parts.length) return parts.join('; ')
-  }
-  if (detail && typeof detail === 'object') {
-    if (typeof detail.message === 'string') return detail.message
-    try { return JSON.stringify(detail) } catch { /* ignore */ }
-  }
-  if (typeof err?.message === 'string' && err.message.trim()) return err.message.trim()
-  return 'Something went wrong'
-}
-
-const CHAT_STORAGE_KEY = 'cc:assistant:chat:v1'
-
-function loadStoredChat(brandId) {
-  if (!brandId) return null
-  try {
-    const raw = localStorage.getItem(CHAT_STORAGE_KEY)
-    if (!raw) return null
-    const all = JSON.parse(raw)
-    const entry = all?.[brandId]
-    if (!entry || !Array.isArray(entry.messages)) return null
-    return entry
-  } catch {
-    return null
-  }
-}
-
-function saveStoredChat(brandId, payload) {
-  if (!brandId) return
-  try {
-    const raw = localStorage.getItem(CHAT_STORAGE_KEY)
-    const all = raw ? JSON.parse(raw) : {}
-    all[brandId] = { ...payload, updated_at: Date.now() }
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(all))
-  } catch {
-    /* localStorage may be full or unavailable */
-  }
-}
-
-function clearStoredChat(brandId) {
-  if (!brandId) return
-  try {
-    const raw = localStorage.getItem(CHAT_STORAGE_KEY)
-    if (!raw) return
-    const all = JSON.parse(raw)
-    delete all[brandId]
-    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(all))
-  } catch { /* ignore */ }
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -182,25 +112,86 @@ function AssistantBubble({ message, onNavigate }) {
   )
 }
 
+function PrepControls({
+  message,
+  messageKey,
+  onPickChoice,
+  onAnswerQuestion,
+  onRunCta,
+  ctaBusy,
+  generatingMonth,
+}) {
+  const questions = Array.isArray(message.questions) ? message.questions : []
+  const choices = Array.isArray(message.choices) ? message.choices : []
+  const showCta = message.cta?.action === 'start_generation'
+
+  if (!choices.length && !questions.length && !showCta) return null
+
+  return (
+    <div className="mt-3 pt-3 border-t border-fog/70 space-y-3">
+      {choices.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {choices.map((choice) => (
+            <button
+              key={choice.id}
+              onClick={() => onPickChoice(choice)}
+              className="text-xs px-3 py-1.5 rounded-xl border border-fog bg-surface text-ink/70 hover:border-brand-300 hover:text-ink transition-colors"
+            >
+              {choice.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {questions.length > 0 && (
+        <div className="space-y-2">
+          {questions.map((question) => (
+            <div key={question.id} className="rounded-xl border border-fog bg-surface px-3 py-2.5">
+              <p className="text-xs font-medium text-ink/75 mb-2">{question.prompt}</p>
+              {question.input_type === 'upload' ? (
+                <p className="text-[11px] text-ink/45">
+                  Attach the matching screenshot or recording from the composer below, and I will fold it into the plan.
+                </p>
+              ) : question.options?.length ? (
+                <div className="flex flex-wrap gap-2">
+                  {question.options.map((option) => (
+                    <button
+                      key={option}
+                      onClick={() => onAnswerQuestion(question, option)}
+                      className="text-[11px] px-2.5 py-1.5 rounded-lg border border-fog bg-mist text-ink/70 hover:border-brand-300 hover:text-ink transition-colors"
+                    >
+                      {option}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {showCta && (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onRunCta(message, messageKey)}
+            disabled={ctaBusy || generatingMonth}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800 disabled:opacity-40 transition-colors"
+          >
+            <ArrowRight size={12} />
+            {generatingMonth ? 'Generating…' : (message.cta?.label || 'Approve plan and generate')}
+          </button>
+          <span className="text-[11px] text-ink/35">Review the plan first, then launch generation.</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function UserBubble({ message }) {
-  const imgs = Array.isArray(message.image_urls) ? message.image_urls : []
   return (
     <div className="flex justify-end">
       <div className="max-w-[75%] rounded-2xl rounded-tr-sm px-4 py-3 bg-slate-900 text-white text-sm leading-relaxed">
-        {imgs.length > 0 && (
-          <div className={`grid gap-1.5 mb-2 ${imgs.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-            {imgs.map((url) => (
-              <a key={url} href={url} target="_blank" rel="noreferrer" className="block">
-                <img
-                  src={url}
-                  alt="attachment"
-                  className="rounded-lg max-h-48 w-full object-cover"
-                />
-              </a>
-            ))}
-          </div>
-        )}
-        {message.content && <p className="whitespace-pre-wrap">{message.content}</p>}
+        <p className="whitespace-pre-wrap">{message.content}</p>
       </div>
     </div>
   )
@@ -216,7 +207,7 @@ function EmptyState({ onSuggestion }) {
         </div>
         <div>
           <h2 className="text-xl font-semibold text-ink">ContentCard AI</h2>
-          <p className="text-sm text-ink/50 mt-0.5">Ask anything or generate content instantly</p>
+          <p className="text-sm text-ink/50 mt-0.5">Build the month plan first, then generate better posts</p>
         </div>
       </div>
 
@@ -248,60 +239,23 @@ export default function AssistantPage() {
     generationPollCount,
     generationProgress,
   } = useAppStore()
+  const activeBrand = brands.find((b) => b.id === activeBrandId)
 
   const now = new Date()
   const [selMonth, setSelMonth] = useState(now.getMonth() + 1)   // 1-indexed
   const [selYear]               = useState(now.getFullYear())
   const [selPlatform, setSelPlatform] = useState('instagram')
 
-  const [messages, setMessages] = useState([])                    // { role, content, type?, image_urls? }
+  const [messages, setMessages] = useState([])                    // { role, content, type? }
   const [input, setInput]       = useState('')
   const [thinking, setThinking] = useState(false)
   const [browsing, setBrowsing] = useState(false)
-  const [pendingImages, setPendingImages] = useState([])           // [{ url, uploading?, name }]
-  const [hydrated, setHydrated] = useState(false)
+  const [prepUploadingAsset, setPrepUploadingAsset] = useState(false)
+  const [ctaBusy, setCtaBusy] = useState(false)
 
   const chatEndRef   = useRef(null)
   const textareaRef  = useRef(null)
-  const fileInputRef = useRef(null)
   const browsingTimer = useRef(null)
-
-  // Restore chat from localStorage when brand changes
-  useEffect(() => {
-    setHydrated(false)
-    if (!activeBrandId) {
-      setMessages([])
-      setPendingImages([])
-      setHydrated(true)
-      return
-    }
-    const stored = loadStoredChat(activeBrandId)
-    if (stored) {
-      setMessages(stored.messages || [])
-      if (stored.month) setSelMonth(stored.month)
-      if (stored.platform) setSelPlatform(stored.platform)
-    } else {
-      setMessages([])
-    }
-    setPendingImages([])
-    setHydrated(true)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBrandId])
-
-  // Save chat whenever messages change (after hydration)
-  useEffect(() => {
-    if (!hydrated || !activeBrandId) return
-    if (messages.length === 0) {
-      clearStoredChat(activeBrandId)
-      return
-    }
-    saveStoredChat(activeBrandId, {
-      messages,
-      month: selMonth,
-      year: selYear,
-      platform: selPlatform,
-    })
-  }, [messages, hydrated, activeBrandId, selMonth, selYear, selPlatform])
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -339,6 +293,12 @@ export default function AssistantPage() {
   const handleGenerate = useCallback(
     async (chatMessages, month, year, platform) => {
       const brief = buildBrief(chatMessages)
+      const campaignBrief = buildCampaignBrief({
+        brand: activeBrand,
+        messages: chatMessages,
+        platform,
+        monthLabel: `${MONTHS[month - 1]} ${year}`,
+      })
 
       // Show inline progress message
       const progressMsg = {
@@ -358,6 +318,7 @@ export default function AssistantPage() {
           format_mix: 'mixed',
           posts_per_week: 3,
           generation_brief: brief,
+          campaign_brief: campaignBrief,
           confirm_duplicate: false,
         })
 
@@ -366,30 +327,24 @@ export default function AssistantPage() {
           content: `Your posts for ${MONTHS[month - 1]} are ready! Head to the calendar to review them.`,
         })
       } catch (err) {
+        const detail = err?.response?.data?.detail || err?.message || 'Generation failed'
         updateLastAssistantMessage({
           type: 'error',
-          content: `Sorry, something went wrong: ${formatErrorDetail(err)}`,
+          content: `Sorry, something went wrong: ${detail}`,
         })
       }
     },
-    [appendMessage, generateMonth, updateLastAssistantMessage],
+    [activeBrand, appendMessage, generateMonth, updateLastAssistantMessage],
   )
 
   const sendMessage = useCallback(
     async (text) => {
       const txt = (text ?? input).trim()
-      const readyImages = pendingImages.filter((p) => p.url && !p.uploading).map((p) => p.url)
-      if (pendingImages.some((p) => p.uploading)) return // wait for uploads
-      if ((!txt && readyImages.length === 0) || thinking) return
+      if (!txt || thinking) return
 
       setInput('')
-      setPendingImages([])
 
-      const userMsg = {
-        role: 'user',
-        content: txt,
-        ...(readyImages.length ? { image_urls: readyImages } : {}),
-      }
+      const userMsg = { role: 'user', content: txt }
       const nextMessages = [...messages, userMsg]
       setMessages(nextMessages)
 
@@ -400,17 +355,11 @@ export default function AssistantPage() {
       browsingTimer.current = setTimeout(() => setBrowsing(false), 2000)
 
       try {
-        // Strip frontend-only fields and pass image_urls through to backend
-        const apiMessages = nextMessages.map((m) => ({
-          role: m.role,
-          content: m.content || '',
-          ...(Array.isArray(m.image_urls) && m.image_urls.length ? { image_urls: m.image_urls } : {}),
-        }))
         const data = await contentApi.generationPrepChat({
           brand_id: activeBrandId,
           month: selMonth,
           year: selYear,
-          messages: apiMessages,
+          messages: nextMessages,
           enable_web_search: true,
         })
 
@@ -422,70 +371,86 @@ export default function AssistantPage() {
           role: 'assistant',
           type: 'message',
           content: data.message || '',
+          choices: data.choices || [],
+          questions: data.questions || [],
           cta: data.cta || null,
         }
         setMessages((prev) => [...prev, assistantMsg])
-
-        // Auto-trigger generation if CTA says so
-        if (data.cta?.action === 'start_generation') {
-          await handleGenerate(
-            [...nextMessages, assistantMsg],
-            selMonth,
-            selYear,
-            selPlatform,
-          )
-        }
       } catch (err) {
         clearTimeout(browsingTimer.current)
         setBrowsing(false)
         setThinking(false)
 
+        const detail = err?.response?.data?.detail || err?.message || 'Something went wrong'
         appendMessage({
           role: 'assistant',
           type: 'error',
-          content: `Sorry, I couldn't process that: ${formatErrorDetail(err)}`,
+          content: `Sorry, I couldn't process that: ${detail}`,
         })
       }
     },
     [
-      input, thinking, messages, pendingImages, activeBrandId, selMonth, selYear, selPlatform,
+      input, thinking, messages, activeBrandId, selMonth, selYear, selPlatform,
       handleGenerate, appendMessage,
     ],
   )
 
-  const handleAttachImages = useCallback(async (files) => {
-    const list = Array.from(files || []).filter((f) => f.type.startsWith('image/'))
-    if (!list.length) return
-    const placeholders = list.map((f) => ({
-      id: `${Date.now()}-${f.name}-${Math.random().toString(36).slice(2, 7)}`,
-      name: f.name,
-      uploading: true,
-      url: null,
-    }))
-    setPendingImages((prev) => [...prev, ...placeholders])
-    await Promise.all(
-      list.map(async (file, idx) => {
-        const placeholder = placeholders[idx]
-        try {
-          const res = await uploadApi.photo(file)
-          setPendingImages((prev) =>
-            prev.map((p) => (p.id === placeholder.id ? { ...p, url: res.url, uploading: false } : p)),
-          )
-        } catch (err) {
-          setPendingImages((prev) => prev.filter((p) => p.id !== placeholder.id))
-          appendMessage({
-            role: 'assistant',
-            type: 'error',
-            content: `Couldn't upload ${file.name}: ${formatErrorDetail(err)}`,
-          })
-        }
-      }),
-    )
-  }, [appendMessage])
+  const handlePickChoice = useCallback(
+    async (choice) => {
+      const label = String(choice?.label || '').trim()
+      if (!label) return
+      await sendMessage(label)
+    },
+    [sendMessage],
+  )
 
-  const removePendingImage = useCallback((id) => {
-    setPendingImages((prev) => prev.filter((p) => p.id !== id))
-  }, [])
+  const handleAnswerQuestion = useCallback(
+    async (question, value) => {
+      const prompt = String(question?.prompt || '').trim()
+      const answer = String(value || '').trim()
+      if (!answer) return
+      const payload = prompt ? `${prompt}\nAnswer: ${answer}` : `Answer: ${answer}`
+      await sendMessage(payload)
+    },
+    [sendMessage],
+  )
+
+  const handleUploadAsset = useCallback(
+    async (file) => {
+      if (!file || !activeBrandId || prepUploadingAsset) return
+      const isVideo = String(file.type || '').startsWith('video/')
+      setPrepUploadingAsset(true)
+      try {
+        const res = await uploadApi.prepAsset(file, isVideo ? 'recording' : 'screenshot')
+        const kind = res?.kind || (isVideo ? 'recording' : 'screenshot')
+        const url = String(res?.url || '').trim()
+        if (!url) throw new Error('No uploaded URL returned')
+        await sendMessage(`Attached ${kind}: ${url}`)
+      } catch (err) {
+        appendMessage({
+          role: 'assistant',
+          type: 'error',
+          content: `Sorry, I couldn't upload that asset: ${err?.response?.data?.detail || err?.message || 'Upload failed'}`,
+        })
+      } finally {
+        setPrepUploadingAsset(false)
+      }
+    },
+    [activeBrandId, appendMessage, prepUploadingAsset, sendMessage],
+  )
+
+  const handleRunCta = useCallback(
+    async () => {
+      if (ctaBusy || generatingMonth || thinking || messages.length === 0) return
+      setCtaBusy(true)
+      try {
+        await handleGenerate(messages, selMonth, selYear, selPlatform)
+      } finally {
+        setCtaBusy(false)
+      }
+    },
+    [ctaBusy, generatingMonth, handleGenerate, messages, selMonth, selYear, selPlatform, thinking],
+  )
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -497,38 +462,34 @@ export default function AssistantPage() {
   const handleReset = () => {
     setMessages([])
     setInput('')
-    setPendingImages([])
     setThinking(false)
     setBrowsing(false)
     clearTimeout(browsingTimer.current)
-    clearStoredChat(activeBrandId)
   }
-
-  const activeBrand = brands.find((b) => b.id === activeBrandId)
 
   return (
     <div className="flex flex-col min-h-full bg-surface">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-y-2 gap-x-3 px-4 sm:px-5 py-3 sm:py-3.5 border-b border-fog bg-surface/90 backdrop-blur-sm">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-7 h-7 rounded-lg bg-brand-500 flex items-center justify-center flex-shrink-0">
+      <header className="sticky top-0 z-20 flex items-center justify-between px-5 py-3.5 border-b border-fog bg-surface/90 backdrop-blur-sm">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-brand-500 flex items-center justify-center">
             <Sparkles size={14} className="text-white" />
           </div>
-          <div className="min-w-0">
+          <div>
             <span className="font-semibold text-ink text-sm">ContentCard AI</span>
             {activeBrand && (
-              <span className="ml-2 text-xs text-ink/40 hidden sm:inline">{activeBrand.name}</span>
+              <span className="ml-2 text-xs text-ink/40">{activeBrand.name}</span>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-2 w-full sm:w-auto justify-end overflow-x-auto">
+        <div className="flex items-center gap-2">
           {/* Month selector */}
           <select
             value={selMonth}
             onChange={(e) => setSelMonth(Number(e.target.value))}
-            className="text-xs bg-mist border border-fog rounded-lg px-2.5 py-1.5 text-ink focus:outline-none focus:ring-2 focus:ring-brand-300/40 focus:border-brand-400 transition-all cursor-pointer flex-shrink-0"
+            className="text-xs bg-mist border border-fog rounded-lg px-2.5 py-1.5 text-ink focus:outline-none focus:ring-2 focus:ring-brand-300/40 focus:border-brand-400 transition-all cursor-pointer"
           >
             {MONTHS.map((m, i) => (
               <option key={m} value={i + 1}>
@@ -537,21 +498,19 @@ export default function AssistantPage() {
             ))}
           </select>
 
-          {/* Platform toggle — abbreviated on small screens */}
-          <div className="flex items-center gap-0.5 bg-mist border border-fog rounded-lg p-0.5 flex-shrink-0">
+          {/* Platform toggle */}
+          <div className="flex items-center gap-0.5 bg-mist border border-fog rounded-lg p-0.5">
             {PLATFORMS.map((p) => (
               <button
                 key={p.id}
                 onClick={() => setSelPlatform(p.id)}
-                title={p.label}
-                className={`px-2 sm:px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-150 ${
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-150 ${
                   selPlatform === p.id
                     ? 'bg-surface shadow-sm text-ink'
                     : 'text-ink/40 hover:text-ink/70'
                 }`}
               >
-                <span className="sm:hidden">{p.short}</span>
-                <span className="hidden sm:inline">{p.label}</span>
+                {p.label}
               </button>
             ))}
           </div>
@@ -561,7 +520,7 @@ export default function AssistantPage() {
             <button
               onClick={handleReset}
               title="Start new chat"
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-ink/40 hover:text-ink hover:bg-mist transition-all flex-shrink-0"
+              className="w-7 h-7 flex items-center justify-center rounded-lg text-ink/40 hover:text-ink hover:bg-mist transition-all"
             >
               <RotateCcw size={14} />
             </button>
@@ -579,15 +538,29 @@ export default function AssistantPage() {
               msg.role === 'user' ? (
                 <UserBubble key={idx} message={msg} />
               ) : (
-                <AssistantBubble
-                  key={idx}
-                  message={msg}
-                  onNavigate={
-                    msg.type === 'done'
-                      ? () => navigate('/dashboard/calendar')
-                      : null
-                  }
-                />
+                <div key={idx}>
+                  <AssistantBubble
+                    message={msg}
+                    onNavigate={
+                      msg.type === 'done'
+                        ? () => navigate('/dashboard/calendar')
+                        : null
+                    }
+                  />
+                  {msg.type !== 'progress' && msg.type !== 'done' && msg.type !== 'error' && (
+                    <div className="ml-10 -mt-2">
+                      <PrepControls
+                        message={msg}
+                        messageKey={idx}
+                        onPickChoice={handlePickChoice}
+                        onAnswerQuestion={handleAnswerQuestion}
+                        onRunCta={handleRunCta}
+                        ctaBusy={ctaBusy}
+                        generatingMonth={generatingMonth}
+                      />
+                    </div>
+                  )}
+                </div>
               ),
             )}
 
@@ -599,77 +572,38 @@ export default function AssistantPage() {
         )}
       </div>
 
-      {/* ── Input bar — sticky; bottom-16 leaves room for the mobile nav ─── */}
-      <div className="sticky bottom-16 lg:bottom-0 border-t border-fog bg-surface/95 backdrop-blur-sm px-4 py-3">
+      {/* ── Input bar — sticky at the bottom of the scroll container ─────── */}
+      <div className="sticky bottom-0 border-t border-fog bg-surface/95 backdrop-blur-sm px-4 py-3">
         <div className="max-w-2xl mx-auto">
-          {/* Attachment previews */}
-          {pendingImages.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {pendingImages.map((p) => (
-                <div
-                  key={p.id}
-                  className="relative w-16 h-16 rounded-lg overflow-hidden border border-fog bg-mist flex items-center justify-center"
-                >
-                  {p.url ? (
-                    <img src={p.url} alt={p.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-4 h-4 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => removePendingImage(p.id)}
-                    className="absolute top-0.5 right-0.5 w-5 h-5 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80"
-                    title="Remove"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={(e) => {
-              handleAttachImages(e.target.files)
-              e.target.value = ''
-            }}
-          />
-
+          <div className="mb-2 flex items-center gap-2">
+            <label className="inline-flex items-center gap-2 text-[11px] text-ink/45">
+              <input
+                type="file"
+                accept="image/*,video/mp4,video/webm,video/quicktime"
+                disabled={thinking || generatingMonth || prepUploadingAsset || !activeBrandId}
+                onChange={(e) => handleUploadAsset(e.target.files?.[0] || null)}
+                className="hidden"
+              />
+              <span className="cursor-pointer rounded-lg border border-fog bg-surface px-2.5 py-1.5 font-medium text-ink/60 hover:border-brand-300 hover:text-ink transition-colors">
+                {prepUploadingAsset ? 'Uploading…' : '+ Attach screenshot or recording'}
+              </span>
+            </label>
+          </div>
           <div className="flex items-end gap-2 bg-mist border border-fog rounded-2xl px-4 py-3 focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-300/30 transition-all">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={thinking || generatingMonth}
-              title="Attach image"
-              className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-ink/50 hover:text-ink hover:bg-fog/60 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Paperclip size={16} />
-            </button>
-
             <textarea
               ref={textareaRef}
               rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask anything or attach an image…"
-              disabled={thinking || generatingMonth}
+              placeholder="Tell me the offer, launch, event, proof, or assets for this month…"
+              disabled={thinking || generatingMonth || prepUploadingAsset}
               className="flex-1 resize-none bg-transparent text-sm text-ink placeholder:text-ink/40 focus:outline-none leading-relaxed disabled:opacity-50 min-h-[22px] max-h-[160px]"
             />
 
             <button
               onClick={() => sendMessage()}
-              disabled={
-                (!input.trim() && pendingImages.filter((p) => p.url).length === 0) ||
-                pendingImages.some((p) => p.uploading) ||
-                thinking ||
-                generatingMonth
-              }
+              disabled={!input.trim() || thinking || generatingMonth || prepUploadingAsset}
               className="flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all duration-200
                 bg-slate-900 text-white hover:bg-slate-800 shadow-sm
                 disabled:bg-fog disabled:text-ink/30 disabled:shadow-none disabled:cursor-not-allowed"

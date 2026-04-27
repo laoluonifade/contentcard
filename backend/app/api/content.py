@@ -50,8 +50,6 @@ from app.services.ai_service import (
     run_generation_prep_chat,
     run_brand_form_coach_chat,
     _default_cta_from_brand,
-    _get_posting_dates,
-    _build_playbook_schedule,
 )
 from app.services.month_holiday_context import build_month_holiday_context
 from app.services.visual_tokens import apply_visual_system_defaults
@@ -126,6 +124,87 @@ async def _meme_catalog_brief_addon(db: AsyncSession, limit: int = 55) -> str | 
         "characters, or watermarked stock. ref_url is for product/compositing only; do not paste URLs into captions.\n"
         + "\n".join(lines)
     )
+
+
+def _compact_generation_brief(raw: str | None) -> str | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+
+    normalized = re.sub(r"\r\n?", "\n", text)
+    lines = [ln.strip() for ln in normalized.split("\n") if ln.strip()]
+    if not lines:
+        return None
+
+    user_lines: list[str] = []
+    assistant_plan_lines: list[str] = []
+    asset_lines: list[str] = []
+
+    for ln in lines:
+        low = ln.lower()
+        clean = re.sub(r"^(user|assistant)\s*:\s*", "", ln, flags=re.IGNORECASE).strip()
+        if not clean:
+            continue
+        if any(tok in low for tok in ("attached ", "uploaded ", "screenshot:", "recording:", "screen recording")):
+            asset_lines.append(clean[:220])
+            continue
+        if low.startswith("user:") or low.startswith("answer:"):
+            user_lines.append(clean[:240])
+            continue
+        if low.startswith("assistant:") and (
+            clean.startswith("-")
+            or re.match(r"^\d+\.\s+", clean)
+            or "plan" in low
+            or "focus" in low
+            or "angle" in low
+        ):
+            assistant_plan_lines.append(clean[:240])
+
+    if not user_lines and not assistant_plan_lines:
+        return text[:5000]
+
+    sections: list[str] = []
+    if user_lines:
+        deduped_user: list[str] = []
+        seen_user: set[str] = set()
+        for ln in reversed(user_lines):
+            key = ln.lower()
+            if key in seen_user:
+                continue
+            seen_user.add(key)
+            deduped_user.append(ln)
+            if len(deduped_user) >= 10:
+                break
+        sections.append("=== APPROVED USER INPUTS ===\n" + "\n".join(f"- {ln}" for ln in reversed(deduped_user)))
+
+    if assistant_plan_lines:
+        deduped_plan: list[str] = []
+        seen_plan: set[str] = set()
+        for ln in reversed(assistant_plan_lines):
+            key = ln.lower()
+            if key in seen_plan:
+                continue
+            seen_plan.add(key)
+            deduped_plan.append(ln)
+            if len(deduped_plan) >= 8:
+                break
+        sections.append("=== WORKING MONTH PLAN ===\n" + "\n".join(f"- {ln}" for ln in reversed(deduped_plan)))
+
+    if asset_lines:
+        deduped_assets: list[str] = []
+        seen_assets: set[str] = set()
+        for ln in reversed(asset_lines):
+            key = ln.lower()
+            if key in seen_assets:
+                continue
+            seen_assets.add(key)
+            deduped_assets.append(ln)
+            if len(deduped_assets) >= 6:
+                break
+        sections.append("=== ASSETS AND REFERENCES MENTIONED ===\n" + "\n".join(f"- {ln}" for ln in reversed(deduped_assets)))
+
+    brief = "\n\n".join(sections).strip()
+    return brief[:5000] if brief else text[:5000]
 
 
 def _item_has_visual_assets(item: ContentItem) -> bool:
@@ -348,6 +427,25 @@ def _template_generation_context(tmpl: ContentTemplate | None) -> str | None:
         parts.append(f"Template visual direction: {tmpl.generated_visual_direction}")
     if tmpl.generated_image_prompt:
         parts.append(f"Template image prompt baseline: {tmpl.generated_image_prompt}")
+    slots = (
+        design_spec.get("playbook_visual_direction_slots")
+        if isinstance(design_spec.get("playbook_visual_direction_slots"), list)
+        else []
+    )
+    selected_key = str(design_spec.get("playbook_selected_slot_key") or "").strip().upper()
+    if slots:
+        parts.append(f"Visual direction slot count: {len(slots)}")
+        if selected_key:
+            parts.append(f"Preferred visual direction slot: {selected_key}")
+        for idx, slot in enumerate(slots[:4], start=1):
+            if not isinstance(slot, dict):
+                continue
+            slot_key = str(slot.get("slot_key") or f"VD{idx:02d}").strip().upper()
+            post_type = "carousel" if "carousel" in str(slot.get("post_type") or "").lower() else "single"
+            marker = " (preferred)" if slot_key == selected_key else ""
+            parts.append(
+                f"Slot {slot_key}{marker}: post_type={post_type} | visual_direction={str(slot.get('visual_direction') or '').strip()}"
+            )
     slot_contract = design_spec.get("slot_contract") if isinstance(design_spec.get("slot_contract"), dict) else {}
     if slot_contract:
         parts.append(
@@ -390,12 +488,34 @@ def _template_contract_from_row(tmpl: ContentTemplate | None) -> dict:
             "evidence_max_words": 16,
             "cta_max_words": 8,
         }
+    raw_slots = spec.get("playbook_visual_direction_slots") if isinstance(spec.get("playbook_visual_direction_slots"), list) else []
+    normalized_slots: list[dict] = []
+    for idx, row in enumerate(raw_slots, start=1):
+        if not isinstance(row, dict):
+            continue
+        vd = str(row.get("visual_direction") or "").strip()
+        if not vd:
+            continue
+        normalized_slots.append(
+            {
+                "slot_key": str(row.get("slot_key") or f"VD{idx:02d}").strip().upper(),
+                "post_type": "carousel" if "carousel" in str(row.get("post_type") or "").lower() else "single",
+                "visual_direction": vd,
+            }
+        )
+    selected_key = str(spec.get("playbook_selected_slot_key") or "").strip().upper()
+    preferred_slot = next((slot for slot in normalized_slots if slot.get("slot_key") == selected_key), None)
+    if preferred_slot is None and normalized_slots:
+        preferred_slot = normalized_slots[0]
     return {
         "template_name": tmpl.name,
         "content_template_type": content_template_type or "general",
         "design_template_type": design_template_type or "general_social",
         "template_family": family,
         "slot_contract": slot_contract,
+        "visual_direction_slots": normalized_slots,
+        "preferred_visual_direction_slot": preferred_slot,
+        "preferred_visual_direction_slot_key": preferred_slot.get("slot_key") if isinstance(preferred_slot, dict) else None,
     }
 
 
@@ -403,20 +523,35 @@ def _template_contract_text(contract: dict | None) -> str | None:
     if not isinstance(contract, dict) or not contract:
         return None
     sc = contract.get("slot_contract") if isinstance(contract.get("slot_contract"), dict) else {}
-    return "\n".join(
-        [
-            "=== TEMPLATE MESSAGE-ARCHITECTURE CONTRACT ===",
-            f"Template family to render: {contract.get('template_family')}",
-            f"Content template type: {contract.get('content_template_type')}",
-            f"Design template type: {contract.get('design_template_type')}",
-            "Every post MUST include a clear one-line hook, one support line, one evidence/proof line, and one CTA line.",
-            f"Headline max words: {sc.get('headline_max_words', 7)}",
-            f"Support max words: {sc.get('support_max_words', 14)}",
-            f"Evidence max words: {sc.get('evidence_max_words', 16)}",
-            f"CTA max words: {sc.get('cta_max_words', 8)}",
-            "Do not return generic scene-only designs; return structured ad-style concepts with clear hierarchy.",
-        ]
-    )
+    lines = [
+        "=== TEMPLATE MESSAGE-ARCHITECTURE CONTRACT ===",
+        f"Template family to render: {contract.get('template_family')}",
+        f"Content template type: {contract.get('content_template_type')}",
+        f"Design template type: {contract.get('design_template_type')}",
+        "Every post MUST include a clear one-line hook, one support line, one evidence/proof line, and one CTA line.",
+        f"Headline max words: {sc.get('headline_max_words', 7)}",
+        f"Support max words: {sc.get('support_max_words', 14)}",
+        f"Evidence max words: {sc.get('evidence_max_words', 16)}",
+        f"CTA max words: {sc.get('cta_max_words', 8)}",
+        "Do not return generic scene-only designs; return structured ad-style concepts with clear hierarchy.",
+    ]
+    preferred_slot = contract.get("preferred_visual_direction_slot") if isinstance(contract.get("preferred_visual_direction_slot"), dict) else None
+    all_slots = contract.get("visual_direction_slots") if isinstance(contract.get("visual_direction_slots"), list) else []
+    if preferred_slot:
+        lines.append(
+            "Preferred slot for generation: "
+            f"{preferred_slot.get('slot_key')} | post_type={preferred_slot.get('post_type')} | "
+            f"visual_direction={preferred_slot.get('visual_direction')}"
+        )
+    if all_slots:
+        lines.append("Available visual direction slots to stay within:")
+        for slot in all_slots[:5]:
+            if not isinstance(slot, dict):
+                continue
+            lines.append(
+                f"- {slot.get('slot_key')}: post_type={slot.get('post_type')} | {slot.get('visual_direction')}"
+            )
+    return "\n".join(lines)
 
 
 def _trim_words(text: str, max_words: int) -> str:
@@ -428,11 +563,100 @@ def _trim_words(text: str, max_words: int) -> str:
 
 def _force_single_user_format_mix(fmt: str | None) -> str:
     """
-    Keep playbook entries intact, but for user generation runs we currently ship
-    only single-post outputs for consistency and design quality.
+    Preserve the user's requested format mix while normalising legacy aliases.
     """
-    _ = fmt
-    return "single_only"
+    raw = str(fmt or "").strip().lower()
+    if not raw:
+        return "mixed"
+    if raw in {"single_post", "single-post", "single only"}:
+        return "single_only"
+    if raw in {"mix", "mixed"}:
+        return "mixed"
+    if raw in {"carousel_only", "carousel-only"}:
+        return "carousel"
+    if raw in {"single", "single_only", "carousel", "quote", "gif"}:
+        return raw
+    return "mixed"
+
+
+async def _score_rendered_visual_set(
+    urls: list[str],
+    brand_dict: dict,
+    post_data: dict,
+    sab: dict,
+    *,
+    min_score: float,
+) -> tuple[dict, dict]:
+    if not urls:
+        return {"status": "skip", "hints": []}, {
+            "status": "skip",
+            "overall_score": 0.0,
+            "scores": {},
+            "reasons": ["No image to score"],
+            "retry_hints": [],
+            "slide_results": [],
+            "scored_slide_count": 0,
+        }
+
+    slide_results: list[dict] = []
+    reasons: list[str] = []
+    hints: list[str] = []
+    metric_acc: dict[str, list[float]] = {}
+    worst_score = 1.0
+    failed = False
+    skipped = False
+
+    for idx, url in enumerate(urls):
+        lint = await lint_final_image(url, brand_dict, sab)
+        if settings.QUALITY_GATE_ENABLED:
+            qg = await score_visual_quality(
+                url,
+                brand_dict,
+                post_data,
+                lint=lint,
+                min_score=min_score,
+            )
+        else:
+            qg = {
+                "status": "pass",
+                "overall_score": 1.0,
+                "scores": {},
+                "reasons": [],
+                "retry_hints": [],
+            }
+        status = str(qg.get("status") or "skip")
+        score = float(qg.get("overall_score") or 0.0)
+        worst_score = min(worst_score, score)
+        failed = failed or status == "fail"
+        skipped = skipped or status == "skip"
+        reasons.extend([str(r) for r in (qg.get("reasons") or []) if str(r).strip()])
+        hints.extend([str(r) for r in (qg.get("retry_hints") or []) if str(r).strip()])
+        for key, value in (qg.get("scores") or {}).items():
+            try:
+                metric_acc.setdefault(str(key), []).append(float(value))
+            except (TypeError, ValueError):
+                continue
+        slide_results.append({
+            "slide_index": idx + 1,
+            "image_url": url,
+            "lint": lint,
+            "quality_gate": qg,
+        })
+
+    aggregate_status = "fail" if failed else ("skip" if skipped else "pass")
+    aggregate = {
+        "status": aggregate_status,
+        "overall_score": round(worst_score if slide_results else 0.0, 3),
+        "scores": {
+            key: round(sum(values) / len(values), 3)
+            for key, values in metric_acc.items() if values
+        },
+        "reasons": list(dict.fromkeys(reasons))[:12],
+        "retry_hints": list(dict.fromkeys(hints))[:12],
+        "slide_results": slide_results,
+        "scored_slide_count": len(slide_results),
+    }
+    return slide_results[0]["lint"], aggregate
 
 
 def _build_message_architecture(post: dict, contract: dict | None) -> dict:
@@ -474,8 +698,16 @@ def _apply_template_contract_to_post(post: dict, contract: dict | None) -> dict:
     out = dict(post)
     out["template_family"] = contract.get("template_family") or "default"
     out["force_template_family"] = out["template_family"]
-    if not str(out.get("content_type") or "").strip():
-        out["content_type"] = str(contract.get("content_template_type") or "general")
+    forced_content_type = str(contract.get("content_template_type") or "").strip()
+    if forced_content_type:
+        out["content_type"] = forced_content_type
+    preferred_slot = contract.get("preferred_visual_direction_slot") if isinstance(contract.get("preferred_visual_direction_slot"), dict) else None
+    if preferred_slot:
+        out["playbook_slot_key"] = preferred_slot.get("slot_key")
+        out["visual_direction"] = str(preferred_slot.get("visual_direction") or out.get("visual_direction") or "").strip()
+        forced_post_type = "carousel" if "carousel" in str(preferred_slot.get("post_type") or "").lower() else "single"
+        out["format"] = forced_post_type
+        out["slide_count"] = max(4, int(out.get("slide_count") or 1)) if forced_post_type == "carousel" else 1
     existing_ma = out.get("message_architecture") if isinstance(out.get("message_architecture"), dict) else None
     if existing_ma and str(existing_ma.get("hook") or "").strip() and str(existing_ma.get("support") or "").strip():
         message_arch = existing_ma
@@ -766,6 +998,7 @@ async def _load_design_playbook_for_industry(db: AsyncSession, industry_key: str
         by_ct.setdefault(str(row.content_type_id), []).append(
             {
                 "id": row.id,
+                "slot_key": f"VD{len(by_ct.get(str(row.content_type_id), [])) + 1:02d}",
                 "post_type": "carousel" if "carousel" in str(row.post_type or "").lower() else "single",
                 "visual_direction": row.visual_direction,
             }
@@ -1079,67 +1312,28 @@ async def _render_with_quality_gate(
             item.image_urls = bb_urls
 
         last_logo_ok = await _apply_brand_logo_to_visuals(item, render_post, brand_dict)
-        cover_url = (item.image_urls or [item.image_url])[0] if (item.image_urls or item.image_url) else None
-        last_lint = await lint_final_image(cover_url, brand_dict, sab)
-        if settings.QUALITY_GATE_ENABLED:
-            last_qg = await score_visual_quality(
-                cover_url,
-                brand_dict,
-                render_post,
-                lint=last_lint,
-                min_score=float(settings.QUALITY_GATE_MIN_SCORE),
-            )
-        else:
-            last_qg = {
-                "status": "pass",
-                "overall_score": 1.0,
-                "scores": {},
-                "reasons": [],
-                "retry_hints": [],
-            }
-
-        # ── Visual diversity engine: vision-based subject_type validator ──
-        # Flag-gated since it adds ~$0.002/post and ~0.5-1s latency. When it
-        # detects a mismatch, downgrade the gate so the existing retry loop
-        # picks an alternate strategy on the next attempt.
-        if settings.VISUAL_DIVERSITY_VISION_ENABLED and cover_url:
-            from app.services import visual_strategy as _vs
-
-            vs_obj = _vs.VisualStrategy.from_dict(
-                render_post.get("visual_strategy") if isinstance(render_post.get("visual_strategy"), dict) else None
-            )
-            if vs_obj is not None:
-                matches, detected, err = await _vs.verify_subject_with_vision(cover_url, vs_obj)
-                if not matches:
-                    item.diversity_checks_passed = False
-                    log = list(item.rejection_log or [])
-                    log.append(f"vision: expected {vs_obj.subject_type!r}, detected {detected!r}")
-                    item.rejection_log = log
-                    # Roll a different candidate strategy for the next retry (if any).
-                    pool = [c for c in _vs.candidates_for(post_data.get("content_type")) if c.subject_type != (detected or "")]
-                    if pool and attempt < max_attempts - 1:
-                        new_strategy = pool[(attempt + 1) % len(pool)]
-                        post_data["visual_strategy"] = new_strategy.to_dict()
-                        post_data["composition_description"] = _vs.composition_description(
-                            new_strategy, post_data.get("content_type")
-                        )
-                    last_qg = {
-                        **last_qg,
-                        "status": "fail",
-                        "reasons": list(last_qg.get("reasons") or []) + [
-                            f"Visual subject mismatch: expected {vs_obj.subject_type}, detected {detected}"
-                        ],
-                    }
-                elif err is None:
-                    item.diversity_checks_passed = True
+        rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
+        last_lint, last_qg = await _score_rendered_visual_set(
+            rendered_urls,
+            brand_dict,
+            render_post,
+            sab,
+            min_score=float(settings.QUALITY_GATE_MIN_SCORE),
+        )
 
         pass_quality = str(last_qg.get("status") or "") == "pass"
         cover_url_exists = bool(item.image_url or item.image_urls)
         # Accept if quality passes regardless of logo status — logo failure is non-fatal.
-        # Accept also if we have images but quality gate returned "skip" (no image to score).
         qg_status = str(last_qg.get("status") or "")
-        if (pass_quality or qg_status == "skip") and cover_url_exists:
+        if pass_quality and cover_url_exists:
             return last_lint, last_qg, last_logo_ok
+        if qg_status == "skip":
+            render_post["quality_gate_notes"] = " ".join(
+                x for x in [
+                    str(render_post.get("quality_gate_notes") or "").strip(),
+                    "Retry because scoring skipped; strengthen hierarchy, contrast, and production clarity.",
+                ] if x
+            ).strip()
 
     # Final fallback render: deterministic branded template output (no AI background)
     # so posts are still delivered instead of staying pending forever.
@@ -1161,16 +1355,27 @@ async def _render_with_quality_gate(
             item.image_urls = bb_urls
             item.image_url = bb_urls[0]
         last_logo_ok = await _apply_brand_logo_to_visuals(item, fallback_post, brand_dict)
-        cover_url = (item.image_urls or [item.image_url])[0] if (item.image_urls or item.image_url) else None
-        last_lint = await lint_final_image(cover_url, brand_dict, sab)
+        rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
+        last_lint, fallback_qg = await _score_rendered_visual_set(
+            rendered_urls,
+            brand_dict,
+            fallback_post,
+            sab,
+            min_score=float(settings.QUALITY_GATE_MIN_SCORE),
+        )
         # Deliver fallback if we have any image — logo failure is still non-fatal here.
-        if cover_url:
+        if rendered_urls:
             last_qg = {
                 "status": "pass_fallback",
-                "overall_score": round(float(last_qg.get("overall_score") or 0.0), 3),
-                "scores": last_qg.get("scores") or {},
-                "reasons": ["Primary quality gate retries failed; used deterministic fallback template render."],
-                "retry_hints": last_qg.get("retry_hints") or [],
+                "overall_score": round(float(fallback_qg.get("overall_score") or 0.0), 3),
+                "scores": fallback_qg.get("scores") or {},
+                "reasons": [
+                    "Primary quality gate retries failed; used deterministic fallback template render.",
+                    *(fallback_qg.get("reasons") or []),
+                ],
+                "retry_hints": fallback_qg.get("retry_hints") or [],
+                "slide_results": fallback_qg.get("slide_results") or [],
+                "scored_slide_count": fallback_qg.get("scored_slide_count") or 0,
             }
             return last_lint, last_qg, last_logo_ok
     except Exception as e:
@@ -1224,6 +1429,12 @@ def _validate_brand_readiness(brand: Brand) -> list[str]:
     kit = brand.brand_kit or {}
     missing = []
 
+    if not (brand.description or '').strip():
+        missing.append("Brand description (Basics tab)")
+
+    if not (brand.pain_point or '').strip():
+        missing.append("Customer pain point (Audience tab)")
+
     if not (brand.target_audience or '').strip():
         missing.append("Target audience (Audience tab)")
 
@@ -1237,75 +1448,34 @@ def _validate_brand_readiness(brand: Brand) -> list[str]:
     if not ws:
         missing.append("Writing style (Voice tab)")
 
+    vp = str(kit.get('value_proposition') or '').strip()
+    if not vp:
+        missing.append("Value proposition (Identity tab)")
+
     km = kit.get('key_messages') or []
     if not km or (isinstance(km, list) and len(km) == 0) or (isinstance(km, str) and not km.strip()):
-        missing.append("Key messages (Messaging tab)")
+        missing.append("Key messages (Identity tab)")
+
+    cta_style = str(kit.get('cta_style') or '').strip()
+    if not cta_style:
+        missing.append("CTA style (Identity tab)")
+
+    has_palette = bool(brand.brand_colors and len([c for c in brand.brand_colors if str(c).strip()]) >= 2)
+    vs = kit.get("visual_system") if isinstance(kit.get("visual_system"), dict) else {}
+    has_visual_tokens = all(str(vs.get(k) or "").strip() for k in ("primary_hex", "secondary_hex", "accent_hex"))
+    if not (has_palette or has_visual_tokens):
+        missing.append("Brand colors or visual system palette (Visual tab)")
+
+    if not (brand.design_style or '').strip():
+        missing.append("Design style (Visual tab)")
+
+    if not (brand.guidelines or '').strip():
+        missing.append("Guidelines / guardrails (Rules tab)")
 
     return missing
 
 
 # ── Literal routes FIRST — before any /{param} routes ─────────────
-
-
-class PlanPreviewRequest(BaseModel):
-    brand_id: str
-    month: int
-    year: int
-    platform: str = "instagram"
-    posts_per_week: int = 3
-
-
-@router.post("/plan-preview")
-async def plan_preview(
-    body: PlanPreviewRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Return the playbook-derived plan for a month so the user can review
-    exactly what will be generated (dates, post types, content types,
-    visual directions, and which brand photos are pre-assigned to each slot).
-    """
-    if body.month < 1 or body.month > 12:
-        raise HTTPException(status_code=400, detail="Month must be 1–12")
-    if body.year < 2024 or body.year > 2030:
-        raise HTTPException(status_code=400, detail="Invalid year")
-    brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=False)
-    brand_dict = _brand_to_dict(brand)
-
-    industry_key = _industry_key_from_brand(brand_dict)
-    playbook = await _load_design_playbook_for_industry(db, industry_key)
-    posting_dates = _get_posting_dates(body.year, body.month, max(1, min(7, body.posts_per_week)))
-
-    rows: list[dict] = []
-    if playbook and playbook.get("content_types"):
-        plan = _build_playbook_schedule(
-            posting_dates,
-            playbook,
-            seed_key=f"{body.month}{body.year}{body.platform}",
-        )
-        rows = [
-            {
-                "date": row.get("date"),
-                "post_type": row.get("post_type") or "single",
-                "content_type": row.get("content_type") or "",
-                "visual_direction": row.get("visual_direction") or "",
-            }
-            for row in plan
-        ]
-
-    brand_photos = brand_dict.get("brand_photos") or []
-    if not isinstance(brand_photos, list):
-        brand_photos = []
-
-    return {
-        "has_playbook": bool(rows),
-        "industry_key": (playbook or {}).get("industry_key"),
-        "industry_name": (playbook or {}).get("industry_name"),
-        "rows": rows,
-        "posting_dates": posting_dates,
-        "brand_photos": brand_photos,
-    }
-
 
 @router.post("/generate-month", status_code=202)
 async def generate_month(
@@ -1420,6 +1590,7 @@ async def generate_month(
             if template_context
             else body.generation_brief
         ),
+        campaign_brief=body.campaign_brief,
         website_grounding_text=website_grounding_text,
         approved_website_opportunities=approved_website_opportunities,
         only_new_website_changes=body.only_new_changes,
@@ -1520,6 +1691,7 @@ async def generate_month_v2(
             "ensure crisp hierarchy, product-forward composition, premium ecommerce polish."
         )
     generation_brief = "\n\n".join([x for x in [style_brief, template_context] if x and str(x).strip()]) or None
+    campaign_brief_payload = body.campaign_brief.model_dump(exclude_none=True) if body.campaign_brief else None
 
     background_tasks.add_task(
         _do_generate_month,
@@ -1537,6 +1709,7 @@ async def generate_month_v2(
         country_code=current_user.country_code,
         include_holidays_in_content=True,
         generation_brief=generation_brief,
+        campaign_brief=campaign_brief_payload,
         website_grounding_text=website_grounding_text,
         approved_website_opportunities=approved_website_opportunities,
         only_new_website_changes=body.only_new_changes,
@@ -1788,15 +1961,6 @@ async def list_content(
     rows = list(result.scalars().all())
     if month and year and not include_pending:
         rows = [c for c in rows if _item_ready_for_user(c)]
-
-    # Kick off background backfill for any post the calendar surfaces with an
-    # empty caption. Runs fire-and-forget so the listing returns immediately;
-    # the next reload picks up the filled-in caption.
-    import asyncio
-    for c in rows:
-        if _post_needs_caption_backfill(c):
-            asyncio.create_task(_backfill_caption_in_background(c.id))
-
     return [ContentOut.model_validate(c) for c in rows]
 
 
@@ -1825,6 +1989,14 @@ async def generation_prep_chat(
         spec = t.design_spec if isinstance(t.design_spec, dict) else {}
         ct = str(spec.get("playbook_content_type") or t.name or "general").strip()
         slots = spec.get("playbook_visual_direction_slots") if isinstance(spec.get("playbook_visual_direction_slots"), list) else []
+        selected_key = str(spec.get("playbook_selected_slot_key") or "").strip().upper()
+        selected_slot = next(
+            (
+                row for row in slots
+                if isinstance(row, dict) and str(row.get("slot_key") or "").strip().upper() == selected_key
+            ),
+            None,
+        )
         direction_count = len([s for s in slots if isinstance(s, dict) and str(s.get("visual_direction") or "").strip()])
         top_dirs = []
         for row in slots[:3]:
@@ -1834,7 +2006,14 @@ async def generation_prep_chat(
             if vd:
                 top_dirs.append(vd[:110])
         sample_text = "; ".join(top_dirs) if top_dirs else "no visual directions added yet"
-        playbook_lines.append(f"{idx}. {ct} ({direction_count} directions) -> {sample_text}")
+        preferred_text = ""
+        if isinstance(selected_slot, dict):
+            preferred_text = (
+                f" | preferred {selected_key or selected_slot.get('slot_key')}: "
+                f"{str(selected_slot.get('post_type') or 'single').strip()} -> "
+                f"{str(selected_slot.get('visual_direction') or '').strip()[:120]}"
+            )
+        playbook_lines.append(f"{idx}. {ct} ({direction_count} directions){preferred_text} | examples -> {sample_text}")
     playbook_summary = "\n".join(playbook_lines) if playbook_lines else "No custom templates yet."
     product_rows = (
         await db.execute(
@@ -1862,14 +2041,7 @@ async def generation_prep_chat(
             else "recent_products: none"
         )
     )
-    msgs = [
-        {
-            "role": (m.role or "user").lower(),
-            "content": m.content,
-            "image_urls": list(m.image_urls or []),
-        }
-        for m in body.messages
-    ]
+    msgs = [{"role": (m.role or "user").lower(), "content": m.content} for m in body.messages]
 
     # Live web search for the prep assistant
     research_context: str | None = None
@@ -1934,6 +2106,11 @@ async def generation_prep_chat(
     if isinstance(raw_cta, dict):
         lbl = str(raw_cta.get("label") or "").strip()
         action = str(raw_cta.get("action") or "none").strip().lower()
+        if action == "start_generation" and (
+            not lbl
+            or ("approve" not in lbl.lower() and "plan" not in lbl.lower())
+        ):
+            lbl = "Approve plan and generate"
         if lbl and action in ("none", "start_generation"):
             cta = PrepChatCta(label=lbl[:80], action=action)
     return GenerationPrepChatResponse(
@@ -2201,14 +2378,7 @@ async def get_content_item(
     item = r.scalar_one_or_none()
     if not item:
         raise HTTPException(status_code=404, detail="Content not found")
-    brand = await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=False)
-    # Auto-fill missing captions on read so posts that landed with caption=NULL
-    # (e.g. from the custom_plan generation flow before the upstream fix) are
-    # transparently repaired the first time the user opens them.
-    if _post_needs_caption_backfill(item):
-        await _fill_caption_inline(db, item, brand)
-        await db.commit()
-        await db.refresh(item)
+    await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=False)
     return ContentOut.model_validate(item)
 
 
@@ -2635,89 +2805,6 @@ def _differentiate_if_topic_reused(
 
 # ── Background task ─────────────────────────────────────────────────
 
-
-async def _email_generation_outcome(
-    *,
-    user_id: str,
-    brand_id: str,
-    month: int,
-    year: int,
-    error_summary: str | None,
-) -> None:
-    """Phase 1: notify the user when a monthly generation finishes (or fails).
-
-    Opens its own session because the caller's session may have been rolled
-    back, returned, or partially committed. Counts user-ready posts directly
-    from the DB so the decision doesn't depend on local state surviving the
-    failure path. Swallows every error — the email is best-effort and must
-    never propagate up into the background-task pipeline.
-    """
-    try:
-        if not settings.EMAIL_GENERATION_LIFECYCLE_ENABLED:
-            return
-        from app.db.database import AsyncSessionLocal
-        from app.models.user import User as _User
-        from app.services.email_service import (
-            send_generation_complete,
-            send_generation_failed,
-        )
-        async with AsyncSessionLocal() as session:
-            user = (await session.execute(select(_User).where(_User.id == user_id))).scalar_one_or_none()
-            if user is None or not user.email:
-                return
-            brand = (await session.execute(select(Brand).where(Brand.id == brand_id))).scalar_one_or_none()
-            brand_name = brand.name if brand is not None else None
-            # Count posts that actually made it through the render pipeline.
-            # Mirrors the readiness rule used by /content/status so the email
-            # only celebrates posts the user can act on.
-            items = (
-                await session.execute(
-                    select(ContentItem).where(
-                        ContentItem.brand_id == brand_id,
-                        ContentItem.generation_month == month,
-                        ContentItem.generation_year == year,
-                    )
-                )
-            ).scalars().all()
-            ready_count = sum(1 for i in items if _item_ready_for_user(i))
-
-        prefs = user.email_preferences if isinstance(user.email_preferences, dict) else None
-        calendar_url = f"{settings.FRONTEND_URL}/dashboard/calendar?m={int(month)}&y={int(year)}"
-
-        if error_summary is None and ready_count > 0:
-            await send_generation_complete(
-                to=user.email,
-                month=month,
-                year=year,
-                post_count=ready_count,
-                calendar_url=calendar_url,
-                brand_id=brand_id,
-                name=user.full_name,
-                brand_name=brand_name,
-                user_preferences=prefs,
-            )
-        else:
-            # Either an explicit error or zero usable posts — both are user-
-            # facing failures. Provide a plain-language summary; never leak
-            # tracebacks into the email.
-            summary = error_summary or (
-                "The run finished but didn't produce any posts that were ready to use."
-            )
-            await send_generation_failed(
-                to=user.email,
-                month=month,
-                year=year,
-                retry_url=calendar_url,
-                failure_summary=summary,
-                brand_id=brand_id,
-                name=user.full_name,
-                brand_name=brand_name,
-                user_preferences=prefs,
-            )
-    except Exception:
-        logger.exception("Generation outcome email failed (non-fatal)")
-
-
 async def _do_generate_month(
     brand_id: str, brand_dict: dict, month: int, year: int,
     platforms: list[str], format_mix: str, posts_per_week: int,
@@ -2727,63 +2814,7 @@ async def _do_generate_month(
     country_code: str | None,
     include_holidays_in_content: bool,
     generation_brief: str | None,
-    website_grounding_text: str | None = None,
-    approved_website_opportunities: list[dict] | None = None,
-    only_new_website_changes: bool = False,
-    campaign_plan_id: str | None = None,
-    variant_count: int = 1,
-    existing_counts: dict[str, int] | None = None,
-    monthly_post_cap: int | None = None,
-    current_month_total: int = 0,
-    custom_plan: list[dict] | None = None,
-):
-    """Background-task entry point for monthly generation.
-
-    Thin wrapper around `_do_generate_month_impl` that captures success /
-    failure outcome and dispatches the Phase 1 email. The wrapper exists so
-    early `return`s inside the impl (no posts after cap, JSON parse error,
-    etc.) and exceptions both flow through one email-decision path.
-    """
-    error_summary: str | None = None
-    try:
-        await _do_generate_month_impl(
-            brand_id=brand_id, brand_dict=brand_dict, month=month, year=year,
-            platforms=platforms, format_mix=format_mix, posts_per_week=posts_per_week,
-            topic_override=topic_override, template_topics=template_topics,
-            template_id=template_id, user_id=user_id, country_code=country_code,
-            include_holidays_in_content=include_holidays_in_content,
-            generation_brief=generation_brief,
-            website_grounding_text=website_grounding_text,
-            approved_website_opportunities=approved_website_opportunities,
-            only_new_website_changes=only_new_website_changes,
-            campaign_plan_id=campaign_plan_id, variant_count=variant_count,
-            existing_counts=existing_counts, monthly_post_cap=monthly_post_cap,
-            current_month_total=current_month_total, custom_plan=custom_plan,
-        )
-    except Exception as exc:
-        # Tracebacks must never reach the user-facing email — keep this terse
-        # and human-readable. The full exception is already in logger output.
-        logger.exception("Generation worker crashed for brand %s %s/%s", brand_id, month, year)
-        error_summary = "An unexpected error stopped the generation worker."
-        # Don't re-raise — background_tasks doesn't surface it anyway and we
-        # still want the email to fire below.
-    finally:
-        await _email_generation_outcome(
-            user_id=user_id, brand_id=brand_id, month=month, year=year,
-            error_summary=error_summary,
-        )
-
-
-async def _do_generate_month_impl(
-    *,
-    brand_id: str, brand_dict: dict, month: int, year: int,
-    platforms: list[str], format_mix: str, posts_per_week: int,
-    topic_override: str | None, template_topics: list[str] | None,
-    template_id: str | None,
-    user_id: str,
-    country_code: str | None,
-    include_holidays_in_content: bool,
-    generation_brief: str | None,
+    campaign_brief: dict | None = None,
     website_grounding_text: str | None = None,
     approved_website_opportunities: list[dict] | None = None,
     only_new_website_changes: bool = False,
@@ -2809,6 +2840,8 @@ async def _do_generate_month_impl(
                     await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
                 ).scalar_one_or_none()
                 template_contract = _template_contract_from_row(selected_template)
+                if template_contract:
+                    brand_for_planner["selected_template_contract"] = template_contract
             holiday_context = await build_month_holiday_context(
                 db,
                 user_id,
@@ -2821,28 +2854,28 @@ async def _do_generate_month_impl(
                 db, brand_id, year, month
             )
             brief_parts: list[str] = []
-            if generation_brief and generation_brief.strip():
-                brief_parts.append(generation_brief.strip())
+            compact_generation_brief = _compact_generation_brief(generation_brief)
+            if compact_generation_brief:
+                brief_parts.append(compact_generation_brief)
             contract_text = _template_contract_text(template_contract)
             if contract_text:
                 brief_parts.append(contract_text)
             if website_grounding_text and website_grounding_text.strip():
-                brief_parts.append(website_grounding_text.strip())
+                brief_parts.append(website_grounding_text.strip()[:7000])
             if prior_months_brief:
-                brief_parts.append(prior_months_brief)
+                brief_parts.append(prior_months_brief[:5000])
             try:
                 meme_addon = await _meme_catalog_brief_addon(db)
             except Exception:
                 meme_addon = None
             if meme_addon:
-                brief_parts.append(meme_addon)
+                brief_parts.append(meme_addon[:4000])
             combined_generation_brief = "\n\n".join(brief_parts) if brief_parts else None
 
             if custom_plan and len(custom_plan) > 0:
                 # User reviewed and edited the plan in the modal — use their schedule
-                # directly instead of running AI planning. We still need the AI to
-                # generate captions/hashtags for each slot; only dates/types/images
-                # come from the user's edits.
+                # directly instead of running AI planning. The AI still generates
+                # captions and images for each slot; only dates/types/images are seeded.
                 posts = []
                 for slot in custom_plan:
                     if not isinstance(slot, dict):
@@ -2865,37 +2898,10 @@ async def _do_generate_month_impl(
                         "visual_direction": visual_direction,
                         "product_image_url": product_image_url,
                         "template_id": slot_template_id,
+                        # Leave topic/caption/image_prompt blank — AI fills these later
                         "topic": topic_override or content_type or "content",
                         "caption": None,
                     })
-
-                # Fill in captions/hashtags/cta for each custom-plan slot. Without this
-                # the post would land in the calendar with a blank caption field.
-                for post in posts:
-                    try:
-                        result = await generate_single_caption(
-                            brand=brand_for_planner,
-                            topic=str(post.get("topic") or post.get("content_type") or "content"),
-                            platform=str(post.get("platform") or "instagram"),
-                            description=str(post.get("visual_direction") or "") or None,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "custom_plan caption generation failed for slot %s: %s",
-                            post.get("date"), exc,
-                        )
-                        continue
-                    if isinstance(result, dict):
-                        cap = result.get("caption")
-                        if isinstance(cap, str) and cap.strip():
-                            post["caption"] = cap.strip()
-                        tags = result.get("hashtags")
-                        if isinstance(tags, list):
-                            post["hashtags"] = [str(t).lstrip("#") for t in tags][:2]
-                        cta = result.get("cta")
-                        if isinstance(cta, str) and cta.strip():
-                            post["cta"] = cta.strip()
-
                 logger.info(
                     "_do_generate_month: using custom_plan with %d slots for brand %s %s/%s",
                     len(posts), brand_id, month, year,
@@ -2908,6 +2914,7 @@ async def _do_generate_month_impl(
                     topic_override=topic_override, template_topics=template_topics,
                     holiday_context=holiday_context or None,
                     generation_brief=combined_generation_brief,
+                    campaign_brief=campaign_brief,
                 )
             ec = existing_counts or {}
             slots = {p: max(0, MAX_POSTS_PER_PLATFORM_PER_MONTH - int(ec.get(p, 0))) for p in platforms}
@@ -2983,49 +2990,6 @@ async def _do_generate_month_impl(
                 if not cta_text:
                     cta_text = _default_cta_from_brand(brand_for_planner, post)[:300]
 
-                # ── Visual diversity engine: persist strategy + run pre-gen contract check ──
-                from app.services import visual_strategy as _vs
-
-                vs_dict = post.get("visual_strategy") if isinstance(post.get("visual_strategy"), dict) else None
-                vs_obj = _vs.VisualStrategy.from_dict(vs_dict)
-                rejection_log: list[str] = []
-                if isinstance(post.get("visual_strategy_rejections"), list):
-                    rejection_log.extend([str(r) for r in post["visual_strategy_rejections"] if r])
-                contract_passed = True
-                if vs_obj is not None:
-                    violation = _vs.violates_contract(vs_obj, post.get("content_type"))
-                    if violation:
-                        contract_passed = False
-                        rejection_log.append(f"contract: {violation}")
-                comp_desc = post.get("composition_description")
-                if not comp_desc and vs_obj is not None:
-                    comp_desc = _vs.composition_description(vs_obj, post.get("content_type"))
-
-                # ── Design critic + design_mode plumbing (no schema change) ──
-                # Stash design_mode / surprise_post / critic_* in the visual_strategy
-                # JSON column alongside the strategy dict. critic_reasons is appended
-                # to rejection_log with a stable prefix.
-                strategy_payload = vs_obj.to_dict() if vs_obj else {}
-                if post.get("design_mode"):
-                    strategy_payload["design_mode"] = str(post.get("design_mode"))
-                if post.get("surprise_post"):
-                    strategy_payload["surprise_post"] = True
-                if post.get("critic_score") is not None:
-                    try:
-                        strategy_payload["critic_score"] = float(post.get("critic_score"))
-                    except (TypeError, ValueError):
-                        pass
-                if post.get("regenerated_by_critic"):
-                    strategy_payload["regenerated_by_critic"] = True
-                critic_reasons = post.get("critic_reasons")
-                if isinstance(critic_reasons, list):
-                    for reason in critic_reasons:
-                        if reason:
-                            rejection_log.append(f"critic: {str(reason)[:200]}")
-                fix_directive = post.get("critic_fix_directive")
-                if fix_directive:
-                    strategy_payload["critic_fix_directive"] = str(fix_directive)[:300]
-
                 item = ContentItem(
                     brand_id=brand_id,
                     template_id=template_id,
@@ -3047,10 +3011,6 @@ async def _do_generate_month_impl(
                     scheduled_date=post_date,
                     generation_month=month,
                     generation_year=year,
-                    visual_strategy=strategy_payload or None,
-                    composition_description=comp_desc,
-                    diversity_checks_passed=contract_passed,
-                    rejection_log=rejection_log or None,
                 )
                 db.add(item)
                 saved_items.append((item, post))
@@ -3174,6 +3134,8 @@ async def _do_generate_month_impl(
                         len(approved_map),
                     ),
                     "requested_media_type": requested_media_type,
+                    "qa_polish": post.get("qa_polish") if isinstance(post.get("qa_polish"), dict) else None,
+                    "quality_warnings": post.get("quality_warnings") if isinstance(post.get("quality_warnings"), list) else [],
                 }
                 item.theme = th
                 saved_items[i] = (item, enriched)
@@ -3241,6 +3203,10 @@ async def _do_generate_month_impl(
                     cm["template_contract"] = template_contract
                 if isinstance(post_data.get("message_architecture"), dict):
                     cm["message_architecture"] = post_data.get("message_architecture")
+                if isinstance(post_data.get("qa_polish"), dict):
+                    cm["qa_polish"] = post_data.get("qa_polish")
+                if isinstance(post_data.get("quality_warnings"), list):
+                    cm["quality_warnings"] = post_data.get("quality_warnings")
                 th["cc_meta"] = cm
                 item.theme = th
                 await db.commit()
@@ -3263,71 +3229,6 @@ async def _do_generate_month_impl(
                     await db.commit()
             except Exception as e:
                 logger.warning(f"quality gate/render failed for post {item.id}: {e}")
-
-
-# In-process dedup so concurrent requests for the same post don't fire
-# multiple parallel LLM calls. Cleared on completion.
-_caption_backfill_in_flight: set[str] = set()
-
-
-def _post_needs_caption_backfill(item: ContentItem) -> bool:
-    """True if `item` has an empty caption but enough context to regenerate one."""
-    cap = (item.caption or "").strip()
-    if cap:
-        return False
-    topic = (item.topic or "").strip() or (item.content_type or "").strip()
-    if not topic:
-        return False
-    return True
-
-
-async def _fill_caption_inline(db: AsyncSession, item: ContentItem, brand: Brand) -> None:
-    """Generate a caption (and hashtags/cta if missing) onto `item`. Caller commits."""
-    try:
-        result = await generate_single_caption(
-            brand=_brand_to_dict(brand),
-            topic=(item.topic or item.content_type or "content"),
-            platform=item.platform.value,
-            description=(item.description or item.visual_direction or None),
-        )
-    except Exception as exc:
-        logger.warning("caption backfill failed for %s: %s", item.id, exc)
-        return
-    if not isinstance(result, dict):
-        return
-    cap = result.get("caption")
-    if isinstance(cap, str) and cap.strip():
-        item.caption = cap.strip()
-    tags = result.get("hashtags")
-    if isinstance(tags, list) and not (item.hashtags or []):
-        item.hashtags = [str(t).lstrip("#") for t in tags][:2]
-    cta = result.get("cta")
-    if isinstance(cta, str) and cta.strip() and not (item.cta or "").strip():
-        item.cta = cta.strip()[:300]
-
-
-async def _backfill_caption_in_background(content_id: str) -> None:
-    """Fire-and-forget caption fill — opens its own session, dedups in-flight ids."""
-    if content_id in _caption_backfill_in_flight:
-        return
-    _caption_backfill_in_flight.add(content_id)
-    try:
-        from app.db.database import AsyncSessionLocal
-        async with AsyncSessionLocal() as db:
-            r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
-            item = r.scalar_one_or_none()
-            if not item or not _post_needs_caption_backfill(item):
-                return
-            br = await db.execute(select(Brand).where(Brand.id == item.brand_id))
-            brand = br.scalar_one_or_none()
-            if not brand:
-                return
-            await _fill_caption_inline(db, item, brand)
-            await db.commit()
-    except Exception as exc:
-        logger.warning("background caption backfill error for %s: %s", content_id, exc)
-    finally:
-        _caption_backfill_in_flight.discard(content_id)
 
 
 def _brand_to_dict(brand: Brand) -> dict:
