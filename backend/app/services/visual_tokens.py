@@ -20,6 +20,229 @@ def _norm_hex(h: str | None) -> str | None:
     return None
 
 
+_POSTER_LOCKUP_MODES = {"always", "when_relevant", "never"}
+_LOCAL_BUSINESS_HINTS = (
+    "restaurant",
+    "cafe",
+    "bakery",
+    "clinic",
+    "hospital",
+    "salon",
+    "spa",
+    "hotel",
+    "bar",
+    "lounge",
+    "real estate",
+    "gym",
+    "fitness",
+    "store",
+    "shop",
+    "retail",
+    "venue",
+    "church",
+)
+_APP_BUSINESS_HINTS = (
+    "app",
+    "mobile app",
+    "play store",
+    "app store",
+    "fintech",
+    "delivery",
+    "marketplace",
+    "saas",
+    "software",
+    "wallet",
+    "utility",
+)
+
+
+def _norm_lockup_mode(value: Any, default: str) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in _POSTER_LOCKUP_MODES else default
+
+
+def _brand_context_bag(brand: dict[str, Any]) -> str:
+    parts = [
+        brand.get("industry"),
+        brand.get("sub_industry"),
+        brand.get("description"),
+        brand.get("location"),
+        brand.get("website"),
+        brand.get("business_model"),
+        ((brand.get("brand_kit") or {}) if isinstance(brand.get("brand_kit"), dict) else {}).get("business_model"),
+        ((brand.get("brand_kit") or {}) if isinstance(brand.get("brand_kit"), dict) else {}).get("value_proposition"),
+    ]
+    return " ".join(str(p or "").lower() for p in parts if p)
+
+
+def infer_poster_lockup_defaults(brand: dict[str, Any]) -> dict[str, Any]:
+    bag = _brand_context_bag(brand)
+    raw = brand.get("poster_lockup")
+    if not isinstance(raw, dict):
+        kit = brand.get("brand_kit")
+        if isinstance(kit, dict) and isinstance(kit.get("poster_lockup"), dict):
+            raw = kit.get("poster_lockup")
+    raw = dict(raw) if isinstance(raw, dict) else {}
+
+    is_local = bool(str(brand.get("location") or "").strip()) or any(h in bag for h in _LOCAL_BUSINESS_HINTS)
+    is_app = any(h in bag for h in _APP_BUSINESS_HINTS)
+    website = str(brand.get("website") or "").strip()
+
+    return {
+        "version": 1,
+        "logo_mode": _norm_lockup_mode(raw.get("logo_mode"), "always"),
+        "website_mode": _norm_lockup_mode(raw.get("website_mode"), "when_relevant" if website else "never"),
+        "phone_mode": _norm_lockup_mode(raw.get("phone_mode"), "when_relevant" if is_local else "never"),
+        "address_mode": _norm_lockup_mode(raw.get("address_mode"), "when_relevant" if is_local else "never"),
+        "store_badges_mode": _norm_lockup_mode(raw.get("store_badges_mode"), "when_relevant" if is_app else "never"),
+        "contact_phone": str(raw.get("contact_phone") or "").strip(),
+    }
+
+
+def apply_poster_lockup_defaults(brand: dict[str, Any]) -> dict[str, Any]:
+    merged = infer_poster_lockup_defaults(brand)
+    raw = brand.get("poster_lockup")
+    if not isinstance(raw, dict):
+        kit = brand.get("brand_kit")
+        if isinstance(kit, dict) and isinstance(kit.get("poster_lockup"), dict):
+            raw = kit.get("poster_lockup")
+    raw = dict(raw) if isinstance(raw, dict) else {}
+    for key, value in raw.items():
+        if value is None or value == "":
+            continue
+        merged[key] = value
+    merged["logo_mode"] = _norm_lockup_mode(merged.get("logo_mode"), "always")
+    merged["website_mode"] = _norm_lockup_mode(merged.get("website_mode"), "never")
+    merged["phone_mode"] = _norm_lockup_mode(merged.get("phone_mode"), "never")
+    merged["address_mode"] = _norm_lockup_mode(merged.get("address_mode"), "never")
+    merged["store_badges_mode"] = _norm_lockup_mode(merged.get("store_badges_mode"), "never")
+    merged["contact_phone"] = str(merged.get("contact_phone") or "").strip()
+    brand["poster_lockup"] = merged
+    return brand
+
+
+def _post_context_bag(post: dict[str, Any] | None) -> str:
+    if not isinstance(post, dict):
+        return ""
+    parts = [
+        post.get("content_type"),
+        post.get("content_idea"),
+        post.get("description"),
+        post.get("caption"),
+        post.get("cta"),
+        post.get("template_family"),
+        post.get("layout_family"),
+        post.get("visual_direction"),
+    ]
+    if isinstance(post.get("message_architecture"), dict):
+        parts.extend(post["message_architecture"].values())
+    if isinstance(post.get("component_pack"), list):
+        parts.extend(post["component_pack"])
+    if isinstance(post.get("slide_blueprint"), list):
+        parts.extend(post["slide_blueprint"])
+    if isinstance(post.get("campaign_modules"), dict):
+        parts.extend(post["campaign_modules"].keys())
+        parts.extend(post["campaign_modules"].values())
+    return " ".join(str(p or "").lower() for p in parts if p)
+
+
+def poster_lockup_mode_enabled(brand: dict[str, Any], field: str, post: dict[str, Any] | None = None) -> bool:
+    cfg = apply_poster_lockup_defaults(brand).get("poster_lockup") or {}
+    mode = _norm_lockup_mode(cfg.get(f"{field}_mode"), "never")
+    if mode == "always":
+        return True
+    if mode == "never":
+        return False
+
+    bag = _post_context_bag(post)
+    brand_bag = _brand_context_bag(brand)
+    is_local = bool(str(brand.get("location") or "").strip()) or any(h in brand_bag for h in _LOCAL_BUSINESS_HINTS)
+    is_app = any(h in brand_bag for h in _APP_BUSINESS_HINTS)
+
+    if field == "logo":
+        return any(
+            token in bag
+            for token in (
+                "promo",
+                "offer",
+                "announcement",
+                "launch",
+                "product",
+                "merchant",
+                "co_brand",
+                "device_mockup",
+                "testimonial",
+                "conversion",
+            )
+        )
+    if field == "website":
+        return bool(str(brand.get("website") or "").strip()) and any(
+            token in bag
+            for token in (
+                "shop",
+                "order",
+                "book",
+                "visit",
+                "website",
+                "site",
+                "launch",
+                "promo",
+                "offer",
+                "signup",
+                "demo",
+                "merchant",
+                "product",
+                "cta_pill",
+            )
+        )
+    if field == "phone":
+        return bool(str(cfg.get("contact_phone") or "").strip()) and is_local and any(
+            token in bag
+            for token in ("call", "book", "reserve", "visit", "branch", "delivery", "store", "location", "order")
+        )
+    if field == "address":
+        return bool(str(brand.get("location") or "").strip()) and is_local and any(
+            token in bag
+            for token in ("visit", "branch", "location", "store", "pickup", "delivery", "reserve", "book")
+        )
+    if field == "store_badges":
+        return is_app and any(
+            token in bag
+            for token in (
+                "app",
+                "download",
+                "install",
+                "signup",
+                "device_mockup",
+                "onboarding",
+                "wallet",
+                "utility",
+                "marketplace",
+                "delivery",
+            )
+        )
+    return False
+
+
+def poster_lockup_prompt_block(brand: dict[str, Any], post: dict[str, Any] | None = None) -> str:
+    cfg = apply_poster_lockup_defaults(brand).get("poster_lockup") or {}
+    website = str(brand.get("website") or "").strip() or "N/A"
+    address = str(brand.get("location") or "").strip() or "N/A"
+    phone = str(cfg.get("contact_phone") or "").strip() or "N/A"
+    return (
+        "Poster lockup rules for this brand: "
+        f"logo {cfg.get('logo_mode', 'always')}, "
+        f"website {cfg.get('website_mode', 'never')} ({website}), "
+        f"phone {cfg.get('phone_mode', 'never')} ({phone}), "
+        f"address {cfg.get('address_mode', 'never')} ({address}), "
+        f"store badges {cfg.get('store_badges_mode', 'never')}. "
+        "Only include these lockup modules when their mode allows it. "
+        "Never default to stuffing every poster footer with all brand details. "
+        "Use website, phone, address, and app badges only when they strengthen the post's conversion job, business type, and platform context. "
+        "If logo mode is never, do not force a branded footer lockup and do not over-preserve empty space for a missing logo."
+    )
+
+
 def apply_visual_system_defaults(brand: dict[str, Any]) -> dict[str, Any]:
     """
     Ensure brand["visual_system"] exists with machine-enforceable defaults.
@@ -56,6 +279,7 @@ def apply_visual_system_defaults(brand: dict[str, Any]) -> dict[str, Any]:
         ],
         "reference_urls": [str(u).strip() for u in (vs.get("reference_urls") or []) if str(u).strip()][:10],
         "reference_rights_attested": bool(vs.get("reference_rights_attested")),
+        "human_context": str(vs.get("human_context") or "").strip()[:500],
         "style_mix_targets": {
             "text_poster": 0.2,
             "product_hero": 0.2,

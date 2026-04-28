@@ -144,6 +144,334 @@ function drawSlideBadge(ctx, current, total, right, top, ff) {
   ctx.restore()
 }
 
+function titleizeToken(token) {
+  return String(token || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (m) => m.toUpperCase())
+}
+
+function sentenceParts(text) {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+}
+
+function extractOfferSnippet(text) {
+  const s = String(text || '')
+  const percent = s.match(/\b(?:up to\s*)?\d{1,3}%\s*off\b/i)
+  if (percent) return percent[0]
+  const price = s.match(/[₦$£€]\s?\d[\d,]*/i)
+  if (price) return price[0]
+  return ''
+}
+
+function extractLocationSnippet(text) {
+  const match = String(text || '').match(/\b(Lagos|Abuja|Ibadan|Ikeja|Mainland|Island|Benin|Kaduna|Port Harcourt|PH)\b/i)
+  return match ? match[0] : ''
+}
+
+function buildFeaturePoints(post, fallback = []) {
+  const modules = post?.campaign_modules || {}
+  if (Array.isArray(modules.feature_list) && modules.feature_list.length) {
+    return modules.feature_list.slice(0, 4)
+  }
+  const sentences = sentenceParts(post?.description || post?.caption || '')
+    .filter((part) => part.length <= 80)
+    .slice(0, 4)
+  if (sentences.length) return sentences
+  const pack = Array.isArray(post?.component_pack) ? post.component_pack : []
+  const inferred = pack
+    .filter((item) => !['headline_module', 'brand_signature', 'hero_product'].includes(item))
+    .map(titleizeToken)
+    .slice(0, 4)
+  return inferred.length ? inferred : fallback
+}
+
+function drawPill(ctx, x, y, text, { bg = '#111', fg = '#fff', stroke = null, ff = `'Inter', system-ui, -apple-system, sans-serif` } = {}) {
+  ctx.save()
+  ctx.font = `700 26px ${ff}`
+  const tw = ctx.measureText(text).width
+  const w = tw + 44
+  const h = 54
+  ctx.fillStyle = bg
+  rrect(ctx, x, y, w, h, 27)
+  ctx.fill()
+  if (stroke) {
+    ctx.strokeStyle = stroke
+    ctx.lineWidth = 4
+    ctx.stroke()
+  }
+  ctx.fillStyle = fg
+  ctx.fillText(text, x + 22, y + 35)
+  ctx.restore()
+  return { w, h }
+}
+
+function drawModuleIcon(ctx, kind, x, y, size, color) {
+  ctx.save()
+  ctx.strokeStyle = color
+  ctx.fillStyle = color
+  ctx.lineWidth = 4
+  const key = String(kind || '').toLowerCase()
+  if (key.includes('lock') || key.includes('secure')) {
+    ctx.beginPath()
+    ctx.arc(x, y - size * 0.1, size * 0.22, Math.PI, 0)
+    ctx.stroke()
+    rrect(ctx, x - size * 0.22, y - size * 0.05, size * 0.44, size * 0.34, 8)
+    ctx.stroke()
+  } else if (key.includes('time') || key.includes('clock')) {
+    ctx.beginPath()
+    ctx.arc(x, y, size * 0.28, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    ctx.lineTo(x, y - size * 0.12)
+    ctx.lineTo(x + size * 0.1, y)
+    ctx.stroke()
+  } else if (key.includes('growth') || key.includes('chart') || key.includes('analytics')) {
+    ctx.beginPath()
+    ctx.moveTo(x - size * 0.26, y + size * 0.2)
+    ctx.lineTo(x - size * 0.05, y - size * 0.02)
+    ctx.lineTo(x + size * 0.08, y + size * 0.08)
+    ctx.lineTo(x + size * 0.26, y - size * 0.22)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(x + size * 0.18, y - size * 0.24)
+    ctx.lineTo(x + size * 0.26, y - size * 0.22)
+    ctx.lineTo(x + size * 0.22, y - size * 0.12)
+    ctx.stroke()
+  } else if (key.includes('email') || key.includes('mail')) {
+    rrect(ctx, x - size * 0.3, y - size * 0.18, size * 0.6, size * 0.36, 8)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(x - size * 0.26, y - size * 0.14)
+    ctx.lineTo(x, y + size * 0.02)
+    ctx.lineTo(x + size * 0.26, y - size * 0.14)
+    ctx.stroke()
+  } else if (key.includes('bag') || key.includes('shop') || key.includes('product')) {
+    rrect(ctx, x - size * 0.26, y - size * 0.04, size * 0.52, size * 0.34, 10)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(x, y - size * 0.02, size * 0.14, Math.PI, 0)
+    ctx.stroke()
+  } else if (key.includes('spark') || key.includes('bolt') || key.includes('fast')) {
+    ctx.beginPath()
+    ctx.moveTo(x - size * 0.05, y - size * 0.3)
+    ctx.lineTo(x + size * 0.05, y - size * 0.05)
+    ctx.lineTo(x - size * 0.02, y - size * 0.05)
+    ctx.lineTo(x + size * 0.04, y + size * 0.26)
+    ctx.lineTo(x - size * 0.12, y)
+    ctx.lineTo(x - size * 0.02, y)
+    ctx.closePath()
+    ctx.fill()
+  } else {
+    ctx.beginPath()
+    ctx.arc(x, y, size * 0.28, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(x, y, size * 0.07, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  ctx.restore()
+}
+
+async function renderDynamicCampaign(ctx, post, slide, brand, slideIndex, totalSlides, bgImage) {
+  const primary = brand?.colors?.[0] || '#2E7D5B'
+  const secondary = brand?.colors?.[1] || '#D9F0E3'
+  const accent = brand?.colors?.[2] || '#111111'
+  const cream = isLight(secondary) ? secondary : lighten(secondary, 0.45)
+  const ink = '#0f1720'
+  const ff = `'Inter', system-ui, -apple-system, sans-serif`
+  const layout = String(post?.layout_family || '').toLowerCase()
+  const modules = post?.campaign_modules || {}
+  const componentPack = Array.isArray(post?.component_pack) ? post.component_pack : []
+  const headline = slide?.topic || post?.topic || 'Campaign update'
+  const body = slide?.body || post?.description || post?.caption || ''
+  const featurePoints = buildFeaturePoints(post, ['Secure & Seamless', 'Save Time', 'Ready To Post'])
+  const offer = extractOfferSnippet(`${headline} ${body}`) || (modules.offer_module ? 'New update' : '')
+  const location = extractLocationSnippet(`${headline} ${body}`)
+  const issueLabel = modules.issue_label || 'Issue #1'
+
+  ctx.fillStyle = cream
+  ctx.fillRect(0, 0, W, H)
+  ctx.fillStyle = alpha(primary, 0.08)
+  ctx.beginPath()
+  ctx.arc(W * 0.82, H * 0.22, 250, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.arc(W * 0.12, H * 0.9, 180, 0, Math.PI * 2)
+  ctx.fill()
+
+  if (totalSlides > 1) {
+    drawSlideBadge(ctx, slideIndex + 1, totalSlides, W - PAD, PAD, ff)
+  }
+
+  ctx.font = `700 28px ${ff}`
+  ctx.fillStyle = primary
+  drawPill(ctx, PAD, PAD, layout.includes('issue') ? 'Editorial' : 'Campaign update', { bg: alpha(primary, 0.12), fg: primary, ff })
+
+  if (layout === 'ui_benefit_system') {
+    ctx.font = `900 92px ${ff}`
+    ctx.fillStyle = ink
+    const headBottom = drawWrapped(ctx, headline, PAD, 180, 520, 98, 4)
+    ctx.font = `400 42px ${ff}`
+    ctx.fillStyle = 'rgba(15,23,32,0.74)'
+    const bodyBottom = drawWrapped(ctx, sentenceParts(body).slice(0, 2).join(' '), PAD, headBottom + 26, 520, 56, 4)
+
+    const deviceX = 610
+    const deviceY = 164
+    const deviceW = 380
+    const deviceH = 600
+    ctx.fillStyle = '#ffffff'
+    ctx.strokeStyle = alpha(primary, 0.18)
+    ctx.lineWidth = 4
+    rrect(ctx, deviceX, deviceY, deviceW, deviceH, 34)
+    ctx.fill()
+    ctx.stroke()
+    ctx.fillStyle = primary
+    ctx.beginPath()
+    ctx.roundRect?.(deviceX + 28, deviceY + 28, 80, 80, 24)
+    if (!ctx.roundRect) rrect(ctx, deviceX + 28, deviceY + 28, 80, 80, 24)
+    ctx.fill()
+    ctx.font = `800 30px ${ff}`
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText((brand?.name || 'C').slice(0, 1).toUpperCase(), deviceX + 53, deviceY + 78)
+    ctx.font = `700 38px ${ff}`
+    ctx.fillStyle = ink
+    ctx.fillText(brand?.name || 'ContentCard', deviceX + 126, deviceY + 78)
+
+    ctx.fillStyle = alpha(primary, 0.08)
+    rrect(ctx, deviceX + 28, deviceY + 144, deviceW - 56, 238, 26)
+    ctx.fill()
+    if (bgImage) {
+      ctx.save()
+      rrect(ctx, deviceX + 28, deviceY + 144, deviceW - 56, 238, 26)
+      ctx.clip()
+      const scale = Math.max((deviceW - 56) / bgImage.naturalWidth, 238 / bgImage.naturalHeight)
+      const iw = bgImage.naturalWidth * scale
+      const ih = bgImage.naturalHeight * scale
+      ctx.drawImage(bgImage, deviceX + 28 + ((deviceW - 56) - iw) / 2, deviceY + 144 + (238 - ih) / 2, iw, ih)
+      ctx.restore()
+    } else {
+      drawModuleIcon(ctx, 'spark', deviceX + 190, deviceY + 263, 84, primary)
+    }
+    ctx.font = `700 26px ${ff}`
+    ctx.fillStyle = ink
+    featurePoints.slice(0, 3).forEach((point, idx) => {
+      const rowY = bodyBottom + 52 + idx * 98
+      ctx.fillStyle = '#ffffff'
+      rrect(ctx, PAD, rowY, 520, 74, 22)
+      ctx.fill()
+      ctx.strokeStyle = alpha(primary, 0.14)
+      ctx.stroke()
+      drawModuleIcon(ctx, point, PAD + 38, rowY + 37, 34, primary)
+      ctx.fillStyle = ink
+      ctx.font = `600 28px ${ff}`
+      drawWrapped(ctx, point, PAD + 72, rowY + 32, 420, 34, 2)
+    })
+  } else if (layout === 'issue_editorial_system') {
+    ctx.font = `800 28px ${ff}`
+    ctx.fillStyle = ink
+    ctx.textAlign = 'right'
+    ctx.fillText(issueLabel, W - PAD, 80)
+    ctx.textAlign = 'left'
+    ctx.font = `800 62px ${ff}`
+    ctx.fillStyle = ink
+    const hBottom = drawWrapped(ctx, headline, PAD, 168, W - PAD * 2, 74, 4)
+    ctx.font = `400 34px ${ff}`
+    ctx.fillStyle = 'rgba(15,23,32,0.78)'
+    const excerpt = sentenceParts(body).slice(0, 3).join(' ')
+    drawWrapped(ctx, excerpt, PAD, hBottom + 38, W - PAD * 2, 50, 8)
+    const cardY = 680
+    const cardW = 270
+    for (let i = 0; i < 3; i++) {
+      const x = PAD + i * (cardW + 24)
+      ctx.fillStyle = i % 2 === 0 ? alpha(primary, 0.12) : '#ffffff'
+      rrect(ctx, x, cardY, cardW, 220, 28)
+      ctx.fill()
+      drawModuleIcon(ctx, componentPack[i] || 'spark', x + 56, cardY + 60, 44, primary)
+      ctx.font = `700 26px ${ff}`
+      ctx.fillStyle = ink
+      drawWrapped(ctx, featurePoints[i] || titleizeToken(componentPack[i] || 'insight module'), x + 28, cardY + 112, cardW - 56, 34, 3)
+    }
+  } else {
+    const panelX = 92
+    const panelY = 148
+    const panelW = W - 184
+    const panelH = H - 250
+    ctx.fillStyle = primary
+    ctx.fillRect(0, H - 150, W, 150)
+    ctx.fillStyle = alpha(primary, 0.12)
+    rrect(ctx, panelX, panelY, panelW, panelH, 42)
+    ctx.fill()
+    ctx.fillStyle = '#ffffff'
+    rrect(ctx, panelX, panelY, panelW, panelH, 42)
+    ctx.fill()
+
+    let cursorY = panelY + 40
+    if (modules.partner_lockup || modules.co_brand_context) {
+      ctx.font = `700 26px ${ff}`
+      ctx.fillStyle = primary
+      ctx.fillText(brand?.name || 'Brand', panelX + 26, cursorY)
+      ctx.fillStyle = alpha(ink, 0.24)
+      ctx.fillRect(panelX + 220, cursorY - 18, 2, 30)
+      ctx.fillStyle = ink
+      ctx.fillText(location || 'Partner launch', panelX + 250, cursorY)
+      cursorY += 42
+    }
+
+    ctx.font = `900 84px ${ff}`
+    ctx.fillStyle = ink
+    const headBottom = drawWrapped(ctx, headline, panelX + 26, cursorY + 26, panelW - 52, 88, 4)
+    cursorY = headBottom + 16
+
+    if (offer) {
+      const pill = drawPill(ctx, panelX + 26, cursorY, offer.toUpperCase(), { bg: '#F7E75A', fg: '#111', stroke: '#111', ff })
+      if (location) {
+        drawPill(ctx, panelX + 26 + pill.w + 18, cursorY, location, { bg: alpha(primary, 0.12), fg: primary, ff })
+      }
+      cursorY += pill.h + 18
+    }
+
+    ctx.font = `400 34px ${ff}`
+    ctx.fillStyle = 'rgba(15,23,32,0.76)'
+    const blurb = sentenceParts(body).slice(0, 2).join(' ')
+    const blurbBottom = drawWrapped(ctx, blurb, panelX + 26, cursorY + 8, panelW - 52, 46, 4)
+
+    const artY = blurbBottom + 28
+    const artH = panelY + panelH - artY - 120
+    if (bgImage) {
+      ctx.save()
+      rrect(ctx, panelX + 26, artY, panelW - 52, artH, 28)
+      ctx.clip()
+      const scale = Math.max((panelW - 52) / bgImage.naturalWidth, artH / bgImage.naturalHeight)
+      const iw = bgImage.naturalWidth * scale
+      const ih = bgImage.naturalHeight * scale
+      ctx.drawImage(bgImage, panelX + 26 + ((panelW - 52) - iw) / 2, artY + (artH - ih) / 2, iw, ih)
+      ctx.restore()
+    } else {
+      ctx.fillStyle = alpha(primary, 0.08)
+      rrect(ctx, panelX + 26, artY, panelW - 52, artH, 28)
+      ctx.fill()
+      featurePoints.slice(0, 3).forEach((point, idx) => {
+        const colW = (panelW - 90) / 3
+        const boxX = panelX + 38 + idx * colW
+        drawModuleIcon(ctx, point, boxX + 56, artY + 82, 52, primary)
+        ctx.font = `700 26px ${ff}`
+        ctx.fillStyle = ink
+        drawWrapped(ctx, point, boxX + 16, artY + 144, colW - 32, 32, 3)
+      })
+    }
+
+    ctx.font = `700 24px ${ff}`
+    ctx.fillStyle = '#ffffff'
+    ctx.fillText(brand?.name || 'Brand', panelX + 18, H - 86)
+    drawPill(ctx, W - 250, H - 112, 'Order now', { bg: '#ffffff', fg: primary, ff })
+  }
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // TEMPLATE A: Overlay
 // Full-bleed photo + gradient over bottom half + headline only.
@@ -509,6 +837,19 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
   }
 
   const designStyle = brand?.design_style || 'bold'
+  const richLayouts = new Set([
+    'co_brand_launch_system',
+    'merchant_onboarding_announcement',
+    'offer_pill_system',
+    'ui_benefit_system',
+    'issue_editorial_system',
+    'seasonal_pattern_system',
+  ])
+  const layoutFamily = String(post?.layout_family || '').toLowerCase()
+  const richPack = Array.isArray(post?.component_pack) && post.component_pack.some((item) =>
+    ['partner_lockup', 'merchant_lockup', 'offer_pill', 'offer_pill_stack', 'device_mockup', 'utility_icon_set', 'issue_chip', 'seasonal_motif', 'cta_pill'].includes(String(item || '').toLowerCase())
+  )
+  const useDynamicCampaign = richLayouts.has(layoutFamily) || richPack
 
   // ── CTA slide: always the clean brand-color template
   if (slide.isCTA) {
@@ -528,6 +869,10 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
 
   // ── Cover slide
   if (slide.isCover) {
+    if (useDynamicCampaign) {
+      await renderDynamicCampaign(ctx, post, slide, brand, slideIndex, totalSlides, bgImage)
+      return
+    }
     if (bgImage) {
       if (designStyle === 'split') {
         await renderSplit(ctx, post, slide, brand, totalSlides, bgImage)
@@ -543,6 +888,10 @@ export async function renderSlideToCanvas(canvas, post, brand, slideIndex = 0) {
   }
 
   // ── Carousel body slide: ALWAYS use clean text layout, never editorial split
+  if (useDynamicCampaign) {
+    await renderDynamicCampaign(ctx, post, slide, brand, slideIndex, totalSlides, null)
+    return
+  }
   await renderCarouselBody(ctx, post, slide, brand, slideIndex, totalSlides)
 }
 

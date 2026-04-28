@@ -24,6 +24,11 @@ function formatApiErrorDetail(err) {
   return null
 }
 
+function isFatalAuthFailure(err) {
+  const status = Number(err?.response?.status || 0)
+  return status === 401 || status === 403
+}
+
 const useAuthStore = create(
   persist(
     (set) => ({
@@ -134,16 +139,27 @@ const useAuthStore = create(
             isCheckingAuth: false,
           })
           return true
-        } catch {
-          clearPersistedSession()
+        } catch (err) {
+          if (isFatalAuthFailure(err)) {
+            clearPersistedSession()
+            set({
+              user: null,
+              token: null,
+              isAuthenticated: false,
+              authResolved: true,
+              isCheckingAuth: false,
+            })
+            return false
+          }
+
+          // Keep the persisted session on transient failures so refreshes
+          // or backend cold starts do not kick signed-in users out.
           set({
-            user: null,
-            token: null,
-            isAuthenticated: false,
+            isAuthenticated: true,
             authResolved: true,
             isCheckingAuth: false,
           })
-          return false
+          return true
         }
       },
 

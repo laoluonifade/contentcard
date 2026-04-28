@@ -42,6 +42,7 @@ class UserOut(BaseModel):
     full_name: str
     phone: str | None
     country_code: str | None
+    onboarding_completed: bool = False
     agency_mode: bool = False
     auth_provider: str = "password"
 

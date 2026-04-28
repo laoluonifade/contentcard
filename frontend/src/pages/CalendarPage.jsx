@@ -1,16 +1,20 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, Component } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
-import { contentApi, holidaysApi, uploadApi } from '../api'
+import { contentApi, holidaysApi, socialApi, uploadApi } from '../api'
 import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
+import { buildCampaignBrief } from '../utils/campaignBrief'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
 import GenerationPlanModal from '../components/ui/GenerationPlanModal'
 import PaymentModal from '../components/ui/PaymentModal'
+import AuthEntryModal from '../components/auth/AuthEntryModal'
+import { buildGuestPlanSummary, buildGuestSamplePosts, buildGuestWorkspaceProfile } from '../utils/guestFlow'
+import { persistGuestContext } from '../utils/authFlow'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const MAX_GENERATION_MONTHS_AHEAD = 3
@@ -100,6 +104,52 @@ function weekdayFromIso(isoDate) {
 
 function recommendationForPlatform(platform) {
   return PLATFORM_POST_WINDOWS[platform] || { best: 'Weekdays, midday', backup: 'Early evening', tz: 'Local time' }
+}
+
+class GenerationPlanErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  componentDidCatch(error) {
+    console.error('Generation plan modal crashed', error)
+  }
+
+  render() {
+    if (!this.state.hasError) return this.props.children
+
+    return (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg p-6 space-y-4">
+          <div>
+            <h3 className="text-ink font-semibold text-base">Couldn&apos;t open the review step</h3>
+            <p className="text-ink/45 text-sm mt-1">
+              Something in the generation plan failed to render. Go back to settings and try again.
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={this.props.onBack} className="btn-secondary px-4 py-2 text-sm">
+              Back to settings
+            </button>
+            <button type="button" onClick={this.props.onClose} className="btn-primary px-4 py-2 text-sm">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 }
 
 function toIsoDate(y, m, d) {
@@ -248,7 +298,7 @@ function CalendarPrepBody({
               <Sparkles size={14} className="text-brand-500" />
             </div>
             <p className="text-ink/40 text-[11px] leading-relaxed max-w-[200px]">
-              Chat to brief the AI, then say &ldquo;generate&rdquo; when ready.
+              Brief the AI, review the month plan, then generate when it looks right.
             </p>
           </div>
         )}
@@ -352,8 +402,8 @@ function CalendarPrepBody({
                       </div>
                     )}
 
-                    {/* Generate CTA — shown on last assistant message */}
-                    {(m.cta?.action === 'start_generation' || i === messages.length - 1) && (() => {
+                    {/* Generate CTA — shown only when the plan is explicitly ready */}
+                    {m.cta?.action === 'start_generation' && (() => {
                       const ctaKey = String(i)
                       const isUsed = usedCtaKeys?.has(ctaKey)
                       const busy = Boolean(isUsed || ctaBusy || generatingMonth || prepServiceDown)
@@ -370,8 +420,9 @@ function CalendarPrepBody({
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors"
                           >
                             <Zap size={10} />
-                            {generatingMonth ? 'Generating…' : (m.cta?.label || 'Generate posts now')}
+                            {generatingMonth ? 'Generating…' : (m.cta?.label || 'Approve plan and generate')}
                           </button>
+                          <p className="mt-1 text-[10px] text-ink/35">Review the plan above first, then launch generation.</p>
                         </div>
                       )
                     })()}
@@ -458,7 +509,7 @@ function CalendarPrepBody({
           </button>
         </div>
 
-        {/* Generate button — always visible */}
+        {/* Generate button — always visible for manual runs */}
         <button
           type="button"
           onClick={() => onRunCta({ action: 'start_generation' }, '')}
@@ -466,7 +517,7 @@ function CalendarPrepBody({
           className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors"
         >
           <Zap size={11} />
-          {generatingMonth ? 'Generating…' : 'Generate posts'}
+          {generatingMonth ? 'Generating…' : 'Generate with current brief'}
         </button>
       </div>
     </div>
@@ -486,9 +537,160 @@ function splitPrepAssistantMessage(content) {
   return [text]
 }
 
+function GuestSummaryPill({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-fog bg-white px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-ink/35">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-ink">{value}</p>
+    </div>
+  )
+}
+
+function GuestPreviewCard({ post, monthLabel, onUnlock }) {
+  return (
+    <article className="overflow-hidden rounded-[24px] border border-fog bg-white shadow-[0_12px_34px_rgba(15,23,42,0.05)]">
+      <div className="flex items-center justify-between gap-3 border-b border-fog px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold ${post.accent}`}>
+            {post.platformLabel}
+          </span>
+          <span className="text-[11px] text-ink/35">{post.type}</span>
+        </div>
+        <span className="text-[11px] font-medium text-ink/40">{post.day} {monthLabel.split(' ')[0]}</span>
+      </div>
+
+      <div className="p-4">
+        <div className="rounded-[22px] border border-fog bg-gradient-to-br from-[#101828] via-[#17324f] to-[#215d5a] p-5 text-white">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">{post.angle}</p>
+          <h3 className="mt-3 text-xl font-semibold tracking-tight">{post.title}</h3>
+          <p className="mt-3 text-sm leading-relaxed text-white/82">{post.hook}</p>
+        </div>
+
+        <div className="mt-4">
+          <p className="text-sm font-semibold text-ink">Suggested caption</p>
+          <p className="mt-2 text-sm leading-relaxed text-ink/62">{post.caption}</p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {post.hashtags.map((tag) => (
+              <span key={tag} className="rounded-full bg-mist px-2.5 py-1 text-[10px] font-semibold text-ink/55">
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-fog bg-mist px-3 py-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-ink/35">Best publish window</p>
+            <p className="mt-1 text-sm font-semibold text-ink">{post.bestTime}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onUnlock}
+            className="inline-flex items-center gap-1.5 rounded-full border border-fog bg-white px-3 py-2 text-xs font-semibold text-ink hover:bg-surface"
+          >
+            Save this idea <ArrowRight size={12} />
+          </button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
+function GuestCalendarPrompt({
+  guestForm,
+  setGuestForm,
+  canGenerate,
+  onGenerate,
+  guestPreviewActive,
+  onOpenAuth,
+}) {
+  return (
+    <div className="flex flex-col flex-1 min-h-0">
+      <div className="flex-1 overflow-y-auto px-3 py-3">
+        <div className="rounded-2xl border border-fog bg-mist/50 p-4">
+          <div className="flex items-start gap-2">
+            <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-xl bg-brand-500/10">
+              <Sparkles size={15} className="text-brand-600" />
+            </div>
+            <div>
+              <p className="text-ink text-sm font-semibold">Guest preview</p>
+              <p className="mt-1 text-[11px] leading-relaxed text-ink/50">
+                Tell us your brand name and your website or industry. ContentCard will turn that into a standout sample month so you can judge the product on output.
+              </p>
+            </div>
+          </div>
+
+          <div id="guest-calendar-prompt" className="mt-4 space-y-3">
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-ink/35">Brand name</span>
+              <input
+                value={guestForm.brandName}
+                onChange={(event) => setGuestForm((current) => ({ ...current, brandName: event.target.value }))}
+                placeholder="Juicy Junction"
+                className="w-full rounded-xl border border-fog bg-white px-3 py-2.5 text-xs text-ink outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-300/30"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-ink/35">Brand website</span>
+              <input
+                value={guestForm.website}
+                onChange={(event) => setGuestForm((current) => ({ ...current, website: event.target.value }))}
+                placeholder="juicyjunction.com"
+                className="w-full rounded-xl border border-fog bg-white px-3 py-2.5 text-xs text-ink outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-300/30"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-ink/35">Or industry</span>
+              <input
+                value={guestForm.industry}
+                onChange={(event) => setGuestForm((current) => ({ ...current, industry: event.target.value }))}
+                placeholder="Restaurant, real estate, fintech, fashion..."
+                className="w-full rounded-xl border border-fog bg-white px-3 py-2.5 text-xs text-ink outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-300/30"
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t border-fog bg-surface/80 px-3 py-3 space-y-2">
+        <button
+          type="button"
+          onClick={onGenerate}
+          disabled={!canGenerate}
+          className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-xs font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          Generate guest preview
+        </button>
+        {guestPreviewActive ? (
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenAuth('signup')}
+              className="flex-1 rounded-xl border border-brand-200 bg-brand-500/10 px-3 py-2 text-[11px] font-semibold text-brand-700 hover:bg-brand-500/15"
+            >
+              Finish signup to save
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenAuth('login')}
+              className="flex-1 rounded-xl border border-fog bg-white px-3 py-2 text-[11px] font-semibold text-ink hover:bg-mist"
+            >
+              Log in
+            </button>
+          </div>
+        ) : (
+          <p className="text-center text-[10px] text-ink/35">Use either a website or an industry. We will shape the preview from there.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function CalendarPage() {
   const navigate = useNavigate()
-  const { user } = useAuthStore()
+  const { user, isAuthenticated } = useAuthStore()
   const {
     activeBrandId,
     activeWorkspaceId,
@@ -502,6 +704,7 @@ export default function CalendarPage() {
     generationProgress,
   } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
+  const isGuestMode = !isAuthenticated
 
   const now = new Date()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -526,6 +729,9 @@ export default function CalendarPage() {
   const [prepQuestionAnswers, setPrepQuestionAnswers] = useState({})
   const [prepCtaBusy, setPrepCtaBusy] = useState(false)
   const [usedPrepCtaKeys, setUsedPrepCtaKeys] = useState(() => new Set())
+  const [authModal, setAuthModal] = useState({ open: false, mode: 'signup' })
+  const [guestForm, setGuestForm] = useState({ brandName: '', website: '', industry: '' })
+  const [guestRun, setGuestRun] = useState(null)
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
   const [generationBaseline, setGenerationBaseline] = useState({ with: 0, total: 0 })
   /** Last /content/status snapshot when resuming after reload (strict server counts). */
@@ -594,18 +800,61 @@ export default function CalendarPage() {
       ]
     })
   }
+  const openAuth = (mode = 'signup', persistPreview = false) => {
+    if (persistPreview) {
+      persistGuestContext({
+        ...(guestRun || guestForm),
+        goal: 'Generate a standout month of branded social content',
+      })
+    }
+    setAuthModal({ open: true, mode })
+  }
+
+  const focusGuestPrompt = () => {
+    setPrepMinimizedPersist(false)
+    window.requestAnimationFrame(() => {
+      const el = document.getElementById('guest-calendar-prompt')
+      el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+  }
+
+  const generateGuestPreview = () => {
+    const brandName = guestForm.brandName.trim()
+    const website = guestForm.website.trim()
+    const industry = guestForm.industry.trim()
+    if (!brandName || (!website && !industry)) {
+      toast('Add your brand name plus a website or industry to generate the guest preview.', 'error')
+      focusGuestPrompt()
+      return
+    }
+    const nextRun = { brandName, website, industry }
+    setGuestRun(nextRun)
+    setPrepMinimizedPersist(false)
+    setPrepServiceDown(false)
+    setPrepMessages([
+      {
+        role: 'assistant',
+        content: `Built a guest preview for ${brandName}. I used ${website || industry} to shape the positioning, post angles, and visual direction for this sample month.`,
+        choices: [],
+        questions: [],
+        cta: null,
+        design_intent: null,
+      },
+    ])
+    toast('Guest preview generated')
+  }
   const lastPrepGenPollRef = useRef(0)
   const [modal, setModal]   = useState(null)
   const [slideIdx, setSlideIdx] = useState(0)
   const [editCaption, setEditCaption]   = useState('')
   const [editHashtags, setEditHashtags] = useState([])
-  const [visualPrompt, setVisualPrompt] = useState('')
   const [saving, setSaving]   = useState(false)
   const [regen, setRegen]     = useState(false)
   const [regenVis, setRegenVis] = useState(false)
   const [filterPlat, setFilterPlat] = useState('all')
   const [showGenPanel, setShowGenPanel] = useState(false)
   const [showPlanModal, setShowPlanModal] = useState(false)
+  const [markingPosted, setMarkingPosted] = useState(false)
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
@@ -618,6 +867,34 @@ export default function CalendarPage() {
   const cardRef = useRef(null)
   const monthsAhead = ((year - now.getFullYear()) * 12) + (month - (now.getMonth() + 1))
   const generationLockedForMonth = monthsAhead > MAX_GENERATION_MONTHS_AHEAD
+  const activeTemplates = useMemo(
+    () => (Array.isArray(templates) ? templates.filter((t) => t && t.is_active) : []),
+    [templates]
+  )
+  const guestProfile = useMemo(
+    () => buildGuestWorkspaceProfile({
+      ...(guestRun || guestForm),
+      goal: 'Generate a standout month of branded social content',
+    }),
+    [guestForm, guestRun]
+  )
+  const guestPreviewPosts = useMemo(
+    () => (guestRun ? buildGuestSamplePosts({
+      ...guestRun,
+      goal: 'Generate a standout month of branded social content',
+    }) : []),
+    [guestRun]
+  )
+  const guestPlanSummary = useMemo(
+    () => buildGuestPlanSummary({
+      ...(guestRun || guestForm),
+      goal: 'Generate a standout month of branded social content',
+    }),
+    [guestForm, guestRun]
+  )
+  const canGenerateGuestPreview =
+    guestForm.brandName.trim().length > 1 &&
+    (guestForm.website.trim().length > 0 || guestForm.industry.trim().length > 0)
 
   useEffect(() => {
     if (!activeBrandId) {
@@ -811,12 +1088,11 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (modal) {
-      setEditCaption(modal.caption || '')
-      setEditHashtags(modal.hashtags || [])
-      setVisualPrompt(modal.image_prompt || modal.visual_direction || '')
+      setEditCaption((modal.caption || modal.description || '').trim())
+      setEditHashtags(Array.isArray(modal.hashtags) ? modal.hashtags : [])
       setSlideIdx(0)
     }
-  }, [modal?.id])
+  }, [modal?.id, modal?.caption, modal?.description, modal?.hashtags])
 
   // Lock body scroll when modal is open so background page doesn't scroll
   useEffect(() => {
@@ -893,27 +1169,21 @@ export default function CalendarPage() {
     }
   }
 
-  const regenerateVisualFromPrompt = async () => {
-    if (!modal) return
-    const prompt = String(visualPrompt || '').trim()
-    if (!prompt) {
-      toast('Enter a prompt first.', 'error')
-      return
-    }
-    setRegenVis(true)
+  const markPostedManually = async () => {
+    if (!modal?.id || !activeBrandId || !modal?.platform) return
+    setMarkingPosted(true)
     try {
-      const updated = await contentApi.regenerateVisual(modal.id, {
-        mode: 'same_archetype',
-        new_archetype: null,
-        prompt_text: prompt,
+      await socialApi.manualConfirmPost({
+        brand_id: activeBrandId,
+        content_item_id: modal.id,
+        platform: modal.platform,
+        status_reason: 'confirmed posted manually from calendar',
       })
-      setPosts((ps) => ps.map((p) => (p.id === updated.id ? updated : p)))
-      setModal(updated)
-      toast('Visual generated from prompt')
+      toast('Marked as posted')
     } catch (e) {
-      toast(e.response?.data?.detail || 'Prompt visual generation failed', 'error')
+      toast(e?.response?.data?.detail || e.message || 'Could not save manual post status', 'error')
     } finally {
-      setRegenVis(false)
+      setMarkingPosted(false)
     }
   }
 
@@ -1017,7 +1287,29 @@ export default function CalendarPage() {
 
   const sendPrepWithText = async (rawText) => {
     const txt = String(rawText || '').trim()
-    if (!txt || !activeBrandId || prepSending) return
+    if (!txt || prepSending) return
+    if (isGuestMode) {
+      if (!guestRun) {
+        toast('Start with your brand name and website or industry to unlock the guest preview.', 'error')
+        focusGuestPrompt()
+        return
+      }
+      setPrepMessages((pm) => [
+        ...pm,
+        { role: 'user', content: txt },
+        {
+          role: 'assistant',
+          content: `Updated the guest preview direction for ${guestRun.brandName}. Create an account to turn this brief into a full saved calendar and production-ready designs.`,
+          choices: [],
+          questions: [],
+          cta: null,
+          design_intent: null,
+        },
+      ])
+      setPrepInput('')
+      return
+    }
+    if (!activeBrandId) return
     const next = [...prepMessages, { role: 'user', content: txt }]
     setPrepMessages(next)
     setPrepInput('')
@@ -1041,12 +1333,6 @@ export default function CalendarPage() {
       }))
       setPrepMessages([...next, ...assistantRows])
 
-      // Auto-trigger generation when the AI signals it's ready
-      if (data.cta?.action === 'start_generation' && !generatingMonth) {
-        setTimeout(() => {
-          handleGenerate()
-        }, 600)
-      }
     } catch (e) {
       if (isAiCapacityError(e)) {
         setPrepServiceDown(true)
@@ -1064,6 +1350,11 @@ export default function CalendarPage() {
   const sendPrep = () => sendPrepWithText(prepInput)
 
   const uploadPrepAsset = async (file) => {
+    if (isGuestMode) {
+      openAuth('signup', true)
+      toast('Create an account to attach screenshots or recordings to the real generation brief.', 'error')
+      return
+    }
     if (!file || !activeBrandId || prepUploadingAsset) return
     const isVideo = String(file.type || '').startsWith('video/')
     if (isVideo) {
@@ -1119,6 +1410,11 @@ export default function CalendarPage() {
   }
 
   const uploadPrepAssetForQuestion = async (question, file, assetType) => {
+    if (isGuestMode) {
+      openAuth('signup', true)
+      toast('Create an account to upload assets for the real generation brief.', 'error')
+      return
+    }
     if (!question || !file || !assetType || prepUploadingAsset || !activeBrandId) return
     const normalizedType = String(assetType).toLowerCase().includes('record') ? 'recording' : 'screenshot'
     setPrepUploadingAsset(true)
@@ -1139,6 +1435,15 @@ export default function CalendarPage() {
   }
 
   const runPrepCtaAction = async (cta, ctaKey) => {
+    if (isGuestMode) {
+      if (!guestRun) {
+        focusGuestPrompt()
+        toast('Add your brand name and website or industry first.', 'error')
+        return
+      }
+      openAuth('signup', true)
+      return
+    }
     if (!cta || cta.action !== 'start_generation') return
     const key = String(ctaKey ?? '')
     if (generatingMonth || prepCtaBusy || prepCtaInFlightRef.current || (key && usedPrepCtaKeys.has(key))) {
@@ -1273,16 +1578,24 @@ export default function CalendarPage() {
             .join('\n')
             .slice(0, 12000)
         : null
+    const campaign_brief = buildCampaignBrief({
+      brand: activeBrand,
+      messages: prepMessages,
+      topicOverride: genTopic.trim() || null,
+      platform: genPlatform,
+      monthLabel: `${MONTHS[month - 1]} ${year}`,
+    })
     await generateMonth({
       month,
       year,
       platforms: [genPlatform],
-      format_mix: 'single_only',
+      format_mix: 'mixed',
       posts_per_week: genPPW,
       topic_override: genTopic.trim() || null,
       template_id: genTemplateId || null,
       include_holidays_in_content: includeHolidays,
       generation_brief,
+      campaign_brief,
       confirm_duplicate: confirmDuplicate,
       custom_plan: customPlan || null,
     })
@@ -1295,6 +1608,15 @@ export default function CalendarPage() {
   }
 
   const handleGenerate = () => {
+    if (isGuestMode) {
+      if (!guestRun) {
+        focusGuestPrompt()
+        toast('Open the guest prompt and tell us your brand name plus website or industry first.', 'error')
+        return false
+      }
+      openAuth('signup', true)
+      return false
+    }
     if (!activeBrandId) { toast('Select a brand first', 'error'); return false }
     if (generationLockedForMonth) {
       toast(`You can only generate up to ${MAX_GENERATION_MONTHS_AHEAD} months ahead.`, 'error')
@@ -1306,6 +1628,10 @@ export default function CalendarPage() {
       toast(visErr, 'error')
       return false
     }
+    if (!genPlatform) {
+      toast('Choose a platform first', 'error')
+      return false
+    }
     // Open plan modal — actual generation fires after user reviews/edits the plan
     setShowGenPanel(false)
     setShowPlanModal(true)
@@ -1313,8 +1639,8 @@ export default function CalendarPage() {
   }
 
   const handlePlanConfirmed = async (customPlan) => {
-    setShowPlanModal(false)
     try {
+      setShowPlanModal(false)
       setGenerationBaseline({
         with: posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length,
         total: posts.length,
@@ -1376,6 +1702,7 @@ export default function CalendarPage() {
       }
       return true
     } catch (err) {
+      setShowPlanModal(true)
       const d = err.response?.data?.detail
       if (isAiCapacityError(err)) {
         setPrepServiceDown(true)
@@ -1461,7 +1788,9 @@ export default function CalendarPage() {
         <div>
           <h1 className="text-2xl font-semibold text-ink mb-0.5" style={{letterSpacing:'-0.02em'}}>Content Calendar</h1>
           <p className="text-ink/40 text-sm">
-            {activeBrand?.name || 'No brand selected'} · {postCountLabel} in {MONTHS[month - 1]} {year}
+            {isGuestMode
+              ? `${guestRun?.brandName || 'Guest preview'} · ${guestPreviewPosts.length || 0} sample posts in ${guestProfile.monthLabel}`
+              : `${activeBrand?.name || 'No brand selected'} · ${postCountLabel} in ${MONTHS[month - 1]} ${year}`}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -1485,11 +1814,18 @@ export default function CalendarPage() {
             </button>
           )}
           <button
-            onClick={() => !generatingMonth && !generationLockedForMonth && setShowGenPanel(true)}
-            disabled={generatingMonth || generationLockedForMonth}
+            onClick={() => {
+              if (isGuestMode) {
+                if (canGenerateGuestPreview) generateGuestPreview()
+                else focusGuestPrompt()
+                return
+              }
+              if (!generatingMonth && !generationLockedForMonth) setShowGenPanel(true)
+            }}
+            disabled={!isGuestMode && (generatingMonth || generationLockedForMonth)}
             className="btn-primary text-sm px-4 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Plus size={14}/><span className="hidden sm:inline">Generate</span>
+            <Plus size={14}/><span className="hidden sm:inline">{isGuestMode ? 'Preview' : 'Generate'}</span>
           </button>
         </div>
       </div>
@@ -1565,40 +1901,53 @@ export default function CalendarPage() {
         className="lg:hidden mb-4 border border-fog rounded-2xl bg-surface overflow-hidden group"
         open={!prepMinimized}
         onToggle={(e) => setPrepMinimizedPersist(!e.currentTarget.open)}
-      >
+        >
         <summary className="list-none cursor-pointer px-4 py-3 flex items-center gap-2 border-b border-fog bg-surface [&::-webkit-details-marker]:hidden">
           <MessageSquare size={16} className="text-ink/40 flex-shrink-0" />
           <div className="min-w-0">
-            <p className="text-ink text-sm font-semibold">Your social media manager</p>
+            <p className="text-ink text-sm font-semibold">{isGuestMode ? 'Guest prompt' : 'Your social media manager'}</p>
             <p className="text-ink/35 text-[10px] leading-snug">
-              Q&amp;A, quick replies, and design refresh for {MONTHS[month - 1]} before you generate.
+              {isGuestMode
+                ? 'Tell us your brand name and website or industry to generate a sample month.'
+                : `Q&A, quick replies, and design refresh for ${MONTHS[month - 1]} before you generate.`}
             </p>
           </div>
           <span className="ml-auto text-ink/25 text-xs group-open:rotate-180 transition-transform">▾</span>
         </summary>
         <div className="flex flex-col max-h-[70vh] border-t border-fog">
-          <CalendarPrepBody
-            messages={prepMessages}
-            prepSending={prepSending}
-            prepInput={prepInput}
-            setPrepInput={setPrepInput}
-            onSend={sendPrep}
-            scrollRef={prepScrollMobileRef}
-            onPickChoice={(ch) => sendPrepWithText(ch.label)}
-            onExecuteDesignIntent={executePrepDesignIntent}
-            prepExecuteBusy={prepExecuteBusy}
-            activeBrandId={activeBrandId}
-            onUploadAsset={uploadPrepAsset}
-            prepUploadingAsset={prepUploadingAsset}
-            prepQuestionAnswers={prepQuestionAnswers}
-            onQuestionPick={answerPrepQuestion}
-            onQuestionUpload={uploadPrepAssetForQuestion}
-            onRunCta={runPrepCtaAction}
-            usedCtaKeys={usedPrepCtaKeys}
-            ctaBusy={prepCtaBusy}
-            generatingMonth={generatingMonth}
-            prepServiceDown={prepServiceDown}
-          />
+          {isGuestMode ? (
+            <GuestCalendarPrompt
+              guestForm={guestForm}
+              setGuestForm={setGuestForm}
+              canGenerate={canGenerateGuestPreview}
+              onGenerate={generateGuestPreview}
+              guestPreviewActive={Boolean(guestRun)}
+              onOpenAuth={openAuth}
+            />
+          ) : (
+            <CalendarPrepBody
+              messages={prepMessages}
+              prepSending={prepSending}
+              prepInput={prepInput}
+              setPrepInput={setPrepInput}
+              onSend={sendPrep}
+              scrollRef={prepScrollMobileRef}
+              onPickChoice={(ch) => sendPrepWithText(ch.label)}
+              onExecuteDesignIntent={executePrepDesignIntent}
+              prepExecuteBusy={prepExecuteBusy}
+              activeBrandId={activeBrandId}
+              onUploadAsset={uploadPrepAsset}
+              prepUploadingAsset={prepUploadingAsset}
+              prepQuestionAnswers={prepQuestionAnswers}
+              onQuestionPick={answerPrepQuestion}
+              onQuestionUpload={uploadPrepAssetForQuestion}
+              onRunCta={runPrepCtaAction}
+              usedCtaKeys={usedPrepCtaKeys}
+              ctaBusy={prepCtaBusy}
+              generatingMonth={generatingMonth}
+              prepServiceDown={prepServiceDown}
+            />
+          )}
         </div>
       </details>
 
@@ -1707,7 +2056,62 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {!activeBrandId && (
+      {isGuestMode && !guestRun && (
+        <div className="border border-dashed border-fog rounded-2xl p-12 text-center">
+          <p className="text-ink/50 font-medium mb-1.5">Start with your brand name and website or industry.</p>
+          <p className="text-ink/30 text-sm mb-6">Use the guest prompt to the right and ContentCard will generate an impressive sample month for your brand.</p>
+          <button
+            type="button"
+            onClick={focusGuestPrompt}
+            className="btn-primary text-sm"
+          >
+            <Sparkles size={14}/> Open guest prompt
+          </button>
+        </div>
+      )}
+
+      {isGuestMode && guestRun && (
+        <div className="space-y-6">
+          <div className="grid gap-3 lg:grid-cols-4">
+            {guestPlanSummary.map((item) => (
+              <GuestSummaryPill key={item.label} label={item.label} value={item.value} />
+            ))}
+          </div>
+
+          <div className="rounded-[26px] border border-brand-400/20 bg-brand-500/8 px-5 py-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-brand-700">Guest preview ready</p>
+                <h2 className="mt-1 text-xl font-semibold text-ink">A sample month shaped for {guestProfile.brandName}</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink/58">
+                  We used {guestProfile.website || guestProfile.industry || 'your market'} to shape the offer angle, content themes, and visual direction. Create an account to save this workspace and generate the real calendar.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={() => openAuth('signup', true)} className="btn-primary text-sm px-4 py-2">
+                  Finish signup to save
+                </button>
+                <button type="button" onClick={() => openAuth('login')} className="btn-secondary text-sm px-4 py-2">
+                  Log in
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-5 lg:grid-cols-2">
+            {guestPreviewPosts.map((post) => (
+              <GuestPreviewCard
+                key={post.id}
+                post={post}
+                monthLabel={guestProfile.monthLabel}
+                onUnlock={() => openAuth('signup', true)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!isGuestMode && !activeBrandId && (
         <div className="border border-dashed border-fog rounded-2xl p-12 text-center">
           <p className="text-ink/40 text-sm">Select a brand to view your content calendar.</p>
         </div>
@@ -1719,7 +2123,7 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {!loading && activeBrandId && posts.length===0 && (
+      {!isGuestMode && !loading && activeBrandId && posts.length===0 && (
         <div className="border border-dashed border-fog rounded-2xl p-16 text-center">
           <p className="text-ink/50 font-medium mb-1.5">No content for {MONTHS[month-1]} {year}</p>
           <p className="text-ink/30 text-sm mb-6">Generate a full month of posts in under a minute.</p>
@@ -1894,9 +2298,11 @@ export default function CalendarPage() {
             <div className="px-3 py-3 border-b border-fog flex items-start gap-2">
               <MessageSquare size={16} className="text-ink/40 shrink-0 mt-0.5" />
               <div className="min-w-0 flex-1">
-                <p className="text-ink text-sm font-semibold">Your social media manager</p>
+                <p className="text-ink text-sm font-semibold">{isGuestMode ? 'Guest prompt' : 'Your social media manager'}</p>
                 <p className="text-ink/35 text-[10px] leading-snug">
-                  Ask questions or share updates before you generate {MONTHS[month - 1]}.
+                  {isGuestMode
+                    ? 'Start with your brand name and website or industry, then preview a month of content.'
+                    : `Ask questions or share updates before you generate ${MONTHS[month - 1]}.`}
                 </p>
               </div>
               <button
@@ -1910,28 +2316,39 @@ export default function CalendarPage() {
               </button>
             </div>
             <div className="flex flex-col flex-1 min-h-0">
-              <CalendarPrepBody
-                messages={prepMessages}
-                prepSending={prepSending}
-                prepInput={prepInput}
-                setPrepInput={setPrepInput}
-                onSend={sendPrep}
-                scrollRef={prepScrollAsideRef}
-                onPickChoice={(ch) => sendPrepWithText(ch.label)}
-                onExecuteDesignIntent={executePrepDesignIntent}
-                prepExecuteBusy={prepExecuteBusy}
-                activeBrandId={activeBrandId}
-                onUploadAsset={uploadPrepAsset}
-                prepUploadingAsset={prepUploadingAsset}
-                prepQuestionAnswers={prepQuestionAnswers}
-                onQuestionPick={answerPrepQuestion}
-                onQuestionUpload={uploadPrepAssetForQuestion}
-                onRunCta={runPrepCtaAction}
-                usedCtaKeys={usedPrepCtaKeys}
-                ctaBusy={prepCtaBusy}
-                generatingMonth={generatingMonth}
-                prepServiceDown={prepServiceDown}
-              />
+              {isGuestMode ? (
+                <GuestCalendarPrompt
+                  guestForm={guestForm}
+                  setGuestForm={setGuestForm}
+                  canGenerate={canGenerateGuestPreview}
+                  onGenerate={generateGuestPreview}
+                  guestPreviewActive={Boolean(guestRun)}
+                  onOpenAuth={openAuth}
+                />
+              ) : (
+                <CalendarPrepBody
+                  messages={prepMessages}
+                  prepSending={prepSending}
+                  prepInput={prepInput}
+                  setPrepInput={setPrepInput}
+                  onSend={sendPrep}
+                  scrollRef={prepScrollAsideRef}
+                  onPickChoice={(ch) => sendPrepWithText(ch.label)}
+                  onExecuteDesignIntent={executePrepDesignIntent}
+                  prepExecuteBusy={prepExecuteBusy}
+                  activeBrandId={activeBrandId}
+                  onUploadAsset={uploadPrepAsset}
+                  prepUploadingAsset={prepUploadingAsset}
+                  prepQuestionAnswers={prepQuestionAnswers}
+                  onQuestionPick={answerPrepQuestion}
+                  onQuestionUpload={uploadPrepAssetForQuestion}
+                  onRunCta={runPrepCtaAction}
+                  usedCtaKeys={usedPrepCtaKeys}
+                  ctaBusy={prepCtaBusy}
+                  generatingMonth={generatingMonth}
+                  prepServiceDown={prepServiceDown}
+                />
+              )}
             </div>
           </>
         )}
@@ -2016,7 +2433,7 @@ export default function CalendarPage() {
                 className="input"/>
             </div>
 
-            {(templates || []).filter(t => t.is_active).length > 0 && (
+            {activeTemplates.length > 0 && (
               <div>
                 <p className="label mb-2">Playbook template <span className="text-ink/20 font-normal normal-case tracking-normal">(optional)</span></p>
                 <div className="flex flex-wrap gap-1.5">
@@ -2026,7 +2443,7 @@ export default function CalendarPage() {
                   >
                     Auto
                   </button>
-                  {(templates || []).filter(t => t.is_active).slice(0, 6).map(t => (
+                  {activeTemplates.slice(0, 6).map(t => (
                     <button
                       key={t.id}
                       onClick={() => setGenTemplateId(t.id)}
@@ -2082,19 +2499,25 @@ export default function CalendarPage() {
 
       {/* ── Generation plan modal ── */}
       {showPlanModal && (
-        <GenerationPlanModal
-          month={month}
-          year={year}
-          platform={genPlatform}
-          postsPerWeek={genPPW}
-          templateId={genTemplateId}
-          templates={(templates || []).filter(t => t.is_active)}
-          brand={activeBrand}
-          workspaceId={activeWorkspaceId}
-          onConfirm={handlePlanConfirmed}
+        <GenerationPlanErrorBoundary
+          resetKey={`${month}-${year}-${genPlatform}-${genPPW}-${genTemplateId || 'auto'}`}
           onBack={() => { setShowPlanModal(false); setShowGenPanel(true) }}
           onClose={() => setShowPlanModal(false)}
-        />
+        >
+          <GenerationPlanModal
+            month={month}
+            year={year}
+            platform={genPlatform}
+            postsPerWeek={genPPW}
+            templateId={genTemplateId}
+            templates={activeTemplates}
+            brand={activeBrand}
+            workspaceId={activeWorkspaceId}
+            onConfirm={handlePlanConfirmed}
+            onBack={() => { setShowPlanModal(false); setShowGenPanel(true) }}
+            onClose={() => setShowPlanModal(false)}
+          />
+        </GenerationPlanErrorBoundary>
       )}
 
       {/* ── Post modal ── */}
@@ -2171,6 +2594,14 @@ export default function CalendarPage() {
                     composer to paste.
                   </p>
                   <div className="flex flex-wrap gap-2 w-full justify-center">
+                    <button
+                      type="button"
+                      onClick={markPostedManually}
+                      disabled={markingPosted}
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 btn-primary text-xs disabled:opacity-50"
+                    >
+                      <Check size={12} /> {markingPosted ? 'Saving…' : "I've posted this"}
+                    </button>
                     {modal.platform === 'twitter' && (
                       <a
                         href={twitterIntentUrl(fullPostCaptionText(editCaption, editHashtags))}
@@ -2208,7 +2639,7 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
-                {/* Right: caption + details */}
+                {/* Right: caption + hashtags */}
                 <div className="space-y-4">
 
                   {/* Caption */}
@@ -2222,96 +2653,16 @@ export default function CalendarPage() {
                   <div>
                     <label className="label">Hashtags</label>
                     <div className="flex flex-wrap gap-1.5 p-3 bg-mist border border-fog rounded-xl min-h-[42px]">
-                      {editHashtags.map((h,i)=>(
-                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-fog text-ink/60 text-xs rounded-lg">
-                          #{h}
-                          <button onClick={()=>setEditHashtags(hs=>hs.filter((_,j)=>j!==i))} className="hover:text-ink ml-0.5 text-sm leading-none">×</button>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Divider */}
-                  <div className="h-px bg-fog" />
-
-                  {/* Supporting info: typography-only separation, no colored boxes */}
-                  {modal.description && (
-                    <div>
-                      <p className="label">Strategy note</p>
-                      <p className="text-ink/60 text-xs leading-relaxed">{modal.description}</p>
-                    </div>
-                  )}
-
-                  {modal.visual_direction && (
-                    <div>
-                      <p className="label">Visual direction</p>
-                      <p className="text-ink/60 text-xs leading-relaxed">{modal.visual_direction}</p>
-                    </div>
-                  )}
-
-                  {modal.cta && (
-                    <div>
-                      <p className="label">Call to action</p>
-                      <p className="text-ink/60 text-xs font-medium">{modal.cta}</p>
-                    </div>
-                  )}
-
-                  {modal.visual_lint && modal.visual_lint.status && modal.visual_lint.status !== 'skip' && (
-                    <div
-                      className={`rounded-xl border px-3 py-2 text-xs ${
-                        modal.visual_lint.status === 'pass'
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                          : 'border-amber-200 bg-amber-50 text-amber-900'
-                      }`}
-                    >
-                      <p className="font-semibold mb-1">Brand check ({modal.visual_lint.status})</p>
-                      {(modal.visual_lint.hints || []).map((h, i) => (
-                        <p key={i} className="opacity-90">
-                          {h}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-
-                  {modal.image_prompt && (
-                    <details className="group">
-                      <summary className="flex items-center gap-2 cursor-pointer list-none select-none">
-                        <span className="label mb-0">Image prompt</span>
-                        <span className="text-ink/25 text-[10px] group-open:rotate-180 transition-transform inline-block">▾</span>
-                      </summary>
-                      <div className="mt-2 relative">
-                        <p className="text-ink/40 text-xs leading-relaxed pr-7">{modal.image_prompt}</p>
-                        <button
-                          onClick={()=>{ navigator.clipboard?.writeText(modal.image_prompt); toast('Prompt copied') }}
-                          className="absolute top-0 right-0 text-ink/25 hover:text-ink/60 transition-colors">
-                          <Copy size={11}/>
-                        </button>
-                        {modal.image_prompt_explanation && (
-                          <p className="text-ink/25 text-[11px] leading-relaxed mt-2 italic">{modal.image_prompt_explanation}</p>
-                        )}
-                      </div>
-                    </details>
-                  )}
-
-                  <div>
-                    <p className="label">Generate image with AI prompt</p>
-                    <textarea
-                      value={visualPrompt}
-                      onChange={(e) => setVisualPrompt(e.target.value)}
-                      rows={3}
-                      className="input resize-none text-xs"
-                      placeholder="Describe the exact image style you want, then generate. You can switch layout archetype after."
-                    />
-                    <div className="mt-2 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={regenerateVisualFromPrompt}
-                        disabled={regenVis}
-                        className="btn-secondary text-xs px-3 py-2"
-                      >
-                        {regenVis ? 'Generating…' : 'Generate from prompt'}
-                      </button>
-                      <span className="text-[11px] text-ink/35">Pick a new layout archetype after generation if needed.</span>
+                      {editHashtags.length > 0 ? (
+                        editHashtags.map((h,i)=>(
+                          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-fog text-ink/60 text-xs rounded-lg">
+                            #{h}
+                            <button onClick={()=>setEditHashtags(hs=>hs.filter((_,j)=>j!==i))} className="hover:text-ink ml-0.5 text-sm leading-none">×</button>
+                          </span>
+                        ))
+                      ) : (
+                        <p className="text-xs text-ink/35">No hashtags yet</p>
+                      )}
                     </div>
                   </div>
 
@@ -2454,6 +2805,12 @@ export default function CalendarPage() {
           onClose={() => setShowCardModal(false)}
         />
       )}
+
+      <AuthEntryModal
+        open={authModal.open}
+        mode={authModal.mode}
+        onClose={() => setAuthModal((current) => ({ ...current, open: false }))}
+      />
     </div>
   )
 }

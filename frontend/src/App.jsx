@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { ToastProvider } from './components/ui/Toast'
 import useAuthStore from './stores/authStore'
+import { getPostAuthPath } from './utils/authFlow'
 
 import LandingPage          from './pages/LandingPage'
 import LoginPage            from './pages/LoginPage'
@@ -71,11 +72,13 @@ function AuthGateFallback() {
 function RouteGate({ children, requireAuth }) {
   const {
     token,
+    user,
     isAuthenticated,
     hasHydrated,
     authResolved,
     bootstrapAuth,
   } = useAuthStore()
+  const location = useLocation()
 
   useEffect(() => {
     if (!hasHydrated) return
@@ -88,11 +91,18 @@ function RouteGate({ children, requireAuth }) {
     return <AuthGateFallback />
   }
 
+  const shouldResumeOnboarding =
+    isAuthenticated &&
+    user?.onboarding_completed === false &&
+    !new Set(['/onboarding', '/shopify/complete-onboarding', '/shopify/decision', '/shopify/callback']).has(location.pathname)
+
   if (requireAuth) {
-    return isAuthenticated ? children : <Navigate to="/login" replace />
+    if (!isAuthenticated) return <Navigate to="/login" replace />
+    if (shouldResumeOnboarding) return <Navigate to="/onboarding" replace />
+    return children
   }
 
-  return !isAuthenticated ? children : <Navigate to="/dashboard" replace />
+  return !isAuthenticated ? children : <Navigate to={getPostAuthPath(user, '/dashboard')} replace />
 }
 
 function PrivateRoute({ children }) {

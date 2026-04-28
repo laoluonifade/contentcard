@@ -8,6 +8,7 @@ import useAuthStore from '../stores/authStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
 import { authApi } from '../api'
+import { getPostAuthPath } from '../utils/authFlow'
 
 const SUPPORTED_ICONS = [
   { id: 'shopify', label: 'Shopify', custom: true },
@@ -36,9 +37,9 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
-      await login(form)
+      const res = await login(form)
       toast.success('Welcome back!')
-      navigate('/dashboard')
+      navigate(getPostAuthPath(res?.user, '/dashboard'))
     } catch (err) {
       toast.error(err.message || 'Sign in failed. Please check your credentials.')
     }

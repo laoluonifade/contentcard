@@ -52,7 +52,11 @@ from app.services.ai_service import (
     _default_cta_from_brand,
 )
 from app.services.month_holiday_context import build_month_holiday_context
-from app.services.visual_tokens import apply_visual_system_defaults
+from app.services.visual_tokens import (
+    apply_poster_lockup_defaults,
+    apply_visual_system_defaults,
+    poster_lockup_mode_enabled,
+)
 from app.services.art_brief_service import build_art_brief
 from app.services.visual_lint_service import lint_final_image
 from app.services.quality_gate_service import score_visual_quality
@@ -124,6 +128,87 @@ async def _meme_catalog_brief_addon(db: AsyncSession, limit: int = 55) -> str | 
         "characters, or watermarked stock. ref_url is for product/compositing only; do not paste URLs into captions.\n"
         + "\n".join(lines)
     )
+
+
+def _compact_generation_brief(raw: str | None) -> str | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+
+    normalized = re.sub(r"\r\n?", "\n", text)
+    lines = [ln.strip() for ln in normalized.split("\n") if ln.strip()]
+    if not lines:
+        return None
+
+    user_lines: list[str] = []
+    assistant_plan_lines: list[str] = []
+    asset_lines: list[str] = []
+
+    for ln in lines:
+        low = ln.lower()
+        clean = re.sub(r"^(user|assistant)\s*:\s*", "", ln, flags=re.IGNORECASE).strip()
+        if not clean:
+            continue
+        if any(tok in low for tok in ("attached ", "uploaded ", "screenshot:", "recording:", "screen recording")):
+            asset_lines.append(clean[:220])
+            continue
+        if low.startswith("user:") or low.startswith("answer:"):
+            user_lines.append(clean[:240])
+            continue
+        if low.startswith("assistant:") and (
+            clean.startswith("-")
+            or re.match(r"^\d+\.\s+", clean)
+            or "plan" in low
+            or "focus" in low
+            or "angle" in low
+        ):
+            assistant_plan_lines.append(clean[:240])
+
+    if not user_lines and not assistant_plan_lines:
+        return text[:5000]
+
+    sections: list[str] = []
+    if user_lines:
+        deduped_user: list[str] = []
+        seen_user: set[str] = set()
+        for ln in reversed(user_lines):
+            key = ln.lower()
+            if key in seen_user:
+                continue
+            seen_user.add(key)
+            deduped_user.append(ln)
+            if len(deduped_user) >= 10:
+                break
+        sections.append("=== APPROVED USER INPUTS ===\n" + "\n".join(f"- {ln}" for ln in reversed(deduped_user)))
+
+    if assistant_plan_lines:
+        deduped_plan: list[str] = []
+        seen_plan: set[str] = set()
+        for ln in reversed(assistant_plan_lines):
+            key = ln.lower()
+            if key in seen_plan:
+                continue
+            seen_plan.add(key)
+            deduped_plan.append(ln)
+            if len(deduped_plan) >= 8:
+                break
+        sections.append("=== WORKING MONTH PLAN ===\n" + "\n".join(f"- {ln}" for ln in reversed(deduped_plan)))
+
+    if asset_lines:
+        deduped_assets: list[str] = []
+        seen_assets: set[str] = set()
+        for ln in reversed(asset_lines):
+            key = ln.lower()
+            if key in seen_assets:
+                continue
+            seen_assets.add(key)
+            deduped_assets.append(ln)
+            if len(deduped_assets) >= 6:
+                break
+        sections.append("=== ASSETS AND REFERENCES MENTIONED ===\n" + "\n".join(f"- {ln}" for ln in reversed(deduped_assets)))
+
+    brief = "\n\n".join(sections).strip()
+    return brief[:5000] if brief else text[:5000]
 
 
 def _item_has_visual_assets(item: ContentItem) -> bool:
@@ -346,6 +431,25 @@ def _template_generation_context(tmpl: ContentTemplate | None) -> str | None:
         parts.append(f"Template visual direction: {tmpl.generated_visual_direction}")
     if tmpl.generated_image_prompt:
         parts.append(f"Template image prompt baseline: {tmpl.generated_image_prompt}")
+    slots = (
+        design_spec.get("playbook_visual_direction_slots")
+        if isinstance(design_spec.get("playbook_visual_direction_slots"), list)
+        else []
+    )
+    selected_key = str(design_spec.get("playbook_selected_slot_key") or "").strip().upper()
+    if slots:
+        parts.append(f"Visual direction slot count: {len(slots)}")
+        if selected_key:
+            parts.append(f"Preferred visual direction slot: {selected_key}")
+        for idx, slot in enumerate(slots[:4], start=1):
+            if not isinstance(slot, dict):
+                continue
+            slot_key = str(slot.get("slot_key") or f"VD{idx:02d}").strip().upper()
+            post_type = "carousel" if "carousel" in str(slot.get("post_type") or "").lower() else "single"
+            marker = " (preferred)" if slot_key == selected_key else ""
+            parts.append(
+                f"Slot {slot_key}{marker}: post_type={post_type} | visual_direction={str(slot.get('visual_direction') or '').strip()}"
+            )
     slot_contract = design_spec.get("slot_contract") if isinstance(design_spec.get("slot_contract"), dict) else {}
     if slot_contract:
         parts.append(
@@ -388,12 +492,34 @@ def _template_contract_from_row(tmpl: ContentTemplate | None) -> dict:
             "evidence_max_words": 16,
             "cta_max_words": 8,
         }
+    raw_slots = spec.get("playbook_visual_direction_slots") if isinstance(spec.get("playbook_visual_direction_slots"), list) else []
+    normalized_slots: list[dict] = []
+    for idx, row in enumerate(raw_slots, start=1):
+        if not isinstance(row, dict):
+            continue
+        vd = str(row.get("visual_direction") or "").strip()
+        if not vd:
+            continue
+        normalized_slots.append(
+            {
+                "slot_key": str(row.get("slot_key") or f"VD{idx:02d}").strip().upper(),
+                "post_type": "carousel" if "carousel" in str(row.get("post_type") or "").lower() else "single",
+                "visual_direction": vd,
+            }
+        )
+    selected_key = str(spec.get("playbook_selected_slot_key") or "").strip().upper()
+    preferred_slot = next((slot for slot in normalized_slots if slot.get("slot_key") == selected_key), None)
+    if preferred_slot is None and normalized_slots:
+        preferred_slot = normalized_slots[0]
     return {
         "template_name": tmpl.name,
         "content_template_type": content_template_type or "general",
         "design_template_type": design_template_type or "general_social",
         "template_family": family,
         "slot_contract": slot_contract,
+        "visual_direction_slots": normalized_slots,
+        "preferred_visual_direction_slot": preferred_slot,
+        "preferred_visual_direction_slot_key": preferred_slot.get("slot_key") if isinstance(preferred_slot, dict) else None,
     }
 
 
@@ -401,20 +527,35 @@ def _template_contract_text(contract: dict | None) -> str | None:
     if not isinstance(contract, dict) or not contract:
         return None
     sc = contract.get("slot_contract") if isinstance(contract.get("slot_contract"), dict) else {}
-    return "\n".join(
-        [
-            "=== TEMPLATE MESSAGE-ARCHITECTURE CONTRACT ===",
-            f"Template family to render: {contract.get('template_family')}",
-            f"Content template type: {contract.get('content_template_type')}",
-            f"Design template type: {contract.get('design_template_type')}",
-            "Every post MUST include a clear one-line hook, one support line, one evidence/proof line, and one CTA line.",
-            f"Headline max words: {sc.get('headline_max_words', 7)}",
-            f"Support max words: {sc.get('support_max_words', 14)}",
-            f"Evidence max words: {sc.get('evidence_max_words', 16)}",
-            f"CTA max words: {sc.get('cta_max_words', 8)}",
-            "Do not return generic scene-only designs; return structured ad-style concepts with clear hierarchy.",
-        ]
-    )
+    lines = [
+        "=== TEMPLATE MESSAGE-ARCHITECTURE CONTRACT ===",
+        f"Template family to render: {contract.get('template_family')}",
+        f"Content template type: {contract.get('content_template_type')}",
+        f"Design template type: {contract.get('design_template_type')}",
+        "Every post MUST include a clear one-line hook, one support line, one evidence/proof line, and one CTA line.",
+        f"Headline max words: {sc.get('headline_max_words', 7)}",
+        f"Support max words: {sc.get('support_max_words', 14)}",
+        f"Evidence max words: {sc.get('evidence_max_words', 16)}",
+        f"CTA max words: {sc.get('cta_max_words', 8)}",
+        "Do not return generic scene-only designs; return structured ad-style concepts with clear hierarchy.",
+    ]
+    preferred_slot = contract.get("preferred_visual_direction_slot") if isinstance(contract.get("preferred_visual_direction_slot"), dict) else None
+    all_slots = contract.get("visual_direction_slots") if isinstance(contract.get("visual_direction_slots"), list) else []
+    if preferred_slot:
+        lines.append(
+            "Preferred slot for generation: "
+            f"{preferred_slot.get('slot_key')} | post_type={preferred_slot.get('post_type')} | "
+            f"visual_direction={preferred_slot.get('visual_direction')}"
+        )
+    if all_slots:
+        lines.append("Available visual direction slots to stay within:")
+        for slot in all_slots[:5]:
+            if not isinstance(slot, dict):
+                continue
+            lines.append(
+                f"- {slot.get('slot_key')}: post_type={slot.get('post_type')} | {slot.get('visual_direction')}"
+            )
+    return "\n".join(lines)
 
 
 def _trim_words(text: str, max_words: int) -> str:
@@ -426,11 +567,100 @@ def _trim_words(text: str, max_words: int) -> str:
 
 def _force_single_user_format_mix(fmt: str | None) -> str:
     """
-    Keep playbook entries intact, but for user generation runs we currently ship
-    only single-post outputs for consistency and design quality.
+    Preserve the user's requested format mix while normalising legacy aliases.
     """
-    _ = fmt
-    return "single_only"
+    raw = str(fmt or "").strip().lower()
+    if not raw:
+        return "mixed"
+    if raw in {"single_post", "single-post", "single only"}:
+        return "single_only"
+    if raw in {"mix", "mixed"}:
+        return "mixed"
+    if raw in {"carousel_only", "carousel-only"}:
+        return "carousel"
+    if raw in {"single", "single_only", "carousel", "quote", "gif"}:
+        return raw
+    return "mixed"
+
+
+async def _score_rendered_visual_set(
+    urls: list[str],
+    brand_dict: dict,
+    post_data: dict,
+    sab: dict,
+    *,
+    min_score: float,
+) -> tuple[dict, dict]:
+    if not urls:
+        return {"status": "skip", "hints": []}, {
+            "status": "skip",
+            "overall_score": 0.0,
+            "scores": {},
+            "reasons": ["No image to score"],
+            "retry_hints": [],
+            "slide_results": [],
+            "scored_slide_count": 0,
+        }
+
+    slide_results: list[dict] = []
+    reasons: list[str] = []
+    hints: list[str] = []
+    metric_acc: dict[str, list[float]] = {}
+    worst_score = 1.0
+    failed = False
+    skipped = False
+
+    for idx, url in enumerate(urls):
+        lint = await lint_final_image(url, brand_dict, sab)
+        if settings.QUALITY_GATE_ENABLED:
+            qg = await score_visual_quality(
+                url,
+                brand_dict,
+                post_data,
+                lint=lint,
+                min_score=min_score,
+            )
+        else:
+            qg = {
+                "status": "pass",
+                "overall_score": 1.0,
+                "scores": {},
+                "reasons": [],
+                "retry_hints": [],
+            }
+        status = str(qg.get("status") or "skip")
+        score = float(qg.get("overall_score") or 0.0)
+        worst_score = min(worst_score, score)
+        failed = failed or status == "fail"
+        skipped = skipped or status == "skip"
+        reasons.extend([str(r) for r in (qg.get("reasons") or []) if str(r).strip()])
+        hints.extend([str(r) for r in (qg.get("retry_hints") or []) if str(r).strip()])
+        for key, value in (qg.get("scores") or {}).items():
+            try:
+                metric_acc.setdefault(str(key), []).append(float(value))
+            except (TypeError, ValueError):
+                continue
+        slide_results.append({
+            "slide_index": idx + 1,
+            "image_url": url,
+            "lint": lint,
+            "quality_gate": qg,
+        })
+
+    aggregate_status = "fail" if failed else ("skip" if skipped else "pass")
+    aggregate = {
+        "status": aggregate_status,
+        "overall_score": round(worst_score if slide_results else 0.0, 3),
+        "scores": {
+            key: round(sum(values) / len(values), 3)
+            for key, values in metric_acc.items() if values
+        },
+        "reasons": list(dict.fromkeys(reasons))[:12],
+        "retry_hints": list(dict.fromkeys(hints))[:12],
+        "slide_results": slide_results,
+        "scored_slide_count": len(slide_results),
+    }
+    return slide_results[0]["lint"], aggregate
 
 
 def _build_message_architecture(post: dict, contract: dict | None) -> dict:
@@ -472,8 +702,16 @@ def _apply_template_contract_to_post(post: dict, contract: dict | None) -> dict:
     out = dict(post)
     out["template_family"] = contract.get("template_family") or "default"
     out["force_template_family"] = out["template_family"]
-    if not str(out.get("content_type") or "").strip():
-        out["content_type"] = str(contract.get("content_template_type") or "general")
+    forced_content_type = str(contract.get("content_template_type") or "").strip()
+    if forced_content_type:
+        out["content_type"] = forced_content_type
+    preferred_slot = contract.get("preferred_visual_direction_slot") if isinstance(contract.get("preferred_visual_direction_slot"), dict) else None
+    if preferred_slot:
+        out["playbook_slot_key"] = preferred_slot.get("slot_key")
+        out["visual_direction"] = str(preferred_slot.get("visual_direction") or out.get("visual_direction") or "").strip()
+        forced_post_type = "carousel" if "carousel" in str(preferred_slot.get("post_type") or "").lower() else "single"
+        out["format"] = forced_post_type
+        out["slide_count"] = max(4, int(out.get("slide_count") or 1)) if forced_post_type == "carousel" else 1
     existing_ma = out.get("message_architecture") if isinstance(out.get("message_architecture"), dict) else None
     if existing_ma and str(existing_ma.get("hook") or "").strip() and str(existing_ma.get("support") or "").strip():
         message_arch = existing_ma
@@ -764,6 +1002,7 @@ async def _load_design_playbook_for_industry(db: AsyncSession, industry_key: str
         by_ct.setdefault(str(row.content_type_id), []).append(
             {
                 "id": row.id,
+                "slot_key": f"VD{len(by_ct.get(str(row.content_type_id), [])) + 1:02d}",
                 "post_type": "carousel" if "carousel" in str(row.post_type or "").lower() else "single",
                 "visual_direction": row.visual_direction,
             }
@@ -979,7 +1218,7 @@ async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand
     Logo compositing failure is non-fatal: images are kept and delivered
     without the logo rather than being wiped and blocking delivery forever.
     """
-    logo_required = has_brand_logo(brand_dict)
+    logo_required = has_brand_logo(brand_dict) and poster_lockup_mode_enabled(brand_dict, "logo", post_data)
     try:
         if item.image_urls:
             finalized, all_applied = await finalize_rendered_urls_with_logo(item.image_urls, brand_dict, post_data)
@@ -1077,32 +1316,28 @@ async def _render_with_quality_gate(
             item.image_urls = bb_urls
 
         last_logo_ok = await _apply_brand_logo_to_visuals(item, render_post, brand_dict)
-        cover_url = (item.image_urls or [item.image_url])[0] if (item.image_urls or item.image_url) else None
-        last_lint = await lint_final_image(cover_url, brand_dict, sab)
-        if settings.QUALITY_GATE_ENABLED:
-            last_qg = await score_visual_quality(
-                cover_url,
-                brand_dict,
-                render_post,
-                lint=last_lint,
-                min_score=float(settings.QUALITY_GATE_MIN_SCORE),
-            )
-        else:
-            last_qg = {
-                "status": "pass",
-                "overall_score": 1.0,
-                "scores": {},
-                "reasons": [],
-                "retry_hints": [],
-            }
+        rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
+        last_lint, last_qg = await _score_rendered_visual_set(
+            rendered_urls,
+            brand_dict,
+            render_post,
+            sab,
+            min_score=float(settings.QUALITY_GATE_MIN_SCORE),
+        )
 
         pass_quality = str(last_qg.get("status") or "") == "pass"
         cover_url_exists = bool(item.image_url or item.image_urls)
         # Accept if quality passes regardless of logo status — logo failure is non-fatal.
-        # Accept also if we have images but quality gate returned "skip" (no image to score).
         qg_status = str(last_qg.get("status") or "")
-        if (pass_quality or qg_status == "skip") and cover_url_exists:
+        if pass_quality and cover_url_exists:
             return last_lint, last_qg, last_logo_ok
+        if qg_status == "skip":
+            render_post["quality_gate_notes"] = " ".join(
+                x for x in [
+                    str(render_post.get("quality_gate_notes") or "").strip(),
+                    "Retry because scoring skipped; strengthen hierarchy, contrast, and production clarity.",
+                ] if x
+            ).strip()
 
     # Final fallback render: deterministic branded template output (no AI background)
     # so posts are still delivered instead of staying pending forever.
@@ -1124,16 +1359,27 @@ async def _render_with_quality_gate(
             item.image_urls = bb_urls
             item.image_url = bb_urls[0]
         last_logo_ok = await _apply_brand_logo_to_visuals(item, fallback_post, brand_dict)
-        cover_url = (item.image_urls or [item.image_url])[0] if (item.image_urls or item.image_url) else None
-        last_lint = await lint_final_image(cover_url, brand_dict, sab)
+        rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
+        last_lint, fallback_qg = await _score_rendered_visual_set(
+            rendered_urls,
+            brand_dict,
+            fallback_post,
+            sab,
+            min_score=float(settings.QUALITY_GATE_MIN_SCORE),
+        )
         # Deliver fallback if we have any image — logo failure is still non-fatal here.
-        if cover_url:
+        if rendered_urls:
             last_qg = {
                 "status": "pass_fallback",
-                "overall_score": round(float(last_qg.get("overall_score") or 0.0), 3),
-                "scores": last_qg.get("scores") or {},
-                "reasons": ["Primary quality gate retries failed; used deterministic fallback template render."],
-                "retry_hints": last_qg.get("retry_hints") or [],
+                "overall_score": round(float(fallback_qg.get("overall_score") or 0.0), 3),
+                "scores": fallback_qg.get("scores") or {},
+                "reasons": [
+                    "Primary quality gate retries failed; used deterministic fallback template render.",
+                    *(fallback_qg.get("reasons") or []),
+                ],
+                "retry_hints": fallback_qg.get("retry_hints") or [],
+                "slide_results": fallback_qg.get("slide_results") or [],
+                "scored_slide_count": fallback_qg.get("scored_slide_count") or 0,
             }
             return last_lint, last_qg, last_logo_ok
     except Exception as e:
@@ -1187,6 +1433,12 @@ def _validate_brand_readiness(brand: Brand) -> list[str]:
     kit = brand.brand_kit or {}
     missing = []
 
+    if not (brand.description or '').strip():
+        missing.append("Brand description (Basics tab)")
+
+    if not (brand.pain_point or '').strip():
+        missing.append("Customer pain point (Audience tab)")
+
     if not (brand.target_audience or '').strip():
         missing.append("Target audience (Audience tab)")
 
@@ -1200,9 +1452,29 @@ def _validate_brand_readiness(brand: Brand) -> list[str]:
     if not ws:
         missing.append("Writing style (Voice tab)")
 
+    vp = str(kit.get('value_proposition') or '').strip()
+    if not vp:
+        missing.append("Value proposition (Identity tab)")
+
     km = kit.get('key_messages') or []
     if not km or (isinstance(km, list) and len(km) == 0) or (isinstance(km, str) and not km.strip()):
-        missing.append("Key messages (Messaging tab)")
+        missing.append("Key messages (Identity tab)")
+
+    cta_style = str(kit.get('cta_style') or '').strip()
+    if not cta_style:
+        missing.append("CTA style (Identity tab)")
+
+    has_palette = bool(brand.brand_colors and len([c for c in brand.brand_colors if str(c).strip()]) >= 2)
+    vs = kit.get("visual_system") if isinstance(kit.get("visual_system"), dict) else {}
+    has_visual_tokens = all(str(vs.get(k) or "").strip() for k in ("primary_hex", "secondary_hex", "accent_hex"))
+    if not (has_palette or has_visual_tokens):
+        missing.append("Brand colors or visual system palette (Visual tab)")
+
+    if not (brand.design_style or '').strip():
+        missing.append("Design style (Visual tab)")
+
+    if not (brand.guidelines or '').strip():
+        missing.append("Guidelines / guardrails (Rules tab)")
 
     return missing
 
@@ -1322,6 +1594,7 @@ async def generate_month(
             if template_context
             else body.generation_brief
         ),
+        campaign_brief=body.campaign_brief,
         website_grounding_text=website_grounding_text,
         approved_website_opportunities=approved_website_opportunities,
         only_new_website_changes=body.only_new_changes,
@@ -1422,6 +1695,7 @@ async def generate_month_v2(
             "ensure crisp hierarchy, product-forward composition, premium ecommerce polish."
         )
     generation_brief = "\n\n".join([x for x in [style_brief, template_context] if x and str(x).strip()]) or None
+    campaign_brief_payload = body.campaign_brief.model_dump(exclude_none=True) if body.campaign_brief else None
 
     background_tasks.add_task(
         _do_generate_month,
@@ -1439,6 +1713,7 @@ async def generate_month_v2(
         country_code=current_user.country_code,
         include_holidays_in_content=True,
         generation_brief=generation_brief,
+        campaign_brief=campaign_brief_payload,
         website_grounding_text=website_grounding_text,
         approved_website_opportunities=approved_website_opportunities,
         only_new_website_changes=body.only_new_changes,
@@ -1669,10 +1944,31 @@ async def list_content(
 ):
     await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
     conditions = [ContentItem.brand_id == brand_id]
-    if month:
-        conditions.append(ContentItem.generation_month == month)
-    if year:
-        conditions.append(ContentItem.generation_year == year)
+    if month and year:
+        start = date(year, month, 1)
+        end = date(year, month, monthrange(year, month)[1])
+        # Calendar views should follow the actual scheduled month first.
+        # Fall back to generation_month/year only for rows that have not been
+        # explicitly scheduled yet, so newly generated drafts still appear.
+        conditions.append(
+            or_(
+                and_(
+                    ContentItem.scheduled_date.isnot(None),
+                    ContentItem.scheduled_date >= start,
+                    ContentItem.scheduled_date <= end,
+                ),
+                and_(
+                    ContentItem.scheduled_date.is_(None),
+                    ContentItem.generation_month == month,
+                    ContentItem.generation_year == year,
+                ),
+            )
+        )
+    else:
+        if month:
+            conditions.append(ContentItem.generation_month == month)
+        if year:
+            conditions.append(ContentItem.generation_year == year)
     if platform:
         conditions.append(ContentItem.platform == platform)
     if status:
@@ -1718,6 +2014,14 @@ async def generation_prep_chat(
         spec = t.design_spec if isinstance(t.design_spec, dict) else {}
         ct = str(spec.get("playbook_content_type") or t.name or "general").strip()
         slots = spec.get("playbook_visual_direction_slots") if isinstance(spec.get("playbook_visual_direction_slots"), list) else []
+        selected_key = str(spec.get("playbook_selected_slot_key") or "").strip().upper()
+        selected_slot = next(
+            (
+                row for row in slots
+                if isinstance(row, dict) and str(row.get("slot_key") or "").strip().upper() == selected_key
+            ),
+            None,
+        )
         direction_count = len([s for s in slots if isinstance(s, dict) and str(s.get("visual_direction") or "").strip()])
         top_dirs = []
         for row in slots[:3]:
@@ -1727,7 +2031,14 @@ async def generation_prep_chat(
             if vd:
                 top_dirs.append(vd[:110])
         sample_text = "; ".join(top_dirs) if top_dirs else "no visual directions added yet"
-        playbook_lines.append(f"{idx}. {ct} ({direction_count} directions) -> {sample_text}")
+        preferred_text = ""
+        if isinstance(selected_slot, dict):
+            preferred_text = (
+                f" | preferred {selected_key or selected_slot.get('slot_key')}: "
+                f"{str(selected_slot.get('post_type') or 'single').strip()} -> "
+                f"{str(selected_slot.get('visual_direction') or '').strip()[:120]}"
+            )
+        playbook_lines.append(f"{idx}. {ct} ({direction_count} directions){preferred_text} | examples -> {sample_text}")
     playbook_summary = "\n".join(playbook_lines) if playbook_lines else "No custom templates yet."
     product_rows = (
         await db.execute(
@@ -1820,6 +2131,11 @@ async def generation_prep_chat(
     if isinstance(raw_cta, dict):
         lbl = str(raw_cta.get("label") or "").strip()
         action = str(raw_cta.get("action") or "none").strip().lower()
+        if action == "start_generation" and (
+            not lbl
+            or ("approve" not in lbl.lower() and "plan" not in lbl.lower())
+        ):
+            lbl = "Approve plan and generate"
         if lbl and action in ("none", "start_generation"):
             cta = PrepChatCta(label=lbl[:80], action=action)
     return GenerationPrepChatResponse(
@@ -2137,6 +2453,7 @@ async def regenerate_caption(
             topic=item.topic,
             platform=item.platform.value,
             mood=body.mood,
+            description=item.description,
             existing_caption=item.caption,
         )
         item.caption = result.get("caption", item.caption)
@@ -2523,6 +2840,7 @@ async def _do_generate_month(
     country_code: str | None,
     include_holidays_in_content: bool,
     generation_brief: str | None,
+    campaign_brief: dict | None = None,
     website_grounding_text: str | None = None,
     approved_website_opportunities: list[dict] | None = None,
     only_new_website_changes: bool = False,
@@ -2539,10 +2857,11 @@ async def _do_generate_month(
             selected_template = None
             template_contract: dict = {}
             brand_for_planner = dict(brand_dict or {})
-            industry_key = _industry_key_from_brand(brand_for_planner)
-            playbook = await _load_design_playbook_for_industry(db, industry_key)
-            if playbook:
-                brand_for_planner["design_playbook"] = playbook
+            if country_code:
+                cc = str(country_code).strip().upper()
+                brand_for_planner["country_code"] = cc
+                brand_for_planner["market_country_code"] = cc
+                brand_dict = {**brand_for_planner}
             if template_id:
                 selected_template = (
                     await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
@@ -2560,21 +2879,19 @@ async def _do_generate_month(
                 db, brand_id, year, month
             )
             brief_parts: list[str] = []
-            if generation_brief and generation_brief.strip():
-                brief_parts.append(generation_brief.strip())
-            contract_text = _template_contract_text(template_contract)
-            if contract_text:
-                brief_parts.append(contract_text)
+            compact_generation_brief = _compact_generation_brief(generation_brief)
+            if compact_generation_brief:
+                brief_parts.append(compact_generation_brief)
             if website_grounding_text and website_grounding_text.strip():
-                brief_parts.append(website_grounding_text.strip())
+                brief_parts.append(website_grounding_text.strip()[:7000])
             if prior_months_brief:
-                brief_parts.append(prior_months_brief)
+                brief_parts.append(prior_months_brief[:5000])
             try:
                 meme_addon = await _meme_catalog_brief_addon(db)
             except Exception:
                 meme_addon = None
             if meme_addon:
-                brief_parts.append(meme_addon)
+                brief_parts.append(meme_addon[:4000])
             combined_generation_brief = "\n\n".join(brief_parts) if brief_parts else None
 
             if custom_plan and len(custom_plan) > 0:
@@ -2619,6 +2936,7 @@ async def _do_generate_month(
                     topic_override=topic_override, template_topics=template_topics,
                     holiday_context=holiday_context or None,
                     generation_brief=combined_generation_brief,
+                    campaign_brief=campaign_brief,
                 )
             ec = existing_counts or {}
             slots = {p: max(0, MAX_POSTS_PER_PLATFORM_PER_MONTH - int(ec.get(p, 0))) for p in platforms}
@@ -2641,8 +2959,6 @@ async def _do_generate_month(
                     brand_id, month, year,
                 )
                 return
-            if template_contract:
-                posts = [_apply_template_contract_to_post(p, template_contract) for p in posts]
             occupied_dates = await _existing_platform_dates_in_month(db, brand_id, month, year)
             posts = _shift_posts_avoid_calendar_collisions(posts, occupied_dates, month, year)
             if not posts:
@@ -2838,6 +3154,14 @@ async def _do_generate_month(
                         len(approved_map),
                     ),
                     "requested_media_type": requested_media_type,
+                    "qa_polish": post.get("qa_polish") if isinstance(post.get("qa_polish"), dict) else None,
+                    "quality_warnings": post.get("quality_warnings") if isinstance(post.get("quality_warnings"), list) else [],
+                    "layout_family": post.get("layout_family"),
+                    "component_pack": post.get("component_pack") if isinstance(post.get("component_pack"), list) else [],
+                    "slide_blueprint": post.get("slide_blueprint") if isinstance(post.get("slide_blueprint"), list) else [],
+                    "campaign_modules": post.get("campaign_modules") if isinstance(post.get("campaign_modules"), dict) else None,
+                    "series_system": post.get("series_system"),
+                    "issue_label": post.get("issue_label"),
                 }
                 item.theme = th
                 saved_items[i] = (item, enriched)
@@ -2905,6 +3229,22 @@ async def _do_generate_month(
                     cm["template_contract"] = template_contract
                 if isinstance(post_data.get("message_architecture"), dict):
                     cm["message_architecture"] = post_data.get("message_architecture")
+                if isinstance(post_data.get("qa_polish"), dict):
+                    cm["qa_polish"] = post_data.get("qa_polish")
+                if isinstance(post_data.get("quality_warnings"), list):
+                    cm["quality_warnings"] = post_data.get("quality_warnings")
+                if isinstance(post_data.get("component_pack"), list):
+                    cm["component_pack"] = post_data.get("component_pack")
+                if isinstance(post_data.get("slide_blueprint"), list):
+                    cm["slide_blueprint"] = post_data.get("slide_blueprint")
+                if isinstance(post_data.get("campaign_modules"), dict):
+                    cm["campaign_modules"] = post_data.get("campaign_modules")
+                if post_data.get("layout_family"):
+                    cm["layout_family"] = post_data.get("layout_family")
+                if post_data.get("series_system"):
+                    cm["series_system"] = post_data.get("series_system")
+                if post_data.get("issue_label"):
+                    cm["issue_label"] = post_data.get("issue_label")
                 th["cc_meta"] = cm
                 item.theme = th
                 await db.commit()
@@ -2979,7 +3319,7 @@ def _brand_to_dict(brand: Brand) -> dict:
     # brand_motifs, mission_statement, value_proposition, key_messages, etc.)
     # Individual column values above take priority over kit values.
     merged = {**kit, **base}
-    return apply_visual_system_defaults(merged)
+    return apply_poster_lockup_defaults(apply_visual_system_defaults(merged))
 
 
 def _content_item_to_post_dict(item: ContentItem) -> dict:
@@ -2992,6 +3332,12 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
     wg = None
     p_img_url = None
     p_img_urls = None
+    layout_family = None
+    component_pack = None
+    slide_blueprint = None
+    campaign_modules = None
+    series_system = None
+    issue_label = None
     if isinstance(cm, dict):
         arch = cm.get("visual_archetype")
         ab = cm.get("art_brief") if isinstance(cm.get("art_brief"), dict) else None
@@ -3000,6 +3346,12 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         wg = cm.get("website_grounding") if isinstance(cm.get("website_grounding"), dict) else None
         p_img_url = str(cm.get("product_image_url") or "").strip() or None
         p_img_urls = cm.get("product_image_urls") if isinstance(cm.get("product_image_urls"), list) else None
+        layout_family = cm.get("layout_family")
+        component_pack = cm.get("component_pack") if isinstance(cm.get("component_pack"), list) else None
+        slide_blueprint = cm.get("slide_blueprint") if isinstance(cm.get("slide_blueprint"), list) else None
+        campaign_modules = cm.get("campaign_modules") if isinstance(cm.get("campaign_modules"), dict) else None
+        series_system = cm.get("series_system")
+        issue_label = cm.get("issue_label")
     vt = "real_people"
     if isinstance(cm, dict):
         v = str(cm.get("visual_type") or "").strip().lower()
@@ -3021,6 +3373,12 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         "art_brief": ab,
         "force_template_family": tf,
         "template_family": tf,
+        "layout_family": layout_family,
+        "component_pack": component_pack,
+        "slide_blueprint": slide_blueprint,
+        "campaign_modules": campaign_modules,
+        "series_system": series_system,
+        "issue_label": issue_label,
         "message_architecture": ma,
         "website_grounding": wg,
         "product_image_url": p_img_url,

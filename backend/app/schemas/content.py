@@ -22,6 +22,8 @@ class GenerateMonthRequest(BaseModel):
     only_new_changes: bool = False
     # Set true after the UI confirms generating again for a month that already has posts.
     confirm_duplicate: bool = False
+    # Optional structured brief collected by prep or onboarding.
+    campaign_brief: dict | None = None
 
 
 class GenerationPrepMessage(BaseModel):
@@ -229,6 +231,46 @@ class ContentOut(BaseModel):
             if isinstance(cm, dict):
                 v = cm.get("template_family")
                 return str(v) if v is not None else None
+        return None
+
+    @computed_field
+    def layout_family(self) -> str | None:
+        t = self.theme
+        if isinstance(t, dict):
+            cm = t.get("cc_meta")
+            if isinstance(cm, dict):
+                v = cm.get("layout_family")
+                return str(v) if v is not None else None
+        return None
+
+    @computed_field
+    def component_pack(self) -> list[str] | None:
+        t = self.theme
+        if isinstance(t, dict):
+            cm = t.get("cc_meta")
+            if isinstance(cm, dict):
+                v = cm.get("component_pack")
+                return v if isinstance(v, list) else None
+        return None
+
+    @computed_field
+    def slide_blueprint(self) -> list[str] | None:
+        t = self.theme
+        if isinstance(t, dict):
+            cm = t.get("cc_meta")
+            if isinstance(cm, dict):
+                v = cm.get("slide_blueprint")
+                return v if isinstance(v, list) else None
+        return None
+
+    @computed_field
+    def campaign_modules(self) -> dict | None:
+        t = self.theme
+        if isinstance(t, dict):
+            cm = t.get("cc_meta")
+            if isinstance(cm, dict):
+                v = cm.get("campaign_modules")
+                return v if isinstance(v, dict) else None
         return None
 
     @computed_field

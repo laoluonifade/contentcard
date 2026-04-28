@@ -9,6 +9,7 @@ import useAppStore from '../stores/appStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
 import { authApi } from '../api'
+import { getPostAuthPath, readGuestContext, readQuickFillWebsite } from '../utils/authFlow'
 
 const SUPPORTED_ICONS = [
   { id: 'shopify', label: 'Shopify', custom: true },
@@ -58,10 +59,19 @@ export const COUNTRIES_LIST = [
 ]
 
 export default function SignupPage() {
+  const guestContext = readGuestContext()
   const [step, setStep]     = useState(1)
-  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '', workspace_name: '' })
-  const [quickFillWebsite, setQuickFillWebsite] = useState('')
-  const [quickFillEnabled, setQuickFillEnabled] = useState(false)
+  const [form, setForm]     = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    password: '',
+    phone: '',
+    country_code: '',
+    workspace_name: guestContext?.brandName || '',
+  })
+  const [quickFillWebsite, setQuickFillWebsite] = useState(() => guestContext?.website || readQuickFillWebsite())
+  const [quickFillEnabled, setQuickFillEnabled] = useState(() => Boolean(guestContext?.website || readQuickFillWebsite()))
   const [showPw, setShowPw] = useState(false)
   const [shopDomain, setShopDomain] = useState('')
   const [showShopifyPrompt, setShowShopifyPrompt] = useState(false)
@@ -103,7 +113,7 @@ export default function SignupPage() {
       ? `${selectedCountry.dial} ${form.phone.trim()}`
       : form.phone.trim() || undefined
     try {
-      await signup({
+      const res = await signup({
         full_name: `${form.first_name.trim()} ${form.last_name.trim()}`,
         email: form.email.trim().toLowerCase(),
         password: form.password,
@@ -121,7 +131,7 @@ export default function SignupPage() {
       } catch {
         /* ignore */
       }
-      navigate('/onboarding')
+      navigate(getPostAuthPath(res?.user, '/dashboard'))
     } catch (err) {
       toast(err.message || 'Account creation failed. Please try again.', 'error')
     }

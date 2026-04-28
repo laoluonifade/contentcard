@@ -10,7 +10,7 @@
  *  onClose()         — dismiss the whole flow
  */
 
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { X, Plus, Trash2, Upload, Image, ChevronDown } from 'lucide-react'
 import { brandApi, uploadApi } from '../../api'
 import { toast } from './Toast'
@@ -57,7 +57,8 @@ function spreadDates(month, year, count) {
 }
 
 export function buildInitialPlan({ month, year, platform, postsPerWeek, templateId, templateName }) {
-  const count = Math.max(1, Math.round(postsPerWeek * 4.3))
+  const weeklyCount = Number.isFinite(Number(postsPerWeek)) ? Number(postsPerWeek) : 3
+  const count = Math.max(1, Math.round(weeklyCount * 4.3))
   const dates  = spreadDates(month, year, count)
 
   return dates.map((date, i) => ({
@@ -66,7 +67,6 @@ export function buildInitialPlan({ month, year, platform, postsPerWeek, template
     platform,
     post_type:       POST_TYPES[i % POST_TYPES.length],
     content_type:    CONTENT_TYPES[i % CONTENT_TYPES.length],
-    visual_description: '',
     product_image_url:  null,
     template_id:     templateId || null,
     template_name:   templateName || 'Auto',
@@ -201,17 +201,6 @@ function PlanRow({ row, idx, templates, brandPhotos, onUpdate, onDelete, workspa
         </div>
       </td>
 
-      {/* Visual description */}
-      <td className="px-2 py-2 min-w-[180px]">
-        <input
-          type="text"
-          value={row.visual_description}
-          onChange={e => update('visual_description', e.target.value)}
-          placeholder="AI will generate…"
-          className="w-full text-xs border border-fog rounded-lg px-2 py-1.5 bg-surface text-ink placeholder-ink/20 focus:outline-none focus:border-brand/60"
-        />
-      </td>
-
       {/* Image */}
       <td className="px-2 py-2 w-24 relative" ref={pickerRef}>
         <div className="flex items-center gap-1">
@@ -268,14 +257,28 @@ export default function GenerationPlanModal({
   brand, workspaceId,
   onConfirm, onBack, onClose,
 }) {
-  const templateName = templates.find(t => t.id === templateId)?.name || null
-  const [rows, setRows] = useState(() =>
-    buildInitialPlan({ month, year, platform, postsPerWeek, templateId, templateName })
+  const safeTemplates = useMemo(
+    () => (Array.isArray(templates) ? templates.filter(Boolean) : []),
+    [templates]
   )
+  const templateName = safeTemplates.find(t => t.id === templateId)?.name || null
+  const initialRows = useMemo(
+    () => buildInitialPlan({ month, year, platform, postsPerWeek, templateId, templateName }),
+    [month, year, platform, postsPerWeek, templateId, templateName]
+  )
+  const [rows, setRows] = useState(initialRows)
   const [brandPhotos, setBrandPhotos] = useState(() => Array.isArray(brand?.brand_photos) ? brand.brand_photos : [])
   const [confirming, setConfirming] = useState(false)
   const minDate = toIso(year, month, 1)
   const maxDate = toIso(year, month, new Date(year, month, 0).getDate())
+
+  useEffect(() => {
+    setRows(initialRows)
+  }, [initialRows])
+
+  useEffect(() => {
+    setBrandPhotos(Array.isArray(brand?.brand_photos) ? brand.brand_photos : [])
+  }, [brand?.brand_photos])
 
   const updateRow = useCallback((id, key, val) => {
     setRows(prev => prev.map(r => r._id === id ? { ...r, [key]: val } : r))
@@ -301,7 +304,6 @@ export default function GenerationPlanModal({
         platform,
         post_type:       POST_TYPES[i % POST_TYPES.length],
         content_type:    CONTENT_TYPES[i % CONTENT_TYPES.length],
-        visual_description: '',
         product_image_url:  null,
         template_id:     templateId || null,
         template_name:   templateName || 'Auto',
@@ -309,7 +311,7 @@ export default function GenerationPlanModal({
     ])
   }
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (rows.length === 0) { toast('Add at least one post to generate.', 'error'); return }
     setConfirming(true)
     // Strip internal _id, convert to backend-friendly shape
@@ -318,11 +320,15 @@ export default function GenerationPlanModal({
       platform:          r.platform,
       format:            r.post_type,
       content_type:      r.content_type,
-      visual_direction:  r.visual_description || null,
+      visual_direction:  null,
       product_image_url: r.product_image_url || null,
       template_id:       r.template_id || null,
     }))
-    onConfirm(plan)
+    try {
+      await onConfirm(plan)
+    } finally {
+      setConfirming(false)
+    }
   }
 
   return (
@@ -336,7 +342,7 @@ export default function GenerationPlanModal({
               Plan {MONTHS[month - 1]} {year} · {platform.charAt(0).toUpperCase() + platform.slice(1)}
             </h2>
             <p className="text-ink/40 text-xs mt-0.5">
-              {rows.length} post{rows.length === 1 ? '' : 's'} planned · Edit dates, types, and images before generating
+              {rows.length} post{rows.length === 1 ? '' : 's'} planned · Edit dates, formats, content types, and images before generating
             </p>
           </div>
           <button onClick={onClose} className="text-ink/30 hover:text-ink p-1.5 -mr-1 transition-colors">
@@ -354,7 +360,6 @@ export default function GenerationPlanModal({
                 <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-32">Template</th>
                 <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-32">Post Type</th>
                 <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-40">Content Type</th>
-                <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30">Visual Description</th>
                 <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-24">Image</th>
                 <th className="px-3 py-2.5 w-8" />
               </tr>
@@ -362,7 +367,7 @@ export default function GenerationPlanModal({
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-ink/30 text-sm">
+                  <td colSpan={7} className="py-12 text-center text-ink/30 text-sm">
                     No posts planned. Click <strong>Add post</strong> below to add one manually.
                   </td>
                 </tr>
@@ -372,7 +377,7 @@ export default function GenerationPlanModal({
                     key={row._id}
                     row={row}
                     idx={idx}
-                    templates={templates}
+                    templates={safeTemplates}
                     brandPhotos={brandPhotos}
                     onUpdate={updateRow}
                     onDelete={deleteRow}

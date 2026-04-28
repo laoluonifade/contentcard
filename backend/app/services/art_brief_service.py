@@ -16,6 +16,14 @@ ARCHETYPE_IDS = (
     "pattern_headline",
     "pov_comic",
     "portrait_story",
+    "co_brand_lockup",
+    "offer_pill_stack",
+    "device_mockup_benefit",
+    "editorial_issue_card",
+    "quote_editorial_sheet",
+    "merchant_launch_cutout",
+    "sticker_collage",
+    "product_grid_offer",
 )
 
 LOGO_ZONE_TO_PLACEMENT = {
@@ -38,7 +46,7 @@ def _infer_archetype(visual_type: str) -> str:
     if vt == "abstract":
         return "pattern_headline"
     if vt == "product":
-        return "photo_hero"
+        return "merchant_launch_cutout"
     # Prefer designer-friendly composition over default portrait framing.
     return "photo_hero"
 
@@ -109,8 +117,20 @@ def build_art_brief(post: dict[str, Any], brand: dict[str, Any]) -> dict[str, An
     secondary = (palette[1] if len(palette) > 1 else None) or vs.get("secondary_hex") or primary
     accent = (palette[2] if len(palette) > 2 else None) or vs.get("accent_hex") or secondary
 
-    photo = arch in ("photo_hero", "portrait_story")
-    pattern_intensity = {"pattern_headline": 0.85, "pov_comic": 0.5, "flat_edu": 0.3}.get(arch, 0.15)
+    photo = arch in ("photo_hero", "portrait_story", "merchant_launch_cutout", "product_grid_offer")
+    pattern_intensity = {
+        "pattern_headline": 0.85,
+        "pov_comic": 0.5,
+        "flat_edu": 0.3,
+        "offer_pill_stack": 0.42,
+        "editorial_issue_card": 0.24,
+        "quote_editorial_sheet": 0.2,
+        "sticker_collage": 0.72,
+        "co_brand_lockup": 0.38,
+        "device_mockup_benefit": 0.34,
+        "merchant_launch_cutout": 0.4,
+        "product_grid_offer": 0.44,
+    }.get(arch, 0.15)
 
     vt = str(post.get("visual_type") or "").lower()
     if vt == "abstract":
@@ -126,7 +146,7 @@ def build_art_brief(post: dict[str, Any], brand: dict[str, Any]) -> dict[str, An
             ref_ids.append(f"ref_{i}")
 
     negatives = list(vs.get("never_show_motifs") or [])
-    if arch == "photo_hero":
+    if arch in ("photo_hero", "merchant_launch_cutout", "product_grid_offer"):
         negatives.extend(
             ["floating holographic stock charts", "generic shield security icons", "neon crypto cityscape"]
         )
@@ -151,7 +171,11 @@ def build_art_brief(post: dict[str, Any], brand: dict[str, Any]) -> dict[str, An
         "logo_placement": placement,
         "logo_min_width_px": logo_min,
         "logo_safe_zone": post.get("logo_safe_zone"),
-        "safe_text_margins": "upper_third_negative_space" if arch in ("photo_hero", "portrait_story") else "center_block",
+        "safe_text_margins": (
+            "upper_third_negative_space"
+            if arch in ("photo_hero", "portrait_story", "merchant_launch_cutout", "product_grid_offer")
+            else "center_block"
+        ),
         "reference_ids": ref_ids,
         "negative_motifs": negatives[:25],
     }

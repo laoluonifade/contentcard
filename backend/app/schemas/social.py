@@ -143,6 +143,14 @@ class SocialQueueRequest(BaseModel):
     idempotency_key: str | None = None
 
 
+class SocialManualPostRequest(BaseModel):
+    brand_id: str
+    platform: SocialPlatform
+    content_item_id: str | None = None
+    published_at: datetime | None = None
+    status_reason: str | None = None
+
+
 class SocialTokenRefreshCallbackRequest(BaseModel):
     provider: str = "n8n"
     brand_id: str

@@ -7,7 +7,6 @@ const FOOTER_LINKS = {
   Product:  [
     { label: 'Features',  href: '/features' },
     { label: 'Pricing',   href: '/pricing' },
-    { label: 'Changelog', href: '/changelog' },
     { label: 'Roadmap',   href: '/roadmap' },
   ],
   Solutions: [

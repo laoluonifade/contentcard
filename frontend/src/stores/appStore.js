@@ -9,6 +9,40 @@ function workspacePlanTier(ws) {
   return ws.effective_plan || ws.plan
 }
 
+function normalizeHashtags(raw, caption = '') {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((tag) => String(tag || '').trim().replace(/^#+/, ''))
+      .filter(Boolean)
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    return raw
+      .split(/[,\s]+/)
+      .map((tag) => tag.trim().replace(/^#+/, ''))
+      .filter(Boolean)
+  }
+  const matches = String(caption || '').match(/#([\p{L}\p{N}_]+)/gu) || []
+  return matches
+    .map((tag) => tag.replace(/^#+/, '').trim())
+    .filter(Boolean)
+}
+
+function normalizeContentItem(item) {
+  const caption = String(
+    item?.caption ||
+    item?.generated_caption ||
+    item?.social_caption ||
+    item?.description ||
+    ''
+  ).trim()
+
+  return {
+    ...item,
+    caption,
+    hashtags: normalizeHashtags(item?.hashtags, caption),
+  }
+}
+
 const useAppStore = create(
   persist(
     (set, get) => ({
@@ -124,6 +158,7 @@ const useAppStore = create(
         variant_count,
         confirm_duplicate,
         custom_plan,
+        campaign_brief,
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
@@ -142,6 +177,7 @@ const useAppStore = create(
             use_reference_research: use_reference_research !== false,
             variant_count: Number(variant_count || 2),
             generation_brief: generation_brief || null,
+            campaign_brief: campaign_brief || null,
             use_website_intelligence: use_website_intelligence !== false,
             only_new_changes: !!only_new_changes,
             confirm_duplicate: !!confirm_duplicate,
@@ -161,6 +197,7 @@ const useAppStore = create(
                 template_id: template_id || null,
                 include_holidays_in_content: include_holidays_in_content !== false,
                 generation_brief: generation_brief || null,
+                campaign_brief: campaign_brief || null,
                 confirm_duplicate: !!confirm_duplicate,
               })
             } else {
@@ -216,7 +253,7 @@ const useAppStore = create(
       fetchMonthContent: async (month, year) => {
         const brandId = get().activeBrandId
         if (!brandId) return []
-        const items = await contentApi.list({ brand_id: brandId, month, year })
+        const items = (await contentApi.list({ brand_id: brandId, month, year })).map(normalizeContentItem)
         const key = `${year}-${month}`
         set(s => ({ contentByMonth: { ...s.contentByMonth, [key]: items } }))
         return items
@@ -225,7 +262,7 @@ const useAppStore = create(
       getMonthContent: (month, year) => get().contentByMonth[`${year}-${month}`] || [],
 
       updateContentItem: async (id, data) => {
-        const updated = await contentApi.update(id, data)
+        const updated = normalizeContentItem(await contentApi.update(id, data))
         set(s => {
           const cbm = { ...s.contentByMonth }
           for (const k of Object.keys(cbm)) {
@@ -237,7 +274,7 @@ const useAppStore = create(
       },
 
       regenerateCaption: async (id, body) => {
-        const updated = await contentApi.regenerate(id, body)
+        const updated = normalizeContentItem(await contentApi.regenerate(id, body))
         set(s => {
           const cbm = { ...s.contentByMonth }
           for (const k of Object.keys(cbm)) cbm[k] = cbm[k].map(c => c.id === id ? updated : c)

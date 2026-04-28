@@ -4,6 +4,7 @@ import Seo from '../components/seo/Seo'
 import { LogoFull } from '../components/ui/Logo'
 import AuthEntryModal from '../components/auth/AuthEntryModal'
 import { buildGuestPlanSummary, buildGuestSamplePosts, buildGuestWorkspaceProfile } from '../utils/guestFlow'
+import { persistGuestContext } from '../utils/authFlow'
 
 const NAV_ITEMS = [
   { label: 'Dashboard', icon: LayoutDashboard },
@@ -163,7 +164,10 @@ export default function LandingPage() {
     [guestForm, guestRun]
   )
 
-  const openAuth = (mode = 'signup', email = '') => {
+  const openAuth = (mode = 'signup', email = '', persistPreview = false) => {
+    if (persistPreview) {
+      persistGuestContext(guestRun || guestForm)
+    }
     setAuthModal({
       open: true,
       mode,
@@ -239,10 +243,10 @@ export default function LandingPage() {
               </button>
               <button
                 type="button"
-                onClick={() => openAuth('signup')}
+                onClick={() => openAuth('signup', '', true)}
                 className="inline-flex items-center justify-center rounded-full border border-fog bg-white px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist"
               >
-                Start free
+                Finish signup to save
               </button>
             </div>
           </header>
@@ -379,7 +383,7 @@ export default function LandingPage() {
 
                     <div className="grid gap-5 lg:grid-cols-2">
                       {guestPosts.map((post) => (
-                        <GuestPostCard key={post.id} post={post} onUnlock={() => openAuth('signup')} />
+                        <GuestPostCard key={post.id} post={post} onUnlock={() => openAuth('signup', '', true)} />
                       ))}
                     </div>
 
@@ -396,10 +400,10 @@ export default function LandingPage() {
                         <div className="flex flex-wrap gap-2">
                           <button
                             type="button"
-                            onClick={() => openAuth('signup')}
+                            onClick={() => openAuth('signup', '', true)}
                             className="inline-flex items-center gap-2 rounded-full bg-brand-500 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-600"
                           >
-                            Start free <ArrowRight size={15} />
+                            Finish signup to save <ArrowRight size={15} />
                           </button>
                           <button
                             type="button"

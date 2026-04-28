@@ -6,6 +6,7 @@ import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
 import Seo from '../seo/Seo'
+import { getMissingFields, isBrandReady } from '../../utils/brandReadiness'
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
@@ -29,17 +30,29 @@ const MOBILE_NAV = [
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'  },
 ]
 
+function clearVisitorSession() {
+  try {
+    localStorage.removeItem('contentcard-auth')
+    localStorage.removeItem('contentcard-app')
+    localStorage.removeItem('contentcard.signup.quickFillWebsite')
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function DashboardLayout() {
   const { user, logout, fetchMe }                 = useAuthStore()
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
-          fetchTrends, createWorkspace }        = useAppStore()
+          fetchTrends, createWorkspace,
+          brands, activeBrandId }        = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [newWsOpen, setNewWsOpen] = useState(false)
   const [newWsName, setNewWsName] = useState('')
   const [creatingWs, setCreatingWs] = useState(false)
+  const activeBrand = brands.find((brand) => brand.id === activeBrandId) || null
 
   useEffect(() => {
     setSidebarOpen(false)
@@ -52,6 +65,23 @@ export default function DashboardLayout() {
     fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
   }, [])
+
+  useEffect(() => {
+    const protectedPaths = new Set([
+      '/dashboard',
+      '/dashboard/assistant',
+      '/dashboard/calendar',
+      '/dashboard/templates',
+    ])
+    if (!activeBrand || isBrandReady(activeBrand) || location.pathname === '/dashboard/brand-kit') return
+    if (!protectedPaths.has(location.pathname)) return
+    const missing = getMissingFields(activeBrand)
+    toast(
+      `Finish ${missing.length} required brand kit ${missing.length === 1 ? 'field' : 'fields'} before using AI generation.`,
+      'error'
+    )
+    navigate('/dashboard/brand-kit', { replace: true })
+  }, [activeBrand, location.pathname, navigate])
 
   const agencyMode = !!user?.agency_mode
 
@@ -83,6 +113,7 @@ export default function DashboardLayout() {
     } catch {
       /* ignore */
     }
+    clearVisitorSession()
     logout()
     toast('Signed out', 'success')
     navigate('/login')

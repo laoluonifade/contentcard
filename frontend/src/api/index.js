@@ -147,9 +147,9 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       if (isPublicAuthRequest(err)) return Promise.reject(err)
-      localStorage.removeItem('contentcard-auth')
-      localStorage.removeItem('contentcard-app')
-      window.location.href = '/login'
+      // Let the auth store decide when a session is truly invalid.
+      // A transient 401 during app bootstrap or a flaky backend should not
+      // immediately wipe a signed-in user's persisted workspace state.
     }
     return Promise.reject(err)
   }
@@ -295,6 +295,8 @@ export const socialApi = {
     api.post('/social/autopilot/config', data).then((r) => r.data),
   queuePost: (data) =>
     api.post('/social/posts/queue', data).then((r) => r.data),
+  manualConfirmPost: (data) =>
+    api.post('/social/posts/manual-confirm', data).then((r) => r.data),
   preflight: (data) =>
     api.post('/social/publish/preflight', data).then((r) => r.data),
   listPosts: (params) =>

@@ -11,8 +11,9 @@ import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/Br
 import LogoCropModal from '../components/brand/LogoCropModal'
 import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
+import { getMissingFields } from '../utils/brandReadiness'
 
-const TABS = ['Basics', 'Products', 'Reviews', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
+const TABS = ['Basics', 'Audience', 'Messaging', 'Visual', 'Proof', 'Rules']
 
 const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
 const CAMPAIGN_ART_STYLE_PROFILES = [
@@ -70,6 +71,7 @@ function mergeVisualSystem(kit, brandColors, brandFont) {
     reference_urls: Array.isArray(cur.reference_urls) ? cur.reference_urls : [],
     reference_rights_attested: !!cur.reference_rights_attested,
     forbidden_hexes: Array.isArray(cur.forbidden_hexes) ? cur.forbidden_hexes : [],
+    human_context: String(cur.human_context || '').slice(0, 500),
     image_people_style: ['real_people', 'illustration', 'cartoon', 'mixed'].includes(
       String(cur.image_people_style || 'real_people').toLowerCase()
     )
@@ -337,11 +339,13 @@ export default function BrandKitPage() {
   const { user } = useAuthStore()
   const brand = brands.find(b => b.id === activeBrandId)
   const countryCode = user?.country_code || ''
+  const isAuthenticated = !!user?.id
 
   const langOptions = LANGUAGE_OPTIONS_BY_COUNTRY[countryCode] || DEFAULT_LANG_OPTIONS
 
   const [tab, setTab]       = useState('Basics')
   const [saving, setSaving] = useState(false)
+  const [saveState, setSaveState] = useState('idle')
   const [logoUploading, setLogoUploading] = useState(false)
   const [brandImagesUploading, setBrandImagesUploading] = useState(false)
   const [logoCropOpen, setLogoCropOpen] = useState(false)
@@ -389,6 +393,11 @@ export default function BrandKitPage() {
   const logoFileRef = useRef(null)
   const brandImagesFileRef = useRef(null)
   const reviewPhotoFileRef = useRef(null)
+  const lastSavedSnapshotRef = useRef('')
+  const autosaveEnabledRef = useRef(false)
+  const autosaveTimerRef = useRef(null)
+
+  const snapshotForm = (value) => JSON.stringify(value || {})
 
   useEffect(() => {
     if (!brand) return
@@ -411,7 +420,19 @@ export default function BrandKitPage() {
       ...(kit.website_intelligence.auth_capture || {}),
     }
     kit.reviews = Array.isArray(kit.reviews) ? kit.reviews : []
-    setForm({ ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} })
+    const hydratedForm = { ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} }
+    setForm(hydratedForm)
+    lastSavedSnapshotRef.current = snapshotForm(hydratedForm)
+    autosaveEnabledRef.current = false
+    setSaveState('idle')
+  }, [brand?.id])
+
+  useEffect(() => {
+    if (!brand?.id) return
+    const timer = window.setTimeout(() => {
+      autosaveEnabledRef.current = true
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [brand?.id])
 
   useEffect(() => {
@@ -502,16 +523,57 @@ export default function BrandKitPage() {
     toast(`${preset.charAt(0).toUpperCase() + preset.slice(1)} compliance preset applied`)
   }
 
-  const save = async () => {
-    if (!activeBrandId || !activeWorkspaceId) return
+  const persistBrandForm = async (nextForm, { notify = false } = {}) => {
+    if (!activeBrandId || !activeWorkspaceId || !isAuthenticated) return false
     setSaving(true)
+    setSaveState('saving')
     try {
-      await updateBrand(activeBrandId, form)
-      toast('Brand kit saved!')
+      await updateBrand(activeBrandId, nextForm)
+      lastSavedSnapshotRef.current = snapshotForm(nextForm)
+      setSaveState('saved')
+      if (notify) {
+        const missing = getMissingFields(nextForm)
+        toast(
+          missing.length
+            ? `Saved. ${missing.length} required ${missing.length === 1 ? 'field is' : 'fields are'} still missing before AI generation is unlocked.`
+            : 'Brand kit saved and ready for AI generation!'
+        )
+      }
+      return true
     } catch (err) {
+      setSaveState('error')
       toast(err.response?.data?.detail || err.message || 'Failed to save', 'error')
-    } finally { setSaving(false) }
+      return false
+    } finally {
+      setSaving(false)
+    }
   }
+
+  const save = async () => {
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current)
+      autosaveTimerRef.current = null
+    }
+    await persistBrandForm(form, { notify: true })
+  }
+
+  useEffect(() => {
+    if (!activeBrandId || !activeWorkspaceId || !isAuthenticated) return
+    if (!autosaveEnabledRef.current) return
+    const nextSnapshot = snapshotForm(form)
+    if (!nextSnapshot || nextSnapshot === lastSavedSnapshotRef.current) return
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = window.setTimeout(() => {
+      persistBrandForm(form)
+      autosaveTimerRef.current = null
+    }, 900)
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current)
+        autosaveTimerRef.current = null
+      }
+    }
+  }, [form, activeBrandId, activeWorkspaceId, isAuthenticated])
 
   const setWebsiteCfg = (patch) => {
     const kit = { ...(form.brand_kit || {}) }
@@ -935,6 +997,7 @@ export default function BrandKitPage() {
 
   // Live scores: recomputed on every keystroke
   const { S, overall, overallLevel } = useBrandScores(form)
+  const missingRequiredFields = getMissingFields(form)
 
   if (!brand) {
     return (
@@ -964,6 +1027,12 @@ export default function BrandKitPage() {
             {brand.name} · {brand.industry || 'No industry set'}
             {brand.sub_industry ? ` · ${brand.sub_industry}` : ''}
           </p>
+          <p className="text-[11px] text-ink/45 mt-2">
+            {saveState === 'saving' && 'Saving your brand kit…'}
+            {saveState === 'saved' && 'All changes saved automatically.'}
+            {saveState === 'error' && 'Could not save your latest changes. Try again.'}
+            {saveState === 'idle' && 'Changes save automatically while you edit.'}
+          </p>
         </div>
         <button onClick={save} disabled={saving}
           className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
@@ -973,6 +1042,34 @@ export default function BrandKitPage() {
 
       {/* Brand Strength Banner */}
       <StrengthBanner overall={overall} overallLevel={overallLevel} />
+      {missingRequiredFields.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-800/70 mb-1">Required before AI generation</p>
+              <h2 className="text-sm font-bold text-amber-900 mb-1.5">
+                Fill these {missingRequiredFields.length} fields so generated posts sound ready to publish.
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {missingRequiredFields.map((field) => (
+                  <button
+                    key={`${field.tab}:${field.label}`}
+                    type="button"
+                    onClick={() => setTab(field.tab)}
+                    className="px-2.5 py-1 rounded-lg border border-amber-200 bg-white text-[11px] font-semibold text-amber-900 hover:border-amber-300"
+                  >
+                    {field.label} · {field.tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-amber-900">{missingRequiredFields.length}</div>
+              <div className="text-[11px] text-amber-800/75">left to complete</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={clsx(
         'grid gap-8 items-start',
@@ -1068,6 +1165,7 @@ export default function BrandKitPage() {
                 <div>
                   <label className={`${labelCls} mb-2`}>Location</label>
                   <input value={form.location || ''} onChange={e => set('location', e.target.value)} placeholder="Lagos, Nigeria" className={inpCls} />
+                  <p className="mt-1.5 text-[11px] text-ink/35">Used for local references, casting, and cultural visual relevance.</p>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
@@ -1264,7 +1362,7 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {tab === 'Products' && (
+          {tab === 'Proof' && (
             <div className={cardCls}>
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div>
@@ -1461,7 +1559,7 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {tab === 'Reviews' && (
+          {tab === 'Proof' && (
             <div className={cardCls}>
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div>
@@ -1659,6 +1757,7 @@ export default function BrandKitPage() {
                 <div>
                   <label className={`${labelCls} mb-2`}>Location</label>
                   <input value={form.audience_location || ''} onChange={e => set('audience_location', e.target.value)} placeholder="Nigeria, West Africa" className={inpCls} />
+                  <p className="mt-1.5 text-[11px] text-ink/35">Helps AI choose people, settings, and cultural details that fit your audience.</p>
                 </div>
               </div>
               <div>
@@ -1887,6 +1986,23 @@ export default function BrandKitPage() {
                   </p>
                 </label>
                 <label className="space-y-1 sm:col-span-2">
+                  <span className={labelCls}>Human / market representation</span>
+                  <textarea
+                    className={taCls}
+                    rows={3}
+                    value={vs().human_context || ''}
+                    onChange={(e) => setVs({ human_context: e.target.value.slice(0, 500) })}
+                    placeholder={
+                      countryCode === 'NG'
+                        ? 'Nigerian customers in Lagos, Black/African talent, local streetwear, natural hair, warm everyday settings...'
+                        : 'Local customers in your market, culturally accurate styling, everyday settings, representative people...'
+                    }
+                  />
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Used only when humans appear, so generated images match your market instead of defaulting to unrelated stock-photo people.
+                  </p>
+                </label>
+                <label className="space-y-1 sm:col-span-2">
                   <span className={labelCls}>Default visual type for templates</span>
                   <select
                     className={inpCls}
@@ -2012,7 +2128,7 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {tab === 'Identity' && (
+          {tab === 'Visual' && (
             <div className="space-y-4">
               <div className={cardCls}>
                 <h3 className={`${sectionTitleCls} mb-2`}>Brand colors</h3>
@@ -2067,7 +2183,7 @@ export default function BrandKitPage() {
           )}
 
           {/* ── VOICE ── */}
-          {tab === 'Voice' && (
+          {tab === 'Messaging' && (
             <div className={cardCls}>
               <h3 className={`${sectionTitleCls} mb-5`}>Brand voice & tone</h3>
               <div className="mb-5">
@@ -2114,11 +2230,57 @@ export default function BrandKitPage() {
                   ))}
                 </div>
               </div>
+              <div className="mt-5">
+                <label className={`${labelCls} mb-2`}>Writing style</label>
+                <ScoreBadge score={S.writing_style} />
+                <textarea
+                  value={form.brand_kit?.writing_style || ''}
+                  onChange={e => set('brand_kit', { ...(form.brand_kit || {}), writing_style: e.target.value })}
+                  rows={2}
+                  placeholder="Clear, practical, conversational, and conversion-focused."
+                  className={clsx(taCls, 'mt-2')}
+                />
+              </div>
+              <div className="mt-5">
+                <label className={`${labelCls} mb-2`}>Key messages</label>
+                <ScoreBadge score={S.key_messages} />
+                <textarea
+                  value={Array.isArray(form.brand_kit?.key_messages) ? form.brand_kit.key_messages.join('\n') : (form.brand_kit?.key_messages || '')}
+                  onChange={e => set('brand_kit', {
+                    ...(form.brand_kit || {}),
+                    key_messages: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean),
+                  })}
+                  rows={3}
+                  placeholder={'Fast delivery\nAuthentic flavour\nReliable ordering experience'}
+                  className={clsx(taCls, 'mt-2')}
+                />
+              </div>
+              <div className="mt-5">
+                <label className={`${labelCls} mb-2`}>Value proposition</label>
+                <ScoreBadge score={S.value_proposition} />
+                <textarea
+                  value={form.brand_kit?.value_proposition || ''}
+                  onChange={e => set('brand_kit', { ...(form.brand_kit || {}), value_proposition: e.target.value })}
+                  rows={2}
+                  placeholder="Why customers should choose you over alternatives."
+                  className={clsx(taCls, 'mt-2')}
+                />
+              </div>
+              <div className="mt-5">
+                <label className={`${labelCls} mb-2`}>CTA style</label>
+                <ScoreBadge score={S.cta_style} />
+                <input
+                  value={form.brand_kit?.cta_style || ''}
+                  onChange={e => set('brand_kit', { ...(form.brand_kit || {}), cta_style: e.target.value })}
+                  placeholder="Direct, warm, action-oriented"
+                  className={clsx(inpCls, 'mt-2')}
+                />
+              </div>
             </div>
           )}
 
           {/* ── COMPLIANCE ── */}
-          {tab === 'Compliance' && (
+          {tab === 'Rules' && (
             <div className="space-y-4">
               <div className={cardCls}>
                 <h3 className={`${sectionTitleCls} mb-1`}>Compliance presets</h3>
