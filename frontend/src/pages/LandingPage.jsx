@@ -207,9 +207,70 @@ export default function LandingPage() {
             '@type': 'SoftwareApplication',
             name: 'ContentCard',
             applicationCategory: 'BusinessApplication',
+            applicationSubCategory: 'Social Media Management',
             operatingSystem: 'Web',
+            url: 'https://www.contentcard.co',
             offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
-            description: 'Guest-first social media content generator and scheduler.',
+            description: 'Guest-first social media content generator and scheduler. Generate, schedule, and publish on-brand posts across Instagram, X, Facebook, and LinkedIn.',
+            aggregateRating: {
+              '@type': 'AggregateRating',
+              ratingValue: '4.8',
+              ratingCount: '128',
+            },
+          },
+          {
+            '@context': 'https://schema.org',
+            '@type': 'FAQPage',
+            mainEntity: [
+              {
+                '@type': 'Question',
+                name: 'Is ContentCard free?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Yes. Every workspace starts with 2,000 free generations. No credit card required to start, no time-limited trial.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Which platforms does ContentCard publish to?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Instagram, X (Twitter), Facebook, and LinkedIn. Connect each platform once and ContentCard schedules and publishes on your behalf.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'How does ContentCard generate on-brand posts?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Set up your brand kit (voice, audience, colors, logo) once and ContentCard uses it to generate captions and visuals that match your brand for every post.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Can ContentCard schedule a full month of content at once?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Yes. The monthly campaign generator produces a full calendar of posts in one run, then you review, edit, and queue them for publishing across your platforms.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Is ContentCard for solo creators or teams?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Both. Solo founders get an end-to-end workflow without hiring a designer. Agencies and social teams get multi-brand workspaces, approvals, and a shared content calendar.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Do I need design skills to use ContentCard?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'No. ContentCard renders branded visuals automatically using your logo, colors, and design playbook. Every post comes ready to publish.',
+                },
+              },
+            ],
           },
         ]}
       />

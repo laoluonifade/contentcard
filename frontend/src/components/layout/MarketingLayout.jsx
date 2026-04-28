@@ -1,7 +1,19 @@
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { LogoFull } from '../ui/Logo'
 import Seo from '../seo/Seo'
+import TryContentCardPill from '../marketing/TryContentCardPill'
+
+// Top-level marketing nav items, mirroring ChatGPT's overview nav
+// (About / Features / Pricing / Business / Blog / Changelog) so the site reads
+// the same way at a glance.
+const MARKETING_NAV = [
+  { to: '/about',     label: 'About'     },
+  { to: '/features',  label: 'Features'  },
+  { to: '/pricing',   label: 'Pricing'   },
+  { to: '/enterprise',label: 'Business'  },
+  { to: '/blog',      label: 'Blog'      },
+  { to: '/changelog', label: 'Changelog' },
+]
 
 const FOOTER_LINKS = {
   Product:  [
@@ -236,7 +248,6 @@ function buildSeo(pathname) {
 }
 
 export default function MarketingLayout({ children }) {
-  const navigate = useNavigate()
   const location = useLocation()
   const seo = buildSeo(location.pathname)
   const marketingLightThemeVars = {
@@ -259,11 +270,25 @@ export default function MarketingLayout({ children }) {
       />
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-fog bg-page/95 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link to="/"><LogoFull size={26} /></Link>
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/login')} className="text-ink/60 hover:text-ink text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
-            <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free forever <ArrowRight size={13} /></button>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-6">
+          <Link to="/about" aria-label="ContentCard"><LogoFull size={26} /></Link>
+          <div className="hidden md:flex flex-1 items-center justify-center gap-7">
+            {MARKETING_NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `text-sm font-medium transition-colors ${
+                    isActive ? 'text-ink' : 'text-ink/55 hover:text-ink'
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+          <div className="ml-auto flex items-center gap-2 md:ml-0">
+            <TryContentCardPill />
           </div>
         </div>
       </nav>
