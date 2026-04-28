@@ -33,7 +33,6 @@ export default function OnboardingPage() {
   const [saving, setSaving] = useState(false)
   const [templateSetupRunning, setTemplateSetupRunning] = useState(false)
   const [quickFillRunning, setQuickFillRunning] = useState(false)
-  const [quickFillStage, setQuickFillStage] = useState('')
   const [quickFillError, setQuickFillError] = useState('')
   const [stepErrors, setStepErrors] = useState({})
   const [quickFillWebsite, setQuickFillWebsite] = useState(() => {
@@ -44,6 +43,7 @@ export default function OnboardingPage() {
     }
   })
   const [quickFillPlatform, setQuickFillPlatform] = useState('auto')
+  const [quickFillStatus, setQuickFillStatus] = useState('')
 
   useEffect(() => {
     if (!user || user.onboarding_completed) return undefined
@@ -232,7 +232,7 @@ export default function OnboardingPage() {
       return
     }
     setQuickFillRunning(true)
-    setQuickFillStage('Setting up workspace…')
+    setQuickFillStatus('Setting up your workspace…')
     try {
       let workspaces = await fetchWorkspaces().catch(() => [])
       if (!workspaces?.length) {
@@ -261,7 +261,7 @@ export default function OnboardingPage() {
         .join(' ') || 'My Brand'
       const platformHint = quickFillPlatform === 'auto' ? inferPlatformFromWebsite(website) : quickFillPlatform
       const inferred = inferIndustryFromWebsite(website, platformHint)
-      setQuickFillStage('Reading your website…')
+      setQuickFillStatus('Researching your site…')
       const onboardingPrefill = await contentApi.brandFormCoach({
         mode: 'onboarding',
         brand_id: null,
@@ -295,7 +295,7 @@ export default function OnboardingPage() {
         personality_score: 58,
       }, onboardingPatch)
 
-      setQuickFillStage('Creating your brand…')
+      setQuickFillStatus('Creating your brand…')
       const brand = await createBrand({
         name: onboardingForm.name || niceName,
         website,
@@ -324,9 +324,10 @@ export default function OnboardingPage() {
         },
       })
 
-      setQuickFillStage('Syncing storefront context…')
+      setQuickFillStatus('Syncing your storefront…')
       await brandApi.syncWebsite(wsId, brand.id, { force: true }).catch(() => {})
       await brandApi.syncReferences(wsId, brand.id, { force: true }).catch(() => {})
+      setQuickFillStatus('Loading your products…')
       const [products, opportunities] = await Promise.all([
         brandApi.websiteProducts(wsId, brand.id, { limit: 12 }).catch(() => []),
         brandApi.websiteOpportunities(wsId, brand.id, { limit: 8 }).catch(() => []),
@@ -346,7 +347,7 @@ export default function OnboardingPage() {
         `Entities: ${Array.isArray(websiteEntities) ? websiteEntities.slice(0, 8).map((e) => `${e?.entity_type}: ${e?.title}`).filter(Boolean).join(' | ') : 'none'}`,
         `Style fingerprint palette: ${pickPaletteFromFingerprint(styleFingerprint).join(', ') || 'none'}`,
       ].join('\n')
-      setQuickFillStage('Building your brand kit…')
+      setQuickFillStatus('Building your brand kit…')
       const brandKitPrefill = await contentApi.brandFormCoach({
         mode: 'brand_kit',
         brand_id: brand.id,
@@ -375,8 +376,9 @@ export default function OnboardingPage() {
         },
         ...brandKitPatch,
       }, pickPaletteFromFingerprint(styleFingerprint))
+      setQuickFillStatus('Saving your kit…')
       await brandApi.update(wsId, brand.id, updatePayload)
-      setQuickFillStage('Preparing templates…')
+      setQuickFillStatus('Setting up templates…')
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false }).catch(() => {})
       try {
         localStorage.removeItem('contentcard.signup.quickFillWebsite')
@@ -391,7 +393,7 @@ export default function OnboardingPage() {
       toast('Quick fill didn\'t finish. Continue manually below.', 'error')
     } finally {
       setQuickFillRunning(false)
-      setQuickFillStage('')
+      setQuickFillStatus('')
     }
   }
 
@@ -521,7 +523,7 @@ export default function OnboardingPage() {
                       disabled={quickFillRunning || !quickFillWebsite.trim()}
                       className="btn-primary text-xs px-3 py-2 disabled:opacity-60"
                     >
-                      {quickFillRunning ? (quickFillStage || 'Quick filling…') : 'Quick fill'}
+                      {quickFillRunning ? (quickFillStatus || 'Quick filling…') : 'Quick fill'}
                     </button>
                   </div>
                   <input
@@ -529,6 +531,7 @@ export default function OnboardingPage() {
                     onChange={(e) => { setQuickFillWebsite(e.target.value); if (quickFillError) setQuickFillError('') }}
                     placeholder="https://yourwebsite.com"
                     className="input mt-3"
+                    disabled={quickFillRunning}
                   />
                   <label className="block text-[11px] font-semibold text-ink/65 mt-3 mb-1">Website type</label>
                   <select
@@ -541,6 +544,12 @@ export default function OnboardingPage() {
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                   </select>
+                  {quickFillRunning && (
+                    <p className="text-xs text-ink/65 mt-3 flex items-center gap-2" role="status" aria-live="polite">
+                      <span className="inline-block h-3 w-3 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
+                      {quickFillStatus || 'Working on it…'} This usually takes 1–3 minutes.
+                    </p>
+                  )}
                   {quickFillError && (
                     <div role="alert" className="mt-3 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 text-xs">
                       {quickFillError}
