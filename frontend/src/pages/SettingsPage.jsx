@@ -298,6 +298,7 @@ export default function SettingsPage() {
                     </select>
                   </div>
                 </div>
+                <p className="text-ink/30 text-xs mb-4">Country determines your payment method (Nigeria → Paystack in ₦, all other countries → Stripe in $) and local public holidays on your calendar.</p>
                 <p className="text-ink/30 text-xs mb-4">Country determines your billing currency and payment provider (Nigeria → ₦ Paystack · everywhere else → $ Stripe), and shows local public holidays on your content calendar.</p>
                 <div className="flex justify-end">
                   <button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors">
