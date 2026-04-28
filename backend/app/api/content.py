@@ -52,7 +52,11 @@ from app.services.ai_service import (
     _default_cta_from_brand,
 )
 from app.services.month_holiday_context import build_month_holiday_context
-from app.services.visual_tokens import apply_visual_system_defaults
+from app.services.visual_tokens import (
+    apply_poster_lockup_defaults,
+    apply_visual_system_defaults,
+    poster_lockup_mode_enabled,
+)
 from app.services.art_brief_service import build_art_brief
 from app.services.visual_lint_service import lint_final_image
 from app.services.quality_gate_service import score_visual_quality
@@ -1214,7 +1218,7 @@ async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand
     Logo compositing failure is non-fatal: images are kept and delivered
     without the logo rather than being wiped and blocking delivery forever.
     """
-    logo_required = has_brand_logo(brand_dict)
+    logo_required = has_brand_logo(brand_dict) and poster_lockup_mode_enabled(brand_dict, "logo", post_data)
     try:
         if item.image_urls:
             finalized, all_applied = await finalize_rendered_urls_with_logo(item.image_urls, brand_dict, post_data)
@@ -2449,6 +2453,7 @@ async def regenerate_caption(
             topic=item.topic,
             platform=item.platform.value,
             mood=body.mood,
+            description=item.description,
             existing_caption=item.caption,
         )
         item.caption = result.get("caption", item.caption)
@@ -2852,6 +2857,11 @@ async def _do_generate_month(
             selected_template = None
             template_contract: dict = {}
             brand_for_planner = dict(brand_dict or {})
+            if country_code:
+                cc = str(country_code).strip().upper()
+                brand_for_planner["country_code"] = cc
+                brand_for_planner["market_country_code"] = cc
+                brand_dict = {**brand_for_planner}
             if template_id:
                 selected_template = (
                     await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
@@ -3146,6 +3156,12 @@ async def _do_generate_month(
                     "requested_media_type": requested_media_type,
                     "qa_polish": post.get("qa_polish") if isinstance(post.get("qa_polish"), dict) else None,
                     "quality_warnings": post.get("quality_warnings") if isinstance(post.get("quality_warnings"), list) else [],
+                    "layout_family": post.get("layout_family"),
+                    "component_pack": post.get("component_pack") if isinstance(post.get("component_pack"), list) else [],
+                    "slide_blueprint": post.get("slide_blueprint") if isinstance(post.get("slide_blueprint"), list) else [],
+                    "campaign_modules": post.get("campaign_modules") if isinstance(post.get("campaign_modules"), dict) else None,
+                    "series_system": post.get("series_system"),
+                    "issue_label": post.get("issue_label"),
                 }
                 item.theme = th
                 saved_items[i] = (item, enriched)
@@ -3217,6 +3233,18 @@ async def _do_generate_month(
                     cm["qa_polish"] = post_data.get("qa_polish")
                 if isinstance(post_data.get("quality_warnings"), list):
                     cm["quality_warnings"] = post_data.get("quality_warnings")
+                if isinstance(post_data.get("component_pack"), list):
+                    cm["component_pack"] = post_data.get("component_pack")
+                if isinstance(post_data.get("slide_blueprint"), list):
+                    cm["slide_blueprint"] = post_data.get("slide_blueprint")
+                if isinstance(post_data.get("campaign_modules"), dict):
+                    cm["campaign_modules"] = post_data.get("campaign_modules")
+                if post_data.get("layout_family"):
+                    cm["layout_family"] = post_data.get("layout_family")
+                if post_data.get("series_system"):
+                    cm["series_system"] = post_data.get("series_system")
+                if post_data.get("issue_label"):
+                    cm["issue_label"] = post_data.get("issue_label")
                 th["cc_meta"] = cm
                 item.theme = th
                 await db.commit()
@@ -3291,7 +3319,7 @@ def _brand_to_dict(brand: Brand) -> dict:
     # brand_motifs, mission_statement, value_proposition, key_messages, etc.)
     # Individual column values above take priority over kit values.
     merged = {**kit, **base}
-    return apply_visual_system_defaults(merged)
+    return apply_poster_lockup_defaults(apply_visual_system_defaults(merged))
 
 
 def _content_item_to_post_dict(item: ContentItem) -> dict:
@@ -3304,6 +3332,12 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
     wg = None
     p_img_url = None
     p_img_urls = None
+    layout_family = None
+    component_pack = None
+    slide_blueprint = None
+    campaign_modules = None
+    series_system = None
+    issue_label = None
     if isinstance(cm, dict):
         arch = cm.get("visual_archetype")
         ab = cm.get("art_brief") if isinstance(cm.get("art_brief"), dict) else None
@@ -3312,6 +3346,12 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         wg = cm.get("website_grounding") if isinstance(cm.get("website_grounding"), dict) else None
         p_img_url = str(cm.get("product_image_url") or "").strip() or None
         p_img_urls = cm.get("product_image_urls") if isinstance(cm.get("product_image_urls"), list) else None
+        layout_family = cm.get("layout_family")
+        component_pack = cm.get("component_pack") if isinstance(cm.get("component_pack"), list) else None
+        slide_blueprint = cm.get("slide_blueprint") if isinstance(cm.get("slide_blueprint"), list) else None
+        campaign_modules = cm.get("campaign_modules") if isinstance(cm.get("campaign_modules"), dict) else None
+        series_system = cm.get("series_system")
+        issue_label = cm.get("issue_label")
     vt = "real_people"
     if isinstance(cm, dict):
         v = str(cm.get("visual_type") or "").strip().lower()
@@ -3333,6 +3373,12 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         "art_brief": ab,
         "force_template_family": tf,
         "template_family": tf,
+        "layout_family": layout_family,
+        "component_pack": component_pack,
+        "slide_blueprint": slide_blueprint,
+        "campaign_modules": campaign_modules,
+        "series_system": series_system,
+        "issue_label": issue_label,
         "message_architecture": ma,
         "website_grounding": wg,
         "product_image_url": p_img_url,

@@ -29,6 +29,10 @@ PATTERN_LIBRARY = {
     "product_ui_mock_device": {"families": {"product_hero", "promo"}, "template_setting": "BANNERBEAR_TEMPLATE_PRODUCT_HERO"},
     "speech_quote_tweet": {"families": {"story_carousel", "testimonial"}, "template_setting": "BANNERBEAR_TEMPLATE_STORY_CAROUSEL"},
     "data_stat_card": {"families": {"data_card", "edu"}, "template_setting": "BANNERBEAR_TEMPLATE_DATA_CARD"},
+    "co_brand_offer_lockup": {"families": {"co_brand_offer", "merchant_launch"}, "template_setting": "BANNERBEAR_TEMPLATE_PROMO"},
+    "offer_pill_system": {"families": {"offer_pill_campaign", "seasonal_pattern_promo"}, "template_setting": "BANNERBEAR_TEMPLATE_ANNOUNCEMENT"},
+    "editorial_issue_sheet": {"families": {"editorial_issue_card"}, "template_setting": "BANNERBEAR_TEMPLATE_STORY_CAROUSEL"},
+    "device_value_system": {"families": {"device_mockup_benefit"}, "template_setting": "BANNERBEAR_TEMPLATE_PRODUCT_HERO"},
 }
 
 FAMILY_COPY_LIMITS = {
@@ -42,10 +46,16 @@ FAMILY_COPY_LIMITS = {
     "edu": {"headline": 60, "subtitle": 92, "body": 150},
     "testimonial": {"headline": 58, "subtitle": 92, "body": 150},
     "hiring": {"headline": 58, "subtitle": 88, "body": 140},
+    "co_brand_offer": {"headline": 56, "subtitle": 88, "body": 136},
+    "merchant_launch": {"headline": 60, "subtitle": 92, "body": 140},
+    "offer_pill_campaign": {"headline": 52, "subtitle": 82, "body": 130},
+    "device_mockup_benefit": {"headline": 56, "subtitle": 90, "body": 150},
+    "editorial_issue_card": {"headline": 54, "subtitle": 88, "body": 180},
+    "seasonal_pattern_promo": {"headline": 56, "subtitle": 88, "body": 136},
     "default": {"headline": 60, "subtitle": 96, "body": 160},
 }
 
-TEXT_FIRST_FAMILIES = frozenset({"text_poster", "data_card", "announcement", "edu", "testimonial", "hiring"})
+TEXT_FIRST_FAMILIES = frozenset({"text_poster", "data_card", "announcement", "edu", "testimonial", "hiring", "offer_pill_campaign", "editorial_issue_card"})
 
 
 def _is_food_brand(brand_dict: dict, post_data: dict | None = None) -> bool:
@@ -112,6 +122,10 @@ def _copy_limit(fam: str, key: str, fallback: int) -> int:
 
 def _resolve_family_template(fam: str, fallback: str) -> str:
     pattern_order = (
+        "co_brand_offer_lockup",
+        "offer_pill_system",
+        "editorial_issue_sheet",
+        "device_value_system",
         "giant_headline_texture",
         "card_over_background",
         "split_blocks_iconography",
@@ -134,15 +148,15 @@ def _route_template_family(post_data: dict, body_index: int = 0) -> str:
     Falls back to hook template for the first body slide, then generic content.
     """
     fam = detect_template_family(post_data)
-    if fam in ("promo", "product_hero", "announcement"):
+    if fam in ("promo", "product_hero", "announcement", "co_brand_offer", "merchant_launch", "offer_pill_campaign", "seasonal_pattern_promo"):
         uid = _resolve_family_template(fam, getattr(settings, "BANNERBEAR_TEMPLATE_PROMO", "") or "")
         if uid:
             return uid
-    if fam in ("edu", "data_card", "text_poster"):
+    if fam in ("edu", "data_card", "text_poster", "device_mockup_benefit"):
         uid = _resolve_family_template(fam, getattr(settings, "BANNERBEAR_TEMPLATE_EDU", "") or "")
         if uid:
             return uid
-    if fam in ("testimonial", "story_carousel"):
+    if fam in ("testimonial", "story_carousel", "editorial_issue_card"):
         uid = _resolve_family_template(fam, getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", "") or "")
         if uid:
             return uid
@@ -173,12 +187,30 @@ def detect_template_family(post_data: dict) -> str:
         "announcement",
         "story_carousel",
         "illustration_editorial",
+        "co_brand_offer",
+        "merchant_launch",
+        "offer_pill_campaign",
+        "device_mockup_benefit",
+        "editorial_issue_card",
+        "seasonal_pattern_promo",
         "default",
     ):
         return forced
     ctype = _clean_inline(post_data.get("content_type"), 80).lower()
     topic = _clean_inline(post_data.get("topic"), 120).lower()
     bag = f"{ctype} {topic}"
+    if any(k in bag for k in ("partner", "collab", "collaboration", "co-brand", "cobrand")):
+        return "co_brand_offer"
+    if any(k in bag for k in ("merchant launch", "now live", "live on the deck", "new merchant", "new restaurant")):
+        return "merchant_launch"
+    if any(k in bag for k in ("salary week", "upto", "up to", "percent off", "% off", "30% off", "60% off")):
+        return "offer_pill_campaign"
+    if any(k in bag for k in ("checkout", "top up", "wallet", "pay your bills", "airtime", "data", "device", "mockup")):
+        return "device_mockup_benefit"
+    if any(k in bag for k in ("issue", "interview", "q&a", "qa", "editorial", "resource gave you")):
+        return "editorial_issue_card"
+    if any(k in bag for k in ("ramadan", "easter", "lent", "holy month", "christ is risen", "iftar")):
+        return "seasonal_pattern_promo"
     if any(k in bag for k in ("promo", "offer", "sale", "discount", "deal")):
         return "promo"
     if any(k in bag for k in ("launch", "announcement", "event", "webinar", "live session", "speaker")):
@@ -212,6 +244,18 @@ def _family_tokens(post_data: dict, brand_dict: dict | None = None) -> dict:
             "chip": "Menu",
         }
     fam = detect_template_family(post_data)
+    if fam == "co_brand_offer":
+        return {"badge": "PARTNER DROP", "cta": "Order now", "chip": "Collab"}
+    if fam == "merchant_launch":
+        return {"badge": "NOW LIVE", "cta": "Try it now", "chip": "Launch"}
+    if fam == "offer_pill_campaign":
+        return {"badge": "LIMITED DEAL", "cta": "Claim this deal", "chip": "Offer"}
+    if fam == "device_mockup_benefit":
+        return {"badge": "NEW BENEFIT", "cta": "Use it today", "chip": "Feature"}
+    if fam == "editorial_issue_card":
+        return {"badge": "ISSUE #1", "cta": "Swipe for the story", "chip": "Issue"}
+    if fam == "seasonal_pattern_promo":
+        return {"badge": "SEASONAL SPECIAL", "cta": "Order now", "chip": "Seasonal"}
     if fam == "promo":
         return {"badge": "LIMITED OFFER", "cta": "Claim offer now", "chip": "Deal"}
     if fam == "announcement":
@@ -262,6 +306,8 @@ def _carousel_copy_plan(post_data: dict, slide_count: int, brand_dict: dict | No
         "story_carousel": ("Hook", "Context", "Turning point", "Resolution"),
         "product_hero": ("Hook", "Benefit", "Use case", "Proof"),
         "announcement": ("Hook", "What changed", "Why it matters", "Action"),
+        "device_mockup_benefit": ("Hook", "UI proof", "Benefit", "Action"),
+        "editorial_issue_card": ("Cover", "Q&A", "Perspective", "Close"),
     }
     bodies: list[dict] = []
     fallback_story_bits = [
@@ -270,6 +316,7 @@ def _carousel_copy_plan(post_data: dict, slide_count: int, brand_dict: dict | No
         _clean_inline(ma.get("cta") or "", 96),
     ]
     fallback_story_bits = [x for x in fallback_story_bits if x]
+    slide_blueprint = post_data.get("slide_blueprint") if isinstance(post_data.get("slide_blueprint"), list) else None
     for i in range(body_slides):
         chunk = body_parts[i * per_slide : (i + 1) * per_slide]
         # Keep carousel bodies punchy so visual design can breathe.
@@ -277,6 +324,8 @@ def _carousel_copy_plan(post_data: dict, slide_count: int, brand_dict: dict | No
         if not body_text:
             body_text = fallback_story_bits[i % len(fallback_story_bits)] if fallback_story_bits else "Practical action point for this step."
         prefix = module_cycle.get(fam, ("Point", "Detail", "Proof", "CTA"))[i % 4]
+        if slide_blueprint and (i + 1) < len(slide_blueprint):
+            prefix = str(slide_blueprint[i + 1]).replace("_", " ").title() or prefix
         if fam in ("data_card", "edu", "text_poster"):
             h = _clean_inline(f"{prefix} {i + 1}", 40)
         elif fam in ("story_carousel", "testimonial"):
@@ -515,8 +564,8 @@ async def generate_post_images(
         return [cover_url]
 
     # ── Carousel — cover + body slides + CTA with explicit copy hierarchy
-    # Keep the same AI background reference across every slide so each carousel
-    # preserves one cohesive theme/style/vibe from the first generated visual.
+    # Dynamic campaign systems should keep a shared palette/motif, but not blindly
+    # reuse the same hero background on every slide.
     urls = [cover_url]
     copy_plan = _carousel_copy_plan(post_data, slide_count, brand_dict=brand_dict)
 
@@ -538,7 +587,7 @@ async def generate_post_images(
                         body_topic,
                         body_caption,
                         brand_dict,
-                        cover_bg_url,
+                        cover_bg_url if fam not in ("editorial_issue_card", "device_mockup_benefit", "offer_pill_campaign") else None,
                         ab,
                         family=fam,
                         post_data=post_data,

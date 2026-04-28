@@ -270,9 +270,63 @@ def _score_social_design_intent(post: dict[str, Any]) -> float:
         if arch == "photo_hero":
             return 0.72
         return 0.62
+    if fam in ("co_brand_offer", "merchant_launch", "offer_pill_campaign", "device_mockup_benefit", "editorial_issue_card", "seasonal_pattern_promo"):
+        if arch in ("co_brand_lockup", "merchant_launch_cutout", "offer_pill_stack", "device_mockup_benefit", "editorial_issue_card", "sticker_collage", "product_grid_offer", "quote_editorial_sheet"):
+            return 0.95
+        return 0.58
     if fam in ("illustration_editorial", "story_carousel"):
         return 0.84 if vt in ("illustration", "abstract", "real_people") else 0.62
     return 0.68
+
+
+def _score_component_richness(post: dict[str, Any]) -> float:
+    pack = post.get("component_pack") if isinstance(post.get("component_pack"), list) else []
+    modules = post.get("campaign_modules") if isinstance(post.get("campaign_modules"), dict) else {}
+    slide_blueprint = post.get("slide_blueprint") if isinstance(post.get("slide_blueprint"), list) else []
+    score = 0.3
+    score += min(0.35, 0.07 * len([x for x in pack if str(x).strip()]))
+    score += min(0.2, 0.04 * len([k for k, v in modules.items() if v]))
+    if slide_blueprint:
+        score += min(0.15, 0.03 * len(set(str(x) for x in slide_blueprint if str(x).strip())))
+    return _clamp01(score)
+
+
+def _score_campaign_system_fit(post: dict[str, Any]) -> float:
+    fam = str(post.get("template_family") or "").lower()
+    layout = str(post.get("layout_family") or "").lower()
+    modules = post.get("campaign_modules") if isinstance(post.get("campaign_modules"), dict) else {}
+    pack = set(str(x).strip().lower() for x in (post.get("component_pack") or []) if str(x).strip())
+    if fam == "co_brand_offer":
+        return 0.95 if modules.get("partner_lockup") and "offer_pill" in pack else 0.62
+    if fam == "merchant_launch":
+        return 0.93 if modules.get("partner_lockup") and modules.get("product_frame_shape") else 0.66
+    if fam == "offer_pill_campaign":
+        return 0.94 if modules.get("offer_module") and modules.get("cta_pill") else 0.65
+    if fam == "device_mockup_benefit":
+        return 0.95 if modules.get("device_mockup") and "device_mockup" in pack else 0.6
+    if fam == "editorial_issue_card":
+        return 0.95 if modules.get("series_system") and modules.get("issue_label") else 0.64
+    if fam == "seasonal_pattern_promo":
+        return 0.92 if modules.get("offer_module") and modules.get("product_frame_shape") else 0.64
+    if layout:
+        return 0.78
+    return 0.58
+
+
+def _score_carousel_role_diversity(post: dict[str, Any]) -> float:
+    if str(post.get("format") or "").lower() != "carousel":
+        return 0.75
+    blueprint = [str(x).strip().lower() for x in (post.get("slide_blueprint") or []) if str(x).strip()]
+    if not blueprint:
+        return 0.3
+    unique = len(set(blueprint))
+    if unique >= 4:
+        return 0.95
+    if unique == 3:
+        return 0.8
+    if unique == 2:
+        return 0.58
+    return 0.35
 
 
 async def score_visual_quality(
@@ -320,6 +374,9 @@ async def score_visual_quality(
     s_brand = _score_brand_consistency(brand, post)
     s_fidelity = _score_template_fidelity(post)
     s_social = _score_social_design_intent(post)
+    s_components = _score_component_richness(post)
+    s_campaign = _score_campaign_system_fit(post)
+    s_roles = _score_carousel_role_diversity(post)
     s_lint = 1.0
     if isinstance(lint, dict):
         st = str(lint.get("status") or "")
@@ -339,6 +396,9 @@ async def score_visual_quality(
         + 0.05 * s_brand
         + 0.04 * s_fidelity
         + 0.08 * s_social
+        + 0.06 * s_components
+        + 0.05 * s_campaign
+        + 0.03 * s_roles
         + 0.04 * s_lint
     )
     scores = {
@@ -354,6 +414,9 @@ async def score_visual_quality(
         "brand_consistency": round(s_brand, 3),
         "template_fidelity": round(s_fidelity, 3),
         "social_design_intent": round(s_social, 3),
+        "component_richness": round(s_components, 3),
+        "campaign_system_fit": round(s_campaign, 3),
+        "carousel_role_diversity": round(s_roles, 3),
         "lint_bonus": round(s_lint, 3),
     }
     out["scores"] = scores
@@ -398,6 +461,15 @@ async def score_visual_quality(
     if s_social < 0.6:
         reasons.append("Post reads more like an AI image than a designed social asset")
         hints.append("Shift toward text-led layout families, stronger typography modules, and less hero-photo dependence")
+    if s_components < 0.5:
+        reasons.append("Design lacks modular component richness")
+        hints.append("Add visible campaign modules such as partner lockup, offer pill, issue chip, device mockup, sticker pack, or product frame")
+    if s_campaign < 0.55:
+        reasons.append("Campaign system does not fit the post intent")
+        hints.append("Match the design structure to the assigned campaign family, especially for partner launches, issue editorials, and offer-led promos")
+    if s_roles < 0.55:
+        reasons.append("Carousel slide roles are too repetitive")
+        hints.append("Use differentiated slide jobs such as cover, proof, detail, quote, UI demo, and CTA close")
 
     out["reasons"] = reasons
     out["retry_hints"] = hints

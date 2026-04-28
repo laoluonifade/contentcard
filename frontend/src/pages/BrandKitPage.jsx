@@ -86,6 +86,7 @@ function mergeVisualSystem(kit, brandColors, brandFont) {
     reference_urls: Array.isArray(cur.reference_urls) ? cur.reference_urls : [],
     reference_rights_attested: !!cur.reference_rights_attested,
     forbidden_hexes: Array.isArray(cur.forbidden_hexes) ? cur.forbidden_hexes : [],
+    human_context: String(cur.human_context || '').slice(0, 500),
     image_people_style: ['real_people', 'illustration', 'cartoon', 'mixed'].includes(
       String(cur.image_people_style || 'real_people').toLowerCase()
     )
@@ -1182,6 +1183,7 @@ export default function BrandKitPage() {
                 <div>
                   <label className={`${labelCls} mb-2`}>Location</label>
                   <input value={form.location || ''} onChange={e => set('location', e.target.value)} placeholder="Lagos, Nigeria" className={inpCls} />
+                  <p className="mt-1.5 text-[11px] text-ink/35">Used for local references, casting, and cultural visual relevance.</p>
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-4">
@@ -1773,6 +1775,7 @@ export default function BrandKitPage() {
                 <div>
                   <label className={`${labelCls} mb-2`}>Location</label>
                   <input value={form.audience_location || ''} onChange={e => set('audience_location', e.target.value)} placeholder="Nigeria, West Africa" className={inpCls} />
+                  <p className="mt-1.5 text-[11px] text-ink/35">Helps AI choose people, settings, and cultural details that fit your audience.</p>
                 </div>
               </div>
               <div>
@@ -1998,6 +2001,23 @@ export default function BrandKitPage() {
                   </select>
                   <p className="text-ink/35 text-[11px] mt-1.5">
                     Controls how month generation and image prompts treat humans: photoreal, illustrated, or both across the month.
+                  </p>
+                </label>
+                <label className="space-y-1 sm:col-span-2">
+                  <span className={labelCls}>Human / market representation</span>
+                  <textarea
+                    className={taCls}
+                    rows={3}
+                    value={vs().human_context || ''}
+                    onChange={(e) => setVs({ human_context: e.target.value.slice(0, 500) })}
+                    placeholder={
+                      countryCode === 'NG'
+                        ? 'Nigerian customers in Lagos, Black/African talent, local streetwear, natural hair, warm everyday settings...'
+                        : 'Local customers in your market, culturally accurate styling, everyday settings, representative people...'
+                    }
+                  />
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Used only when humans appear, so generated images match your market instead of defaulting to unrelated stock-photo people.
                   </p>
                 </label>
                 <label className="space-y-1 sm:col-span-2">

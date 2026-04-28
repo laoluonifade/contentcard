@@ -848,7 +848,6 @@ export default function CalendarPage() {
   const [slideIdx, setSlideIdx] = useState(0)
   const [editCaption, setEditCaption]   = useState('')
   const [editHashtags, setEditHashtags] = useState([])
-  const [visualPrompt, setVisualPrompt] = useState('')
   const [saving, setSaving]   = useState(false)
   const [regen, setRegen]     = useState(false)
   const [regenVis, setRegenVis] = useState(false)
@@ -1089,12 +1088,11 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (modal) {
-      setEditCaption(modal.caption || '')
-      setEditHashtags(modal.hashtags || [])
-      setVisualPrompt(modal.image_prompt || modal.visual_direction || '')
+      setEditCaption((modal.caption || modal.description || '').trim())
+      setEditHashtags(Array.isArray(modal.hashtags) ? modal.hashtags : [])
       setSlideIdx(0)
     }
-  }, [modal?.id])
+  }, [modal?.id, modal?.caption, modal?.description, modal?.hashtags])
 
   // Lock body scroll when modal is open so background page doesn't scroll
   useEffect(() => {
@@ -1166,30 +1164,6 @@ export default function CalendarPage() {
       toast('Visuals regenerated')
     } catch (e) {
       toast(e.response?.data?.detail || 'Visual regen failed', 'error')
-    } finally {
-      setRegenVis(false)
-    }
-  }
-
-  const regenerateVisualFromPrompt = async () => {
-    if (!modal) return
-    const prompt = String(visualPrompt || '').trim()
-    if (!prompt) {
-      toast('Enter a prompt first.', 'error')
-      return
-    }
-    setRegenVis(true)
-    try {
-      const updated = await contentApi.regenerateVisual(modal.id, {
-        mode: 'same_archetype',
-        new_archetype: null,
-        prompt_text: prompt,
-      })
-      setPosts((ps) => ps.map((p) => (p.id === updated.id ? updated : p)))
-      setModal(updated)
-      toast('Visual generated from prompt')
-    } catch (e) {
-      toast(e.response?.data?.detail || 'Prompt visual generation failed', 'error')
     } finally {
       setRegenVis(false)
     }
@@ -2665,7 +2639,7 @@ export default function CalendarPage() {
                   </div>
                 </div>
 
-                {/* Right: caption + details */}
+                {/* Right: caption + hashtags */}
                 <div className="space-y-4">
 
                   {/* Caption */}
@@ -2679,96 +2653,16 @@ export default function CalendarPage() {
                   <div>
                     <label className="label">Hashtags</label>
                     <div className="flex flex-wrap gap-1.5 p-3 bg-mist border border-fog rounded-xl min-h-[42px]">
-                      {editHashtags.map((h,i)=>(
-                        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-fog text-ink/60 text-xs rounded-lg">
-                          #{h}
-                          <button onClick={()=>setEditHashtags(hs=>hs.filter((_,j)=>j!==i))} className="hover:text-ink ml-0.5 text-sm leading-none">×</button>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Divider */}
-                  <div className="h-px bg-fog" />
-
-                  {/* Supporting info: typography-only separation, no colored boxes */}
-                  {modal.description && (
-                    <div>
-                      <p className="label">Strategy note</p>
-                      <p className="text-ink/60 text-xs leading-relaxed">{modal.description}</p>
-                    </div>
-                  )}
-
-                  {modal.visual_direction && (
-                    <div>
-                      <p className="label">Visual direction</p>
-                      <p className="text-ink/60 text-xs leading-relaxed">{modal.visual_direction}</p>
-                    </div>
-                  )}
-
-                  {modal.cta && (
-                    <div>
-                      <p className="label">Call to action</p>
-                      <p className="text-ink/60 text-xs font-medium">{modal.cta}</p>
-                    </div>
-                  )}
-
-                  {modal.visual_lint && modal.visual_lint.status && modal.visual_lint.status !== 'skip' && (
-                    <div
-                      className={`rounded-xl border px-3 py-2 text-xs ${
-                        modal.visual_lint.status === 'pass'
-                          ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-                          : 'border-amber-200 bg-amber-50 text-amber-900'
-                      }`}
-                    >
-                      <p className="font-semibold mb-1">Brand check ({modal.visual_lint.status})</p>
-                      {(modal.visual_lint.hints || []).map((h, i) => (
-                        <p key={i} className="opacity-90">
-                          {h}
-                        </p>
-                      ))}
-                    </div>
-                  )}
-
-                  {modal.image_prompt && (
-                    <details className="group">
-                      <summary className="flex items-center gap-2 cursor-pointer list-none select-none">
-                        <span className="label mb-0">Image prompt</span>
-                        <span className="text-ink/25 text-[10px] group-open:rotate-180 transition-transform inline-block">▾</span>
-                      </summary>
-                      <div className="mt-2 relative">
-                        <p className="text-ink/40 text-xs leading-relaxed pr-7">{modal.image_prompt}</p>
-                        <button
-                          onClick={()=>{ navigator.clipboard?.writeText(modal.image_prompt); toast('Prompt copied') }}
-                          className="absolute top-0 right-0 text-ink/25 hover:text-ink/60 transition-colors">
-                          <Copy size={11}/>
-                        </button>
-                        {modal.image_prompt_explanation && (
-                          <p className="text-ink/25 text-[11px] leading-relaxed mt-2 italic">{modal.image_prompt_explanation}</p>
-                        )}
-                      </div>
-                    </details>
-                  )}
-
-                  <div>
-                    <p className="label">Generate image with AI prompt</p>
-                    <textarea
-                      value={visualPrompt}
-                      onChange={(e) => setVisualPrompt(e.target.value)}
-                      rows={3}
-                      className="input resize-none text-xs"
-                      placeholder="Describe the exact image style you want, then generate. You can switch layout archetype after."
-                    />
-                    <div className="mt-2 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={regenerateVisualFromPrompt}
-                        disabled={regenVis}
-                        className="btn-secondary text-xs px-3 py-2"
-                      >
-                        {regenVis ? 'Generating…' : 'Generate from prompt'}
-                      </button>
-                      <span className="text-[11px] text-ink/35">Pick a new layout archetype after generation if needed.</span>
+                      {editHashtags.length > 0 ? (
+                        editHashtags.map((h,i)=>(
+                          <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-fog text-ink/60 text-xs rounded-lg">
+                            #{h}
+                            <button onClick={()=>setEditHashtags(hs=>hs.filter((_,j)=>j!==i))} className="hover:text-ink ml-0.5 text-sm leading-none">×</button>
+                          </span>
+                        ))
+                      ) : (
+                        <p className="text-xs text-ink/35">No hashtags yet</p>
+                      )}
                     </div>
                   </div>
 

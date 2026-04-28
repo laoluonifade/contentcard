@@ -8,6 +8,7 @@ from collections import Counter
 import httpx
 from app.core.config import settings
 from app.services.art_brief_service import ARCHETYPE_IDS, infer_default_archetype
+from app.services.visual_tokens import poster_lockup_prompt_block
 from app.services.ai_cost_service import (
     build_fingerprint,
     cache_get,
@@ -41,6 +42,143 @@ def _sanitize_ai_mentions(text: str | None) -> str | None:
     if text is None or not isinstance(text, str):
         return text
     return text
+
+
+def _platform_key(platform: str | None) -> str:
+    raw = str(platform or "").strip().lower()
+    if raw in ("x", "twitter/x"):
+        return "twitter"
+    return raw or "instagram"
+
+
+def _platform_caption_word_limit(platform: str | None) -> int:
+    key = _platform_key(platform)
+    return {
+        "instagram": 75,
+        "facebook": 110,
+        "twitter": 45,
+        "linkedin": 140,
+    }.get(key, 100)
+
+
+def _platform_hashtag_limit(platform: str | None) -> int:
+    key = _platform_key(platform)
+    return {
+        "instagram": 4,
+        "facebook": 3,
+        "twitter": 2,
+        "linkedin": 3,
+    }.get(key, 2)
+
+
+def _platform_copy_guide(platform: str | None) -> str:
+    key = _platform_key(platform)
+    if key == "instagram":
+        return (
+            "Instagram copy guide: lead with a scroll-stopping hook in the first line, make the copy vivid, emotional, and easy to skim, "
+            "use short punchy paragraphs, reward the reader fast with appetite, aspiration, payoff, or proof, and end with a save, share, DM, "
+            "or order-style CTA that fits the business."
+        )
+    if key == "facebook":
+        return (
+            "Facebook copy guide: be conversational and community-friendly, give a little more context than Instagram, make the offer or story clear early, "
+            "sound human rather than ad-bot polished, and use CTAs that invite comments, shares, clicks, or immediate action."
+        )
+    if key == "twitter":
+        return (
+            "Twitter/X copy guide: write concise, sharp, high-signal copy, get to the point immediately, favour one strong idea over explanation, "
+            "use curiosity, opinion, tension, or contrast when helpful, and keep the CTA short and native to fast-moving conversation."
+        )
+    if key == "linkedin":
+        return (
+            "LinkedIn copy guide: sound credible, insight-led, and commercially intelligent, open with a clear point of view or business-relevant hook, "
+            "show proof, outcome, process, or lesson, and use a CTA that invites conversation, credibility, or qualified interest rather than empty hype."
+        )
+    return "Write platform-native social copy that sounds credible, specific, and commercially useful."
+
+
+def _brand_platform_style_note(brand: dict | None, platform: str | None) -> str:
+    if not isinstance(brand, dict):
+        return ""
+    raw = brand.get("platform_styles")
+    key = _platform_key(platform)
+    if isinstance(raw, dict):
+        note = raw.get(key) or raw.get(f"{key}_style")
+        return str(note or "").strip()
+    if isinstance(raw, list):
+        parts = []
+        for row in raw:
+            if isinstance(row, dict) and _platform_key(row.get("platform")) == key:
+                desc = str(row.get("style") or row.get("description") or row.get("notes") or "").strip()
+                if desc:
+                    parts.append(desc)
+            elif isinstance(row, str) and key in row.lower():
+                parts.append(row.strip())
+        return " | ".join(parts[:3])
+    if isinstance(raw, str):
+        return raw.strip()
+    return ""
+
+
+def _industry_conversion_guide(brand: dict | None) -> str:
+    if not isinstance(brand, dict):
+        return "Write with clear buyer psychology, specific proof, and a commercially meaningful next step."
+    strategy_prefix = ""
+    try:
+        strategy = resolve_business_default_strategy(brand)
+        strategy_prefix = (
+            f"Business-shape guide ({strategy.get('business_shape')}): {strategy.get('conversion_objective')}. "
+            f"Use proof via {strategy.get('proof_strategy')}. "
+        )
+    except Exception:
+        strategy_prefix = ""
+    bag = " ".join(
+        str(brand.get(k) or "") for k in ("industry", "sub_industry", "business_model", "description", "value_proposition")
+    ).lower()
+    if any(k in bag for k in ("food", "restaurant", "cafe", "kitchen", "meal", "delivery", "beverage")):
+        return strategy_prefix + (
+            "Food and hospitality conversion guide: make the copy sensory, specific, and crave-inducing. Name the dish, ritual, timing, offer, location, portion, "
+            "or menu reason to buy. Avoid vague praise; make the reader taste, picture, or plan the order."
+        )
+    if any(k in bag for k in ("fashion", "beauty", "skincare", "cosmetic", "apparel", "style")):
+        return strategy_prefix + (
+            "Fashion and beauty conversion guide: sell the transformation, feel, routine, finish, fit, confidence, or occasion. Use concrete product detail and emotional payoff, "
+            "not generic empowerment language."
+        )
+    if any(k in bag for k in ("saas", "software", "tech", "platform", "ai", "app", "productivity")):
+        return strategy_prefix + (
+            "Software and technology conversion guide: write from pain point to outcome. Highlight time saved, friction removed, workflow clarity, proof of usefulness, and why this matters now. "
+            "Avoid empty innovation buzzwords."
+        )
+    if any(k in bag for k in ("fintech", "finance", "bank", "payment", "loan", "insurance")):
+        return strategy_prefix + (
+            "Finance and fintech conversion guide: lead with trust, clarity, control, speed, or upside. Use practical benefit, reassurance, and real-life money context. "
+            "Avoid hype that sounds risky or vague."
+        )
+    if any(k in bag for k in ("agency", "consult", "legal", "professional", "b2b", "real estate")):
+        return strategy_prefix + (
+            "Professional-services conversion guide: write with authority and specificity. Show the cost of inaction, the value of clarity, the result clients want, and a confident next step."
+        )
+    if any(k in bag for k in ("health", "wellness", "fitness", "medical")):
+        return strategy_prefix + (
+            "Health and wellness conversion guide: focus on routine, relief, confidence, energy, consistency, or expert care. Keep claims grounded and believable."
+        )
+    if any(k in bag for k in ("e-commerce", "retail", "shop", "store")):
+        return strategy_prefix + (
+            "Retail and ecommerce conversion guide: spotlight the product, use case, shopper benefit, urgency, and proof. Make the buying reason feel immediate and concrete."
+        )
+    return strategy_prefix + "Write with clear buyer psychology, specific proof, and a commercially meaningful next step."
+
+
+def _strip_hashtags_from_caption(caption: str | None) -> tuple[str, list[str]]:
+    raw = str(caption or "").strip()
+    if not raw:
+        return "", []
+    tags = re.findall(r"#(\w+)", raw, flags=re.UNICODE)
+    cleaned = re.sub(r"(?:^|\s)#(\w+)", "", raw, flags=re.UNICODE)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned).strip(" \n\t")
+    return cleaned.strip(), [str(t).lstrip("#") for t in tags if str(t).strip()]
 
 
 def _sanitize_post_copy_fields(post: dict) -> dict:
@@ -128,6 +266,66 @@ COMPOSITION ANTI-PATTERNS (never do these):
 # ── Content-type design direction map ─────────────────────────────────────────
 
 _CONTENT_TYPE_DESIGN = {
+    "offer": {
+        "layout": "conversion-first offer system with CTA hierarchy",
+        "mood": "urgent, useful, commercially clear",
+        "composition": "offer module, product or service proof, CTA strip, and strong negative space",
+        "avoid": "plain hero photo, vague sale language",
+    },
+    "product_or_service_spotlight": {
+        "layout": "premium spotlight system with benefit framing",
+        "mood": "desirable, specific, useful",
+        "composition": "hero subject plus use-case, benefit, or feature module",
+        "avoid": "generic packshot, unrelated lifestyle scene",
+    },
+    "proof": {
+        "layout": "trust-led proof card",
+        "mood": "credible, grounded, reassuring",
+        "composition": "quote, stat, review, result, or credibility cue as the anchor",
+        "avoid": "stock smiles without evidence",
+    },
+    "education": {
+        "layout": "saveable teaching system",
+        "mood": "clear, helpful, authoritative",
+        "composition": "framework, step, icon, diagram, or comparison module",
+        "avoid": "decorative-only imagery",
+    },
+    "objection_handling": {
+        "layout": "myth-busting or clarification card",
+        "mood": "confident, clarifying, low-friction",
+        "composition": "question-answer, before-after, or misconception-to-truth structure",
+        "avoid": "defensive tone, generic reassurance",
+    },
+    "story_or_culture": {
+        "layout": "editorial story system",
+        "mood": "human, specific, behind-the-brand",
+        "composition": "scene, value, turning point, or culture detail as the visual anchor",
+        "avoid": "random lifestyle filler",
+    },
+    "announcement": {
+        "layout": "clear launch or update card",
+        "mood": "timely, confident, direct",
+        "composition": "announcement headline, support module, and action cue",
+        "avoid": "burying the actual news",
+    },
+    "comparison_or_benefit": {
+        "layout": "benefit-led contrast card",
+        "mood": "practical, outcome-focused, crisp",
+        "composition": "before-after, side-by-side, stat, or feature-to-outcome structure",
+        "avoid": "abstract benefit claims with no context",
+    },
+    "seasonal_or_moment": {
+        "layout": "moment-aware campaign card",
+        "mood": "timely, culturally aware, action-ready",
+        "composition": "seasonal motif, offer or occasion module, and CTA cue",
+        "avoid": "generic holiday clip art",
+    },
+    "community_or_engagement": {
+        "layout": "conversation-first prompt card",
+        "mood": "participatory, expressive, culturally tuned",
+        "composition": "bold question, reaction cue, sticker/icon energy, or community proof",
+        "avoid": "empty engagement bait",
+    },
     "educational tip": {
         "layout": "clean information hierarchy",
         "mood": "authoritative, precise, credible",
@@ -264,6 +462,46 @@ _LAYOUT_KEYWORDS = [
 
 _COMPOSITION_KEYWORDS = _FOCAL_KEYWORDS + _LAYOUT_KEYWORDS
 
+_ALIGNMENT_STOPWORDS = frozenset({
+    "about", "above", "after", "again", "against", "also", "because", "before",
+    "being", "brand", "caption", "check", "content", "could", "customer",
+    "customers", "every", "first", "from", "have", "into", "just", "like",
+    "made", "make", "more", "need", "order", "post", "that", "their", "there",
+    "these", "this", "those", "through", "today", "with", "your", "youre",
+})
+
+
+def _alignment_terms(text: str | None, *, limit: int = 12) -> list[str]:
+    """Extract a small set of meaningful words for copy/visual alignment checks."""
+    raw = re.sub(r"['’]", "", str(text or "").lower())
+    terms: list[str] = []
+    for token in re.findall(r"[a-z0-9][a-z0-9_]{2,}", raw):
+        if token in _ALIGNMENT_STOPWORDS:
+            continue
+        if token not in terms:
+            terms.append(token)
+        if len(terms) >= limit:
+            break
+    return terms
+
+
+def _first_meaningful_copy_line(text: str | None, *, max_words: int = 18) -> str:
+    """Return a compact hook/promise from the first useful line of copy."""
+    stripped, _tags = _strip_hashtags_from_caption(text)
+    lines = [ln.strip(" \t-") for ln in stripped.replace("\r", "").split("\n") if ln.strip(" \t-")]
+    raw = lines[0] if lines else stripped
+    raw = re.sub(r"\s+", " ", str(raw or "").strip())
+    if not raw:
+        return ""
+    words = [w for w in raw.split() if w]
+    if len(words) > max_words:
+        raw = " ".join(words[:max_words])
+    return raw[:220].strip()
+
+
+def _quote_for_contract(text: str | None) -> str:
+    return str(text or "").replace('"', "'").strip()
+
 
 def _validate_design_quality(posts: list[dict], brand: dict | None = None) -> list[dict]:
     """
@@ -295,13 +533,35 @@ def _validate_design_quality(posts: list[dict], brand: dict | None = None) -> li
 
 def _collect_post_quality_warnings(post: dict, words_to_avoid: list[str] | None = None) -> list[str]:
     warnings: list[str] = []
-    caption = str(post.get("caption") or "").lower()
+    raw_caption = str(post.get("caption") or "")
+    caption = raw_caption.lower()
     visual_dir = str(post.get("visual_direction") or "").lower()
     image_prompt = str(post.get("image_prompt") or "").lower()
+    platform = str(post.get("platform") or "")
+    ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+    modules = post.get("campaign_modules") if isinstance(post.get("campaign_modules"), dict) else {}
+    copy_contract = modules.get("copy_contract") if isinstance(modules.get("copy_contract"), dict) else {}
+    hook = str(ma.get("hook") or "").strip()
+    support = str(ma.get("support") or "").strip()
+    cta = str(ma.get("cta") or post.get("cta") or "").strip()
 
     generic_hits = [p for p in _GENERIC_PHRASES if p in caption]
     if generic_hits:
         warnings.append("generic_caption_language")
+
+    platform_limit = _platform_caption_word_limit(platform)
+    caption_word_count = len([word for word in raw_caption.split() if word.strip()])
+    if caption_word_count > platform_limit:
+        warnings.append("caption_too_long_for_platform")
+
+    inline_hashtags = re.findall(r"#(\w+)", raw_caption, flags=re.UNICODE)
+    if inline_hashtags:
+        warnings.append("caption_contains_inline_hashtags")
+
+    hashtag_limit = _platform_hashtag_limit(platform)
+    hashtags = post.get("hashtags") if isinstance(post.get("hashtags"), list) else []
+    if len(hashtags) > hashtag_limit:
+        warnings.append("too_many_hashtags_for_platform")
 
     has_composition = any(k in visual_dir for k in _COMPOSITION_KEYWORDS)
     if not has_composition and len(visual_dir) > 20:
@@ -309,6 +569,45 @@ def _collect_post_quality_warnings(post: dict, words_to_avoid: list[str] | None 
 
     if len(image_prompt) < 60:
         warnings.append("short_image_prompt")
+
+    if hook:
+        hook_lc = hook.lower()
+        if "headline for layout:" not in visual_dir:
+            warnings.append("missing_layout_headline_contract")
+        elif hook_lc[:24] and hook_lc[:24] not in visual_dir:
+            warnings.append("layout_headline_not_synced")
+    if support:
+        support_lc = support.lower()
+        if "subhead for layout:" not in visual_dir:
+            warnings.append("missing_layout_subhead_contract")
+        elif support_lc[:24] and support_lc[:24] not in visual_dir:
+            warnings.append("layout_subhead_not_synced")
+
+    copy_source = " ".join(
+        str(x or "")
+        for x in (
+            post.get("content_type"),
+            post.get("content_idea"),
+            post.get("description"),
+            hook,
+            support,
+            cta,
+            _first_meaningful_copy_line(raw_caption),
+        )
+    )
+    copy_terms = set(_alignment_terms(copy_source, limit=10))
+    visual_terms = set(_alignment_terms(f"{visual_dir} {image_prompt}", limit=32))
+    if copy_terms and visual_terms and len(copy_terms & visual_terms) < min(2, len(copy_terms)):
+        warnings.append("creative_contract_weak_visual_copy_alignment")
+
+    if hook and copy_contract:
+        contract_headline = str(copy_contract.get("headline") or "").strip().lower()
+        if contract_headline and contract_headline != hook.lower():
+            warnings.append("campaign_copy_contract_headline_mismatch")
+    if cta and copy_contract:
+        contract_cta = str(copy_contract.get("cta") or "").strip().lower()
+        if contract_cta and contract_cta != cta.lower():
+            warnings.append("campaign_copy_contract_cta_mismatch")
 
     if words_to_avoid:
         violations = [w for w in words_to_avoid if str(w).lower() in caption]
@@ -320,9 +619,29 @@ def _collect_post_quality_warnings(post: dict, words_to_avoid: list[str] | None 
         if slide_count < 3:
             warnings.append("weak_carousel_depth")
 
+    platform_key = _platform_key(platform)
+    if platform_key == "twitter" and caption_word_count > 38:
+        warnings.append("twitter_copy_not_concise_enough")
+    elif platform_key == "linkedin" and caption_word_count < 18:
+        warnings.append("linkedin_copy_lacks_depth")
+    elif platform_key == "instagram" and caption_word_count < 12:
+        warnings.append("instagram_copy_lacks_story_energy")
+
     fam = _detect_template_family_for_mix(post)
     if fam in TYPOGRAPHY_LED_FAMILIES and str(post.get("visual_archetype") or "").lower() == "photo_hero":
         warnings.append("typography_family_rendered_as_photo_hero")
+    if fam in RICH_LAYOUT_FAMILIES:
+        pack = post.get("component_pack") if isinstance(post.get("component_pack"), list) else []
+        if len(pack) < 3:
+            warnings.append("rich_layout_missing_component_pack")
+        if not modules:
+            warnings.append("rich_layout_missing_campaign_modules")
+        elif not copy_contract:
+            warnings.append("rich_layout_missing_copy_contract")
+        if str(post.get("format") or "").lower() == "carousel":
+            blueprint = post.get("slide_blueprint") if isinstance(post.get("slide_blueprint"), list) else []
+            if len(set(str(x) for x in blueprint if str(x).strip())) < 3:
+                warnings.append("carousel_roles_too_repetitive")
 
     return list(dict.fromkeys(warnings))
 
@@ -429,9 +748,126 @@ DESIGN_FAMILY_BLUEPRINTS = [
             "Avoid falling back to a plain close-up food photo with pasted text."
         ),
     },
+    {
+        "family": "co_brand_offer",
+        "content_type": "Partnership Promotion",
+        "post_type": "single",
+        "design_mode": "conversion",
+        "visual_direction": (
+            "Design a co-branded campaign card with a clear partner lockup row, one dominant value proposition, one CTA pill, "
+            "and one product or proof module. This should feel like a high-performance partnership launch, not a generic promo tile."
+        ),
+    },
+    {
+        "family": "merchant_launch",
+        "content_type": "Merchant Launch",
+        "post_type": "single",
+        "design_mode": "product",
+        "visual_direction": (
+            "Design a launch asset for a newly onboarded merchant with one oversized announcement headline, one cutout product frame, "
+            "merchant identity cues, and a launch CTA. Make it feel like a platform announcement system, not just a restaurant flyer."
+        ),
+    },
+    {
+        "family": "offer_pill_campaign",
+        "content_type": "CTA / Promotion",
+        "post_type": "single",
+        "design_mode": "conversion",
+        "visual_direction": (
+            "Build a bold offer-led composition around stacked percentage or value pills, one strong supporting line, "
+            "and one product or location proof zone. The typography modules should do most of the selling."
+        ),
+    },
+    {
+        "family": "device_mockup_benefit",
+        "content_type": "Feature Launch",
+        "post_type": "carousel",
+        "design_mode": "ui_saas",
+        "visual_direction": (
+            "Design a benefit-led carousel using device or UI mockup framing, one clear feature claim per slide, "
+            "supporting utility icons, and premium app-growth composition. It should feel like polished product marketing, not a simple explainer."
+        ),
+    },
+    {
+        "family": "editorial_issue_card",
+        "content_type": "Editorial Story",
+        "post_type": "carousel",
+        "design_mode": "editorial",
+        "visual_direction": (
+            "Create an issue-led editorial carousel with a cover slide, one or more Q-and-A or narrative slides, "
+            "issue metadata, and a clean publication rhythm. Think modern magazine post system, not a plain text deck."
+        ),
+    },
+    {
+        "family": "seasonal_pattern_promo",
+        "content_type": "Seasonal Offer",
+        "post_type": "single",
+        "design_mode": "conversion",
+        "visual_direction": (
+            "Build a seasonal promo card using a motif-rich patterned backdrop, one offer module, one CTA pill, "
+            "and one cutout food or product proof area. The seasonality should feel designed into the system, not tacked on."
+        ),
+    },
 ]
 
 FAMILY_BLUEPRINT_BY_NAME = {row["family"]: row for row in DESIGN_FAMILY_BLUEPRINTS}
+
+RICH_LAYOUT_FAMILIES = frozenset(
+    {
+        "co_brand_offer",
+        "merchant_launch",
+        "offer_pill_campaign",
+        "device_mockup_benefit",
+        "editorial_issue_card",
+        "seasonal_pattern_promo",
+    }
+)
+
+FAMILY_COMPONENT_PACKS = {
+    "promo": ["headline_module", "value_block", "cta_strip", "support_module"],
+    "text_poster": ["headline_module", "support_line", "graphic_accent", "brand_signature"],
+    "data_card": ["headline_module", "stat_module", "proof_module", "cta_strip"],
+    "testimonial": ["quote_module", "proof_badge", "attribution_block", "brand_signature"],
+    "announcement": ["headline_module", "secondary_line", "context_strip", "brand_signature"],
+    "illustration_editorial": ["illustration_motif", "headline_module", "accent_stickers", "brand_signature"],
+    "edu": ["hook_panel", "lesson_module", "example_module", "action_module"],
+    "story_carousel": ["story_cover", "context_module", "proof_module", "cta_close"],
+    "product_hero": ["hero_product", "benefit_copy", "cta_strip", "brand_signature"],
+    "co_brand_offer": ["partner_lockup", "headline_module", "offer_pill", "cta_pill", "product_proof"],
+    "merchant_launch": ["merchant_lockup", "launch_headline", "cutout_product_frame", "cta_pill"],
+    "offer_pill_campaign": ["offer_pill_stack", "headline_module", "region_or_price_chip", "brand_signature"],
+    "device_mockup_benefit": ["device_mockup", "benefit_headline", "utility_icon_set", "cta_strip"],
+    "editorial_issue_card": ["issue_chip", "editorial_headline", "qa_body", "closing_pull_quote"],
+    "seasonal_pattern_promo": ["pattern_backdrop", "headline_module", "seasonal_motif", "cta_pill", "product_cutout"],
+    "default": ["headline_module", "support_line", "brand_signature"],
+}
+
+FAMILY_LAYOUT_FAMILIES = {
+    "promo": "conversion_banner",
+    "text_poster": "typography_poster",
+    "data_card": "insight_card_system",
+    "testimonial": "proof_card",
+    "announcement": "editorial_announcement",
+    "illustration_editorial": "illustration_feature",
+    "edu": "lesson_carousel",
+    "story_carousel": "narrative_carousel",
+    "product_hero": "product_value_card",
+    "co_brand_offer": "co_brand_launch_system",
+    "merchant_launch": "merchant_onboarding_announcement",
+    "offer_pill_campaign": "offer_pill_system",
+    "device_mockup_benefit": "ui_benefit_system",
+    "editorial_issue_card": "issue_editorial_system",
+    "seasonal_pattern_promo": "seasonal_pattern_system",
+    "default": "designer_social_campaign",
+}
+
+FAMILY_SLIDE_BLUEPRINTS = {
+    "data_card": ["cover", "insight", "proof", "cta"],
+    "edu": ["cover", "lesson", "example", "cta"],
+    "story_carousel": ["cover", "context", "turning_point", "close"],
+    "device_mockup_benefit": ["cover", "ui_proof", "benefit_detail", "cta"],
+    "editorial_issue_card": ["cover", "qa", "qa", "quote", "close"],
+}
 
 _FOOD_INDUSTRY_HINTS = (
     "food",
@@ -489,6 +925,18 @@ def _default_cta_from_brand(brand: dict | None, post: dict | None = None) -> str
     cta_style = str(b.get("cta_style") or "").strip()
     if 6 <= len(cta_style) <= 300:
         return cta_style[:300]
+    try:
+        strategy = resolve_business_default_strategy(b)
+        preferred = [str(x).strip() for x in (strategy.get("preferred_ctas") or []) if str(x).strip()]
+        if preferred:
+            selector = str((post or {}).get("content_type") or (post or {}).get("topic") or "").lower()
+            if "offer" in selector or "promo" in selector or "season" in selector:
+                return next((cta for cta in preferred if any(k in cta.lower() for k in ("order", "claim", "shop", "book", "register", "try"))), preferred[0])[:300]
+            if "proof" in selector or "testimonial" in selector:
+                return next((cta for cta in preferred if any(k in cta.lower() for k in ("talk", "book", "ask", "dm", "save"))), preferred[0])[:300]
+            return preferred[0][:300]
+    except Exception:
+        pass
     is_food = any(k in industry for k in _FOOD_INDUSTRY_HINTS)
     host = ""
     if website:
@@ -599,6 +1047,102 @@ def _sync_visual_direction_layout_typography(post: dict, brand: dict | None) -> 
     if need_strat:
         parts.append(strat_sentence)
     post["visual_direction"] = (vd + " " + " ".join(parts)).strip()
+
+
+def _align_post_creative_contract(post: dict, brand: dict | None) -> None:
+    """
+    Keep the strategic stakeholders for a post in one direction:
+    content type, caption promise, layout copy, CTA, visual direction, and raster prompt.
+    """
+    if not isinstance(post, dict):
+        return
+
+    if not str(post.get("cta") or "").strip():
+        _ensure_post_cta(post, brand)
+    _ensure_message_architecture(post, brand)
+
+    ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+    hook = str(ma.get("hook") or "").strip()
+    support = str(ma.get("support") or "").strip()
+    evidence = str(ma.get("evidence") or "").strip()
+    cta = _normalize_cta_raw(ma.get("cta") or post.get("cta")) or _default_cta_from_brand(brand, post)
+    if cta:
+        ma["cta"] = _trim_words_local(cta, 10)[:120]
+        post["cta"] = str(cta).strip()[:300]
+        post["message_architecture"] = ma
+
+    content_idea = str(post.get("content_idea") or "").strip()
+    topic = str(post.get("topic") or "").strip()
+    if content_idea and (not topic or topic.lower() in {"this week", "the message", "photo-led post"}):
+        post["topic"] = content_idea
+
+    caption_promise = (
+        _first_meaningful_copy_line(post.get("caption"))
+        or hook
+        or support
+        or content_idea
+        or str(post.get("topic") or "").strip()
+    )
+    content_type = str(post.get("content_type") or "General").strip() or "General"
+    fmt = str(post.get("format") or "single").strip().lower() or "single"
+    family = _detect_template_family_for_mix(post)
+    layout_family = str(post.get("layout_family") or "").strip()
+    archetype = str(post.get("visual_archetype") or "").strip()
+
+    modules = post.get("campaign_modules") if isinstance(post.get("campaign_modules"), dict) else {}
+    modules = dict(modules)
+    modules["copy_contract"] = {
+        "content_type": content_type,
+        "format": fmt,
+        "visual_family": family,
+        "layout_family": layout_family,
+        "visual_archetype": archetype,
+        "caption_promise": caption_promise[:220],
+        "headline": hook[:120],
+        "subhead": support[:220],
+        "evidence": evidence[:160],
+        "cta": str(ma.get("cta") or cta or "").strip()[:120],
+    }
+    post["campaign_modules"] = modules
+
+    vd = str(post.get("visual_direction") or "").strip()
+    low = vd.lower()
+    additions: list[str] = []
+    if "creative contract:" not in low:
+        additions.append(
+            "Creative contract: content type, caption, on-card layout copy, CTA, and image concept must communicate one same promise."
+        )
+    if "content type alignment:" not in low:
+        additions.append(
+            f"Content type alignment: this is a {content_type} post using {family} visual family"
+            f"{f' and {layout_family} layout' if layout_family else ''}; the design should feel intentional for that job."
+        )
+    if caption_promise and "caption promise to support visually:" not in low:
+        additions.append(
+            f'Caption promise to support visually: "{_quote_for_contract(caption_promise)}" through subject, props, mood, hierarchy, and proof cues.'
+        )
+    if cta and "cta action cue:" not in low:
+        additions.append(
+            f'CTA action cue: "{_quote_for_contract(cta)}"; if a CTA module is used, it must point to this action and not a different offer.'
+        )
+    if additions:
+        post["visual_direction"] = (vd + " " + " ".join(additions)).strip()
+
+    _sync_visual_direction_layout_typography(post, brand)
+
+    ip = str(post.get("image_prompt") or "").strip()
+    if ip and "semantic alignment only:" not in ip.lower():
+        post["image_prompt"] = (
+            ip
+            + " "
+            + f'Semantic alignment only: make the scene support the {content_type} post and caption promise '
+            + f'"{_quote_for_contract(caption_promise)}" through subject, props, mood, and composition. '
+            + "Do not render these words, prices, captions, hashtags, or any readable typography in the raster image."
+        ).strip()
+
+    post["quality_warnings"] = _collect_post_quality_warnings(post)
+
+
 VISUAL_DIRECTION_DESIGN_TOKENS = (
     "foreground",
     "midground",
@@ -706,15 +1250,15 @@ def _coerce_visual_type_by_content_type(post: dict, brand: dict | None = None) -
     current = str(post.get("visual_type") or "real_people").lower()
     if current not in VALID_VISUAL_TYPES:
         current = "real_people"
-    if any(k in bag for k in ("tip", "guide", "how to", "insight", "myth", "mistake", "breakdown", "thread")):
+    if any(k in bag for k in ("education", "tip", "guide", "how to", "insight", "myth", "mistake", "breakdown", "thread", "objection_handling")):
         return current if current in ("illustration", "abstract", "product") else "abstract"
-    if any(k in bag for k in ("promo", "offer", "sale", "launch", "product spotlight", "announcement", "update", "integration", "workflow", "process")):
+    if any(k in bag for k in ("promo", "offer", "sale", "launch", "product spotlight", "product_or_service_spotlight", "announcement", "seasonal_or_moment", "update", "integration", "workflow", "process", "comparison_or_benefit")):
         if current in ("product", "illustration", "abstract"):
             return current
         return "abstract"
-    if any(k in bag for k in ("testimonial", "customer", "case study", "proof", "review", "founder story")):
+    if any(k in bag for k in ("testimonial", "customer", "case study", "proof", "review", "founder story", "story_or_culture")):
         return current if current in ("real_people", "illustration", "abstract") else "illustration"
-    if any(k in bag for k in ("meme", "relatable humour", "hot take", "engagement question")):
+    if any(k in bag for k in ("meme", "relatable humour", "hot take", "engagement question", "community_or_engagement")):
         return current if current in ("illustration", "abstract") else "abstract"
     return current
 
@@ -726,6 +1270,21 @@ def _detect_template_family_for_mix(post: dict) -> str:
     ctype = str(post.get("content_type") or "").lower()
     topic = str(post.get("topic") or post.get("content_idea") or "").lower()
     bag = f"{ctype} {topic}"
+    if ctype in CONTENT_TYPE_FAMILY_DEFAULTS:
+        preferred = CONTENT_TYPE_FAMILY_DEFAULTS.get(ctype) or []
+        return next((fam for fam in preferred if fam in FAMILY_BLUEPRINT_BY_NAME), "text_poster")
+    if any(k in bag for k in ("partner", "collab", "collaboration", "co-brand", "cobrand")):
+        return "co_brand_offer"
+    if any(k in bag for k in ("merchant launch", "now live", "live on the deck", "new merchant", "new restaurant")):
+        return "merchant_launch"
+    if any(k in bag for k in ("salary week", "upto", "up to", "percent off", "% off", "discount")):
+        return "offer_pill_campaign"
+    if any(k in bag for k in ("app feature", "ui", "mockup", "product demo", "device", "checkout", "top up")):
+        return "device_mockup_benefit"
+    if any(k in bag for k in ("issue", "interview", "q&a", "qa", "editorial", "spotlight conversation")):
+        return "editorial_issue_card"
+    if any(k in bag for k in ("ramadan", "easter", "lent", "sallah", "christmas", "holiday", "seasonal")):
+        return "seasonal_pattern_promo"
     if any(k in bag for k in ("promo", "offer", "sale", "discount", "deal")):
         return "promo"
     if any(k in bag for k in ("launch", "announcement", "event", "webinar", "live session", "speaker")):
@@ -747,6 +1306,69 @@ def _detect_template_family_for_mix(post: dict) -> str:
     if any(k in bag for k in ("hiring", "job", "career", "vacancy", "role", "join our team")):
         return "hiring"
     return "default"
+
+
+def _component_pack_for_family(fam: str) -> list[str]:
+    return list(FAMILY_COMPONENT_PACKS.get(fam) or FAMILY_COMPONENT_PACKS["default"])
+
+
+def _layout_family_for_post(post: dict) -> str:
+    fam = _detect_template_family_for_mix(post)
+    return str(FAMILY_LAYOUT_FAMILIES.get(fam) or FAMILY_LAYOUT_FAMILIES["default"])
+
+
+def _slide_blueprint_for_post(post: dict) -> list[str]:
+    fam = _detect_template_family_for_mix(post)
+    fmt = str(post.get("format") or "single").lower()
+    slide_count = max(1, int(post.get("slide_count") or 1))
+    if fmt != "carousel" or slide_count <= 1:
+        return ["cover"]
+    plan = list(FAMILY_SLIDE_BLUEPRINTS.get(fam) or ["cover", "detail", "proof", "cta"])
+    while len(plan) < slide_count:
+        plan.insert(-1, "detail")
+    return plan[:slide_count]
+
+
+def _derive_campaign_meta(post: dict, brand: dict | None) -> dict:
+    fam = _detect_template_family_for_mix(post)
+    topic = str(post.get("topic") or post.get("content_idea") or "").strip()
+    caption = str(post.get("caption") or "").strip()
+    bag = f"{topic} {caption}".lower()
+    meta: dict[str, object] = {
+        "layout_family": _layout_family_for_post(post),
+        "component_pack": _component_pack_for_family(fam),
+        "slide_blueprint": _slide_blueprint_for_post(post),
+    }
+    if fam in ("co_brand_offer", "merchant_launch", "seasonal_pattern_promo"):
+        meta["partner_lockup"] = "enabled"
+    if fam in ("offer_pill_campaign", "co_brand_offer", "seasonal_pattern_promo"):
+        meta["offer_module"] = "pill_stack"
+    if fam in ("device_mockup_benefit",):
+        meta["device_mockup"] = "enabled"
+    if fam in ("editorial_issue_card",):
+        meta["series_system"] = "issue_editorial"
+        meta["issue_label"] = "Issue #1" if "issue #" not in bag else topic
+    if any(k in bag for k in ("lagos", "abuja", "ibadan", "ikeja", "mainland", "island", "benin", "ph", "kaduna")):
+        meta["location_chip"] = "enabled"
+    if any(k in bag for k in ("order now", "deal", "discount", "%", "off", "free")):
+        meta["cta_pill"] = "enabled"
+    if any(k in bag for k in ("kfc", "market square", "golemon", "grubbers", "happy belly", "sweet sensation")):
+        meta["co_brand_context"] = "merchant_partner"
+    if isinstance(brand, dict) and any(k in str(brand.get("industry") or "").lower() for k in _FOOD_INDUSTRY_HINTS):
+        meta["product_frame_shape"] = "arched_cutout"
+    return meta
+
+
+def _apply_dynamic_layout_system(post: dict, brand: dict | None) -> None:
+    meta = _derive_campaign_meta(post, brand)
+    post["layout_family"] = meta.get("layout_family")
+    post["component_pack"] = meta.get("component_pack")
+    post["slide_blueprint"] = meta.get("slide_blueprint")
+    if meta.get("series_system"):
+        post["series_system"] = meta.get("series_system")
+    if meta.get("issue_label"):
+        post["issue_label"] = meta.get("issue_label")
+    post["campaign_modules"] = meta
 
 
 def _apply_family_visual_defaults(post: dict) -> None:
@@ -789,6 +1411,24 @@ def _apply_family_visual_defaults(post: dict) -> None:
         else:
             post["visual_type"] = current_vt if current_vt in ("product", "illustration", "abstract") else "product"
             post["visual_archetype"] = "pattern_headline" if post["visual_type"] == "abstract" else "flat_edu"
+    elif fam == "co_brand_offer":
+        post["visual_type"] = "product" if current_vt not in ("product", "illustration", "abstract") else current_vt
+        post["visual_archetype"] = "co_brand_lockup"
+    elif fam == "merchant_launch":
+        post["visual_type"] = "product"
+        post["visual_archetype"] = "merchant_launch_cutout"
+    elif fam == "offer_pill_campaign":
+        post["visual_type"] = "abstract" if current_vt == "real_people" else (current_vt or "abstract")
+        post["visual_archetype"] = "offer_pill_stack"
+    elif fam == "device_mockup_benefit":
+        post["visual_type"] = "illustration" if current_vt == "real_people" else (current_vt or "illustration")
+        post["visual_archetype"] = "device_mockup_benefit"
+    elif fam == "editorial_issue_card":
+        post["visual_type"] = "illustration" if current_vt == "product" else (current_vt or "illustration")
+        post["visual_archetype"] = "editorial_issue_card"
+    elif fam == "seasonal_pattern_promo":
+        post["visual_type"] = "product" if current_vt not in ("product", "illustration", "abstract") else current_vt
+        post["visual_archetype"] = "product_grid_offer" if post["visual_type"] == "product" else "sticker_collage"
     elif fam == "product_hero":
         post["visual_type"] = "product" if current_vt not in ("product", "abstract", "illustration") else current_vt
         if post["visual_type"] == "product":
@@ -825,6 +1465,7 @@ def _apply_style_mix_targets(valid: list[dict], brand: dict | None) -> list[dict
                 valid[idx]["visual_type"] = "illustration"
                 valid[idx]["visual_archetype"] = "flat_edu"
             _apply_family_visual_defaults(valid[idx])
+            _apply_dynamic_layout_system(valid[idx], brand)
             _enforce_designer_visual_direction(valid[idx])
     return valid
 
@@ -875,6 +1516,7 @@ def _enforce_design_mode_rotation(valid: list[dict], brand: dict | None) -> list
                     p["visual_type"] = "illustration"
                     p["visual_archetype"] = "pov_comic"
                 _apply_family_visual_defaults(p)
+                _apply_dynamic_layout_system(p, brand)
                 _enforce_designer_visual_direction(p)
                 mode = _design_mode_for_post(p)
             prev_mode = mode
@@ -888,6 +1530,7 @@ def _enforce_design_mode_rotation(valid: list[dict], brand: dict | None) -> list
                 if fam in ("testimonial", "story_carousel"):
                     p["visual_type"] = "real_people"
                     p["visual_archetype"] = "portrait_story"
+                    _apply_dynamic_layout_system(p, brand)
                     _enforce_designer_visual_direction(p)
                     break
 
@@ -908,6 +1551,7 @@ def _enforce_design_mode_rotation(valid: list[dict], brand: dict | None) -> list
                     p["visual_archetype"] = "flat_edu"
                 elif vt == "product":
                     p["visual_archetype"] = "flat_edu" if arch == "photo_hero" else "pattern_headline"
+                _apply_dynamic_layout_system(p, brand)
                 _enforce_designer_visual_direction(p)
                 run_arch = str(p.get("visual_archetype") or "").lower()
                 run_len = 1
@@ -1042,6 +1686,7 @@ def _enforce_family_mix_requirements(valid: list[dict], brand: dict | None) -> l
             valid[idx]["template_family"] = fam
             valid[idx]["force_template_family"] = fam
             _apply_family_visual_defaults(valid[idx])
+            _apply_dynamic_layout_system(valid[idx], brand)
             _enforce_designer_visual_direction(valid[idx])
 
     family_counts = Counter(_detect_template_family_for_mix(p) for p in valid)
@@ -1050,6 +1695,7 @@ def _enforce_family_mix_requirements(valid: list[dict], brand: dict | None) -> l
         valid[target_idx]["template_family"] = "text_poster"
         valid[target_idx]["force_template_family"] = "text_poster"
         _apply_family_visual_defaults(valid[target_idx])
+        _apply_dynamic_layout_system(valid[target_idx], brand)
         _enforce_designer_visual_direction(valid[target_idx])
 
     family_counts = Counter(_detect_template_family_for_mix(p) for p in valid)
@@ -1074,6 +1720,7 @@ def _enforce_family_mix_requirements(valid: list[dict], brand: dict | None) -> l
             valid[source_idx]["template_family"] = fam
             valid[source_idx]["force_template_family"] = fam
             _apply_family_visual_defaults(valid[source_idx])
+            _apply_dynamic_layout_system(valid[source_idx], brand)
             _enforce_designer_visual_direction(valid[source_idx])
 
     return valid
@@ -1082,8 +1729,52 @@ def _enforce_family_mix_requirements(valid: list[dict], brand: dict | None) -> l
 def _visual_system_prompt_block(brand: dict) -> str:
     _raw = brand.get("visual_system")
     vs = _raw if isinstance(_raw, dict) else {}
+    lockup_note = poster_lockup_prompt_block(brand)
+    country_names = {
+        "NG": "Nigeria",
+        "GH": "Ghana",
+        "KE": "Kenya",
+        "ZA": "South Africa",
+        "UG": "Uganda",
+        "TZ": "Tanzania",
+        "RW": "Rwanda",
+        "CM": "Cameroon",
+        "ET": "Ethiopia",
+        "EG": "Egypt",
+        "US": "United States",
+        "GB": "United Kingdom",
+        "CA": "Canada",
+    }
+    market_bits = [
+        str(brand.get("location") or "").strip(),
+        str(brand.get("audience_location") or "").strip(),
+    ]
+    cc = str(brand.get("market_country_code") or brand.get("country_code") or "").strip().upper()
+    if cc:
+        market_bits.append(country_names.get(cc, cc))
+    market_context = ", ".join(dict.fromkeys([x for x in market_bits if x]))
+    human_context = str(vs.get("human_context") or "").strip()
+    if human_context:
+        casting_line = (
+            f"Human/casting context: {human_context}. Treat this as source-of-truth whenever a post uses people. "
+            "Do not default to unrelated Western stock-photo talent."
+        )
+    elif market_context:
+        casting_line = (
+            f"Human/casting context: if people appear, reflect the local audience and market cues for {market_context}. "
+            "Use regionally appropriate casting, styling, environments, and everyday details."
+        )
+    else:
+        casting_line = (
+            "Human/casting context: if people appear and the market is unspecified, use diverse casting or choose product/object scenes; "
+            "do not default automatically to generic white Western stock-photo talent."
+        )
     if not vs:
-        return "Visual tokens: derive from brand colours; vary visual_archetype across the month."
+        return (
+            "Visual tokens: derive from brand colours; vary visual_archetype across the month. "
+            f"{casting_line} "
+            f"{lockup_note}"
+        )
     arch = vs.get("allowed_archetypes") or []
     motifs = vs.get("never_show_motifs") or []
     ips = str(vs.get("image_people_style") or "mixed").lower()
@@ -1096,11 +1787,13 @@ def _visual_system_prompt_block(brand: dict) -> str:
         f"Allowed visual_archetype values: {', '.join(str(a) for a in arch)}. "
         f"Primary hex {vs.get('primary_hex', '')}, secondary {vs.get('secondary_hex', '')}, accent {vs.get('accent_hex', '')}. "
         f"Image people style for the month: {ips} (real_people = photoreal humans only; illustration = illustrated figures; cartoon = comic illustration; mixed = vary by post). "
+        f"{casting_line} "
         f"Campaign art style profile for the month: {art_style}. Keep this profile consistent across posts and all carousel slides. "
         "Visual storytelling standard: each post must carry one narrative beat in-frame (hook, context, proof, and CTA/action cue), not isolated decoration. "
         "Use playful graphic accents only when they reinforce the core message module. "
         f"Choose logo_safe_zone where the final composited brand mark should sit; keep that quadrant visually calm in the generated art — the raster model must not draw the logo. "
-        f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
+        f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}. "
+        f"{lockup_note}"
     )
 
 
@@ -1167,10 +1860,18 @@ def _validate_posts(
         else:
             post["slide_count"] = 1
 
-        # Coerce hashtags
-        if not isinstance(post.get("hashtags"), list):
-            post["hashtags"] = []
-        post["hashtags"] = [str(h).lstrip("#") for h in post["hashtags"]][:2]
+        # Coerce hashtags with platform-aware limits and repair inline tags.
+        caption_raw = str(post.get("caption") or "")
+        cleaned_caption, inline_hashtags = _strip_hashtags_from_caption(caption_raw)
+        post["caption"] = cleaned_caption
+        raw_hashtags = post.get("hashtags") if isinstance(post.get("hashtags"), list) else []
+        normalized_hashtags: list[str] = []
+        for tag in [*raw_hashtags, *inline_hashtags]:
+            clean = str(tag or "").strip().lstrip("#")
+            if clean:
+                normalized_hashtags.append(clean)
+        hashtag_limit = _platform_hashtag_limit(post.get("platform"))
+        post["hashtags"] = list(dict.fromkeys(normalized_hashtags))[:hashtag_limit]
 
         _br_vs = (brand or {}).get("visual_system")
         vs = _br_vs if isinstance(_br_vs, dict) else {}
@@ -1201,13 +1902,13 @@ def _validate_posts(
             post["visual_archetype"] = va
 
         vt = post["visual_type"]
-        if vt == "abstract" and post["visual_archetype"] not in ("pattern_headline", "flat_edu"):
+        if vt == "abstract" and post["visual_archetype"] not in ("pattern_headline", "flat_edu", "offer_pill_stack", "sticker_collage", "editorial_issue_card", "quote_editorial_sheet"):
             post["visual_archetype"] = "pattern_headline"
-        elif vt == "product" and post["visual_archetype"] not in ("photo_hero", "flat_edu", "pattern_headline"):
+        elif vt == "product" and post["visual_archetype"] not in ("photo_hero", "flat_edu", "pattern_headline", "merchant_launch_cutout", "product_grid_offer", "co_brand_lockup", "offer_pill_stack"):
             post["visual_archetype"] = "flat_edu"
-        elif vt == "illustration" and post["visual_archetype"] not in ("flat_edu", "pattern_headline", "pov_comic"):
+        elif vt == "illustration" and post["visual_archetype"] not in ("flat_edu", "pattern_headline", "pov_comic", "device_mockup_benefit", "editorial_issue_card", "quote_editorial_sheet", "sticker_collage", "co_brand_lockup"):
             post["visual_archetype"] = "flat_edu"
-        elif vt == "real_people" and post["visual_archetype"] not in ("photo_hero", "portrait_story", "pov_comic"):
+        elif vt == "real_people" and post["visual_archetype"] not in ("photo_hero", "portrait_story", "pov_comic", "co_brand_lockup", "editorial_issue_card"):
             post["visual_archetype"] = "portrait_story"
 
         zone = str(post.get("logo_safe_zone", "")).strip().lower().replace(" ", "_")
@@ -1216,6 +1917,7 @@ def _validate_posts(
         else:
             post["logo_safe_zone"] = zone
 
+        _apply_dynamic_layout_system(post, brand)
         _enforce_designer_visual_direction(post)
         _enforce_carousel_visual_richness(post)
 
@@ -1227,7 +1929,7 @@ def _validate_posts(
             post["format"] = "carousel"
             post["slide_count"] = max(3, int(post.get("slide_count", 3)))
 
-        # Truncate caption
+        # Truncate caption with a hard stop, but bias toward platform-native lengths via warnings/polish.
         caption = str(post.get("caption", ""))
         if len(caption) > 600:
             caption = caption[:600]
@@ -1244,7 +1946,7 @@ def _validate_posts(
                 )
 
         _ensure_post_cta(post, brand)
-        _ensure_message_architecture(post, brand)
+        _align_post_creative_contract(post, brand)
         post["quality_warnings"] = _collect_post_quality_warnings(post, words_to_avoid=avoid)
         valid.append(_sanitize_post_copy_fields(post))
 
@@ -1252,8 +1954,7 @@ def _validate_posts(
     valid = _enforce_family_mix_requirements(valid, brand)
     valid = _enforce_design_mode_rotation(valid, brand)
     for p in valid:
-        _ensure_message_architecture(p, brand)
-        _sync_visual_direction_layout_typography(p, brand)
+        _align_post_creative_contract(p, brand)
         p["quality_warnings"] = _collect_post_quality_warnings(p, words_to_avoid=avoid)
         _sanitize_post_copy_fields(p)
     return valid
@@ -1428,6 +2129,725 @@ def _get_posting_dates(year: int, month: int, posts_per_week: int) -> list[str]:
     return [weekdays[int(i * step)].isoformat() for i in range(total)]
 
 
+BUSINESS_CONTENT_TYPES = frozenset(
+    {
+        "offer",
+        "product_or_service_spotlight",
+        "proof",
+        "education",
+        "objection_handling",
+        "story_or_culture",
+        "announcement",
+        "comparison_or_benefit",
+        "seasonal_or_moment",
+        "community_or_engagement",
+    }
+)
+
+CONTENT_TYPE_FAMILY_DEFAULTS = {
+    "offer": ["offer_pill_campaign", "promo", "seasonal_pattern_promo", "co_brand_offer", "text_poster"],
+    "product_or_service_spotlight": ["product_hero", "merchant_launch", "co_brand_offer", "device_mockup_benefit", "text_poster"],
+    "proof": ["testimonial", "data_card", "editorial_issue_card", "text_poster"],
+    "education": ["edu", "data_card", "device_mockup_benefit", "text_poster", "editorial_issue_card"],
+    "objection_handling": ["text_poster", "edu", "data_card", "testimonial"],
+    "story_or_culture": ["story_carousel", "editorial_issue_card", "illustration_editorial", "text_poster"],
+    "announcement": ["announcement", "merchant_launch", "device_mockup_benefit", "co_brand_offer", "text_poster"],
+    "comparison_or_benefit": ["data_card", "device_mockup_benefit", "text_poster", "product_hero"],
+    "seasonal_or_moment": ["seasonal_pattern_promo", "announcement", "offer_pill_campaign", "illustration_editorial"],
+    "community_or_engagement": ["illustration_editorial", "text_poster", "story_carousel", "testimonial"],
+}
+
+BUSINESS_SHAPE_DEFAULTS = {
+    "transactional_local": {
+        "conversion_objective": "drive immediate orders, visits, bookings, and repeat patronage",
+        "content_pillars": [
+            "signature cravings",
+            "offers and bundles",
+            "social proof",
+            "occasion-based patronage",
+            "location and delivery convenience",
+        ],
+        "content_type_mix": {
+            "offer": 0.30,
+            "product_or_service_spotlight": 0.20,
+            "proof": 0.15,
+            "story_or_culture": 0.15,
+            "seasonal_or_moment": 0.10,
+            "community_or_engagement": 0.10,
+        },
+        "template_family_mix": [
+            "offer_pill_campaign",
+            "merchant_launch",
+            "seasonal_pattern_promo",
+            "co_brand_offer",
+            "text_poster",
+            "testimonial",
+            "product_hero",
+        ],
+        "post_format_mix": {"single": 0.70, "carousel": 0.25, "gif": 0.05},
+        "preferred_ctas": ["Order now", "Reserve now", "Try this today", "Send this to your food partner", "Visit today"],
+        "proof_strategy": "use reviews, crowd favourites, real menu specifics, location convenience, delivery speed, and repeat-customer rituals",
+        "visual_behavior": "crave-first, commercial, and modular: product cutouts, offer pills, location chips, menu cues, texture, and occasional human dining context",
+        "platform_copy_bias": {
+            "instagram": "sensory, quick, crave-first, shareable, and CTA-forward",
+            "facebook": "community, context, local trust, and group dining moments",
+            "twitter": "sharp, playful, appetite-led, one clear reason to order",
+            "linkedin": "use only when relevant for brand growth, operations, partnership, or local commerce credibility",
+        },
+    },
+    "product_catalog": {
+        "conversion_objective": "create product desire, reduce purchase hesitation, and move shoppers toward checkout",
+        "content_pillars": ["hero products", "use-case styling", "offers", "social proof", "comparisons", "new arrivals"],
+        "content_type_mix": {
+            "product_or_service_spotlight": 0.30,
+            "offer": 0.20,
+            "proof": 0.15,
+            "comparison_or_benefit": 0.15,
+            "education": 0.10,
+            "announcement": 0.10,
+        },
+        "template_family_mix": ["product_hero", "offer_pill_campaign", "promo", "testimonial", "data_card", "announcement", "text_poster"],
+        "post_format_mix": {"single": 0.65, "carousel": 0.30, "gif": 0.05},
+        "preferred_ctas": ["Shop now", "Tap to shop", "See what is new", "Grab yours today", "DM to order"],
+        "proof_strategy": "use product detail, use-case proof, customer reactions, scarcity, quality cues, and before-after or comparison logic",
+        "visual_behavior": "product-forward but designed: cutouts, labels, use-case scenes, offer modules, badge systems, and strong ecommerce hierarchy",
+        "platform_copy_bias": {
+            "instagram": "visual desire, concise product benefit, style/use-case detail, and quick shop CTA",
+            "facebook": "benefit, price or availability context, social proof, and practical purchase details",
+            "twitter": "one product reason, one payoff, one CTA",
+            "linkedin": "brand story, product differentiation, launch, or customer demand angle",
+        },
+    },
+    "offer_driven_marketplace": {
+        "conversion_objective": "make the marketplace feel useful now by converting offers, launches, partners, and everyday utility",
+        "content_pillars": ["partner launches", "limited offers", "utility moments", "proof of demand", "seasonal campaigns", "community prompts"],
+        "content_type_mix": {
+            "offer": 0.30,
+            "announcement": 0.20,
+            "product_or_service_spotlight": 0.20,
+            "comparison_or_benefit": 0.10,
+            "proof": 0.10,
+            "community_or_engagement": 0.10,
+        },
+        "template_family_mix": ["co_brand_offer", "merchant_launch", "offer_pill_campaign", "seasonal_pattern_promo", "device_mockup_benefit", "text_poster", "data_card"],
+        "post_format_mix": {"single": 0.70, "carousel": 0.25, "gif": 0.05},
+        "preferred_ctas": ["Order now", "Try it today", "Open the app", "Claim the offer", "Share this deal"],
+        "proof_strategy": "use partner credibility, offer mechanics, location chips, app utility, customer demand, and urgency",
+        "visual_behavior": "campaign-system design with partner lockups, offer pills, app or category icons, product cutouts, deal badges, and clear CTA bars",
+        "platform_copy_bias": {
+            "instagram": "deal-first, bold, playful, partner-specific, and easy to share",
+            "facebook": "context-rich, local, practical, and trust-building",
+            "twitter": "fast deal signal, witty utility line, minimal friction",
+            "linkedin": "partnership, growth, marketplace expansion, and product utility angle",
+        },
+    },
+    "trust_led_service": {
+        "conversion_objective": "build authority and confidence so qualified prospects request help",
+        "content_pillars": ["problem framing", "expert authority", "process clarity", "case-style proof", "objection handling", "consultation prompts"],
+        "content_type_mix": {
+            "education": 0.25,
+            "proof": 0.20,
+            "objection_handling": 0.20,
+            "comparison_or_benefit": 0.15,
+            "story_or_culture": 0.10,
+            "announcement": 0.10,
+        },
+        "template_family_mix": ["editorial_issue_card", "text_poster", "testimonial", "data_card", "announcement", "edu"],
+        "post_format_mix": {"single": 0.55, "carousel": 0.40, "gif": 0.05},
+        "preferred_ctas": ["Book a consultation", "Talk to our team", "Ask about your case", "Get expert help", "Send us a message"],
+        "proof_strategy": "use expertise, process, client outcomes, risk reduction, credentials, and practical next steps",
+        "visual_behavior": "authoritative editorial design: issue cards, quote sheets, process diagrams, proof modules, restrained imagery, and confident typography",
+        "platform_copy_bias": {
+            "instagram": "clear problem hook, useful insight, trust cue, and simple DM/book CTA",
+            "facebook": "human explanation, reassurance, story context, and approachable expert CTA",
+            "twitter": "one sharp misconception or practical lesson",
+            "linkedin": "authority, insight, process, risk, outcome, and qualified consultation",
+        },
+    },
+    "education_led_expert_brand": {
+        "conversion_objective": "prove expertise, teach valuable ideas, and move learners or clients toward signup, booking, or follow-through",
+        "content_pillars": ["teaching moments", "myth busting", "transformation proof", "frameworks", "student or client wins", "signup prompts"],
+        "content_type_mix": {
+            "education": 0.35,
+            "proof": 0.20,
+            "objection_handling": 0.15,
+            "comparison_or_benefit": 0.15,
+            "community_or_engagement": 0.10,
+            "announcement": 0.05,
+        },
+        "template_family_mix": ["edu", "editorial_issue_card", "data_card", "text_poster", "testimonial", "announcement"],
+        "post_format_mix": {"single": 0.45, "carousel": 0.50, "gif": 0.05},
+        "preferred_ctas": ["Save this lesson", "Join the next class", "Book a session", "Apply today", "Ask a question"],
+        "proof_strategy": "use frameworks, before-after learning, student wins, credibility markers, and practical examples",
+        "visual_behavior": "teaching-first: diagrams, step cards, issue-led carousels, quote sheets, icons, and memorable framework layouts",
+        "platform_copy_bias": {
+            "instagram": "saveable lesson, simple framework, practical payoff, and community prompt",
+            "facebook": "helpful context, encouragement, and accessible explanation",
+            "twitter": "thread-like sharp lesson without needing a thread",
+            "linkedin": "expertise, transformation, career or business outcome, and thoughtful CTA",
+        },
+    },
+    "community_or_personality_brand": {
+        "conversion_objective": "turn attention into affinity, conversation, loyalty, and community participation",
+        "content_pillars": ["point of view", "community prompts", "behind-the-scenes culture", "relatable moments", "values", "announcements"],
+        "content_type_mix": {
+            "story_or_culture": 0.25,
+            "community_or_engagement": 0.25,
+            "education": 0.15,
+            "announcement": 0.15,
+            "proof": 0.10,
+            "offer": 0.10,
+        },
+        "template_family_mix": ["text_poster", "illustration_editorial", "story_carousel", "editorial_issue_card", "announcement", "testimonial"],
+        "post_format_mix": {"single": 0.55, "carousel": 0.35, "gif": 0.10},
+        "preferred_ctas": ["Tell us your take", "Share this with someone", "Join the conversation", "Save this", "DM us"],
+        "proof_strategy": "use community reactions, shared language, values, behind-the-scenes access, and participation cues",
+        "visual_behavior": "identity-led and expressive: type posters, culture cards, sticker energy, editorial issues, reactions, and human warmth",
+        "platform_copy_bias": {
+            "instagram": "relatable, expressive, save/share-friendly, with a strong first-line hook",
+            "facebook": "community discussion, story context, and inclusive prompts",
+            "twitter": "pointed, witty, quotable, and conversation-native",
+            "linkedin": "values, culture, lessons, and community proof when commercially relevant",
+        },
+    },
+    "b2b_workflow_software": {
+        "conversion_objective": "show pain-to-outcome workflow improvement and create qualified product interest",
+        "content_pillars": ["pain point breakdown", "feature to outcome", "workflow proof", "customer wins", "objections", "product education"],
+        "content_type_mix": {
+            "education": 0.25,
+            "comparison_or_benefit": 0.20,
+            "product_or_service_spotlight": 0.20,
+            "proof": 0.15,
+            "objection_handling": 0.10,
+            "announcement": 0.10,
+        },
+        "template_family_mix": ["device_mockup_benefit", "data_card", "editorial_issue_card", "text_poster", "announcement", "testimonial", "edu"],
+        "post_format_mix": {"single": 0.45, "carousel": 0.50, "gif": 0.05},
+        "preferred_ctas": ["Book a demo", "Try it free", "See how it works", "Start today", "Switch from manual"],
+        "proof_strategy": "use workflow before-after, time saved, friction removed, customer outcomes, dashboards, and credible metrics",
+        "visual_behavior": "product marketing system: device or UI mockups, workflow diagrams, before-after panels, data cards, utility icons, and outcome-led typography",
+        "platform_copy_bias": {
+            "instagram": "clear pain hook, simple outcome, visual proof, and try/demo CTA",
+            "facebook": "practical workflow story and accessible benefit",
+            "twitter": "sharp pain-to-payoff idea, concise product value",
+            "linkedin": "business outcome, operational clarity, proof, and credible demo CTA",
+        },
+    },
+    "fintech_trust_utility": {
+        "conversion_objective": "build trust, remove money anxiety, and show useful control, speed, or clarity",
+        "content_pillars": ["trust and reassurance", "how it works", "speed and control", "money scenarios", "proof", "feature updates"],
+        "content_type_mix": {
+            "education": 0.25,
+            "comparison_or_benefit": 0.20,
+            "proof": 0.20,
+            "product_or_service_spotlight": 0.15,
+            "objection_handling": 0.10,
+            "announcement": 0.10,
+        },
+        "template_family_mix": ["device_mockup_benefit", "data_card", "text_poster", "testimonial", "editorial_issue_card", "announcement"],
+        "post_format_mix": {"single": 0.50, "carousel": 0.45, "gif": 0.05},
+        "preferred_ctas": ["Try it now", "Check your rate", "Open your account", "Top up in seconds", "Send money smarter"],
+        "proof_strategy": "use security, transparency, real money scenarios, speed, control, customer reassurance, and compliance-safe clarity",
+        "visual_behavior": "trust-first utility design: app mockups, data cards, security cues, scenario icons, clean money-context visuals, and calm hierarchy",
+        "platform_copy_bias": {
+            "instagram": "simple money scenario, trust cue, useful payoff, and low-friction CTA",
+            "facebook": "reassuring, practical, community-friendly money context",
+            "twitter": "useful one-liner, high-signal money tip, no hype",
+            "linkedin": "trust, operational value, product clarity, and credible proof",
+        },
+    },
+    "real_estate_consideration": {
+        "conversion_objective": "build trust, qualify leads, and make locations or properties feel desirable and credible",
+        "content_pillars": ["property or location value", "lifestyle aspiration", "proof and credibility", "buyer education", "objections", "consultation prompts"],
+        "content_type_mix": {
+            "product_or_service_spotlight": 0.25,
+            "education": 0.20,
+            "proof": 0.20,
+            "comparison_or_benefit": 0.15,
+            "objection_handling": 0.10,
+            "announcement": 0.10,
+        },
+        "template_family_mix": ["product_hero", "testimonial", "text_poster", "announcement", "story_carousel", "data_card", "edu"],
+        "post_format_mix": {"single": 0.55, "carousel": 0.40, "gif": 0.05},
+        "preferred_ctas": ["Book a viewing", "Ask for details", "Schedule a tour", "Talk to an advisor", "Save this property"],
+        "proof_strategy": "use location proof, inspection clarity, testimonials, financing or process clarity, and lifestyle specifics",
+        "visual_behavior": "consideration-led design: property hero frames, location cards, checklist carousels, trust modules, and lifestyle composition",
+        "platform_copy_bias": {
+            "instagram": "aspiration, location hook, lifestyle payoff, and viewing CTA",
+            "facebook": "practical context, family or community benefit, trust cues",
+            "twitter": "one location/property reason to care",
+            "linkedin": "investment, market insight, credibility, and consultation angle",
+        },
+    },
+    "healthcare_reassurance": {
+        "conversion_objective": "reassure, educate, reduce hesitation, and prompt appointment or care inquiry",
+        "content_pillars": ["reassurance", "education", "process clarity", "patient proof", "myth busting", "booking prompts"],
+        "content_type_mix": {
+            "education": 0.35,
+            "proof": 0.20,
+            "objection_handling": 0.15,
+            "product_or_service_spotlight": 0.10,
+            "community_or_engagement": 0.10,
+            "announcement": 0.10,
+        },
+        "template_family_mix": ["edu", "testimonial", "text_poster", "announcement", "illustration_editorial", "data_card"],
+        "post_format_mix": {"single": 0.50, "carousel": 0.45, "gif": 0.05},
+        "preferred_ctas": ["Book an appointment", "Talk to a specialist", "Ask us a question", "Start your checkup", "Save this reminder"],
+        "proof_strategy": "use expert reassurance, safe process explanation, patient comfort, grounded claims, and care accessibility",
+        "visual_behavior": "calm, human, and trustworthy: clean education cards, gentle illustration, patient journey modules, and warm care context",
+        "platform_copy_bias": {
+            "instagram": "reassuring hook, useful health clarity, gentle CTA",
+            "facebook": "accessible explanation, family/community reassurance, practical booking details",
+            "twitter": "concise health clarification or myth bust",
+            "linkedin": "expertise, care standards, patient trust, and professional credibility",
+        },
+    },
+    "hospitality_experience": {
+        "conversion_objective": "make the experience feel desirable enough to book, visit, reserve, or plan around",
+        "content_pillars": ["experience moments", "offers", "location or ambience", "guest proof", "events", "seasonal reasons"],
+        "content_type_mix": {
+            "story_or_culture": 0.25,
+            "offer": 0.20,
+            "product_or_service_spotlight": 0.20,
+            "proof": 0.15,
+            "seasonal_or_moment": 0.10,
+            "community_or_engagement": 0.10,
+        },
+        "template_family_mix": ["product_hero", "offer_pill_campaign", "seasonal_pattern_promo", "testimonial", "story_carousel", "text_poster"],
+        "post_format_mix": {"single": 0.60, "carousel": 0.35, "gif": 0.05},
+        "preferred_ctas": ["Book your stay", "Reserve now", "Plan your visit", "Bring someone with you", "Ask for availability"],
+        "proof_strategy": "use ambience, real guest moments, amenities, location, reviews, and specific occasions",
+        "visual_behavior": "experience-first: ambience, rituals, human moments, premium environment detail, and designed booking modules",
+        "platform_copy_bias": {
+            "instagram": "sensory, aspirational, occasion-led, and save/share-friendly",
+            "facebook": "contextual, family or group planning, trust and availability",
+            "twitter": "one vivid reason to visit",
+            "linkedin": "hospitality brand, event, partnership, or destination value when relevant",
+        },
+    },
+    "event_or_seasonal_business": {
+        "conversion_objective": "turn time-sensitive moments into registrations, bookings, attendance, or seasonal sales",
+        "content_pillars": ["event announcement", "countdown urgency", "speaker or product spotlight", "social proof", "what to expect", "last call"],
+        "content_type_mix": {
+            "announcement": 0.25,
+            "seasonal_or_moment": 0.25,
+            "offer": 0.15,
+            "proof": 0.15,
+            "product_or_service_spotlight": 0.10,
+            "community_or_engagement": 0.10,
+        },
+        "template_family_mix": ["announcement", "seasonal_pattern_promo", "offer_pill_campaign", "text_poster", "testimonial", "story_carousel"],
+        "post_format_mix": {"single": 0.60, "carousel": 0.35, "gif": 0.05},
+        "preferred_ctas": ["Register now", "Book your spot", "Get tickets", "Save the date", "Invite someone"],
+        "proof_strategy": "use deadline, speaker/product details, attendee proof, agenda clarity, scarcity, and seasonal relevance",
+        "visual_behavior": "moment-led campaign: countdown chips, event cards, seasonal motifs, offer modules, and clear attendance CTA",
+        "platform_copy_bias": {
+            "instagram": "urgent, celebratory, visual, and shareable",
+            "facebook": "clear details, community invitation, context, and attendance CTA",
+            "twitter": "deadline, one reason, direct CTA",
+            "linkedin": "agenda value, professional outcome, credibility, and registration CTA",
+        },
+    },
+}
+
+
+def _flatten_strategy_signal(value, *, depth: int = 0) -> str:
+    if value is None or depth > 2:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool)):
+        return str(value)
+    if isinstance(value, list):
+        return " ".join(_flatten_strategy_signal(item, depth=depth + 1) for item in value[:12])
+    if isinstance(value, dict):
+        return " ".join(
+            _flatten_strategy_signal(value.get(key), depth=depth + 1)
+            for key in sorted(value.keys())[:30]
+        )
+    return ""
+
+
+def _listify_strategy(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        parts = [p.strip() for p in re.split(r"[,;\n]+", value) if p.strip()]
+        return parts or ([value.strip()] if value.strip() else [])
+    return []
+
+
+def _brand_strategy_bag(brand: dict | None) -> str:
+    if not isinstance(brand, dict):
+        return ""
+    keys = [
+        "industry",
+        "sub_industry",
+        "description",
+        "business_model",
+        "target_audience",
+        "pain_point",
+        "pain_points",
+        "content_goals",
+        "funnel_stages",
+        "website",
+        "value_proposition",
+        "key_messages",
+        "products",
+        "services",
+        "product_services",
+        "target_markets",
+        "location",
+        "audience_location",
+        "campaign_theme",
+        "seasonal_context",
+        "approved_website_opportunities",
+        "website_entities",
+        "website_grounding",
+        "website_intelligence",
+    ]
+    parts = [_flatten_strategy_signal(brand.get(key)) for key in keys]
+    kit = brand.get("brand_kit") if isinstance(brand.get("brand_kit"), dict) else {}
+    if kit:
+        parts.append(_flatten_strategy_signal(kit))
+    return " ".join(p for p in parts if p).lower()
+
+
+def _business_traits_from_bag(brand: dict | None, bag: str) -> dict:
+    has_location = bool(
+        isinstance(brand, dict)
+        and (
+            brand.get("location")
+            or brand.get("audience_location")
+            or brand.get("country_code")
+            or brand.get("market_country_code")
+            or brand.get("target_markets")
+        )
+    )
+    local_terms = (
+        "local",
+        "near me",
+        "neighbourhood",
+        "neighborhood",
+        "lagos",
+        "abuja",
+        "nigeria",
+        "ghana",
+        "accra",
+        "kenya",
+        "nairobi",
+        "city",
+        "delivery",
+        "pickup",
+        "visit",
+    )
+    transactional_terms = (
+        "order",
+        "book",
+        "reserve",
+        "shop",
+        "buy",
+        "menu",
+        "checkout",
+        "delivery",
+        "pickup",
+        "ticket",
+        "register",
+        "subscribe",
+        "appointment",
+        "reservation",
+    )
+    trust_terms = (
+        "trust",
+        "secure",
+        "compliance",
+        "regulated",
+        "licensed",
+        "legal",
+        "health",
+        "clinic",
+        "finance",
+        "insurance",
+        "real estate",
+        "consult",
+        "advisory",
+        "professional",
+    )
+    education_terms = ("learn", "course", "training", "tutorial", "expert", "coach", "education", "academy", "lesson", "workshop")
+    community_terms = ("community", "creator", "influencer", "church", "ministry", "podcast", "media", "membership", "fans")
+    return {
+        "local": has_location or any(term in bag for term in local_terms),
+        "transactional": any(term in bag for term in transactional_terms),
+        "trust_led": any(term in bag for term in trust_terms),
+        "educational": any(term in bag for term in education_terms),
+        "community_led": any(term in bag for term in community_terms),
+    }
+
+
+def _classify_business_shape(brand: dict | None) -> tuple[str, list[str], dict]:
+    bag = _brand_strategy_bag(brand)
+    traits = _business_traits_from_bag(brand, bag)
+
+    def has(*terms: str) -> bool:
+        return any(term in bag for term in terms)
+
+    scores = {key: 0 for key in BUSINESS_SHAPE_DEFAULTS.keys()}
+    if has("restaurant", "food", "meal", "dish", "cafe", "kitchen", "bar", "bakery", "drink", "beverage"):
+        scores["transactional_local"] += 5
+        scores["hospitality_experience"] += 3
+        scores["offer_driven_marketplace"] += 1 if has("delivery", "marketplace", "merchant", "partner") else 0
+    if has("marketplace", "delivery app", "merchant", "partner", "vendor", "multi-vendor", "aggregator"):
+        scores["offer_driven_marketplace"] += 5
+    if has("e-commerce", "ecommerce", "retail", "shop", "store", "product", "fashion", "beauty", "skincare", "apparel", "catalog"):
+        scores["product_catalog"] += 5
+    if has("saas", "software", "workflow", "dashboard", "platform", "automation", "crm", "b2b", "productivity"):
+        scores["b2b_workflow_software"] += 5
+    if has("fintech", "finance", "payment", "wallet", "bank", "loan", "insurance", "invest", "saving", "savings", "money"):
+        scores["fintech_trust_utility"] += 5
+    if has("real estate", "property", "apartment", "housing", "listing", "rent", "mortgage", "land"):
+        scores["real_estate_consideration"] += 5
+    if has("health", "medical", "clinic", "hospital", "doctor", "therapy", "wellness", "fitness", "dentist", "pharmacy"):
+        scores["healthcare_reassurance"] += 5
+    if has("hotel", "resort", "travel", "tour", "hospitality", "lounge", "event space", "experience"):
+        scores["hospitality_experience"] += 5
+    if has("event", "conference", "webinar", "festival", "seasonal", "holiday", "ramadan", "christmas", "easter", "launch party"):
+        scores["event_or_seasonal_business"] += 4
+    if has("legal", "law", "accounting", "consulting", "agency", "service", "advisory", "professional"):
+        scores["trust_led_service"] += 4
+    if traits["educational"]:
+        scores["education_led_expert_brand"] += 4
+    if traits["community_led"]:
+        scores["community_or_personality_brand"] += 4
+    if traits["local"]:
+        scores["transactional_local"] += 1
+        scores["hospitality_experience"] += 1
+    if traits["transactional"]:
+        scores["transactional_local"] += 1
+        scores["offer_driven_marketplace"] += 1
+        scores["product_catalog"] += 1
+    if traits["trust_led"]:
+        scores["trust_led_service"] += 1
+        scores["fintech_trust_utility"] += 1
+        scores["healthcare_reassurance"] += 1
+
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    primary = ranked[0][0] if ranked and ranked[0][1] > 0 else "trust_led_service"
+    secondary = [shape for shape, score in ranked[1:4] if score > 0]
+    return primary, secondary, traits
+
+
+def _normalize_weight_map(weights: dict | None, fallback: dict | None = None) -> dict[str, float]:
+    raw = weights if isinstance(weights, dict) and weights else fallback or {}
+    cleaned: dict[str, float] = {}
+    for key, value in raw.items():
+        norm_key = str(key or "").strip().lower()
+        if not norm_key:
+            continue
+        try:
+            weight = max(0.0, float(value))
+        except Exception:
+            continue
+        if weight > 0:
+            cleaned[norm_key] = weight
+    total = sum(cleaned.values())
+    if total <= 0:
+        return {}
+    return {key: round(value / total, 4) for key, value in cleaned.items()}
+
+
+def resolve_business_default_strategy(brand: dict | None) -> dict:
+    if isinstance(brand, dict) and isinstance(brand.get("_business_default_strategy"), dict):
+        return brand["_business_default_strategy"]
+    shape, secondary_shapes, traits = _classify_business_shape(brand)
+    defaults = dict(BUSINESS_SHAPE_DEFAULTS.get(shape) or BUSINESS_SHAPE_DEFAULTS["trust_led_service"])
+
+    explicit_pillars = _listify_strategy((brand or {}).get("content_pillars") if isinstance(brand, dict) else None)
+    content_goals = _listify_strategy((brand or {}).get("content_goals") if isinstance(brand, dict) else None)
+    funnel_stages = _listify_strategy((brand or {}).get("funnel_stages") if isinstance(brand, dict) else None)
+    pillars = explicit_pillars[:6] if len(explicit_pillars) >= 3 else list(defaults.get("content_pillars") or [])
+    for goal in content_goals:
+        if goal and goal.lower() not in {p.lower() for p in pillars}:
+            pillars.append(goal)
+        if len(pillars) >= 6:
+            break
+
+    raw_ctas = [str(x).strip() for x in defaults.get("preferred_ctas", []) if str(x).strip()]
+    cta_style = str((brand or {}).get("cta_style") or "").strip() if isinstance(brand, dict) else ""
+    preferred_ctas = ([cta_style] if 3 <= len(cta_style) <= 80 else []) + [cta for cta in raw_ctas if cta.lower() != cta_style.lower()]
+
+    family_mix = [
+        str(f).strip().lower()
+        for f in defaults.get("template_family_mix", [])
+        if str(f).strip().lower() in FAMILY_BLUEPRINT_BY_NAME
+    ]
+    if not family_mix:
+        family_mix = ["text_poster", "testimonial", "announcement", "data_card"]
+
+    strategy = {
+        "business_shape": shape,
+        "secondary_shapes": secondary_shapes,
+        "traits": traits,
+        "conversion_objective": str(defaults.get("conversion_objective") or "").strip(),
+        "content_pillars": pillars[:6],
+        "content_goals": content_goals[:6],
+        "funnel_stages": funnel_stages[:6],
+        "content_type_mix": _normalize_weight_map(defaults.get("content_type_mix"), {"education": 0.35, "proof": 0.25, "offer": 0.20, "community_or_engagement": 0.20}),
+        "template_family_mix": family_mix,
+        "post_format_mix": _normalize_weight_map(defaults.get("post_format_mix"), {"single": 0.65, "carousel": 0.30, "gif": 0.05}),
+        "preferred_ctas": preferred_ctas[:6],
+        "default_cta_style": preferred_ctas[0] if preferred_ctas else "Learn more",
+        "proof_strategy": str(defaults.get("proof_strategy") or "").strip(),
+        "visual_behavior": str(defaults.get("visual_behavior") or "").strip(),
+        "platform_copy_bias": defaults.get("platform_copy_bias") if isinstance(defaults.get("platform_copy_bias"), dict) else {},
+        "content_type_family_map": CONTENT_TYPE_FAMILY_DEFAULTS,
+        "source_priority": [
+            "explicit selected template contract",
+            "explicit design playbook",
+            "brand kit content goals / funnel stages / visual system",
+            "inferred business-shape defaults",
+            "broad industry fallback",
+        ],
+    }
+    return strategy
+
+
+def _business_default_strategy_text(strategy: dict | None) -> str:
+    if not isinstance(strategy, dict) or not strategy:
+        return ""
+    mix = strategy.get("content_type_mix") if isinstance(strategy.get("content_type_mix"), dict) else {}
+    mix_text = ", ".join(f"{k} {int(v * 100)}%" for k, v in list(mix.items())[:8])
+    return "\n".join(
+        [
+            f"Business shape: {strategy.get('business_shape')}",
+            f"Default conversion objective: {strategy.get('conversion_objective')}",
+            f"Default pillars: {', '.join(strategy.get('content_pillars') or [])}",
+            f"Default content type mix: {mix_text}",
+            f"Default template families: {', '.join(strategy.get('template_family_mix') or [])}",
+            f"Default CTA style: {strategy.get('default_cta_style')}",
+            f"Proof strategy: {strategy.get('proof_strategy')}",
+            f"Visual behavior: {strategy.get('visual_behavior')}",
+        ]
+    )
+
+
+def _business_platform_copy_bias(brand: dict | None, platform: str | None, strategy: dict | None = None) -> str:
+    resolved = strategy if isinstance(strategy, dict) else resolve_business_default_strategy(brand)
+    biases = resolved.get("platform_copy_bias") if isinstance(resolved.get("platform_copy_bias"), dict) else {}
+    bias = str(biases.get(_platform_key(platform)) or "").strip()
+    base = _platform_copy_guide(platform)
+    objective = str(resolved.get("conversion_objective") or "").strip()
+    cta = str(resolved.get("default_cta_style") or "").strip()
+    return f"{base} Business-shape bias: {bias or objective}. Default CTA tendency: {cta or 'clear next step'}."
+
+
+def _weighted_key_schedule(weights: dict | None, count: int, rng) -> list[str]:
+    count = max(0, int(count or 0))
+    if count <= 0:
+        return []
+    normalized = _normalize_weight_map(weights, {"education": 0.35, "proof": 0.25, "offer": 0.20, "community_or_engagement": 0.20})
+    if not normalized:
+        return ["education"] * count
+    quotas = [(key, weight * count) for key, weight in normalized.items()]
+    counts = {key: int(math.floor(quota)) for key, quota in quotas}
+    remaining = count - sum(counts.values())
+    ranked = sorted(quotas, key=lambda item: (item[1] - math.floor(item[1]), item[1]), reverse=True)
+    for idx in range(remaining):
+        counts[ranked[idx % len(ranked)][0]] += 1
+    out: list[str] = []
+    for key, qty in counts.items():
+        out.extend([key] * qty)
+    if not out:
+        out = [next(iter(normalized.keys()))] * count
+    rng.shuffle(out)
+    return out[:count]
+
+
+def _strategy_family_for_content_type(
+    content_type: str,
+    strategy: dict | None,
+    idx: int,
+    rng,
+    recent_families: list[str] | None = None,
+) -> str:
+    resolved = strategy if isinstance(strategy, dict) else {}
+    key = str(content_type or "").strip().lower()
+    candidates = list((resolved.get("content_type_family_map") or {}).get(key) or CONTENT_TYPE_FAMILY_DEFAULTS.get(key) or [])
+    if not candidates:
+        candidates = list(resolved.get("template_family_mix") or [])
+    if not candidates:
+        candidates = ["text_poster", "announcement", "testimonial", "data_card"]
+    family_order = {fam: i for i, fam in enumerate(resolved.get("template_family_mix") or [])}
+    ranked = [fam for fam in candidates if fam in FAMILY_BLUEPRINT_BY_NAME]
+    if not ranked:
+        ranked = ["text_poster"]
+    rng.shuffle(ranked)
+    ranked.sort(key=lambda fam: family_order.get(fam, 99))
+    recent = set((recent_families or [])[-2:])
+    for fam in ranked:
+        if fam not in recent:
+            return fam
+    return ranked[idx % len(ranked)]
+
+
+def _format_for_strategy_family(family: str, selected_format: str, *, single_only: bool) -> str:
+    if single_only:
+        return "single"
+    selected = str(selected_format or "").strip().lower()
+    bp = _family_blueprint(family)
+    family_default = "carousel" if str(bp.get("post_type") or "") == "carousel" else "single"
+    if selected == "gif":
+        return "single"
+    if selected == "carousel" and family in {"edu", "data_card", "story_carousel", "editorial_issue_card", "device_mockup_benefit"}:
+        return "carousel"
+    return family_default
+
+
+def _hydrate_strategy_onto_plan(
+    plan: list[dict],
+    strategy: dict | None,
+    *,
+    platform: str | None = None,
+    preserve_visual_direction: bool = False,
+) -> list[dict]:
+    if not plan:
+        return plan
+    resolved = strategy if isinstance(strategy, dict) else {}
+    pillars = resolved.get("content_pillars") if isinstance(resolved.get("content_pillars"), list) else []
+    platform_bias = _business_platform_copy_bias(None, platform, resolved) if platform else ""
+    out: list[dict] = []
+    for idx, row in enumerate(plan):
+        fixed = dict(row)
+        content_type = str(fixed.get("content_type") or "").strip().lower() or "education"
+        fam = str(fixed.get("template_family") or "").strip().lower()
+        if fam not in FAMILY_BLUEPRINT_BY_NAME:
+            import random
+            fam = _strategy_family_for_content_type(
+                content_type,
+                resolved,
+                idx,
+                rng=random.Random(idx),
+                recent_families=[str(r.get("template_family") or "") for r in out],
+            )
+        bp = _family_blueprint(fam)
+        fixed["template_family"] = fam
+        fixed["design_mode"] = str(fixed.get("design_mode") or bp.get("design_mode") or "editorial")
+        fixed["post_type"] = "carousel" if str(fixed.get("post_type") or bp.get("post_type") or "") == "carousel" else "single"
+        fixed["business_shape"] = resolved.get("business_shape")
+        fixed["conversion_objective"] = resolved.get("conversion_objective")
+        fixed["content_pillar"] = pillars[idx % len(pillars)] if pillars else ""
+        ctas = [str(x).strip() for x in (resolved.get("preferred_ctas") or []) if str(x).strip()]
+        fixed["cta_style"] = ctas[idx % len(ctas)] if ctas else str(resolved.get("default_cta_style") or "Learn more")
+        fixed["proof_strategy"] = resolved.get("proof_strategy")
+        fixed["platform_copy_bias"] = platform_bias
+        visual_behavior = str(resolved.get("visual_behavior") or "").strip()
+        if visual_behavior:
+            vd = str(fixed.get("visual_direction") or bp.get("visual_direction") or "").strip()
+            prefix = "Business strategy lens only if compatible" if preserve_visual_direction else "Business strategy lens"
+            fixed["visual_direction"] = f"{vd} {prefix}: {visual_behavior}".strip()
+        out.append(fixed)
+    return out
+
+
 def _playbook_from_brand(brand: dict | None) -> dict | None:
     selected_template_contract = (
         (brand or {}).get("selected_template_contract")
@@ -1435,6 +2855,9 @@ def _playbook_from_brand(brand: dict | None) -> dict | None:
         else None
     )
     if selected_template_contract:
+        selected_family = str(selected_template_contract.get("template_family") or "").strip().lower()
+        if selected_family not in FAMILY_BLUEPRINT_BY_NAME:
+            selected_family = ""
         selected_slots = (
             selected_template_contract.get("visual_direction_slots")
             if isinstance(selected_template_contract.get("visual_direction_slots"), list)
@@ -1453,6 +2876,7 @@ def _playbook_from_brand(brand: dict | None) -> dict | None:
                 {
                     "slot_key": str(opt.get("slot_key") or f"VD{idx:02d}").strip().upper(),
                     "post_type": "carousel" if "carousel" in str(opt.get("post_type") or "").lower() else "single",
+                    "template_family": selected_family,
                     "visual_direction": vd,
                 }
             )
@@ -1466,6 +2890,7 @@ def _playbook_from_brand(brand: dict | None) -> dict | None:
                 {
                     "slot_key": str(preferred_slot.get("slot_key") or "VD01").strip().upper(),
                     "post_type": "carousel" if "carousel" in str(preferred_slot.get("post_type") or "").lower() else "single",
+                    "template_family": selected_family,
                     "visual_direction": str(preferred_slot.get("visual_direction") or "").strip(),
                 }
             )
@@ -1499,10 +2924,14 @@ def _playbook_from_brand(brand: dict | None) -> dict | None:
             if not vd:
                 continue
             post_type = "carousel" if "carousel" in str(opt.get("post_type") or "").lower() else "single"
+            template_family = str(opt.get("template_family") or ct.get("template_family") or "").strip().lower()
+            if template_family not in FAMILY_BLUEPRINT_BY_NAME:
+                template_family = ""
             normalized_opts.append(
                 {
                     "slot_key": str(opt.get("slot_key") or "").strip().upper() or None,
                     "post_type": post_type,
+                    "template_family": template_family,
                     "visual_direction": vd,
                 }
             )
@@ -1521,7 +2950,13 @@ def _family_blueprint(name: str) -> dict:
     return dict(FAMILY_BLUEPRINT_BY_NAME.get(name) or FAMILY_BLUEPRINT_BY_NAME["text_poster"])
 
 
-def _default_design_family_mix(post_count: int, brand: dict | None, *, single_only: bool) -> list[str]:
+def _default_design_family_mix(
+    post_count: int,
+    brand: dict | None,
+    *,
+    single_only: bool,
+    strategy: dict | None = None,
+) -> list[str]:
     post_count = max(1, int(post_count or 0))
     industry_bag = " ".join(
         str((brand or {}).get(key) or "").lower()
@@ -1529,20 +2964,35 @@ def _default_design_family_mix(post_count: int, brand: dict | None, *, single_on
     )
     is_food = any(k in industry_bag for k in _FOOD_INDUSTRY_HINTS)
 
+    resolved_strategy = strategy if isinstance(strategy, dict) else resolve_business_default_strategy(brand)
     seed_mix = [
-        "promo",
-        "text_poster",
-        "testimonial",
-        "data_card",
-        "illustration_editorial",
-        "announcement",
-        "edu",
-        "story_carousel",
-        "product_hero",
+        f for f in (resolved_strategy.get("template_family_mix") or [])
+        if str(f).strip().lower() in FAMILY_BLUEPRINT_BY_NAME
     ]
-    if is_food:
+    if not seed_mix:
         seed_mix = [
             "promo",
+            "text_poster",
+            "testimonial",
+            "data_card",
+            "illustration_editorial",
+            "announcement",
+            "co_brand_offer",
+            "offer_pill_campaign",
+            "edu",
+            "story_carousel",
+            "product_hero",
+            "device_mockup_benefit",
+            "merchant_launch",
+            "editorial_issue_card",
+            "seasonal_pattern_promo",
+        ]
+    if is_food:
+        food_priority = [
+            "offer_pill_campaign",
+            "merchant_launch",
+            "co_brand_offer",
+            "seasonal_pattern_promo",
             "text_poster",
             "testimonial",
             "announcement",
@@ -1551,7 +3001,9 @@ def _default_design_family_mix(post_count: int, brand: dict | None, *, single_on
             "edu",
             "story_carousel",
             "product_hero",
+            "promo",
         ]
+        seed_mix = list(dict.fromkeys([*seed_mix, *food_priority]))
 
     families: list[str] = []
     while len(families) < post_count:
@@ -1574,9 +3026,15 @@ def _default_design_family_mix(post_count: int, brand: dict | None, *, single_on
         families[min(2, post_count - 1)] = "testimonial"
     if post_count >= 8 and "announcement" not in families:
         families[min(4, post_count - 1)] = "announcement"
+    if post_count >= 8 and "co_brand_offer" not in families:
+        families[min(5, post_count - 1)] = "co_brand_offer"
+    if post_count >= 9 and "offer_pill_campaign" not in families:
+        families[min(6, post_count - 1)] = "offer_pill_campaign"
+    if post_count >= 10 and "merchant_launch" not in families:
+        families[min(7, post_count - 1)] = "merchant_launch"
 
     if single_only:
-        families = ["text_poster" if f in {"edu", "data_card", "story_carousel"} else f for f in families]
+        families = ["text_poster" if f in {"edu", "data_card", "story_carousel", "editorial_issue_card", "device_mockup_benefit"} else f for f in families]
 
     return families
 
@@ -1587,6 +3045,7 @@ def _build_design_mix_schedule(
     brand: dict | None,
     format_mix: str,
     seed_key: str,
+    platform: str | None = None,
 ) -> list[dict]:
     if not posting_dates:
         return []
@@ -1597,8 +3056,24 @@ def _build_design_mix_schedule(
     single_only = any(k in fmt_pref for k in ("single_only", "single", "no_carousel", "single-post"))
     seed = int(hashlib.md5(seed_key.encode()).hexdigest(), 16)
     rng = random.Random(seed)
+    strategy = resolve_business_default_strategy(brand)
 
-    families = _default_design_family_mix(len(posting_dates), brand, single_only=single_only)
+    explicit_plan = _build_playbook_schedule(posting_dates, _playbook_from_brand(brand), seed_key)
+    if explicit_plan:
+        hydrated = _hydrate_strategy_onto_plan(
+            explicit_plan,
+            strategy,
+            platform=platform,
+            preserve_visual_direction=True,
+        )
+        if single_only:
+            for row in hydrated:
+                row["post_type"] = "single"
+        return hydrated
+
+    selected_formats = _weighted_key_schedule(strategy.get("post_format_mix"), len(posting_dates), rng)
+    content_types = _weighted_key_schedule(strategy.get("content_type_mix"), len(posting_dates), rng)
+    families = _default_design_family_mix(len(posting_dates), brand, single_only=single_only, strategy=strategy)
     if len(families) > 2:
         tail = families[1:]
         rng.shuffle(tail)
@@ -1607,21 +3082,16 @@ def _build_design_mix_schedule(
     plan: list[dict] = []
     recent_families: list[str] = []
     for idx, d in enumerate(posting_dates):
-        fam = families[idx]
-        if recent_families[-1:] == [fam]:
-            for swap_idx in range(idx + 1, len(families)):
-                if families[swap_idx] != fam:
-                    families[idx], families[swap_idx] = families[swap_idx], families[idx]
-                    fam = families[idx]
-                    break
+        content_type = content_types[idx] if idx < len(content_types) else "education"
+        fam = _strategy_family_for_content_type(content_type, strategy, idx, rng, recent_families)
+        if not fam:
+            fam = families[idx]
         bp = _family_blueprint(fam)
-        post_type = bp.get("post_type") or "single"
-        if single_only and post_type == "carousel":
-            post_type = "single"
+        post_type = _format_for_strategy_family(fam, selected_formats[idx] if idx < len(selected_formats) else "", single_only=single_only)
         plan.append(
             {
                 "date": d,
-                "content_type": str(bp.get("content_type") or "General").strip(),
+                "content_type": content_type,
                 "post_type": post_type,
                 "slot_key": None,
                 "template_family": fam,
@@ -1630,7 +3100,7 @@ def _build_design_mix_schedule(
             }
         )
         recent_families.append(fam)
-    return plan
+    return _hydrate_strategy_onto_plan(plan, strategy, platform=platform)
 
 
 def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, seed_key: str) -> list[dict]:
@@ -1669,6 +3139,8 @@ def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, se
         ranked.sort(key=lambda x: 1 if str(x.get("visual_direction") or "") in recent_vds[-2:] else 0)
         selected = ranked[0]
         vd = str(selected.get("visual_direction") or "")
+        fam = str(selected.get("template_family") or ct.get("template_family") or "").strip().lower()
+        bp = _family_blueprint(fam) if fam in FAMILY_BLUEPRINT_BY_NAME else {}
         recent_vds.append(vd)
         plan.append(
             {
@@ -1676,6 +3148,8 @@ def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, se
                 "content_type": str(ct.get("name") or ""),
                 "slot_key": str(selected.get("slot_key") or "").strip().upper() or None,
                 "post_type": "carousel" if str(selected.get("post_type") or "") == "carousel" else "single",
+                "template_family": fam if fam in FAMILY_BLUEPRINT_BY_NAME else None,
+                "design_mode": str(bp.get("design_mode") or "editorial") if bp else None,
                 "visual_direction": vd,
             }
         )
@@ -1691,6 +3165,10 @@ def _playbook_assignment_text(plan: list[dict]) -> str:
                 f"template_family={row.get('template_family') or 'default'} | "
                 f"design_mode={row.get('design_mode') or 'editorial'} | "
                 f"post_type={row.get('post_type')} | slot_key={row.get('slot_key') or 'N/A'} | "
+                f"business_shape={row.get('business_shape') or 'inferred'} | "
+                f"pillar={row.get('content_pillar') or 'default'} | "
+                f"cta_hint={row.get('cta_style') or 'clear next step'} | "
+                f"proof={row.get('proof_strategy') or 'brand-specific proof'} | "
                 f"visual_direction={row.get('visual_direction')}"
             )
             for row in plan
@@ -1801,6 +3279,7 @@ async def _generate_for_platform(
         brand=brand_dict,
         format_mix=format_mix,
         seed_key=f"{month_name}{year}{platform}",
+        platform=platform,
     )
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
@@ -1829,6 +3308,14 @@ async def _generate_for_platform(
         "linkedin": "LinkedIn professional post 1:1",
     }
     platform_format = platform_notes.get(platform.lower(), "social media post 1:1")
+    platform_guide = _platform_copy_guide(platform)
+    platform_hashtag_limit = _platform_hashtag_limit(platform)
+    platform_caption_limit = _platform_caption_word_limit(platform)
+    brand_platform_style_note = _brand_platform_style_note(brand_dict, platform) or "none provided"
+    industry_conversion_guide = _industry_conversion_guide(brand_dict)
+    business_strategy = resolve_business_default_strategy(brand_dict)
+    business_strategy_text = _business_default_strategy_text(business_strategy)
+    business_copy_bias = _business_platform_copy_bias(brand_dict, platform, business_strategy)
 
     _vs_raw = (brand_dict or {}).get("visual_system")
     _vs_dict = _vs_raw if isinstance(_vs_raw, dict) else {}
@@ -1887,7 +3374,15 @@ When writing captions:
 • Use the writing style and emotional tone specified
 • Incorporate key messages and value pillars naturally
 • Honour all guardrails and regulatory constraints
-• First line must be a strong hook; never start with the brand name"""
+• First line must be a strong hook; never start with the brand name
+• Platform-native copy rule: {platform_guide}
+• Industry conversion rule: {industry_conversion_guide}
+• Business-shape strategy rule: {business_copy_bias}
+• Default conversion objective: {business_strategy.get('conversion_objective')}
+• Preferred CTA direction: {', '.join(business_strategy.get('preferred_ctas') or [])}
+• Proof strategy: {business_strategy.get('proof_strategy')}
+• Custom brand note for {platform}: {brand_platform_style_note}
+• Use specific buyer language, proof, product detail, use-case detail, or offer detail, not generic motivational filler"""
 
     quality_playbook = _industry_quality_playbook_block(industry)
 
@@ -1897,11 +3392,15 @@ Platform: {platform} ({platform_format})
 Format preference: {format_mix}
 {topics_hint}
 
+Business default strategy:
+{business_strategy_text}
+
 Assign one post to each date using this exact assignment map:
 {assignment_instructions}
 
 Treat the assignment map as a creative contract, not a loose hint:
 • Keep content_type exactly as assigned.
+• Treat business_shape, pillar, cta_hint, and proof in the assignment map as commercial strategy instructions for copy, message_architecture, and visual_direction.
 • Preserve each visual_direction's core scene idea and composition logic, expand it only with sharper brand-specific detail.
 • If slot_key is present, stay recognisably within that slot's concept family instead of inventing a totally different frame.
 • If a slot says carousel, build a truly carousel-native idea, not a single-post caption forced into slides.
@@ -1911,15 +3410,15 @@ For EACH post return ALL these fields:
 1. content_type: exactly as assigned above
 2. content_idea: punchy post title, max 8 words
 3. description: 2-3 sentences: what this post achieves, why this angle, who it speaks to
-4. caption: full ready-to-post caption, max 100 words, platform-native, NO hashtags inside the caption body
+4. caption: full ready-to-post caption, max {platform_caption_limit} words, platform-native, NO hashtags inside the caption body
 5. cta: REQUIRED non-empty string, standalone imperative, max 12 words. Must ask for ONE clear action: order food or book a table, visit the website or tap link in bio, or engage (comment, DM, save, share). Never omit, never use placeholders.
-6. hashtags: array of exactly 1-2 relevant hashtag strings WITHOUT the # symbol
+6. hashtags: array of 0-{platform_hashtag_limit} relevant hashtag strings WITHOUT the # symbol
 7. visual_direction: 4-7 sentences as a single design brief. MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster, (f) two sentences that quote the on-card copy using these exact prefixes so layout and raster stay aligned: Headline for layout: \"...hook...\" and Subhead for layout: \"...support...\" where the quoted strings are identical to message_architecture.hook and message_architecture.support from field 16, (g) one sentence that ties this post to strategy_note and the first content goal in BRAND CONTEXT so the scene advances commercial strategy, not random decoration. Plan composition so headline and subcopy read before the caption (leave headline-safe negative space when the scene is busy).
 8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable letters, numbers, prices, hashtags, titles, or watermarks and must NOT ask the raster model to paint any logo, wordmark, or trademark. On-image story copy belongs in message_architecture only.
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
 10. visual_type: {_visual_type_rule_for_style(ips)}
-11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story"; must align with content_type, template_family, and visual_type (for text-led families prefer pattern_headline or flat_edu; reserve photo_hero for true image-led hero concepts only)
+11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story", "co_brand_lockup", "offer_pill_stack", "device_mockup_benefit", "editorial_issue_card", "quote_editorial_sheet", "merchant_launch_cutout", "sticker_collage", "product_grid_offer"; must align with content_type, template_family, visual_type, and campaign system
 12. format: must match post_type assignment (single->"single" or "gif", carousel->"carousel")
 13. slide_count: 1 for single or gif, 2-5 for carousel
 14. date: posting date in YYYY-MM-DD format exactly as listed above
@@ -1929,14 +3428,22 @@ For EACH post return ALL these fields:
     - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim.
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
-17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, or product_hero.
+17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, product_hero, co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, editorial_issue_card, or seasonal_pattern_promo.
+18. layout_family: short string naming the overall campaign system, such as conversion_banner, offer_pill_system, co_brand_launch_system, issue_editorial_system, ui_benefit_system, or merchant_onboarding_announcement.
+19. component_pack: array of 3-6 specific reusable modules the final design should visibly use, such as partner_lockup, offer_pill, issue_chip, device_mockup, cutout_product_frame, stat_module, qa_body, seasonal_motif, utility_icon_set.
+20. slide_blueprint: array naming the role of each slide in order. For singles return ["cover"]. For carousels use roles like cover, insight, proof, qa, ui_proof, benefit_detail, quote, close, cta.
+21. campaign_modules: object with any extra structured modules needed by the design. Use simple keys like partner_lockup, issue_label, location_chip, offer_module, cta_pill, device_mockup, product_frame_shape, seasonal_motif, co_brand_context.
 
 HARD RULES:
 • Every post MUST have a non-empty "cta" string (see field 5); if unsure, default to "Visit our site via the link in bio." adapted to brand voice and website if known
+• If no explicit selected template or design playbook overrides it, follow BUSINESS DEFAULT STRATEGY for the content pillar, conversion objective, CTA, proof cue, visual behavior, and platform-native copy tone.
 • Each post must feel distinctly different; vary tone, angle, format, and style
+• Captions must be tailored to {platform}, not generic cross-post copy. The same idea should sound different on Instagram, Facebook, Twitter/X, and LinkedIn.
+• Every caption must sound like it belongs to this business and industry. Use concrete proof, product specifics, pain-point language, offer mechanics, occasion cues, or use-case detail whenever the brand context supports it.
 • Fix prior system weaknesses: avoid repeating the same centered-text layout, avoid repeating gradient-heavy backgrounds, avoid overusing flat illustration style, and avoid template-looking sameness
 • Rotate design mode across posts and do not repeat consecutively: editorial, product hero, lifestyle, abstract, ui_saas
 • Treat template_family as the strongest layout instruction in the batch. If template_family=text_poster, data_card, announcement, edu, or testimonial, the final concept must read as a designed social graphic, not a hero photo with copy added later.
+• Treat layout_family and component_pack as mandatory structural instructions, not decorative suggestions. The final design must visibly express those modules.
 • Include human/lifestyle context in some posts (especially mixed mode), not only abstract or illustration outputs
 • Vary typography behavior between posts: change alignment, scale contrast, and structure (stacked, split, overlay)
 • If a draft visual direction resembles a previous pattern in this batch, rewrite it to be clearly different before returning
@@ -1945,6 +3452,8 @@ HARD RULES:
 • NEVER produce generic AI-sounding captions
 • If format is "single", "gif", or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next"
 • Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely
+• For carousel outputs, slide_blueprint must create genuine role variation across slides; do not repeat one poster layout with only the copy changed
+• When the idea is a merchant launch, partnership, price drop, promo, or seasonal offer, prefer modular campaign design with co-brand lockups, offer pills, CTA chips, cutout products, merchant badges, and issue or location chips where relevant
 • Use "gif" for selected high-energy moments (product reveal, testimonial proof pulse, quick before/after) when motion would improve scroll-stopping impact, without requiring full video
 • topic must equal content_idea exactly
 • CRITICAL: each date in the assignment map must appear exactly once in your JSON for this platform — never return two posts with the same "date" value
@@ -2166,8 +3675,12 @@ async def _plan_platform_slots(
     assignment_instructions: str,
     campaign_brief: dict | None,
     planner_addon: str,
+    business_strategy: dict | None = None,
 ) -> str:
     brief_text = _campaign_brief_text(campaign_brief) or "No structured brief available."
+    platform_guide = _platform_copy_guide(platform)
+    strategy_text = _business_default_strategy_text(business_strategy) or "No business-shape defaults resolved."
+    strategy_copy_bias = _business_platform_copy_bias(None, platform, business_strategy) if business_strategy else platform_guide
     prompt = f"""You are planning a platform-specific month of social posts for {brand_name}.
 
 Return ONLY valid JSON with this shape:
@@ -2192,6 +3705,10 @@ Rules:
 - topic_angle must sound like a ready content angle, not a generic category.
 - proof_point should name an actual form of proof, habit, offer, product, or trust cue when possible.
 - visual_anchor should describe the core frame the later drafter should build around.
+- Platform writing and conversion guide: {platform_guide}
+- Business-shape strategy: {strategy_text}
+- Platform + business copy bias: {strategy_copy_bias}
+- Plan angles the way high-performing native posts on this platform would sell, educate, provoke curiosity, or drive action. Do not plan one-size-fits-all content.
 
 Platform: {platform}
 Month: {month_name} {year}
@@ -2262,6 +3779,7 @@ async def _qa_polish_posts(
     year: int,
     words_to_avoid: list[str],
     campaign_brief: dict | None,
+    brand: dict | None,
     posts: list[dict],
 ) -> tuple[list[dict], dict]:
     if not posts:
@@ -2269,6 +3787,12 @@ async def _qa_polish_posts(
     retry_focus = _summarize_quality_warnings(posts)
     last_error = ""
     attempts = 0
+    platform_guide = _platform_copy_guide(platform)
+    industry_guide = _industry_conversion_guide(brand)
+    custom_platform_style = _brand_platform_style_note(brand, platform) or "none"
+    business_strategy = resolve_business_default_strategy(brand)
+    business_strategy_text = _business_default_strategy_text(business_strategy)
+    business_copy_bias = _business_platform_copy_bias(brand, platform, business_strategy)
     for attempt in range(2):
         attempts = attempt + 1
         focus_block = f"\nPriority fixes for this pass: {retry_focus}\n" if retry_focus else "\n"
@@ -2285,6 +3809,14 @@ Rules:
 - Never use words from this avoid list: {', '.join(words_to_avoid) if words_to_avoid else 'none'}
 - Preserve visual_direction meaning but make it more concrete when vague.
 - Treat carousel posts like one cohesive design system: every body slide must feel as premium and intentional as the cover.
+- Rewrite captions to sound native to {platform}, not like generic cross-post copy.
+- Platform copy guide: {platform_guide}
+- Industry conversion guide: {industry_guide}
+- Business default strategy: {business_strategy_text}
+- Platform + business copy bias: {business_copy_bias}
+- Custom brand note for {platform}: {custom_platform_style}
+- Keep hashtags out of the caption body and use the hashtags field only.
+- Preserve conversion intent by using concrete offer, buyer, pain-point, ritual, proof, timing, or use-case details whenever available.
 
 Month: {month_name} {year}
 Structured brief:
@@ -2349,11 +3881,13 @@ async def _generate_for_platform(
     campaign_brief: dict | None = None,
     posts_per_week: int = 3,
 ) -> list[dict]:
+    business_strategy = resolve_business_default_strategy(brand_dict)
     playbook_plan = _build_design_mix_schedule(
         posting_dates,
         brand=brand_dict,
         format_mix=format_mix,
         seed_key=f"{month_name}{year}{platform}",
+        platform=platform,
     )
     assignment_instructions = _playbook_assignment_text(playbook_plan) if playbook_plan else "\n".join(
         [
@@ -2381,8 +3915,14 @@ async def _generate_for_platform(
         assignment_instructions=assignment_instructions,
         campaign_brief=staged_campaign_brief,
         planner_addon=planner_addon,
+        business_strategy=business_strategy,
     )
-    staged_addons = [planner_addon.strip(), _campaign_brief_text(staged_campaign_brief), platform_slot_plan]
+    staged_addons = [
+        planner_addon.strip(),
+        "=== BUSINESS DEFAULT STRATEGY ===\n" + _business_default_strategy_text(business_strategy),
+        _campaign_brief_text(staged_campaign_brief),
+        platform_slot_plan,
+    ]
     drafted = await _generate_for_platform_single_pass(
         brand_ctx=brand_ctx,
         brand_name=brand_name,
@@ -2405,6 +3945,7 @@ async def _generate_for_platform(
         year=year,
         words_to_avoid=words_to_avoid,
         campaign_brief=staged_campaign_brief,
+        brand=brand_dict,
         posts=drafted,
     )
     validated = _validate_posts(
@@ -2444,6 +3985,8 @@ async def generate_monthly_plan(
     brand_name = brand.get('name', 'My Brand')
     industry = brand.get('industry', 'General')
     words_to_avoid = brand.get('words_to_avoid') or []
+    business_strategy = resolve_business_default_strategy(brand)
+    brand = {**brand, "_business_default_strategy": business_strategy}
 
     def _fmt(v): return v if v else "N/A"
     def _lst(v): return ', '.join(v) if isinstance(v, list) and v else (v if v else "N/A")
@@ -2522,6 +4065,9 @@ Strategy note: {_fmt(brand.get('strategy_note'))}
 Content goals: {_lst(brand.get('content_goals'))}
 Funnel stages: {_lst(brand.get('funnel_stages'))}
 Platforms: {_lst(brand.get('platform_styles'))}
+
+=== BUSINESS DEFAULT STRATEGY ===
+{_business_default_strategy_text(business_strategy)}
 
 === CAMPAIGN CONTEXT ===
 Campaign: {_fmt(brand.get('campaign_name'))}
@@ -2618,8 +4164,9 @@ def _caption_playbook_summary(brand: dict | None) -> str:
     return "\n".join(lines) if lines else "No playbook selected."
 
 
-def _caption_brand_context(brand: dict, *, topic: str | None = None, description: str | None = None) -> str:
+def _caption_brand_context(brand: dict, *, topic: str | None = None, description: str | None = None, platform: str | None = None) -> str:
     review_rows = brand.get('reviews') if isinstance(brand.get('reviews'), list) else []
+    kit = brand.get("brand_kit") if isinstance(brand.get("brand_kit"), dict) else {}
     review_snippets = []
     for row in review_rows[:3]:
         if not isinstance(row, dict):
@@ -2636,18 +4183,35 @@ def _caption_brand_context(brand: dict, *, topic: str | None = None, description
     social_proof_line = ' | '.join(review_snippets) if review_snippets else 'N/A'
     avoid = ', '.join(brand.get('words_to_avoid') or []) or 'none'
     brief = _brand_campaign_brief_from_profile(brand, topic=topic, description=description)
+    key_messages = ', '.join((brand.get('key_messages') or kit.get('key_messages') or [])) or 'N/A'
+    cta_style = brand.get('cta_style') or kit.get('cta_style') or 'N/A'
+    writing_style = brand.get('writing_style') or kit.get('writing_style') or 'N/A'
+    language_style = brand.get('language_style') or kit.get('language_style') or 'english'
+    platform_style_note = _brand_platform_style_note(brand, platform) or 'N/A'
+    platform_guide = _platform_copy_guide(platform)
+    industry_guide = _industry_conversion_guide(brand)
+    business_strategy = resolve_business_default_strategy(brand)
+    business_copy_bias = _business_platform_copy_bias(brand, platform, business_strategy)
     return f"""Brand: {brand.get('name', 'My Brand')}
 Industry: {brand.get('industry', '')}
 Website: {brand.get('website') or 'N/A'}
 Tone: {', '.join(brand.get('tone_tags') or [])}
-Language: {brand.get('language_style', 'english')}
+Language: {language_style}
 Personality: {brand.get('personality_score', 50)}/100
 Audience: {brand.get('target_audience', '')}
-Key messages: {', '.join(brand.get('key_messages') or []) or 'N/A'}
+Writing style: {writing_style}
+Key messages: {key_messages}
 Customer reviews/social proof: {social_proof_line}
-CTA style: {brand.get('cta_style') or 'N/A'}
+CTA style: {cta_style}
 Words to avoid (NEVER use): {avoid}
 Guidelines: {brand.get('guidelines', '')}
+Platform selected: {platform or 'instagram'}
+Platform copy guide: {platform_guide}
+Custom platform style note: {platform_style_note}
+Industry conversion guide: {industry_guide}
+Business default strategy:
+{_business_default_strategy_text(business_strategy)}
+Platform + business copy bias: {business_copy_bias}
 
 Structured campaign brief:
 {_campaign_brief_text(brief) or 'none'}
@@ -2666,7 +4230,14 @@ async def _generate_caption_with_structured_brief(
     existing_caption: str | None = None,
     source_kind: str,
 ) -> dict:
-    brand_ctx = _caption_brand_context(brand, topic=topic, description=description)
+    brand_ctx = _caption_brand_context(brand, topic=topic, description=description, platform=platform)
+    hashtag_limit = _platform_hashtag_limit(platform)
+    caption_word_limit = _platform_caption_word_limit(platform)
+    platform_guide = _platform_copy_guide(platform)
+    custom_platform_style = _brand_platform_style_note(brand, platform) or "none"
+    industry_guide = _industry_conversion_guide(brand)
+    business_strategy = resolve_business_default_strategy(brand)
+    business_copy_bias = _business_platform_copy_bias(brand, platform, business_strategy)
     if existing_caption:
         prompt = f"""Rewrite this {platform} caption for {brand.get('name', 'the brand')}.
 Brand profile:
@@ -2677,12 +4248,19 @@ Original caption: {existing_caption}
 
 Return JSON object: {{"caption": "...", "cta": "...", "hashtags": ["tag1", "tag2"]}}
 Rules:
-- max 100 words in caption
+- max {caption_word_limit} words in caption
 - platform-native and commercially useful
 - stronger first-line hook, clearer proof, and more tailored brand language
+- platform-specific rule: {platform_guide}
+- industry conversion rule: {industry_guide}
+- business-shape copy rule: {business_copy_bias}
+- custom brand note for {platform}: {custom_platform_style}
+- use concrete buyer language, product detail, offer detail, pain point, proof point, or use case; do not settle for generic motivation
 - no generic phrases, no forbidden words
 - keep it aligned to the structured campaign brief and playbook context above
 - for carousel-linked themes, let the caption support the slide story instead of repeating it
+- no hashtags inside the caption body; put them only in the hashtags array
+- return at most {hashtag_limit} hashtags
 - Never use long dash, en dash, or two hyphens in a row as punctuation in the caption
 Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, visit website or link in bio, or engagement (comment, DM, save, share). Never leave cta empty."""
     else:
@@ -2695,11 +4273,18 @@ Topic: {topic or 'Photo-led post'}
 
 Return JSON object: {{"caption": "...", "cta": "...", "hashtags": ["tag1", "tag2"]}}
 Rules:
-- max 100 words in caption
+- max {caption_word_limit} words in caption
 - platform-native, strong hook on first line, no generic phrases, no forbidden words
+- platform-specific rule: {platform_guide}
+- industry conversion rule: {industry_guide}
+- business-shape copy rule: {business_copy_bias}
+- custom brand note for {platform}: {custom_platform_style}
+- write like a conversion-aware social strategist for this exact business, not a generic content writer
+- use concrete product, audience, pain-point, proof, ritual, timing, use-case, or offer detail whenever available
 - ground the copy in the structured campaign brief and playbook context above
 - make it feel ready to publish, not like placeholder social copy
-- max 2 hashtags
+- no hashtags inside the caption body; put them only in the hashtags array
+- return at most {hashtag_limit} hashtags
 - Never use long dash, en dash, or two hyphens in a row as punctuation in the caption
 Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, visit website or link in bio, or engagement (comment, DM, save, share). Never leave cta empty."""
 
@@ -2719,7 +4304,9 @@ Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, vi
         raise ValueError("Expected JSON object for caption")
     if not isinstance(result.get("hashtags"), list):
         result["hashtags"] = []
-    result["hashtags"] = [str(h).lstrip("#") for h in result["hashtags"]][:2]
+    cleaned_caption, caption_tags = _strip_hashtags_from_caption(result.get("caption"))
+    result["caption"] = cleaned_caption or str(result.get("caption") or "")
+    result["hashtags"] = [str(h).lstrip("#") for h in [*result["hashtags"], *caption_tags] if str(h).strip()][:_platform_hashtag_limit(platform)]
     if isinstance(result.get("caption"), str):
         result["caption"] = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(result["caption"])) or ""
     cta_text = _normalize_cta_raw(result.get("cta"))
@@ -3025,6 +4612,7 @@ def _filter_brand_form_patch(mode: str, patch: dict | None) -> dict | None:
                 "imagery_style",
                 "lighting_style",
                 "logo_description",
+                "human_context",
             }
             visual_out: dict = {}
             for vk, vv in nv.items():
@@ -3208,7 +4796,9 @@ required_keywords, tone_restrictions, brand_safety_rules, income_level, psychogr
 content_goals, funnel_stages, visual_system.
 
 key_messages and similar list fields must be arrays of short strings when you patch them.
-brand_kit.visual_system may include ONLY: primary_hex, secondary_hex, accent_hex, neutral_hex, imagery_style, lighting_style, logo_description.
+brand_kit.visual_system may include ONLY: primary_hex, secondary_hex, accent_hex, neutral_hex, imagery_style, lighting_style, logo_description, human_context.
+When location, audience, or market implies representation needs, set visual_system.human_context with concise casting guidance
+such as "Nigerian customers in Lagos, Black/African talent, natural hair, everyday local settings" so generated people match the market.
 
 design_style: use one of bold, minimal, warm, premium when suggesting.
 

@@ -5,6 +5,7 @@ from typing import Any
 from app.models.brand import Brand
 from app.models.template import ContentTemplate, TemplateCategory, TemplateRecurrence
 from app.services.image_service import finalize_rendered_urls_with_logo, generate_post_image
+from app.services.visual_tokens import apply_poster_lockup_defaults
 
 
 def infer_business_type(brand: Brand) -> str:
@@ -417,7 +418,7 @@ def _pick_playbook_direction(template: ContentTemplate, playbook: dict | None) -
 
 def _brand_to_prompt_dict(brand: Brand) -> dict[str, Any]:
     kit = brand.brand_kit or {}
-    return {
+    return apply_poster_lockup_defaults({
         **kit,
         "name": brand.name,
         "industry": brand.industry,
@@ -431,7 +432,7 @@ def _brand_to_prompt_dict(brand: Brand) -> dict[str, Any]:
         "brand_font": brand.brand_font,
         "design_style": brand.design_style or "bold",
         "logo_url": brand.logo_url,
-    }
+    })
 
 
 def build_template_design_spec(
@@ -476,15 +477,21 @@ def build_template_design_spec(
     if design_template_type == "promo_cta_banner" and visual_type == "real_people":
         visual_type = "product"
     if design_template_type == "promo_cta_banner":
-        visual_archetype = "pattern_headline"
+        visual_archetype = "offer_pill_stack"
     elif design_template_type == "educational_explainer":
         visual_archetype = "flat_edu"
     elif design_template_type == "testimonial_proof_card":
-        visual_archetype = "pattern_headline"
+        visual_archetype = "quote_editorial_sheet"
+    elif design_template_type == "feature_ui_spotlight":
+        visual_archetype = "device_mockup_benefit"
+    elif design_template_type == "editorial_story":
+        visual_archetype = "editorial_issue_card"
+    elif design_template_type == "culture_campaign":
+        visual_archetype = "sticker_collage" if visual_type == "illustration" else "co_brand_lockup"
     elif visual_type == "real_people":
         visual_archetype = "portrait_story"
     elif visual_type == "product":
-        visual_archetype = "flat_edu"
+        visual_archetype = "merchant_launch_cutout"
     elif visual_type == "abstract":
         visual_archetype = "pattern_headline"
     elif people_style == "cartoon":
@@ -502,8 +509,8 @@ def build_template_design_spec(
         "testimonial_proof_card": "Structure composition like a proof card with human or product context, confidence accents, and clean information zones.",
         "product_showcase_grid": "Structure composition like a showcase grid with one hero module and supporting product slots.",
         "educational_explainer": "Structure composition as educational explainer cards with icon-ready or diagram-ready zones.",
-        "editorial_story": "Structure composition with editorial storytelling flow, clear focal object, and supporting contextual modules.",
-        "culture_campaign": "Structure composition for culturally relevant campaign visuals with motif hierarchy and local context.",
+        "editorial_story": "Structure composition with editorial issue-card flow, publication-like metadata, cover hierarchy, and supporting Q-and-A modules.",
+        "culture_campaign": "Structure composition for culturally relevant campaign visuals with motif hierarchy, sticker-like accents, and strong local context modules.",
         "general_social": "Structure composition for modern social campaign layouts with clear hero and supporting regions.",
     }
     structure_note = structure_note_map.get(design_template_type, structure_note_map["general_social"])
@@ -534,7 +541,15 @@ def build_template_design_spec(
         "template_name": template.name,
         "content_template_type": content_template_type,
         "design_template_type": design_template_type,
-        "layout_family": "designer_social_campaign",
+        "layout_family": {
+            "promo_cta_banner": "offer_pill_system",
+            "feature_ui_spotlight": "ui_benefit_system",
+            "testimonial_proof_card": "proof_card",
+            "product_showcase_grid": "merchant_onboarding_announcement",
+            "educational_explainer": "lesson_carousel",
+            "editorial_story": "issue_editorial_system",
+            "culture_campaign": "seasonal_pattern_system",
+        }.get(design_template_type, "designer_social_campaign"),
         "slot_contract": {
             "headline_max_words": 7,
             "support_max_words": 14,
@@ -550,6 +565,15 @@ def build_template_design_spec(
         "playbook_content_type": (playbook_pick or {}).get("content_type"),
         "playbook_post_type": (playbook_pick or {}).get("post_type"),
         "playbook_slot_key": (playbook_pick or {}).get("slot_key"),
+        "component_pack": {
+            "promo_cta_banner": ["headline_module", "offer_pill", "cta_pill", "product_proof"],
+            "feature_ui_spotlight": ["device_mockup", "benefit_headline", "utility_icon_set", "cta_strip"],
+            "testimonial_proof_card": ["quote_module", "proof_badge", "brand_signature"],
+            "product_showcase_grid": ["merchant_lockup", "cutout_product_frame", "cta_pill"],
+            "educational_explainer": ["hook_panel", "lesson_module", "action_module"],
+            "editorial_story": ["issue_chip", "editorial_headline", "qa_body", "closing_pull_quote"],
+            "culture_campaign": ["pattern_backdrop", "seasonal_motif", "headline_module", "product_cutout"],
+        }.get(design_template_type, ["headline_module", "support_line", "brand_signature"]),
         "dummy_preview_copy": {
             "headline": topic_hint,
             "subhead": template.description or "Template preview with realistic placeholder campaign copy.",

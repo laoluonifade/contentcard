@@ -10,13 +10,14 @@ from collections import deque
 import httpx
 from app.core.config import settings
 from app.services.ai_cost_service import cache_get, cache_set, telemetry_record, CallTelemetry, estimate_cost_usd
+from app.services.visual_tokens import poster_lockup_mode_enabled
 
 logger = logging.getLogger(__name__)
 
 # Bump this whenever image prompt logic or design system changes significantly.
 # It is included in the cache key so existing cached image URLs are invalidated
 # automatically on deploy without needing to flush any external store.
-_IMAGE_PROMPT_VERSION = "v4"
+_IMAGE_PROMPT_VERSION = "v6"
 
 IMAGES_API_URL      = "https://api.openai.com/v1/images/generations"
 IMAGES_EDIT_API_URL = "https://api.openai.com/v1/images/edits"
@@ -30,6 +31,16 @@ PLATFORM_FORMAT = {
 
 # ── Content-type art direction map ────────────────────────────────────────────
 _CONTENT_DESIGN_MAP = {
+    "offer": "Conversion-first social design with bold offer hierarchy, CTA chip, price or value module when supplied by layout copy, product or service proof, and strong visual rhythm. Avoid plain hero photography.",
+    "product_or_service_spotlight": "Premium product or service design with a clear focal subject, contextual use-case, benefit module, and deliberate negative space for final typography. Avoid generic packshot or stock scene.",
+    "proof": "Trust-building proof design with review, outcome, credibility cue, stat, or customer evidence as the conceptual anchor. Use editorial hierarchy and avoid generic testimonial stock imagery.",
+    "education": "Saveable teaching design with clear hierarchy, icons, modules, steps, or framework structure. The visual should make the lesson easier to understand, not merely decorate it.",
+    "objection_handling": "Clarifying comparison or myth-busting design with visual tension, before-after structure, or answer-first typography. Make hesitation feel resolved.",
+    "story_or_culture": "Narrative brand-culture design with human texture, behind-the-scenes cues, values, or community context. It should feel specific to the business, not generic lifestyle filler.",
+    "announcement": "High-clarity announcement design with one major message, launch/update cue, supporting module, and clean campaign framing.",
+    "comparison_or_benefit": "Benefit-led design with contrast, payoff, feature-to-outcome logic, or side-by-side information architecture.",
+    "seasonal_or_moment": "Moment-aware campaign design with seasonal motifs, event cues, cultural timing, and CTA-ready hierarchy. Avoid generic holiday clip art.",
+    "community_or_engagement": "Conversation-starting design with bold question, cultural cue, expressive icon/sticker energy, and space for a clear participation prompt.",
     "educational tip": "Clean, authoritative composition with clear visual hierarchy: numbered system or step-reveal layout, generous negative space, credible and precise scene design. Avoid clutter and busy decorative backgrounds.",
     "educational": "Clean, authoritative composition with clear visual hierarchy: numbered system or step-reveal layout, generous negative space, credible and precise scene design.",
     "meme / relatable humour": "High-contrast punchy composition with bold text dominance and reaction-energy visual. Culturally tuned and relatable. Avoid low-energy flat or overly polished corporate feel.",
@@ -70,6 +81,124 @@ def has_brand_logo(brand: dict) -> bool:
     return bool(_resolve_logo_url(brand))
 
 
+_COUNTRY_CASTING_NAMES = {
+    "NG": "Nigeria",
+    "GH": "Ghana",
+    "KE": "Kenya",
+    "ZA": "South Africa",
+    "UG": "Uganda",
+    "TZ": "Tanzania",
+    "RW": "Rwanda",
+    "CM": "Cameroon",
+    "ET": "Ethiopia",
+    "EG": "Egypt",
+    "FR": "France",
+    "DE": "Germany",
+    "ES": "Spain",
+    "IT": "Italy",
+    "NL": "Netherlands",
+    "BR": "Brazil",
+    "MX": "Mexico",
+    "AR": "Argentina",
+    "CO": "Colombia",
+    "AE": "United Arab Emirates",
+    "SA": "Saudi Arabia",
+    "IN": "India",
+    "SG": "Singapore",
+    "PH": "Philippines",
+    "PK": "Pakistan",
+    "US": "United States",
+    "GB": "United Kingdom",
+    "CA": "Canada",
+}
+
+_AFRICAN_MARKET_HINTS = (
+    "africa",
+    "african",
+    "nigeria",
+    "lagos",
+    "abuja",
+    "ghana",
+    "accra",
+    "kenya",
+    "nairobi",
+    "south africa",
+    "johannesburg",
+    "cape town",
+    "uganda",
+    "kampala",
+    "tanzania",
+    "dar es salaam",
+    "rwanda",
+    "kigali",
+    "cameroon",
+    "ethiopia",
+    "egypt",
+)
+_AFRICAN_COUNTRY_CODES = {"NG", "GH", "KE", "ZA", "UG", "TZ", "RW", "CM", "ET", "EG"}
+
+
+def _market_context_text(brand: dict) -> tuple[str, str]:
+    parts: list[str] = []
+    for key in ("location", "audience_location"):
+        value = str(brand.get(key) or "").strip()
+        if value:
+            parts.append(value)
+
+    target_markets = brand.get("target_markets")
+    if isinstance(target_markets, list):
+        parts.extend(str(m).strip() for m in target_markets if str(m).strip())
+    elif target_markets:
+        parts.append(str(target_markets).strip())
+
+    cc = str(brand.get("market_country_code") or brand.get("country_code") or "").strip().upper()
+    if cc:
+        parts.append(_COUNTRY_CASTING_NAMES.get(cc, cc))
+
+    language = str(brand.get("language_style") or "").strip().replace("_", " ")
+    if language:
+        parts.append(language)
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for part in parts:
+        key = part.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(part)
+    return ", ".join(deduped), cc
+
+
+def _human_casting_note(brand: dict) -> str:
+    vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
+    explicit = str(vs.get("human_context") or brand.get("human_context") or "").strip()
+    if explicit:
+        return (
+            f"Human casting context, source of truth when people appear: {explicit[:500]}. "
+            "Do not default to unrelated white or Western stock-photo talent unless the brand explicitly asks for it."
+        )
+
+    market_text, country_code = _market_context_text(brand)
+    market_lc = market_text.lower()
+    if country_code in _AFRICAN_COUNTRY_CODES or any(hint in market_lc for hint in _AFRICAN_MARKET_HINTS):
+        market_label = market_text[:260] or "the brand's African market"
+        return (
+            f"Human casting context: this brand/audience is tied to {market_label}. "
+            "When people appear, cast Black/African people by default and use local/regional cues in skin tones, hair, "
+            "wardrobe, environments, gestures, and everyday details. Do not default to white or Western stock-photo talent."
+        )
+    if market_text:
+        return (
+            f"Human casting context: reflect the local audience and market cues for {market_text[:260]} when people appear. "
+            "Use regionally appropriate casting, styling, environments, and everyday details; avoid unrelated generic stock-photo talent."
+        )
+    return (
+        "Human casting context: market is unspecified. If people appear, use diverse casting or choose product/object scenes; "
+        "never default automatically to white Western stock-photo talent."
+    )
+
+
 def _build_image_prompt(post: dict, brand: dict) -> str:
     """
     Build a campaign-ready visual prompt for DALL-E.
@@ -89,6 +218,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     language = brand.get("language_style", "english")
     target_audience = brand.get("target_audience", "")
     audience_age_range = brand.get("audience_age_range", "")
+    audience_location = brand.get("audience_location", "")
 
     # Visual identity from brand kit
     imagery_style = brand.get("imagery_style", "")
@@ -149,8 +279,16 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     else:
         lighting = "warm golden-hour backlight, soft diffused fill, slight rim light on subject"
 
-    # Subject: ground in cultural context
-    nigerian = "nigerian" in language.lower() or "pidgin" in language.lower()
+    # Subject: ground in cultural and market representation context.
+    market_text, market_country_code = _market_context_text(brand)
+    nigerian = (
+        market_country_code == "NG"
+        or "nigerian" in str(language).lower()
+        or "pidgin" in str(language).lower()
+        or "nigeria" in market_text.lower()
+        or "lagos" in market_text.lower()
+        or "abuja" in market_text.lower()
+    )
     if nigerian:
         cultural_note = (
             "Cultural energy: Lagos meets luxury; African excellence, aspirational, modern. "
@@ -158,9 +296,18 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         )
     else:
         cultural_note = ""
+    casting_note = _human_casting_note(brand)
 
     # Audience note
-    audience_parts = [p for p in [target_audience, f"age {audience_age_range}" if audience_age_range else ""] if p]
+    audience_parts = [
+        p
+        for p in [
+            target_audience,
+            f"age {audience_age_range}" if audience_age_range else "",
+            f"audience location {audience_location}" if audience_location else "",
+        ]
+        if p
+    ]
     audience_note = f"Target audience: {', '.join(audience_parts)}." if audience_parts else ""
     msg_note_parts = []
     if message_arch.get("hook"):
@@ -262,13 +409,15 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     zone_words = logo_safe_zone.replace("_", " ")
     if has_brand_logo(brand):
         logo_note = (
-            f"Do not draw any logo, wordmark, trademark, app icon, favicon, or watermarks for {brand_name} or any other brand. "
+            f"Do not draw any logo, wordmark, trademark, favicon, or watermarks for {brand_name} or any other brand. "
             f"Keep the {zone_words} corner visually calmer (open negative space, simpler background) so the real brand mark "
-            "can be added in post-production only. Never invent a fake logo or stylised brand symbol."
+            "can be added in post-production only. Never invent a fake logo or stylised brand symbol. "
+            "Generic interface glyphs, arrows, chips, feature icons, and abstract badges are allowed when the campaign layout needs them."
         )
     else:
         logo_note = (
-            "Do not draw logos, wordmarks, trademarks, or watermarks; leave corners uncluttered."
+            "Do not draw logos, wordmarks, trademarks, or watermarks; leave corners uncluttered. "
+            "Generic interface glyphs, arrows, chips, feature icons, and abstract badges are allowed when the campaign layout needs them."
         )
     brand_photos = brand.get("brand_photos") or []
     brand_photo_note = ""
@@ -283,6 +432,67 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     vt = str(post.get("visual_type") or "real_people").lower()
     if vt not in ("real_people", "illustration", "abstract", "product"):
         vt = "real_people"
+    fam = str(
+        post.get("template_family")
+        or post.get("force_template_family")
+        or ab.get("template_family")
+        or ""
+    ).strip().lower()
+    layout_family = str(
+        post.get("layout_family")
+        or ab.get("layout_family")
+        or ""
+    ).strip().lower()
+    raw_component_pack = post.get("component_pack")
+    if not isinstance(raw_component_pack, list):
+        raw_component_pack = ab.get("component_pack") if isinstance(ab.get("component_pack"), list) else []
+    component_pack = {str(x).strip().lower() for x in raw_component_pack if str(x).strip()}
+    allow_structured_graphics = (
+        arch in {
+            "co_brand_lockup",
+            "offer_pill_stack",
+            "device_mockup_benefit",
+            "editorial_issue_card",
+            "merchant_launch_cutout",
+            "sticker_collage",
+            "product_grid_offer",
+            "quote_editorial_sheet",
+        }
+        or fam in {
+            "co_brand_offer",
+            "merchant_launch",
+            "offer_pill_campaign",
+            "device_mockup_benefit",
+            "editorial_issue_card",
+            "seasonal_pattern_promo",
+        }
+        or layout_family in {
+            "co_brand_launch_system",
+            "merchant_onboarding_announcement",
+            "offer_pill_system",
+            "ui_benefit_system",
+            "issue_editorial_system",
+            "seasonal_pattern_system",
+        }
+        or bool(
+            component_pack
+            & {
+                "partner_lockup",
+                "merchant_lockup",
+                "offer_pill",
+                "offer_pill_stack",
+                "device_mockup",
+                "utility_icon_set",
+                "issue_chip",
+                "seasonal_motif",
+                "cta_pill",
+                "cta_strip",
+                "cutout_product_frame",
+                "product_cutout",
+                "region_or_price_chip",
+            }
+        )
+    )
 
     # Composition notes: default is topic-led — people only when the idea truly needs faces.
     arch_notes_photo = {
@@ -327,6 +537,14 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         arch_note = arch_notes_product.get(arch, arch_notes_product["photo_hero"])
     else:
         arch_note = (arch_notes_illus if vt == "illustration" else arch_notes_photo).get(arch, "")
+    structured_module_note = ""
+    if allow_structured_graphics:
+        structured_module_note = (
+            "Structured campaign module rule: this design should feel like a senior social campaign system, not a plain poster. "
+            "Use a few clearly designed modules such as neutral utility icons, feature rows, summary cards, device or dashboard mockups, "
+            "offer pills, issue chips, arrows, sticker accents, benefit panels, partner or merchant lockup zones, or shaped product cutouts "
+            "when they fit the idea. These modules may contain generic symbols and blocks, but must not include readable words, fake logos, or fabricated trademarks."
+        )
 
     # Format note — composition guidance only, no typography or layout direction
     text_density_hint = len(str(post.get("caption") or "")) + len(str(description or "")) + len(str(content_idea or ""))
@@ -391,7 +609,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     if vt == "abstract":
         negative = (
             _no_fake_logo
-            + "No text, no words, no letters, no watermarks, no UI elements, "
+            + "No text, no words, no letters, no watermarks, "
             "no human figures, no faces, no hands as subject, no typography, no captions, "
             "no stock office crowds, no illustrated characters. "
             "Abstract colour, light, texture, pattern, or materials only."
@@ -399,7 +617,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     elif vt == "product":
         negative = (
             _no_fake_logo
-            + "No text, no words, no letters, no watermarks, no UI elements, "
+            + "No text, no words, no letters, no watermarks, "
             "no readable packaging claims, no subtitles, no typography, no captions, "
             "no cartoon, no illustration, no CGI toy look. "
             "Photoreal product, food, ingredients, or objects only; if hands appear they are secondary to the product."
@@ -407,7 +625,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     elif vt == "illustration":
         negative = (
             _no_fake_logo
-            + "No text, no words, no letters, no watermarks, no UI elements, "
+            + "No text, no words, no letters, no watermarks, "
             "no photorealistic humans, no synthetic photo faces, no stock portrait photography, "
             "no 3D renders pretending to be photos, no typography, no captions, "
             "no childish clip-art, no meme aesthetics. "
@@ -416,15 +634,19 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     else:
         negative = (
             _no_fake_logo
-            + "No text, no words, no letters, no watermarks, no UI elements, "
+            + "No text, no words, no letters, no watermarks, "
             "no overlays, no graphic design elements, no illustration, no 3D render, "
             "no CGI, no cartoon, no anime, no vector art, no stylised characters, no claymation, "
             "no synthetic faces, no typography, no captions, "
-            "no borders, no frames, no badges, no icons, no unrealistic lighting, "
+            "no unrealistic lighting, "
             "no floating objects. "
             "Do not default to random smiling models; only include people when the scene truly needs them, "
             "and then they must be photoreal documentary or advertising photography, never illustrated or toy-like."
         )
+    if not allow_structured_graphics:
+        negative += " No UI elements, no badges, no icons, no borders, no frames, no cards, no dashboard mockups, no interface panels."
+    else:
+        negative += " Structured graphic modules are allowed, but keep them premium, minimal, and non-textual."
     extra_never = ab.get("negative_motifs") or []
     if extra_never:
         negative += " Avoid specifically: " + "; ".join(str(x) for x in extra_never[:10] if x) + "."
@@ -443,17 +665,28 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         txt = str(raw_prompt or "")
         if not txt:
             return ""
-        # Remove lines that explicitly mention logo/wordmark/trademark rendering.
-        lines = []
-        for line in txt.splitlines():
-            l = line.lower()
-            if any(k in l for k in ("logo", "wordmark", "trademark", "favicon", "brand mark")):
+        logo_terms = ("logo", "wordmark", "trademark", "favicon", "brand mark")
+        safe_terms = ("logo_safe_zone", "safe zone", "negative space", "post-production", "composited", "composite", "reserve")
+        render_terms = ("draw", "paint", "render", "show", "include", "place", "add", "feature", "display", "incorporate")
+
+        # Keep safe-zone instructions, but remove sentences that ask the raster model
+        # to create fake brand marks. The previous line-level filter could erase an
+        # entire one-line prompt whenever it mentioned logo_safe_zone.
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", txt)
+        kept: list[str] = []
+        for sentence in sentences:
+            s = sentence.strip()
+            if not s:
                 continue
-            lines.append(line)
-        cleaned = "\n".join(lines).strip()
-        # Fallback: remove sentence-level instructions if the prompt is paragraph style.
+            low = s.lower()
+            has_logo_term = any(term in low for term in logo_terms)
+            if has_logo_term and not any(term in low for term in safe_terms):
+                if any(term in low for term in render_terms) or "logo" in low or "wordmark" in low:
+                    continue
+            kept.append(s)
+        cleaned = " ".join(kept).strip()
         cleaned = re.sub(
-            r"(?i)\b[^.!\n]*(logo|wordmark|trademark|favicon|brand mark)[^.!\n]*[.!\n]?",
+            r"(?i)\b[^.!\n]*(draw|paint|render|show|include|place|add|feature|display|incorporate)[^.!\n]*(logo|wordmark|trademark|favicon|brand mark)[^.!\n]*[.!\n]?",
             " ",
             cleaned,
         )
@@ -483,8 +716,8 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{ai_image_prompt}\n\n"
             f"Brand context: {brand_name} ({industry}). "
             f"Color palette: {color_str}. Tone: {tone_str}. "
-            f"{audience_note} {cultural_note} {motif_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note}\n"
+            f"{audience_note} {cultural_note} {casting_note} {motif_note} {msg_note} "
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} {structured_module_note}\n"
             f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
             f"{cam_line} "
             f"{lighting}. {format_note} "
@@ -526,8 +759,8 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{f'Post goal: {description} ' if description else ''}"
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
-            f"{audience_note} {cultural_note} {motif_note} {imagery_note} {msg_note} "
-            f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} "
+            f"{audience_note} {cultural_note} {casting_note} {motif_note} {imagery_note} {msg_note} "
+            f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} {structured_module_note} "
             f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
             "Creative standard: emulate high-performing social campaign craft with clear module hierarchy (headline/offer/proof/cta), "
             "bold but disciplined color blocking, and storytelling props that support the claim. "
@@ -999,7 +1232,7 @@ async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | Non
     """
     vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
     logo_url = _resolve_logo_url(brand)
-    if not image_url or not logo_url:
+    if not image_url or not logo_url or not poster_lockup_mode_enabled(brand, "logo", post):
         return None
     ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
     # Lockup consistency: prefer brand-level visual_system placement over per-post variation.
@@ -1036,6 +1269,8 @@ async def _burn_logo_with_cached_bytes(
 ) -> str | None:
     if not image_url or not logo_bytes:
         return None
+    if not poster_lockup_mode_enabled(brand, "logo", post):
+        return None
     vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
     ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
     placement = str(vs.get("logo_placement") or ab.get("logo_placement") or "bottom_right")
@@ -1063,6 +1298,8 @@ async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: d
     if not urls:
         return [], True
     if not has_brand_logo(brand):
+        return urls, True
+    if not poster_lockup_mode_enabled(brand, "logo", post):
         return urls, True
     out: list[str] = []
     all_applied = True

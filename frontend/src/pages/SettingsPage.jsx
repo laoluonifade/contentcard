@@ -11,6 +11,30 @@ import { useTheme } from '../hooks/useTheme'
 import SettingsExtras from '../components/settings/SettingsExtras'
 
 const TABS = ['Profile', 'Company', 'Team', 'Social', 'Notifications', 'Appearance']
+const LOCKUP_MODES = [
+  { value: 'always', label: 'Always show' },
+  { value: 'when_relevant', label: 'Show when relevant' },
+  { value: 'never', label: 'Never show' },
+]
+
+function normalizeLockupMode(value, fallback) {
+  const mode = String(value || '').trim().toLowerCase()
+  return LOCKUP_MODES.some((opt) => opt.value === mode) ? mode : fallback
+}
+
+function defaultPosterLockup(raw, brand = null) {
+  const cfg = raw && typeof raw === 'object' ? raw : {}
+  const hasWebsite = !!String(brand?.website || '').trim()
+  const hasLocation = !!String(brand?.location || '').trim()
+  return {
+    logo_mode: normalizeLockupMode(cfg.logo_mode, 'always'),
+    website_mode: normalizeLockupMode(cfg.website_mode, hasWebsite ? 'when_relevant' : 'never'),
+    phone_mode: normalizeLockupMode(cfg.phone_mode, hasLocation ? 'when_relevant' : 'never'),
+    address_mode: normalizeLockupMode(cfg.address_mode, hasLocation ? 'when_relevant' : 'never'),
+    store_badges_mode: normalizeLockupMode(cfg.store_badges_mode, 'when_relevant'),
+    contact_phone: String(cfg.contact_phone || '').trim(),
+  }
+}
 
 /** Matches billing tiers; `plan` on a workspace row can lag behind pooled subscription. Prefer `effective_plan`. */
 const PLAN_LABELS = { trial: 'Trial', starter: 'Starter', smb: 'Growth', pro: 'Pro' }
@@ -26,11 +50,21 @@ const inputCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink
 
 export default function SettingsPage() {
   const { user, updateUser, fetchMe, deleteAccount } = useAuthStore()
-  const { activeWorkspace, activeWorkspaceId, fetchWorkspaces, renameWorkspace, fetchSubscription } = useAppStore()
+  const {
+    activeWorkspace,
+    activeWorkspaceId,
+    brands,
+    activeBrandId,
+    fetchWorkspaces,
+    renameWorkspace,
+    fetchSubscription,
+    updateBrand,
+  } = useAppStore()
   const navigate = useNavigate()
   const { theme, setTheme } = useTheme()
   const [searchParams] = useSearchParams()
   const [tab, setTab] = useState('Profile')
+  const activeBrand = brands.find((brand) => brand.id === activeBrandId) || null
 
   useEffect(() => {
     const t = searchParams.get('tab')
@@ -103,10 +137,16 @@ export default function SettingsPage() {
   const [deletePassword, setDeletePassword] = useState('')
   const [deleteShowPw, setDeleteShowPw] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [savingPosterLockup, setSavingPosterLockup] = useState(false)
+  const [posterLockupForm, setPosterLockupForm] = useState(() => defaultPosterLockup())
 
   useEffect(() => {
     setWorkspaceName(activeWorkspace?.name || '')
   }, [activeWorkspace?.id, activeWorkspace?.name])
+
+  useEffect(() => {
+    setPosterLockupForm(defaultPosterLockup(activeBrand?.brand_kit?.poster_lockup, activeBrand))
+  }, [activeBrand])
 
   const nameParts = (user?.full_name || '').split(' ')
   const [profileForm, setProfileForm] = useState({
@@ -216,6 +256,29 @@ export default function SettingsPage() {
       toast(err.response?.data?.detail || err.message || "Couldn't rename the workspace. Try again in a moment.", 'error')
     } finally {
       setRenamingWorkspace(false)
+    }
+  }
+
+  const savePosterLockup = async () => {
+    if (!activeWorkspaceId || !activeBrandId) {
+      toast('Choose an active brand first', 'error')
+      return
+    }
+    setSavingPosterLockup(true)
+    try {
+      await updateBrand(activeBrandId, {
+        brand_kit: {
+          poster_lockup: {
+            ...posterLockupForm,
+            contact_phone: String(posterLockupForm.contact_phone || '').trim(),
+          },
+        },
+      })
+      toast('Poster lockup settings saved')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Could not save poster lockup settings', 'error')
+    } finally {
+      setSavingPosterLockup(false)
     }
   }
 
@@ -420,6 +483,106 @@ export default function SettingsPage() {
                   <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Plan</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm">{workspacePlanLabel(activeWorkspace)}</div></div>
                   <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Payment provider</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.payment_provider || 'Not set'}</div></div>
                 </div>
+              </div>
+
+              <div className="bg-surface border border-fog rounded-2xl p-6">
+                <h3 className="text-ink font-bold text-sm mb-1">Poster lockup defaults</h3>
+                <p className="text-ink/40 text-xs mb-5">
+                  Choose what brand details can appear on generated posters for the active brand. Use
+                  <strong className="text-ink/60"> show when relevant</strong> when you want the system to decide based on the post’s goal.
+                </p>
+
+                {!activeBrand ? (
+                  <div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm text-ink/50">
+                    No active brand selected yet.
+                  </div>
+                ) : (
+                  <>
+                    <div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm text-ink mb-4">
+                      <div className="font-semibold">{activeBrand.name}</div>
+                      <div className="text-ink/45 text-xs mt-1">
+                        Website: {activeBrand.website || 'Not set'} · Address: {activeBrand.location || 'Not set'}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Logo</label>
+                        <select
+                          value={posterLockupForm.logo_mode}
+                          onChange={(e) => setPosterLockupForm((p) => ({ ...p, logo_mode: e.target.value }))}
+                          className={`${inputCls} cursor-pointer`}
+                        >
+                          {LOCKUP_MODES.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Website link</label>
+                        <select
+                          value={posterLockupForm.website_mode}
+                          onChange={(e) => setPosterLockupForm((p) => ({ ...p, website_mode: e.target.value }))}
+                          className={`${inputCls} cursor-pointer`}
+                        >
+                          {LOCKUP_MODES.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Phone number</label>
+                        <select
+                          value={posterLockupForm.phone_mode}
+                          onChange={(e) => setPosterLockupForm((p) => ({ ...p, phone_mode: e.target.value }))}
+                          className={`${inputCls} cursor-pointer`}
+                        >
+                          {LOCKUP_MODES.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Address</label>
+                        <select
+                          value={posterLockupForm.address_mode}
+                          onChange={(e) => setPosterLockupForm((p) => ({ ...p, address_mode: e.target.value }))}
+                          className={`${inputCls} cursor-pointer`}
+                        >
+                          {LOCKUP_MODES.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Google Play / App Store badges</label>
+                        <select
+                          value={posterLockupForm.store_badges_mode}
+                          onChange={(e) => setPosterLockupForm((p) => ({ ...p, store_badges_mode: e.target.value }))}
+                          className={`${inputCls} cursor-pointer`}
+                        >
+                          {LOCKUP_MODES.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Phone number source</label>
+                        <input
+                          value={posterLockupForm.contact_phone}
+                          onChange={(e) => setPosterLockupForm((p) => ({ ...p, contact_phone: e.target.value }))}
+                          placeholder="+234 800 000 0000"
+                          className={inputCls}
+                        />
+                      </div>
+                    </div>
+
+                    <p className="text-ink/35 text-xs mb-4">
+                      The system will still keep these details out of posters when they distract from the post’s job. This setting decides what it is allowed to use.
+                    </p>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={savePosterLockup}
+                        disabled={savingPosterLockup}
+                        className="px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors"
+                      >
+                        {savingPosterLockup ? 'Saving…' : 'Save poster defaults'}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
