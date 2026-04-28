@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom'
 import { LogoFull } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
+import useAppStore from '../../stores/appStore'
+import { getPostAuthPath, readGuestContext } from '../../utils/authFlow'
 
 const INITIAL_LOGIN = { email: '', password: '' }
 const INITIAL_SIGNUP = { workspace_name: '', full_name: '', email: '', password: '' }
@@ -16,18 +18,29 @@ export default function AuthEntryModal({
 }) {
   const navigate = useNavigate()
   const { login, signup, isLoading } = useAuthStore()
+  const { fetchWorkspaces } = useAppStore()
   const [activeMode, setActiveMode] = useState(mode)
   const [showPassword, setShowPassword] = useState(false)
   const [loginForm, setLoginForm] = useState(INITIAL_LOGIN)
   const [signupForm, setSignupForm] = useState(INITIAL_SIGNUP)
+  const [guestPromptActive, setGuestPromptActive] = useState(false)
 
   useEffect(() => {
     if (!open) return
     const presetEmail = initialEmail && initialEmail.includes('@') ? initialEmail.trim() : ''
+    const guestContext = readGuestContext()
+    const hasGuestContext = Boolean(
+      guestContext?.brandName || guestContext?.website || guestContext?.industry || guestContext?.goal
+    )
     setActiveMode(mode)
     setShowPassword(false)
+    setGuestPromptActive(hasGuestContext)
     setLoginForm({ ...INITIAL_LOGIN, email: presetEmail })
-    setSignupForm({ ...INITIAL_SIGNUP, email: presetEmail })
+    setSignupForm({
+      ...INITIAL_SIGNUP,
+      email: presetEmail,
+      workspace_name: guestContext?.brandName || '',
+    })
   }, [open, mode, initialEmail])
 
   useEffect(() => {
@@ -48,13 +61,13 @@ export default function AuthEntryModal({
   const submitLogin = async (event) => {
     event.preventDefault()
     try {
-      await login({
+      const res = await login({
         email: loginForm.email.trim().toLowerCase(),
         password: loginForm.password,
       })
       toast.success('Welcome back!')
       onClose?.()
-      navigate('/dashboard/calendar')
+      navigate(getPostAuthPath(res?.user, '/dashboard'))
     } catch (err) {
       toast.error(err.message || 'Sign in failed. Please try again.')
     }
@@ -63,15 +76,23 @@ export default function AuthEntryModal({
   const submitSignup = async (event) => {
     event.preventDefault()
     try {
-      const email = signupForm.email.trim().toLowerCase()
-      await signup({
+      const guestContext = readGuestContext()
+      const res = await signup({
         workspace_name: signupForm.workspace_name.trim(),
         full_name: signupForm.full_name.trim(),
-        email,
+        email: signupForm.email.trim().toLowerCase(),
         password: signupForm.password,
       })
+      await fetchWorkspaces().catch(() => {})
+      try {
+        if (guestContext?.website) {
+          localStorage.setItem('contentcard.signup.quickFillWebsite', guestContext.website)
+        }
+      } catch {
+        /* ignore */
+      }
       onClose?.()
-      navigate(`/verify-email?email=${encodeURIComponent(email)}`)
+      navigate(getPostAuthPath(res?.user, '/dashboard'))
     } catch (err) {
       toast.error(err.message || 'Sign up failed. Please try again.')
     }
@@ -120,7 +141,9 @@ export default function AuthEntryModal({
                 </h3>
                 <p className="mt-2 text-sm text-ink/55">
                   {activeMode === 'signup'
-                    ? 'Create your workspace and open the full content generator.'
+                    ? guestPromptActive
+                      ? 'Finish signup to save this guest preview and open the full content generator.'
+                      : 'Create your workspace and open the full content generator.'
                     : 'Pick up where you left off and jump back into your calendar.'}
                 </p>
               </div>
@@ -245,7 +268,7 @@ export default function AuthEntryModal({
                   </div>
                 </div>
                 <button type="submit" disabled={isLoading} className="btn-primary w-full justify-center py-3 text-sm">
-                  {isLoading ? 'Creating account...' : <>Start free <ArrowRight size={15} /></>}
+                  {isLoading ? 'Creating account...' : <>{guestPromptActive ? 'Finish signup to save' : 'Start free'} <ArrowRight size={15} /></>}
                 </button>
               </form>
             )}

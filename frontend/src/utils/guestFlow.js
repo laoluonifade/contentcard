@@ -71,19 +71,22 @@ function hashtags(brandName) {
   return [...new Set([...slug, '#contentmarketing', '#socialmediatips'])]
 }
 
-export function buildGuestWorkspaceProfile({ brandName, website, goal }) {
+export function buildGuestWorkspaceProfile({ brandName, website, industry, goal }) {
   const cleanBrand = titleCase(brandName) || 'Your Brand'
   const domain = domainFromWebsite(website)
+  const cleanIndustry = titleCase(industry) || ''
   const domainCue = sentenceFromDomain(domain)
   const cleanGoal = String(goal || '').trim() || 'Generate more awareness and leads this month'
+  const marketCue = cleanIndustry || 'your market'
 
   return {
     brandName: cleanBrand,
     website: domain ? `https://${domain}` : '',
+    industry: cleanIndustry,
     goal: cleanGoal,
-    audience: `People discovering ${cleanBrand} for the first time and comparing options online.`,
-    positioning: `${cleanBrand} helps customers move faster with clearer value and fewer decision points.`,
-    domainCue,
+    audience: `People discovering ${cleanBrand} for the first time and comparing options in ${marketCue}.`,
+    positioning: `${cleanBrand} helps customers move faster with clearer value and fewer decision points in ${marketCue}.`,
+    domainCue: domainCue || marketCue,
     monthLabel: DEFAULT_MONTH,
   }
 }
@@ -151,8 +154,8 @@ export function buildGuestPlanSummary(input) {
       value: profile.brandName,
     },
     {
-      label: 'Website read',
-      value: profile.website || 'No website provided',
+      label: 'Website or industry',
+      value: profile.website || profile.industry || 'No website or industry provided',
     },
     {
       label: 'Campaign goal',

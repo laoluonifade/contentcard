@@ -1,49 +1,17 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus, Smile, Share2, Sparkles, ShieldAlert, ShieldCheck, Inbox, BarChart3, Megaphone, Keyboard } from 'lucide-react'
+import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus, Smile, Share2, Sparkles } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
 import Seo from '../seo/Seo'
 import { getMissingFields, isBrandReady } from '../../utils/brandReadiness'
-import { socialApi } from '../../api'
-import { useFeatureFlag } from '../../lib/featureFlags'
-import { track } from '../../lib/telemetry'
-import ConnectionHealthModal from '../social/ConnectionHealthModal'
-import { useThemeBootstrap } from '../../lib/theme'
-import { useGlobalShortcuts, KeyboardShortcutsCheatsheet } from '../../lib/keyboardShortcuts'
-import ChangelogDrawer from '../ui/ChangelogDrawer'
-import AuthEntryModal from '../auth/AuthEntryModal'
-
-function NavItem({ item }) {
-  const enabled = useFeatureFlag(item.flag || '')
-  if (item.flag && !enabled) return null
-  const { to, icon: Icon, label } = item
-  return (
-    <NavLink
-      to={to}
-      end={to === '/dashboard'}
-      className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 ${
-          isActive
-            ? 'bg-brand-500/10 text-brand-600'
-            : 'text-ink/50 hover:text-ink hover:bg-mist'
-        }`
-      }
-    >
-      <Icon size={17} className="flex-shrink-0" />
-      <span className="text-[13px] font-semibold">{label}</span>
-    </NavLink>
-  )
-}
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
   { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'         },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
-  { to: '/dashboard/inbox',      icon: Inbox,            label: 'Inbox',     flag: 'inbox.page' },
-  { to: '/dashboard/analytics',  icon: BarChart3,        label: 'Analytics', flag: 'analytics.page' },
   { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Playbook'  },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand Kit'  },
   { to: '/dashboard/directory',  icon: Images,           label: 'Directory'  },
@@ -73,7 +41,7 @@ function clearVisitorSession() {
 }
 
 export default function DashboardLayout() {
-  const { user, logout, fetchMe, bootstrapAuth, hasHydrated, isAuthenticated } = useAuthStore()
+  const { user, logout, fetchMe }                 = useAuthStore()
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
           fetchTrends, createWorkspace,
@@ -84,63 +52,26 @@ export default function DashboardLayout() {
   const [newWsOpen, setNewWsOpen] = useState(false)
   const [newWsName, setNewWsName] = useState('')
   const [creatingWs, setCreatingWs] = useState(false)
-  const [connHealth, setConnHealth] = useState([])
-  const [connHealthOpen, setConnHealthOpen] = useState(false)
-  const [cheatsheetOpen, setCheatsheetOpen] = useState(false)
-  const [changelogOpen, setChangelogOpen] = useState(false)
-  const [authModal, setAuthModal] = useState({ open: false, mode: 'signup' })
   const activeBrand = brands.find((brand) => brand.id === activeBrandId) || null
-  const connectionBadgeEnabled = useFeatureFlag('nav.connection_health_badge')
-  const shortcutsEnabled = useFeatureFlag('nav.keyboard_shortcuts')
-  const changelogEnabled = useFeatureFlag('nav.changelog_drawer')
-
-  useThemeBootstrap()
-  useGlobalShortcuts({
-    onOpenCheatsheet: shortcutsEnabled ? () => setCheatsheetOpen(true) : undefined,
-    onOpenSwitcher: () => {
-      // Best-effort: focus the sidebar workspace switcher select if present.
-      const el = document.querySelector('[data-workspace-switcher]')
-      el?.focus?.()
-    },
-  })
 
   useEffect(() => {
     setSidebarOpen(false)
   }, [location.pathname])
 
   useEffect(() => {
-    if (!hasHydrated) return
-    bootstrapAuth().catch(() => {})
-  }, [bootstrapAuth, hasHydrated])
-
-  useEffect(() => {
-    if (!isAuthenticated) return
     if (!workspaces.length) {
       fetchWorkspaces().catch(() => {})
     }
     fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
-  }, [fetchMe, fetchTrends, fetchWorkspaces, isAuthenticated, workspaces.length])
-
-  useEffect(() => {
-    const shouldClearOnClose = Boolean(user && !user.onboarding_completed)
-    if (!shouldClearOnClose) return undefined
-    const handleBeforeUnload = () => {
-      clearVisitorSession()
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [user?.id, user?.onboarding_completed])
+  }, [])
 
   useEffect(() => {
     const protectedPaths = new Set([
       '/dashboard',
-      '/dashboard/ai',
       '/dashboard/assistant',
       '/dashboard/calendar',
       '/dashboard/templates',
-      '/dashboard/inbox',
-      '/dashboard/analytics',
     ])
     if (!activeBrand || isBrandReady(activeBrand) || location.pathname === '/dashboard/brand-kit') return
     if (!protectedPaths.has(location.pathname)) return
@@ -152,45 +83,7 @@ export default function DashboardLayout() {
     navigate('/dashboard/brand-kit', { replace: true })
   }, [activeBrand, location.pathname, navigate])
 
-  useEffect(() => {
-    if (!connectionBadgeEnabled || !activeBrandId) {
-      setConnHealth([])
-      return
-    }
-    let cancelled = false
-    const load = async () => {
-      try {
-        const res = await socialApi.connectionHealth(activeBrandId)
-        if (!cancelled) setConnHealth(Array.isArray(res) ? res : [])
-      } catch {
-        /* badge stays neutral on failure */
-      }
-    }
-    load()
-    const id = setInterval(load, 60_000)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-    }
-  }, [activeBrandId, connectionBadgeEnabled])
-
-  const connectionsAttention = connHealth.filter(
-    (h) =>
-      h.needs_reconnect ||
-      (typeof h.expires_in_hours === 'number' && h.expires_in_hours <= 72),
-  ).length
-
-  useEffect(() => {
-    const open = () => setConnHealthOpen(true)
-    window.addEventListener('contentcard:open-connection-health', open)
-    return () => window.removeEventListener('contentcard:open-connection-health', open)
-  }, [])
-
   const agencyMode = !!user?.agency_mode
-
-  const openAuth = (mode = 'signup') => {
-    setAuthModal({ open: true, mode })
-  }
 
   const submitNewWorkspace = async (e) => {
     e?.preventDefault?.()
@@ -226,11 +119,6 @@ export default function DashboardLayout() {
     navigate('/login')
   }
 
-  const freeGenerationsUsed = useAppStore(s => s.subscription?.free_generations_used ?? null)
-  const planTier = activeWorkspace?.effective_plan || activeWorkspace?.plan
-  const isSubscribed = ['starter', 'smb', 'pro'].includes(planTier)
-  const freeRemaining = isSubscribed ? null : Math.max(0, 2 - (freeGenerationsUsed ?? 0))
-
   const initials = user?.full_name
     ? user.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : '??'
@@ -246,7 +134,6 @@ export default function DashboardLayout() {
         <div className="px-3 py-2 border-b border-fog flex-shrink-0 space-y-2">
           {workspaces.length > 1 ? (
             <select
-              data-workspace-switcher
               value={activeWorkspace?.id || ''}
               onChange={e => setActiveWorkspace(e.target.value)}
               className="w-full bg-mist border border-fog rounded-lg px-2 py-1.5 text-xs text-ink/70 outline-none cursor-pointer">
@@ -278,120 +165,41 @@ export default function DashboardLayout() {
         </div>
       )}
 
-      {connectionBadgeEnabled && activeBrandId && connHealth.length > 0 && (
-        <button
-          type="button"
-          onClick={() => {
-            track('connection_health.badge_clicked', { attention: connectionsAttention })
-            setConnHealthOpen(true)
-          }}
-          className={`mx-3 mt-2 px-3 py-2 rounded-lg flex items-center gap-2 text-xs font-medium border transition-colors flex-shrink-0 ${
-            connectionsAttention > 0
-              ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
-              : 'bg-mist border-fog text-ink/55 hover:bg-fog'
-          }`}
-          aria-label={
-            connectionsAttention > 0
-              ? `${connectionsAttention} connection${connectionsAttention === 1 ? '' : 's'} need attention`
-              : 'All connections healthy'
-          }
-        >
-          {connectionsAttention > 0 ? (
-            <ShieldAlert size={13} className="flex-shrink-0" />
-          ) : (
-            <ShieldCheck size={13} className="text-brand-500 flex-shrink-0" />
-          )}
-          <span className="flex-1 text-left truncate">
-            {connectionsAttention > 0
-              ? `${connectionsAttention} connection${connectionsAttention === 1 ? '' : 's'} need attention`
-              : 'Connections healthy'}
-          </span>
-        </button>
-      )}
-
-      {freeRemaining !== null && (
-        <div className={`mx-3 mt-2 px-3 py-2 rounded-lg text-xs font-medium flex-shrink-0 border ${
-          freeRemaining === 0
-            ? 'bg-red-50 border-red-200 text-red-600'
-            : 'bg-amber-50 border-amber-200 text-amber-700'
-        }`}>
-          {freeRemaining === 0
-            ? 'Free generations used up: subscribe to continue'
-            : `${freeRemaining} free generation${freeRemaining !== 1 ? 's' : ''} remaining`}
-        </div>
-      )}
-
       <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto">
-        {NAV.map((item) => <NavItem key={item.to} item={item} />)}
+        {NAV.map(({ to, icon: Icon, label }) => (
+          <NavLink key={to} to={to} end={to === '/dashboard'}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-150 ${
+                isActive
+                  ? 'bg-brand-500/10 text-brand-600'
+                  : 'text-ink/50 hover:text-ink hover:bg-mist'
+              }`
+            }>
+            {({ isActive }) => (
+              <>
+                <Icon size={17} className="flex-shrink-0" />
+                <span className="text-[13px] font-semibold">{label}</span>
+              </>
+            )}
+          </NavLink>
+        ))}
       </nav>
-      <div className="px-3 pb-2 flex items-center gap-2 flex-wrap">
-        {changelogEnabled && (
-          <button
-            onClick={() => { track('nav.changelog_clicked', {}); setChangelogOpen(true) }}
-            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold text-ink/55 hover:text-ink hover:bg-mist"
-          >
-            <Megaphone size={11} /> What's new
-          </button>
-        )}
-        {shortcutsEnabled && (
-          <button
-            onClick={() => setCheatsheetOpen(true)}
-            className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold text-ink/55 hover:text-ink hover:bg-mist"
-          >
-            <Keyboard size={11} /> ?
-          </button>
-        )}
-      </div>
 
       <div className="px-2 py-3 border-t border-fog flex-shrink-0">
-        {isAuthenticated ? (
-          <>
-            <div className="flex items-center gap-3 px-3 py-2 mb-0.5">
-              <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-                {initials}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-ink text-xs font-semibold truncate">{user?.full_name || 'User'}</div>
-                <div className="text-ink/40 text-[10px] truncate">{user?.email || ''}</div>
-              </div>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-ink/40 hover:text-ink hover:bg-mist transition-all"
-            >
-              <LogOut size={16} className="flex-shrink-0" />
-              <span className="text-[13px] font-semibold">Sign out</span>
-            </button>
-          </>
-        ) : (
-          <div className="px-3 py-2">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-                CC
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-ink text-xs font-semibold truncate">Guest preview</div>
-                <div className="text-ink/40 text-[10px] truncate">Log in or sign up to save your content.</div>
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => openAuth('login')}
-                className="flex-1 rounded-xl border border-fog px-3 py-2 text-xs font-semibold text-ink/65 hover:bg-mist"
-              >
-                Log in
-              </button>
-              <button
-                type="button"
-                onClick={() => openAuth('signup')}
-                className="flex-1 rounded-xl bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600"
-              >
-                Start free
-              </button>
-            </div>
+        <div className="flex items-center gap-3 px-3 py-2 mb-0.5">
+          <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+            {initials}
           </div>
-        )}
+          <div className="flex-1 min-w-0">
+            <div className="text-ink text-xs font-semibold truncate">{user?.full_name || 'User'}</div>
+            <div className="text-ink/40 text-[10px] truncate">{user?.email || ''}</div>
+          </div>
+        </div>
+        <button onClick={handleLogout}
+          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-ink/40 hover:text-ink hover:bg-mist transition-all">
+          <LogOut size={16} className="flex-shrink-0" />
+          <span className="text-[13px] font-semibold">Sign out</span>
+        </button>
       </div>
     </aside>
   )
@@ -404,21 +212,6 @@ export default function DashboardLayout() {
         path={location.pathname}
         noindex
       />
-
-      <ConnectionHealthModal
-        open={connHealthOpen}
-        onClose={() => setConnHealthOpen(false)}
-        brandId={activeBrandId}
-        health={connHealth}
-      />
-
-      {shortcutsEnabled && (
-        <KeyboardShortcutsCheatsheet open={cheatsheetOpen} onClose={() => setCheatsheetOpen(false)} />
-      )}
-      {changelogEnabled && (
-        <ChangelogDrawer open={changelogOpen} onClose={() => setChangelogOpen(false)} />
-      )}
-
       {newWsOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
           <div className="bg-surface rounded-2xl border border-fog shadow-xl max-w-md w-full p-6">
@@ -500,12 +293,6 @@ export default function DashboardLayout() {
           ))}
         </nav>
       </main>
-
-      <AuthEntryModal
-        open={authModal.open}
-        mode={authModal.mode}
-        onClose={() => setAuthModal((current) => ({ ...current, open: false }))}
-      />
     </div>
   )
 }

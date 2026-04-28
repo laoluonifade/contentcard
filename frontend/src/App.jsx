@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { ToastProvider } from './components/ui/Toast'
 import useAuthStore from './stores/authStore'
+import { getPostAuthPath } from './utils/authFlow'
 
 import LoginPage            from './pages/LoginPage'
 import SignupPage           from './pages/SignupPage'
@@ -35,7 +36,7 @@ import SocialAutopilotPage  from './pages/SocialAutopilotPage'
 import DesignEditorPage     from './pages/DesignEditorPage'
 import AnalyticsPage        from './pages/AnalyticsPage'
 import InboxPage            from './pages/InboxPage'
-import AIWorkspacePage from './pages/AIWorkspacePage'
+import AIWorkspacePage      from './pages/AIWorkspacePage'
 import ShopifyAuthCallbackPage from './pages/ShopifyAuthCallbackPage'
 import ShopifyOnboardingCompletionPage from './pages/ShopifyOnboardingCompletionPage'
 import ShopifyPostSignupDecisionPage from './pages/ShopifyPostSignupDecisionPage'
@@ -70,11 +71,13 @@ function AuthGateFallback() {
 function RouteGate({ children, requireAuth, redirectAuthed = '/dashboard/calendar', redirectUnauthed = '/login' }) {
   const {
     token,
+    user,
     isAuthenticated,
     hasHydrated,
     authResolved,
     bootstrapAuth,
   } = useAuthStore()
+  const location = useLocation()
 
   useEffect(() => {
     if (!hasHydrated) return
@@ -87,11 +90,18 @@ function RouteGate({ children, requireAuth, redirectAuthed = '/dashboard/calenda
     return <AuthGateFallback />
   }
 
+  const shouldResumeOnboarding =
+    isAuthenticated &&
+    user?.onboarding_completed === false &&
+    !new Set(['/onboarding', '/shopify/complete-onboarding', '/shopify/decision', '/shopify/callback']).has(location.pathname)
+
   if (requireAuth) {
-    return isAuthenticated ? children : <Navigate to={redirectUnauthed} replace />
+    if (!isAuthenticated) return <Navigate to={redirectUnauthed} replace />
+    if (shouldResumeOnboarding) return <Navigate to="/onboarding" replace />
+    return children
   }
 
-  return !isAuthenticated ? children : <Navigate to={redirectAuthed} replace />
+  return !isAuthenticated ? children : <Navigate to={getPostAuthPath(user, redirectAuthed)} replace />
 }
 
 function PrivateRoute({ children }) {
@@ -107,9 +117,6 @@ function AdminRoute({ children }) {
   return admin ? children : <Navigate to="/admindash/login" replace />
 }
 
-// Inside the dashboard, some pages aren't ready for the guest demo yet
-// (Playbook, e.g., relies on backend playbook catalog). Bounce guests to
-// the calendar instead of letting them land on a broken page.
 function AuthOnlyDashRoute({ children }) {
   return <RouteGate requireAuth redirectUnauthed="/dashboard/calendar">{children}</RouteGate>
 }
@@ -148,7 +155,7 @@ export default function App() {
         <Route path="/shopify/complete-onboarding" element={<PrivateRoute><ShopifyOnboardingCompletionPage /></PrivateRoute>} />
         <Route path="/shopify/decision"      element={<PrivateRoute><ShopifyPostSignupDecisionPage /></PrivateRoute>} />
 
-        {/* Dashboard — open to guests, ChatGPT-style */}
+        {/* Dashboard — app-first entry, with auth required only where needed */}
         <Route path="/dashboard" element={<DashboardLayout />}>
           <Route index             element={<AuthOnlyDashRoute><DashboardPage /></AuthOnlyDashRoute>} />
           <Route path="generate"   element={<AuthOnlyDashRoute><GeneratePage /></AuthOnlyDashRoute>} />
