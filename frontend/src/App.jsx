@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { ToastProvider } from './components/ui/Toast'
 import useAuthStore from './stores/authStore'
@@ -56,14 +57,50 @@ import AdminDesignPlaybookPage from './pages/AdminDesignPlaybookPage'
 import AdminMemesPage       from './pages/AdminMemesPage'
 import AdminDemoRequestsPage from './pages/AdminDemoRequestsPage'
 
+function AuthGateFallback() {
+  return (
+    <div className="min-h-screen grid place-items-center bg-mist px-6">
+      <div className="text-center">
+        <div className="mx-auto h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+        <p className="mt-3 text-sm text-ink/55">Checking your session…</p>
+      </div>
+    </div>
+  )
+}
+
+function RouteGate({ children, requireAuth }) {
+  const {
+    token,
+    isAuthenticated,
+    hasHydrated,
+    authResolved,
+    bootstrapAuth,
+  } = useAuthStore()
+
+  useEffect(() => {
+    if (!hasHydrated) return
+    bootstrapAuth()
+  }, [hasHydrated, bootstrapAuth])
+
+  const waitingForValidation = hasHydrated && !!token && !authResolved
+
+  if (!hasHydrated || waitingForValidation) {
+    return <AuthGateFallback />
+  }
+
+  if (requireAuth) {
+    return isAuthenticated ? children : <Navigate to="/login" replace />
+  }
+
+  return !isAuthenticated ? children : <Navigate to="/dashboard" replace />
+}
+
 function PrivateRoute({ children }) {
-  const { isAuthenticated } = useAuthStore()
-  return isAuthenticated ? children : <Navigate to="/login" replace />
+  return <RouteGate requireAuth>{children}</RouteGate>
 }
 
 function GuestRoute({ children }) {
-  const { isAuthenticated } = useAuthStore()
-  return !isAuthenticated ? children : <Navigate to="/dashboard" replace />
+  return <RouteGate requireAuth={false}>{children}</RouteGate>
 }
 
 function AdminRoute({ children }) {

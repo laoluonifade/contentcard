@@ -2,6 +2,15 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { authApi } from '../api'
 
+function clearPersistedSession() {
+  try {
+    localStorage.removeItem('contentcard-auth')
+    localStorage.removeItem('contentcard-app')
+  } catch {
+    /* ignore */
+  }
+}
+
 function formatApiErrorDetail(err) {
   const d = err?.response?.data?.detail
   if (typeof d === 'string' && d.trim()) return d.trim()
@@ -21,6 +30,9 @@ const useAuthStore = create(
       user: null,
       token: null,
       isAuthenticated: false,
+      hasHydrated: false,
+      authResolved: false,
+      isCheckingAuth: false,
       isLoading: false,
       error: null,
 
@@ -28,7 +40,13 @@ const useAuthStore = create(
         set({ isLoading: true, error: null })
         try {
           const res = await authApi.signup(data)
-          set({ user: res.user, token: res.access_token, isAuthenticated: true, isLoading: false })
+          set({
+            user: res.user,
+            token: res.access_token,
+            isAuthenticated: true,
+            authResolved: true,
+            isLoading: false,
+          })
           return res
         } catch (err) {
           const msg =
@@ -46,7 +64,13 @@ const useAuthStore = create(
         set({ isLoading: true, error: null })
         try {
           const res = await authApi.login(data)
-          set({ user: res.user, token: res.access_token, isAuthenticated: true, isLoading: false })
+          set({
+            user: res.user,
+            token: res.access_token,
+            isAuthenticated: true,
+            authResolved: true,
+            isLoading: false,
+          })
           return res
         } catch (err) {
           const msg =
@@ -60,13 +84,17 @@ const useAuthStore = create(
         }
       },
 
-      logout: () => set({ user: null, token: null, isAuthenticated: false }),
+      logout: () => {
+        clearPersistedSession()
+        set({ user: null, token: null, isAuthenticated: false, authResolved: true })
+      },
 
       deleteAccount: async (password) => {
         set({ isLoading: true, error: null })
         try {
           await authApi.deleteAccount({ password })
-          set({ user: null, token: null, isAuthenticated: false, isLoading: false })
+          clearPersistedSession()
+          set({ user: null, token: null, isAuthenticated: false, authResolved: true, isLoading: false })
         } catch (err) {
           const msg =
             formatApiErrorDetail(err) || err.message || 'Could not delete account'
@@ -80,9 +108,44 @@ const useAuthStore = create(
           token: token || null,
           user: user || null,
           isAuthenticated: Boolean(token),
+          authResolved: Boolean(token),
         }),
 
       updateUser: (updates) => set(s => ({ user: { ...s.user, ...updates } })),
+
+      markHydrated: () => set({ hasHydrated: true }),
+
+      bootstrapAuth: async () => {
+        const state = useAuthStore.getState()
+        if (!state.hasHydrated || state.authResolved || state.isCheckingAuth) return state.isAuthenticated
+
+        if (!state.token) {
+          set({ user: null, isAuthenticated: false, authResolved: true })
+          return false
+        }
+
+        set({ isCheckingAuth: true })
+        try {
+          const user = await authApi.me()
+          set({
+            user,
+            isAuthenticated: true,
+            authResolved: true,
+            isCheckingAuth: false,
+          })
+          return true
+        } catch {
+          clearPersistedSession()
+          set({
+            user: null,
+            token: null,
+            isAuthenticated: false,
+            authResolved: true,
+            isCheckingAuth: false,
+          })
+          return false
+        }
+      },
 
       fetchMe: async () => {
         try {
@@ -99,6 +162,9 @@ const useAuthStore = create(
     {
       name: 'contentcard-auth',
       partialize: (s) => ({ user: s.user, token: s.token, isAuthenticated: s.isAuthenticated }),
+      onRehydrateStorage: () => (state) => {
+        state?.markHydrated?.()
+      },
     }
   )
 )
