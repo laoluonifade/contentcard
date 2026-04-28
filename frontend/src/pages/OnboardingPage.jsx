@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Building2, Users, Palette, Check, Zap } from 'lucide-react'
 import { LogoMark } from '../components/ui/Logo'
@@ -39,6 +39,21 @@ export default function OnboardingPage() {
     }
   })
   const [quickFillPlatform, setQuickFillPlatform] = useState('auto')
+
+  useEffect(() => {
+    if (!user || user.onboarding_completed) return undefined
+    const handleBeforeUnload = () => {
+      try {
+        localStorage.removeItem('contentcard-auth')
+        localStorage.removeItem('contentcard-app')
+        localStorage.removeItem('contentcard.signup.quickFillWebsite')
+      } catch {
+        /* ignore */
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [user?.id, user?.onboarding_completed])
 
   const [form, setForm] = useState({
     name: '',
