@@ -22,17 +22,14 @@ export default function LoginPage() {
   const [form, setForm] = useState({ email: '', password: '' })
   const [showPw, setShowPw] = useState(false)
   const [shopDomain, setShopDomain] = useState('')
+  const [shopDomainError, setShopDomainError] = useState('')
   const [showShopifyPrompt, setShowShopifyPrompt] = useState(false)
   const { login, isLoading } = useAuthStore()
   const navigate = useNavigate()
   const shopifyEnabled = String(import.meta.env.VITE_SHOPIFY_AUTH_ENABLED || 'false') === 'true'
-  const authLightThemeVars = {
-    '--cc-ink-rgb': '15 23 42',
-    '--cc-fog-rgb': '229 231 235',
-    '--cc-mist-rgb': '247 247 248',
-    '--cc-surface-rgb': '255 255 255',
-    '--cc-page-rgb': '255 255 255',
-  }
+
+  const isShopDomainValid = (value) =>
+    String(value || '').trim().toLowerCase().endsWith('.myshopify.com')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -48,9 +45,10 @@ export default function LoginPage() {
   const startShopify = async (domainOverride = '') => {
     const candidate = String(domainOverride || shopDomain).trim().toLowerCase()
     if (!candidate.endsWith('.myshopify.com')) {
-      toast.error('Enter your Shopify domain, e.g. yourstore.myshopify.com')
+      setShopDomainError('Enter your Shopify domain, e.g. yourstore.myshopify.com')
       return
     }
+    setShopDomainError('')
     try {
       localStorage.setItem('contentcard.shopify.domain', candidate)
       const res = await authApi.shopifyStart({ shop: candidate, mode: 'login', next_path: '/dashboard' })
@@ -67,7 +65,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex" style={authLightThemeVars}>
+    <div className="min-h-screen flex">
       <Seo
         title="Sign in | ContentCard"
         description="Sign in to your ContentCard account."
@@ -118,7 +116,8 @@ export default function LoginPage() {
                 onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                 placeholder="••••••••" className="input pr-12" />
               <button type="button" onClick={() => setShowPw(v => !v)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/45 hover:text-ink transition-colors">
+                aria-label={showPw ? 'Hide password' : 'Show password'}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/65 hover:text-ink transition-colors">
                 {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
@@ -174,20 +173,32 @@ export default function LoginPage() {
         </div>
       </div>
       {showShopifyPrompt && (
-        <div className="fixed inset-0 bg-black/35 flex items-center justify-center p-4 z-50">
-          <div className="w-full max-w-md bg-white rounded-2xl border border-fog p-5">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-md bg-surface rounded-2xl border border-fog p-5">
             <h3 className="text-lg font-bold text-ink mb-1">Enter your Shopify store</h3>
             <p className="text-sm text-ink/60 mb-3">We will redirect you to Shopify to continue sign-in.</p>
             <input
               value={shopDomain}
-              onChange={(e) => setShopDomain(e.target.value)}
+              onChange={(e) => { setShopDomain(e.target.value); if (shopDomainError) setShopDomainError('') }}
               placeholder="yourstore.myshopify.com"
               className="input"
               autoFocus
+              aria-invalid={Boolean(shopDomainError)}
+              aria-describedby={shopDomainError ? 'shop-domain-error' : undefined}
             />
+            {shopDomainError && (
+              <p id="shop-domain-error" className="text-xs text-red-600 dark:text-red-300 mt-2">{shopDomainError}</p>
+            )}
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className="btn-secondary" onClick={() => setShowShopifyPrompt(false)}>Cancel</button>
-              <button type="button" className="btn-primary" onClick={() => startShopify()}>Continue</button>
+              <button type="button" className="btn-secondary" onClick={() => { setShowShopifyPrompt(false); setShopDomainError('') }}>Cancel</button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => startShopify()}
+                disabled={!isShopDomainValid(shopDomain)}
+              >
+                Continue
+              </button>
             </div>
           </div>
         </div>

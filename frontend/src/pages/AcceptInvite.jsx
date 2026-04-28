@@ -18,13 +18,6 @@ export default function AcceptInvite() {
   const [submitting, setSubmitting] = useState(false)
   const [showPw, setShowPw] = useState(false)
   const [form, setForm] = useState({ full_name: '', password: '', phone: '', email: '' })
-  const authLightThemeVars = {
-    '--cc-ink-rgb': '15 23 42',
-    '--cc-fog-rgb': '229 231 235',
-    '--cc-mist-rgb': '247 247 248',
-    '--cc-surface-rgb': '255 255 255',
-    '--cc-page-rgb': '255 255 255',
-  }
 
   useEffect(() => {
     if (!token) { setError('Invalid invite link.'); setLoading(false); return }
@@ -63,7 +56,7 @@ export default function AcceptInvite() {
   }
 
   return (
-    <div className="min-h-screen bg-mist flex items-center justify-center p-6" style={authLightThemeVars}>
+    <div className="min-h-screen bg-mist flex items-center justify-center p-6">
       <div className="w-full max-w-md">
         <div className="mb-8"><LogoFull size={28} /></div>
 
@@ -71,8 +64,8 @@ export default function AcceptInvite() {
 
         {!loading && error && !invite && (
           <div className="bg-surface border border-fog rounded-2xl p-8 text-center">
-            <div className="text-red-500 font-semibold mb-2">{error}</div>
-            <button onClick={() => navigate('/')} className="text-brand-500 text-sm hover:text-brand-600 transition-colors">Go to homepage</button>
+            <div className="text-red-600 dark:text-red-300 font-semibold mb-2">{error}</div>
+            <button onClick={() => navigate('/')} className="text-brand-500 hover:text-brand-600 text-sm transition-colors">Go to homepage</button>
           </div>
         )}
 
@@ -98,7 +91,7 @@ export default function AcceptInvite() {
             </div>
 
             {error && (
-              <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">{error}</div>
+              <div role="alert" className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 rounded-xl text-red-700 dark:text-red-200 text-sm">{error}</div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -131,7 +124,8 @@ export default function AcceptInvite() {
                     onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                     placeholder="Min. 8 characters" className="input pr-12" autoComplete="new-password" />
                   <button type="button" onClick={() => setShowPw(v => !v)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/30 hover:text-ink/60 transition-colors">
+                    aria-label={showPw ? 'Hide password' : 'Show password'}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/65 hover:text-ink transition-colors">
                     {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>

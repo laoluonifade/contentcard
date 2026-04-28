@@ -155,6 +155,7 @@ const useAuthStore = create(
           // Keep the persisted session on transient failures so refreshes
           // or backend cold starts do not kick signed-in users out.
           set({
+            user: state.user,
             isAuthenticated: true,
             authResolved: true,
             isCheckingAuth: false,

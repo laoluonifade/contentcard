@@ -14,7 +14,13 @@ function readStored() {
   }
 }
 
+// Dark mode is currently disabled — `applyTheme` always renders light.
+// Dark mode CSS, Tailwind variants, and ThemeToggle remain in place; flip
+// `DARK_MODE_ENABLED` to true (or remove this gate) to re-enable.
+const DARK_MODE_ENABLED = false
+
 function effectiveTheme(pref) {
+  if (!DARK_MODE_ENABLED) return 'light'
   if (pref === 'system') {
     return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   }
