@@ -169,11 +169,15 @@ export const authApi = {
   deleteAccount:    (data) => api.delete('/auth/me', { data }).then(r => r.data),
   forgotPassword:   (data) => postPublicAuth('/auth/forgot-password', data),
   resetPassword:    (data) => postPublicAuth('/auth/reset-password', data),
+  verifyEmail:        (data) => postPublicAuth('/auth/verify-email', data),
+  resendVerification: (data) => postPublicAuth('/auth/resend-verification', data),
   shopifyStart:   (params) => getPublicAuth('/auth/shopify/start', params),
   shopifyOnboardingStatus: () => api.get('/auth/shopify/onboarding-status').then(r => r.data),
   completeShopifyOnboarding: (data) => api.post('/auth/shopify/onboarding-complete', data).then(r => r.data),
   getPostSignupDecision: () => api.get('/auth/post-signup-decision').then(r => r.data),
   setPostSignupDecision: (decision) => api.post('/auth/post-signup-decision', { decision }).then(r => r.data),
+  getEmailPreferences:    ()     => api.get('/auth/me/email-preferences').then(r => r.data),
+  updateEmailPreferences: (data) => api.put('/auth/me/email-preferences', data).then(r => r.data),
 }
 
 // ─── Workspaces ─────────────────────────────────────────────────
@@ -266,6 +270,7 @@ export const contentApi = {
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
+  exportCalendar: (params)     => api.get('/content/export', { params, responseType: 'blob' }),
   directory:  (workspaceId)   => api.get('/content/directory', { params: { workspace_id: workspaceId } }).then(r => r.data),
   memes:      ()              => api.get('/content/memes').then(r => r.data),
   addMeme:    (data)          => api.post('/content/memes', data).then(r => r.data),
@@ -274,7 +279,57 @@ export const contentApi = {
   update:     (id, data)       => api.put(`/content/${id}`, data).then(r => r.data),
   regenerate: (id, data)       => api.post(`/content/${id}/regenerate`, data).then(r => r.data),
   regenerateVisual: (id, data) => api.post(`/content/${id}/regenerate-visual`, data).then(r => r.data),
+  approve:    (id)             => api.post(`/content/${id}/approve`).then(r => r.data),
+  reject:     (id)             => api.post(`/content/${id}/reject`).then(r => r.data),
   delete:     (id)             => api.delete(`/content/${id}`).then(r => r.data),
+}
+
+// ─── Telemetry ──────────────────────────────────────────────────
+export const telemetryApi = {
+  recordEvents: (events) => api.post('/telemetry/events', { events }).then(r => r.data),
+}
+
+// ─── Dashboard ──────────────────────────────────────────────────
+export const dashboardApi = {
+  socialEvents: (brandId, limit = 5) =>
+    api.get('/dashboard/social-events', { params: { brand_id: brandId, limit } }).then(r => r.data),
+  streak: (brandId) =>
+    api.get('/dashboard/streak', { params: { brand_id: brandId } }).then(r => r.data),
+  briefing: (brandId, refresh = false) =>
+    api.get('/dashboard/briefing', { params: { brand_id: brandId, refresh } }).then(r => r.data),
+  bestPost: (brandId, windowDays = 30) =>
+    api.get('/dashboard/best-post', { params: { brand_id: brandId, window_days: windowDays } }).then(r => r.data),
+  monthlyRecap: (brandId, month, year) =>
+    api.get('/dashboard/monthly-recap', { params: { brand_id: brandId, month, year } }).then(r => r.data),
+  activation: (brandId) =>
+    api.get('/dashboard/activation', { params: { brand_id: brandId } }).then(r => r.data),
+}
+
+// ─── Content extras (remix / variants / brand-fit / explanation / comments / activity)
+export const contentExtrasApi = {
+  remix: (id, recipe) => api.post(`/content/${id}/remix`, { recipe }).then(r => r.data),
+  variants: (id) => api.post(`/content/${id}/variants`).then(r => r.data),
+  brandFit: (id) => api.get(`/content/${id}/brand-fit`).then(r => r.data),
+  explanation: (id) => api.get(`/content/${id}/explanation`).then(r => r.data),
+  listComments: (id) => api.get(`/content/${id}/comments`).then(r => r.data),
+  addComment: (id, data) => api.post(`/content/${id}/comments`, data).then(r => r.data),
+  listActivity: (id) => api.get(`/content/${id}/activity`).then(r => r.data),
+}
+
+// ─── Inbox ──────────────────────────────────────────────────────
+export const inboxApi = {
+  list: (params) => api.get('/inbox', { params }).then(r => r.data),
+  markSpam: (id) => api.post(`/inbox/${id}/spam`).then(r => r.data),
+}
+
+// ─── Analytics ──────────────────────────────────────────────────
+export const analyticsApi = {
+  summary: (brandId, windowDays = 30, platform) =>
+    api.get('/analytics/summary', { params: { brand_id: brandId, window_days: windowDays, platform } }).then(r => r.data),
+  competitors: (brandId) =>
+    api.get('/analytics/competitors', { params: { brand_id: brandId } }).then(r => r.data),
+  scheduleReport: (data) =>
+    api.post('/analytics/report', data).then(r => r.data),
 }
 
 // ─── Social Autopilot ───────────────────────────────────────────

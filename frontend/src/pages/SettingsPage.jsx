@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Check, Eye, EyeOff, Sun, Trash2, AlertTriangle } from 'lucide-react'
+import { Check, Eye, EyeOff, Sun, Trash2, AlertTriangle, Bell, Mail } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { authApi, workspaceApi, inviteApi } from '../api'
@@ -8,8 +8,9 @@ import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
 import { COUNTRIES_LIST } from './SignupPage'
 import { useTheme } from '../hooks/useTheme'
+import SettingsExtras from '../components/settings/SettingsExtras'
 
-const TABS = ['Profile', 'Company', 'Team', 'Social', 'Appearance']
+const TABS = ['Profile', 'Company', 'Team', 'Social', 'Notifications', 'Appearance']
 const LOCKUP_MODES = [
   { value: 'always', label: 'Always show' },
   { value: 'when_relevant', label: 'Show when relevant' },
@@ -76,6 +77,43 @@ export default function SettingsPage() {
       fetchWorkspaces?.().catch(() => {})
     }
   }, [tab, fetchMe, fetchWorkspaces])
+
+  // ── Notifications: per-user email opt-in ──────────────────────────────────
+  // transactional is reported but never editable. product_updates gates Phase 1
+  // (generation lifecycle) and Phase 3 (autopilot health) emails. marketing is
+  // reserved for Phase 4 (drip / re-engagement) — defaulted off until explicitly
+  // opted in.
+  const [emailPrefs, setEmailPrefs] = useState(null)
+  const [emailPrefsLoading, setEmailPrefsLoading] = useState(false)
+  const [emailPrefsSaving, setEmailPrefsSaving] = useState(false)
+
+  useEffect(() => {
+    if (tab !== 'Notifications' || emailPrefs !== null) return
+    let cancelled = false
+    setEmailPrefsLoading(true)
+    authApi.getEmailPreferences()
+      .then((p) => { if (!cancelled) setEmailPrefs(p) })
+      .catch(() => { if (!cancelled) toast('Could not load notification settings', 'error') })
+      .finally(() => { if (!cancelled) setEmailPrefsLoading(false) })
+    return () => { cancelled = true }
+  }, [tab, emailPrefs])
+
+  const setEmailPref = async (key, value) => {
+    if (!emailPrefs) return
+    const optimistic = { ...emailPrefs, [key]: value }
+    setEmailPrefs(optimistic)
+    setEmailPrefsSaving(true)
+    try {
+      const next = await authApi.updateEmailPreferences({ [key]: value })
+      setEmailPrefs(next)
+    } catch {
+      // Roll back the toggle if the server rejects it.
+      setEmailPrefs(emailPrefs)
+      toast('Could not save preference — try again', 'error')
+    } finally {
+      setEmailPrefsSaving(false)
+    }
+  }
   const [saving, setSaving] = useState(false)
   const [showPw, setShowPw] = useState(false)
   const [members, setMembers] = useState([])
@@ -128,14 +166,14 @@ export default function SettingsPage() {
 
   const saveProfile = async () => {
     const full_name = `${profileForm.first_name.trim()} ${profileForm.last_name.trim()}`.trim()
-    if (!full_name) { toast('Enter your name', 'error'); return }
+    if (!full_name) { toast('Add your name to save your profile.', 'error'); return }
     setSaving(true)
     try {
       const newCountry = profileForm.country_code || null
       const countryChanged = newCountry !== (user?.country_code || null)
       await authApi.updateProfile({ full_name, country_code: newCountry })
       updateUser({ full_name, country_code: newCountry })
-      toast('Profile saved!')
+      toast('Profile saved.')
       // If country changed, refresh subscription so billing page immediately shows
       // the correct currency/provider (Paystack for Nigeria, Stripe for everyone else).
       if (countryChanged) fetchSubscription().catch(() => {})
@@ -144,22 +182,22 @@ export default function SettingsPage() {
   }
 
   const changePw = async () => {
-    if (!pwForm.current_password || !pwForm.new_password) { toast('Fill in both password fields', 'error'); return }
-    if ((pwForm.new_password || '').length < 8) { toast('New password must be at least 8 characters', 'error'); return }
+    if (!pwForm.current_password || !pwForm.new_password) { toast('Fill in both password fields to update your password.', 'error'); return }
+    if ((pwForm.new_password || '').length < 8) { toast("Your new password needs to be at least 8 characters long.", 'error'); return }
     setSaving(true)
     try {
       await authApi.changePassword(pwForm)
       setPwForm({ current_password: '', new_password: '' })
-      toast('Password updated!')
+      toast('Password updated.')
     } catch (err) {
       const detail = err?.response?.data?.detail
       if (Array.isArray(detail) && detail.length > 0) {
-        const msg = detail[0]?.msg || detail[0]?.message || 'Password update failed'
+        const msg = detail[0]?.msg || detail[0]?.message || "Couldn't update your password. Try again in a moment."
         toast(msg, 'error')
       } else if (typeof detail === 'string' && detail.trim()) {
         toast(detail, 'error')
       } else {
-        toast(err.message || 'Password update failed', 'error')
+        toast(err.message || "Couldn't update your password. Try again in a moment.", 'error')
       }
     }
     finally { setSaving(false) }
@@ -189,7 +227,7 @@ export default function SettingsPage() {
     try {
       await workspaceApi.updateMemberRole(activeWorkspaceId, memberId, role)
       setMembers(ms => ms.map(m => m.id === memberId ? { ...m, role } : m))
-      toast('Role updated')
+      toast('Role updated.')
     } catch (err) { toast(err.message, 'error') }
   }
 
@@ -198,7 +236,7 @@ export default function SettingsPage() {
     try {
       await workspaceApi.removeMember(activeWorkspaceId, memberId)
       setMembers(ms => ms.filter(m => m.id !== memberId))
-      toast('Member removed')
+      toast('Member removed.')
     } catch (err) { toast(err.message, 'error') }
   }
 
@@ -207,15 +245,15 @@ export default function SettingsPage() {
 
   const saveWorkspaceName = async () => {
     const nextName = workspaceName.trim()
-    if (!activeWorkspaceId) { toast('No active workspace', 'error'); return }
-    if (!nextName) { toast('Workspace name is required', 'error'); return }
+    if (!activeWorkspaceId) { toast('Pick a workspace first.', 'error'); return }
+    if (!nextName) { toast('Give the workspace a name.', 'error'); return }
     if (nextName === (activeWorkspace?.name || '')) return
     setRenamingWorkspace(true)
     try {
       await renameWorkspace(activeWorkspaceId, nextName)
-      toast('Workspace name updated')
+      toast('Workspace renamed.')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Could not update workspace name', 'error')
+      toast(err.response?.data?.detail || err.message || "Couldn't rename the workspace. Try again in a moment.", 'error')
     } finally {
       setRenamingWorkspace(false)
     }
@@ -245,12 +283,12 @@ export default function SettingsPage() {
   }
 
   const saveSocialSettings = () => {
-    toast('Coming soon')
+    toast("Coming soon — we'll ping you when it's ready.")
   }
 
   const handleDeleteAccount = async () => {
     if (deleteConfirmText !== 'DELETE') {
-      toast('Type DELETE in capitals to confirm', 'error')
+      toast("Type DELETE (in capitals) to confirm you really want to delete your account.", 'error')
       return
     }
     setDeleting(true)
@@ -272,6 +310,8 @@ export default function SettingsPage() {
         <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Settings</h1>
         <p className="text-ink/40 text-sm">Manage your account and workspace</p>
       </div>
+
+      <SettingsExtras />
 
       <div className="grid grid-cols-1 lg:grid-cols-[185px_1fr] gap-6 items-start">
         <nav className="bg-surface border border-fog rounded-2xl p-2 flex flex-row flex-wrap lg:flex-col gap-0.5">
@@ -321,6 +361,7 @@ export default function SettingsPage() {
                     </select>
                   </div>
                 </div>
+                <p className="text-ink/30 text-xs mb-4">Country determines your payment method (Nigeria → Paystack in ₦, all other countries → Stripe in $) and local public holidays on your calendar.</p>
                 <p className="text-ink/30 text-xs mb-4">Country determines your billing currency and payment provider (Nigeria → ₦ Paystack · everywhere else → $ Stripe), and shows local public holidays on your content calendar.</p>
                 <div className="flex justify-end">
                   <button onClick={saveProfile} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors">
@@ -623,6 +664,77 @@ export default function SettingsPage() {
             </div>
           )}
 
+          {tab === 'Notifications' && (
+            <div className="bg-surface border border-fog rounded-2xl p-6 max-w-2xl">
+              <div className="flex items-center gap-2 mb-1">
+                <Bell size={14} className="text-ink/50" />
+                <h3 className="text-ink font-bold text-sm">Email notifications</h3>
+              </div>
+              <p className="text-ink/40 text-xs mb-5">
+                Choose which emails we send. Account and billing notices are required for security and can&apos;t be disabled.
+              </p>
+
+              {emailPrefsLoading || emailPrefs === null ? (
+                <div className="space-y-3">
+                  <div className="h-16 bg-mist rounded-xl animate-pulse" />
+                  <div className="h-16 bg-mist rounded-xl animate-pulse" />
+                  <div className="h-16 bg-mist rounded-xl animate-pulse" />
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Transactional — always on, not editable */}
+                  <div className="flex items-start gap-3 p-4 border border-fog rounded-xl bg-mist/30">
+                    <Mail size={16} className="text-ink/40 mt-0.5 shrink-0" />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-ink font-semibold text-sm">Account &amp; billing</p>
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-ink/40 bg-fog/60 px-2 py-0.5 rounded">Required</span>
+                      </div>
+                      <p className="text-ink/50 text-xs mt-1 leading-relaxed">
+                        Email verification, password resets, team invites, failed charges, subscription receipts.
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* product_updates — Phase 1 (generation) + Phase 3 (autopilot) */}
+                  <label className="flex items-start gap-3 p-4 border border-fog rounded-xl hover:bg-mist/40 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      className="mt-1 accent-brand-500 w-4 h-4"
+                      checked={!!emailPrefs.product_updates}
+                      disabled={emailPrefsSaving}
+                      onChange={(e) => setEmailPref('product_updates', e.target.checked)}
+                    />
+                    <div className="flex-1">
+                      <p className="text-ink font-semibold text-sm">Product updates</p>
+                      <p className="text-ink/50 text-xs mt-1 leading-relaxed">
+                        When your monthly content is ready, when generation fails, when social autopilot
+                        pauses or needs reconnecting.
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* marketing — Phase 4 reserved */}
+                  <label className="flex items-start gap-3 p-4 border border-fog rounded-xl hover:bg-mist/40 cursor-pointer transition-colors">
+                    <input
+                      type="checkbox"
+                      className="mt-1 accent-brand-500 w-4 h-4"
+                      checked={!!emailPrefs.marketing}
+                      disabled={emailPrefsSaving}
+                      onChange={(e) => setEmailPref('marketing', e.target.checked)}
+                    />
+                    <div className="flex-1">
+                      <p className="text-ink font-semibold text-sm">Tips &amp; product news</p>
+                      <p className="text-ink/50 text-xs mt-1 leading-relaxed">
+                        Occasional posts on new features, content tips, and case studies. Off by default.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
+
           {tab === 'Appearance' && (
             <div className="bg-surface border border-fog rounded-2xl p-6">
               <h3 className="text-ink font-bold text-sm mb-1">Appearance</h3>
@@ -636,9 +748,6 @@ export default function SettingsPage() {
                   <Sun size={16} /> Light mode
                 </button>
               </div>
-              <p className="text-ink/30 text-xs mt-5">
-                Email-based notification preferences are not available until outbound email is enabled.
-              </p>
             </div>
           )}
 

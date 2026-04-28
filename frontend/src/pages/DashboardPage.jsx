@@ -1,11 +1,26 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle, BarChart3, Share2, Eye, MousePointerClick, Activity } from 'lucide-react'
+import { Layers, TrendingUp, Calendar, CheckCircle, FileText, Clock, ArrowRight, Sparkles, RefreshCw, X, Copy, Zap, AlertCircle, BarChart3, Share2, Eye, MousePointerClick, Activity, Inbox } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
-import { trendsApi, socialApi } from '../api'
-import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
+import { trendsApi, socialApi, contentApi } from '../api'
+import { getMissingFields } from '../utils/brandReadiness'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
+import { Skeleton, CardSkeleton } from '../components/ui/Skeleton'
+import EmptyState from '../components/ui/EmptyState'
+import WhatsNextCard from '../components/dashboard/WhatsNextCard'
+import TimeframeTabs, { timeframeWindow } from '../components/dashboard/TimeframeTabs'
+import LivePublishFeed from '../components/dashboard/LivePublishFeed'
+import TopPostWidget from '../components/dashboard/TopPostWidget'
+import StreakIndicator from '../components/dashboard/StreakIndicator'
+import BriefingCard from '../components/dashboard/BriefingCard'
+import ActivationChecklist from '../components/dashboard/ActivationChecklist'
+import MonthlyRecapCard from '../components/dashboard/MonthlyRecapCard'
+import ApprovalQueueWidget from '../components/dashboard/ApprovalQueueWidget'
+import useDashboardSignals from '../hooks/useDashboardSignals'
+import { useFeatureFlag } from '../lib/featureFlags'
+import { track, useImpression } from '../lib/telemetry'
+import { toast } from '../components/ui/Toast'
 
 const PLATFORMS = ['instagram', 'twitter', 'linkedin', 'facebook']
 const PLATFORM_LABELS = {
@@ -29,7 +44,7 @@ function StatCard({ icon: Icon, val, lbl, loading }) {
         <Icon size={15} className="text-ink/40" />
       </div>
       <div className="text-2xl font-semibold text-ink mb-0.5" style={{ letterSpacing: '-0.02em' }}>
-        {loading ? <div className="h-7 w-10 bg-mist rounded shimmer" /> : val}
+        {loading ? <Skeleton className="h-7 w-10" /> : val}
       </div>
       <div className="text-xs text-ink/40">{lbl}</div>
     </div>
@@ -42,21 +57,44 @@ export default function DashboardPage() {
   const { activeBrandId, activeWorkspace, brands, trends, templates, fetchTemplates, fetchTrends, fetchMonthContent, refreshTrends } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
+  const whatsNextEnabled = useFeatureFlag('dashboard.whats_next')
+  const tabsEnabled = useFeatureFlag('dashboard.timeframe_tabs')
+  const legacyStatsEnabled = useFeatureFlag('dashboard.legacy_stats')
+  const liveFeedEnabled = useFeatureFlag('dashboard.live_feed')
+  const topPostEnabled = useFeatureFlag('dashboard.top_post')
+  const streakEnabled = useFeatureFlag('dashboard.streak')
+  const briefingEnabled = useFeatureFlag('dashboard.briefing')
+  const activationEnabled = useFeatureFlag('dashboard.activation')
+  const recapEnabled = useFeatureFlag('dashboard.monthly_recap')
+  const approvalQueueEnabled = useFeatureFlag('dashboard.approval_queue')
+
+  useImpression('dashboard.viewed', { has_brand: !!activeBrandId })
+
   const now = new Date()
   const [stats, setStats]       = useState({ total: 0, ready: 0, drafts: 0, ig: 0, fb: 0, tw: 0, li: 0, scheduledWeek: 0 })
+  const [allItems, setAllItems] = useState([])
   const [upcoming, setUpcoming] = useState([])
   const [loading, setLoading]   = useState(true)
   const [socialSummary, setSocialSummary] = useState({ totals: { posted: 0, impressions: 0, reach: 0, engagement: 0, clicks: 0 }, connected: 0 })
   const [socialLoading, setSocialLoading] = useState(false)
 
+  const [timeframe, setTimeframe] = useState('today')
+
   // Trends refresh
   const [refreshing, setRefreshing] = useState(false)
 
   // Generate-post modal
-  const [genModal, setGenModal]   = useState(null)   // { topic, platform }
-  const [genResult, setGenResult] = useState(null)   // { caption, hashtags }
+  const [genModal, setGenModal]   = useState(null)
+  const [genResult, setGenResult] = useState(null)
   const [genLoading, setGenLoading] = useState(false)
   const [copied, setCopied]       = useState(false)
+
+  // Signals for the WhatsNext hero card
+  const { signal, loading: signalLoading } = useDashboardSignals({
+    brandId: activeBrandId,
+    brand: activeBrand,
+    trends,
+  })
 
   useEffect(() => {
     if (!activeBrandId) { setLoading(false); return }
@@ -80,6 +118,7 @@ export default function DashboardPage() {
           li:     items.filter(i => i.platform === 'linkedin').length,
           scheduledWeek,
         })
+        setAllItems(items)
         setUpcoming(
           items.filter(i => {
             const d = parseLocalDate(i.scheduled_date)
@@ -121,6 +160,18 @@ export default function DashboardPage() {
     if (!activeBrandId) return
     fetchTemplates().catch(() => {})
   }, [activeBrandId])
+
+  // Filter the upcoming list by the selected timeframe
+  const upcomingForTimeframe = useMemo(() => {
+    if (!tabsEnabled) return upcoming
+    const { start, end } = timeframeWindow(timeframe, now)
+    return allItems
+      .filter((i) => {
+        const d = parseLocalDate(i.scheduled_date)
+        return d && d >= start && d < end
+      })
+      .slice(0, 5)
+  }, [allItems, upcoming, timeframe, tabsEnabled])
 
   const greet = () => {
     const h = now.getHours()
@@ -190,11 +241,58 @@ export default function DashboardPage() {
     })
   }
 
+  // Optimistic delete of an upcoming post (R10.2)
+  async function handleOptimisticDelete(post) {
+    const prevAll = allItems
+    const prevUpcoming = upcoming
+    setAllItems(prevAll.filter((p) => p.id !== post.id))
+    setUpcoming(prevUpcoming.filter((p) => p.id !== post.id))
+    track('dashboard.upcoming.delete_clicked', { post_id: post.id, platform: post.platform })
+    try {
+      await contentApi.delete(post.id)
+      toast.success('Post removed')
+    } catch (e) {
+      setAllItems(prevAll)
+      setUpcoming(prevUpcoming)
+      const msg = e?.response?.data?.detail || 'Could not remove post'
+      toast(typeof msg === 'string' ? msg : 'Could not remove post', 'error')
+    }
+  }
+
+  // Hero card action router — turns a signal CTA into navigation/state changes
+  function handleSignalAction(s) {
+    const cta = s?.cta || {}
+    switch (cta.kind) {
+      case 'open_connection_health':
+        // The badge in the layout owns the modal. We dispatch a custom event
+        // so the layout opens it without us having to lift state up further.
+        window.dispatchEvent(new CustomEvent('contentcard:open-connection-health'))
+        break
+      case 'open_approval_queue':
+        navigate('/dashboard/calendar', { state: { focusContentId: cta.contentId } })
+        break
+      case 'open_publish_queue':
+        navigate('/dashboard/social')
+        break
+      case 'generate_from_trend':
+        if (cta.topic) openGenModal({ topic: cta.topic })
+        break
+      case 'open_calendar':
+        navigate('/dashboard/calendar')
+        break
+      case 'open_brand_kit':
+        navigate('/dashboard/brand-kit', { state: { tab: cta.firstTab } })
+        break
+      default:
+        break
+    }
+  }
+
   return (
     <div className="p-6 lg:p-8 max-w-6xl mx-auto">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 mb-8">
+      <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
             {greet()}, {firstName}
@@ -212,14 +310,72 @@ export default function DashboardPage() {
         </button>
       </div>
 
+      {/* Timeframe tabs (R1.2) */}
+      {tabsEnabled && activeBrandId && (
+        <div className="mb-4">
+          <TimeframeTabs value={timeframe} onChange={setTimeframe} />
+        </div>
+      )}
+
+      {/* What's next hero card (R1.1) */}
+      {whatsNextEnabled && activeBrandId && (
+        <WhatsNextCard
+          signal={signal}
+          loading={signalLoading}
+          onAction={handleSignalAction}
+        />
+      )}
+
+      {/* Activation checklist (R1.9) */}
+      {activationEnabled && activeBrandId && (
+        <ActivationChecklist brandId={activeBrandId} />
+      )}
+
+      {/* Wave 2/3 widget grid: briefing + streak + top post + live feed + approval queue + monthly recap */}
+      {activeBrandId && (briefingEnabled || streakEnabled || topPostEnabled || liveFeedEnabled || approvalQueueEnabled || recapEnabled) && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+          {briefingEnabled && (
+            <div className="lg:col-span-2">
+              <BriefingCard brandId={activeBrandId} />
+            </div>
+          )}
+          {streakEnabled && (
+            <div>
+              <StreakIndicator brandId={activeBrandId} />
+            </div>
+          )}
+          {liveFeedEnabled && (
+            <div>
+              <LivePublishFeed brandId={activeBrandId} />
+            </div>
+          )}
+          {topPostEnabled && (
+            <div>
+              <TopPostWidget
+                brandId={activeBrandId}
+                onGenerateLike={(post) => post?.topic && openGenModal({ topic: post.topic })}
+              />
+            </div>
+          )}
+          {approvalQueueEnabled && (
+            <div>
+              <ApprovalQueueWidget brandId={activeBrandId} />
+            </div>
+          )}
+          {recapEnabled && (
+            <div className={topPostEnabled || approvalQueueEnabled ? '' : 'lg:col-span-2'}>
+              <MonthlyRecapCard brandId={activeBrandId} />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Onboarding Tip banner ── */}
       {activeBrand && !loading && (() => {
         const missing = getMissingFields(activeBrand)
         const brandReady = missing.length === 0
         const hasContent = stats.total > 0
-        const readyTemplates = (templates || []).filter(t => t.is_active)
 
-        // Brand kit incomplete: show what to fill in
         if (!brandReady) return (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6">
             <div className="flex items-start gap-3">
@@ -248,7 +404,6 @@ export default function DashboardPage() {
           </div>
         )
 
-        // Brand ready, templates ready, no content yet: nudge to generate
         if (brandReady && !hasContent) return (
           <div className="bg-brand-500/8 border border-brand-400/30 rounded-2xl p-5 mb-6">
             <div className="flex items-start gap-3">
@@ -293,7 +448,7 @@ export default function DashboardPage() {
           <div>
             <p className="text-xs text-ink/40 font-medium mb-0.5">{monthLabel}</p>
             <p className="text-ink font-semibold text-sm">
-              {loading ? 'Loading…' : stats.total > 0 ? `${stats.ready} of ${stats.total} posts ready` : 'No content generated yet'}
+              {loading ? <span className="inline-block h-3 w-32 align-middle bg-mist rounded shimmer" aria-busy="true" /> : stats.total > 0 ? `${stats.ready} of ${stats.total} posts ready` : 'No content generated yet'}
             </p>
           </div>
           <button onClick={() => navigate('/dashboard/calendar')}
@@ -303,8 +458,8 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Stats */}
-      {activeBrandId && (
+      {/* Stats (R10.1: skeletons via StatCard) */}
+      {legacyStatsEnabled && activeBrandId && (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
           <StatCard icon={FileText}    val={stats.total}  lbl="Total posts"    loading={loading} />
           <StatCard icon={CheckCircle} val={stats.ready}  lbl="Ready to post"  loading={loading} />
@@ -314,7 +469,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {activeBrandId && (
+      {legacyStatsEnabled && activeBrandId && (
         <div className="bg-surface border border-fog rounded-2xl p-6 mb-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
@@ -345,11 +500,32 @@ export default function DashboardPage() {
         <div className="grid lg:grid-cols-2 gap-6 mb-6">
 
           {/* Platform breakdown */}
-          <div className="bg-surface border border-fog rounded-2xl p-6">
-            <h3 className="text-sm font-semibold text-ink mb-5">Platform breakdown</h3>
-            {loading || stats.total === 0
-              ? <p className="text-ink/30 text-sm">{loading ? 'Loading…' : 'Generate content to see breakdown.'}</p>
-              : (
+          {legacyStatsEnabled && (
+            <div className="bg-surface border border-fog rounded-2xl p-6">
+              <h3 className="text-sm font-semibold text-ink mb-5">Platform breakdown</h3>
+              {loading ? (
+                <div className="space-y-4">
+                  {[0, 1, 2, 3].map((i) => (
+                    <div key={i}>
+                      <div className="flex justify-between mb-1.5">
+                        <Skeleton className="h-3 w-20" />
+                        <Skeleton className="h-3 w-6" />
+                      </div>
+                      <Skeleton className="h-1 w-full" />
+                    </div>
+                  ))}
+                </div>
+              ) : stats.total === 0 ? (
+                <EmptyState
+                  icon={BarChart3}
+                  compact
+                  title="No content yet"
+                  body="Generate a month of posts to see how they break down across platforms."
+                  cta={{ label: 'Generate content', onClick: () => navigate('/dashboard/calendar') }}
+                  eventName="empty_state.cta_clicked"
+                  eventProps={{ surface: 'platform_breakdown' }}
+                />
+              ) : (
                 <div className="space-y-4">
                   {[
                     { id: 'instagram', label: 'Instagram', count: stats.ig },
@@ -370,63 +546,107 @@ export default function DashboardPage() {
                   ))}
                 </div>
               )}
-            {!loading && stats.total > 0 && (
-              <div className="mt-5 pt-4 border-t border-fog flex flex-wrap gap-2">
-                {PLATFORMS.map((p) => {
-                  const count = p === 'instagram' ? stats.ig : p === 'facebook' ? stats.fb : p === 'twitter' ? stats.tw : stats.li
-                  return (
-                    <span key={p} className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-fog bg-mist text-ink/60">
-                      {PLATFORM_LABELS[p]}: {count}
-                    </span>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+              {!loading && stats.total > 0 && (
+                <div className="mt-5 pt-4 border-t border-fog flex flex-wrap gap-2">
+                  {PLATFORMS.map((p) => {
+                    const count = p === 'instagram' ? stats.ig : p === 'facebook' ? stats.fb : p === 'twitter' ? stats.tw : stats.li
+                    return (
+                      <span key={p} className="text-[11px] font-semibold px-2.5 py-1 rounded-full border border-fog bg-mist text-ink/60">
+                        {PLATFORM_LABELS[p]}: {count}
+                      </span>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
-          {/* Upcoming posts */}
-          <div className="bg-surface border border-fog rounded-2xl p-6">
+          {/* Upcoming posts (timeframe-aware when tabs enabled) */}
+          <div className={`bg-surface border border-fog rounded-2xl p-6 ${legacyStatsEnabled ? '' : 'lg:col-span-2'}`}>
             <div className="flex items-center justify-between mb-5">
-              <h3 className="text-sm font-semibold text-ink">Upcoming posts</h3>
+              <h3 className="text-sm font-semibold text-ink">
+                {tabsEnabled
+                  ? timeframe === 'today'
+                    ? 'Today’s posts'
+                    : timeframe === 'week'
+                      ? 'This week'
+                      : 'This month'
+                  : 'Upcoming posts'}
+              </h3>
               <button onClick={() => navigate('/dashboard/calendar')}
                 className="text-xs text-brand-500 hover:text-brand-600 font-medium flex items-center gap-1 transition-colors">
                 View all <ArrowRight size={12} />
               </button>
             </div>
-            {loading
-              ? <p className="text-ink/30 text-sm">Loading…</p>
-              : upcoming.length === 0
-                ? <p className="text-ink/30 text-sm">No upcoming posts in the next 7 days.</p>
-                : upcoming.map(post => {
-                    const d = parseLocalDate(post.scheduled_date)
-                    const cover = post.image_url || post.image_urls?.[0]
-                    return (
-                      <div key={post.id}
-                        className="flex items-center gap-3 py-2.5 border-b border-fog last:border-0 cursor-pointer hover:opacity-70 transition-opacity"
-                        onClick={() => navigate('/dashboard/calendar')}>
-                        {cover ? (
-                          <img src={cover} alt="" className="w-11 h-11 rounded-xl object-cover border border-fog flex-shrink-0 bg-mist" />
-                        ) : (
+            {loading ? (
+              <div className="space-y-3">
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="flex items-center gap-3 py-2">
+                    <Skeleton className="w-11 h-11 rounded-xl flex-shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-3 w-3/4" />
+                      <Skeleton className="h-2 w-1/3" />
+                    </div>
+                    <Skeleton className="h-4 w-12" />
+                  </div>
+                ))}
+              </div>
+            ) : upcomingForTimeframe.length === 0 ? (
+              <EmptyState
+                icon={Calendar}
+                compact
+                title="Nothing scheduled"
+                body={
+                  tabsEnabled
+                    ? `No posts in this ${timeframe === 'today' ? 'day' : timeframe === 'week' ? 'week' : 'month'} yet.`
+                    : 'No upcoming posts in the next 7 days.'
+                }
+                cta={{ label: 'Open calendar', onClick: () => navigate('/dashboard/calendar') }}
+                eventName="empty_state.cta_clicked"
+                eventProps={{ surface: 'upcoming_posts', timeframe }}
+              />
+            ) : (
+              upcomingForTimeframe.map(post => {
+                const d = parseLocalDate(post.scheduled_date)
+                const cover = post.image_url || post.image_urls?.[0]
+                return (
+                  <div key={post.id}
+                    className="flex items-center gap-3 py-2.5 border-b border-fog last:border-0 hover:opacity-90 transition-opacity">
+                    <button
+                      onClick={() => navigate('/dashboard/calendar', { state: { focusContentId: post.id } })}
+                      className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                    >
+                      {cover ? (
+                        <img src={cover} alt="" className="w-11 h-11 rounded-xl object-cover border border-fog flex-shrink-0 bg-mist" />
+                      ) : (
                         <div className="w-9 h-9 rounded-xl flex flex-col items-center justify-center flex-shrink-0 bg-mist">
                           {d && <>
                             <span className="text-ink/40 text-[8px] font-semibold uppercase">{d.toLocaleString('default', { month: 'short' })}</span>
                             <span className="text-ink text-xs font-bold leading-none">{d.getDate()}</span>
                           </>}
                         </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-ink text-xs font-medium truncate">{post.topic}</p>
-                          <p className="text-ink/40 text-[10px] mt-0.5 capitalize">{post.platform} · {post.format}</p>
-                        </div>
-                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
-                          post.status === 'ready' ? 'bg-brand-50 text-brand-600' : 'bg-mist text-ink/40'
-                        }`}>
-                          {post.status}
-                        </span>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-ink text-xs font-medium truncate">{post.topic}</p>
+                        <p className="text-ink/40 text-[10px] mt-0.5 capitalize">{post.platform} · {post.format}</p>
                       </div>
-                    )
-                  })
-            }
+                    </button>
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                      post.status === 'ready' ? 'bg-brand-50 text-brand-600' : 'bg-mist text-ink/40'
+                    }`}>
+                      {post.status}
+                    </span>
+                    <button
+                      onClick={() => handleOptimisticDelete(post)}
+                      aria-label={`Remove ${post.topic}`}
+                      className="text-ink/30 hover:text-red-500 transition-colors p-1"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )
+              })
+            )}
           </div>
         </div>
       )}
@@ -451,30 +671,28 @@ export default function DashboardPage() {
         </div>
 
         {!planIncludesTrendingTopics(activeWorkspace?.plan) ? (
-          <div className="text-center py-8 px-4">
-            <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
-            <p className="text-ink/50 text-sm mb-1 max-w-md mx-auto">
-              Trending topics are included on <span className="font-semibold text-ink/70">Growth</span> and{' '}
-              <span className="font-semibold text-ink/70">Pro</span>. Upgrade to see what&apos;s trending and spin up quick posts.
-            </p>
-            <button
-              type="button"
-              onClick={() => navigate('/dashboard/billing')}
-              className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors"
-            >
-              View plans <ArrowRight size={14} />
-            </button>
+          <EmptyState
+            icon={TrendingUp}
+            title="Trending topics on Growth + Pro"
+            body="Upgrade to see what's trending in your industry and spin up quick posts."
+            cta={{ label: 'View plans', onClick: () => navigate('/dashboard/billing') }}
+            eventName="empty_state.cta_clicked"
+            eventProps={{ surface: 'trends_locked' }}
+          />
+        ) : refreshing ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {[0, 1, 2, 3, 4, 5].map((i) => <CardSkeleton key={i} />)}
           </div>
         ) : trends.length === 0 ? (
-            <div className="text-center py-8">
-              <TrendingUp size={28} className="text-ink/15 mx-auto mb-3" />
-              <p className="text-ink/30 text-sm mb-3">No trends loaded yet.</p>
-              <button onClick={handleRefreshTrends} disabled={refreshing}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50">
-                <Sparkles size={14} /> {refreshing ? 'Fetching trends…' : 'Fetch trending topics'}
-              </button>
-            </div>
-          ) : (
+          <EmptyState
+            icon={TrendingUp}
+            title="No trends loaded yet"
+            body="Pull the latest signals matched to your industry."
+            cta={{ label: refreshing ? 'Fetching trends…' : 'Fetch trending topics', onClick: handleRefreshTrends }}
+            eventName="empty_state.cta_clicked"
+            eventProps={{ surface: 'trends_empty' }}
+          />
+        ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {trends.slice(0, 6).map((t, i) => (
                 <div key={t.id} className="flex flex-col gap-2 p-3 rounded-xl border border-fog hover:border-ink/20 hover:bg-mist transition-all group">
@@ -516,7 +734,6 @@ export default function DashboardPage() {
       {genModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={closeGenModal}>
           <div className="bg-surface rounded-2xl shadow-2xl w-full max-w-md border border-fog" onClick={e => e.stopPropagation()}>
-            {/* Modal header */}
             <div className="flex items-start justify-between p-5 pb-0">
               <div>
                 <p className="text-[10px] text-ink/35 font-bold uppercase tracking-widest mb-1">Quick post from trend</p>
@@ -527,7 +744,6 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            {/* Platform selector */}
             <div className="flex gap-1.5 px-5 pt-4 pb-0 flex-wrap">
               {PLATFORMS.map(p => (
                 <button key={p} onClick={() => !genLoading && changePlatform(p)}
@@ -542,7 +758,6 @@ export default function DashboardPage() {
               ))}
             </div>
 
-            {/* Content area */}
             <div className="p-5">
               {genLoading ? (
                 <div className="flex items-center justify-center py-10 gap-3">

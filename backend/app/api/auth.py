@@ -90,13 +90,13 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     # Check duplicate email
     existing = await db.execute(select(User).where(User.email == body.email))
     if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="Email already registered")
+        raise HTTPException(status_code=409, detail="An account with this email already exists. Try logging in instead, or use a different email.")
 
     # Check duplicate phone
     if body.phone:
         existing_phone = await db.execute(select(User).where(User.phone == body.phone))
         if existing_phone.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="Phone number already registered")
+            raise HTTPException(status_code=409, detail="That phone number is already on another account. Use a different number, or reach out if this looks wrong.")
 
     # Use user-selected country if provided, otherwise geo-detect
     client_ip = request.client.host if request.client else None
@@ -158,7 +158,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email, User.is_active == True))
     user = result.scalar_one_or_none()
     if not user or not verify_password(body.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
+        raise HTTPException(status_code=401, detail="That email and password don't match. Check the spelling, or reset your password if you've forgotten it.")
 
     token = create_access_token(user.id)
     return TokenResponse(access_token=token, user=await _serialize_user_out(db, user))
@@ -236,9 +236,9 @@ async def delete_account(
     has_local_password = bool(current_user.hashed_password)
     if has_local_password:
         if not password:
-            raise HTTPException(status_code=400, detail="Password is required to delete your account.")
+            raise HTTPException(status_code=400, detail="Confirm your password to delete the account. We ask every time so this can't happen by accident.")
         if not verify_password(password, current_user.hashed_password):
-            raise HTTPException(status_code=400, detail="Incorrect password.")
+            raise HTTPException(status_code=400, detail="That password isn't right. Try again, or reset it from the login screen.")
 
     now = datetime.now(timezone.utc)
     uid_short = str(current_user.id)[:8]
@@ -323,7 +323,7 @@ async def forgot_password(body: dict, db: AsyncSession = Depends(get_db)):
     import asyncio
     raw_email = str(body.get("email") or "").strip().lower()
     if not raw_email:
-        raise HTTPException(status_code=422, detail="Email is required.")
+        raise HTTPException(status_code=422, detail="Add the email you want the reset link sent to.")
 
     result = await db.execute(
         select(User).where(User.email == raw_email, User.is_active == True)
@@ -352,9 +352,9 @@ async def reset_password(body: dict, db: AsyncSession = Depends(get_db)):
     password = str(body.get("password") or "").strip()
 
     if not token:
-        raise HTTPException(status_code=422, detail="Reset token is required.")
+        raise HTTPException(status_code=422, detail="We couldn't read the reset link. Open the most recent reset email and try the link again.")
     if len(password) < 8:
-        raise HTTPException(status_code=422, detail="Password must be at least 8 characters.")
+        raise HTTPException(status_code=422, detail="Pick a password that's at least 8 characters long.")
 
     result = await db.execute(
         select(User).where(User.reset_token == token, User.is_active == True)
@@ -362,9 +362,9 @@ async def reset_password(body: dict, db: AsyncSession = Depends(get_db)):
     user = result.scalar_one_or_none()
 
     if not user:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+        raise HTTPException(status_code=400, detail="This reset link no longer works. Request a fresh one and we'll email it over.")
     if user.reset_token_expires is None or datetime.now(timezone.utc) > user.reset_token_expires:
-        raise HTTPException(status_code=400, detail="This reset link has expired. Please request a new one.")
+        raise HTTPException(status_code=400, detail="This reset link has expired. Request a new one to continue.")
 
     user.hashed_password = hash_password(password)
     user.reset_token = None
@@ -379,7 +379,7 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
 ):
     if not verify_password(body.current_password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="Current password is incorrect")
+        raise HTTPException(status_code=400, detail="Your current password isn't right. Double-check and try again.")
     current_user.hashed_password = hash_password(body.new_password)
     await db.commit()
 

@@ -1,7 +1,14 @@
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowRight } from 'lucide-react'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { LogoFull } from '../ui/Logo'
 import Seo from '../seo/Seo'
+import TryContentCardPill from '../marketing/TryContentCardPill'
+
+// Top-level marketing nav items.
+const MARKETING_NAV = [
+  { to: '/features',  label: 'Features'  },
+  { to: '/pricing',   label: 'Pricing'   },
+  { to: '/enterprise',label: 'Business'  },
+]
 
 const FOOTER_LINKS = {
   Product:  [
@@ -16,8 +23,6 @@ const FOOTER_LINKS = {
     { label: 'Corporate',  href: '/solutions/corporate' },
   ],
   Company: [
-    { label: 'About',      href: '/about' },
-    { label: 'Blog',       href: '/blog' },
     { label: 'Careers',    href: '/careers' },
     { label: 'Contact',    href: '/contact' },
     { label: 'Investors',  href: '/pitch-deck' },
@@ -40,11 +45,6 @@ function websiteSchema() {
     '@type': 'WebSite',
     name: 'ContentCard',
     url: SITE_URL,
-    potentialAction: {
-      '@type': 'SearchAction',
-      target: `${SITE_URL}/blog?search={search_term_string}`,
-      'query-input': 'required name=search_term_string',
-    },
   }
 }
 
@@ -81,48 +81,9 @@ function softwareApplicationSchema() {
   }
 }
 
-function faqSchema() {
-  return {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: [
-      {
-        '@type': 'Question',
-        name: 'How quickly can I start creating with ContentCard?',
-        acceptedAnswer: {
-          '@type': 'Answer',
-          text: 'Most teams create their first campaign in under 10 minutes. Add your brand basics, choose a direction, and start generating free social content right away.',
-        },
-      },
-      {
-        '@type': 'Question',
-        name: 'Which social platforms does ContentCard support?',
-        acceptedAnswer: {
-          '@type': 'Answer',
-          text: 'ContentCard supports Instagram, X, and Facebook with ready-to-post formats, captions, and scheduling workflows built in.',
-        },
-      },
-      {
-        '@type': 'Question',
-        name: 'Is ContentCard really free?',
-        acceptedAnswer: {
-          '@type': 'Answer',
-          text: 'Yes. ContentCard is now positioned as a free social media content generator and scheduler, with 2,000 free generations available in the app and no credit card required to get started.',
-        },
-      },
-    ],
-  }
-}
-
 function buildSeo(pathname) {
   const path = pathname || '/'
   const byPath = {
-    '/': {
-      title: 'ContentCard | Free Social Media Content Generator and Scheduler',
-      description:
-        'ContentCard is a free social media content generator and scheduler. Generate on-brand posts, captions, and visuals for Instagram, X, and Facebook with 2,000 free generations included.',
-      includeFaqSchema: true,
-    },
     '/features': {
       title: 'ContentCard Features | AI Content Playbook, Calendar, and Team Workflow',
       description:
@@ -143,30 +104,15 @@ function buildSeo(pathname) {
       description:
         'See how ContentCard helps social media managers and business owners plan, generate, and publish high-performing social content.',
     },
-    '/about': {
-      title: 'About ContentCard | Built for Social Teams and Business Owners',
-      description:
-        'Learn how ContentCard helps businesses scale social content production with on-brand AI workflows and campaign operations.',
-    },
     '/contact': {
       title: 'Contact ContentCard | Sales, Support, and Partnerships',
       description:
         'Get in touch with ContentCard for support, sales, partnerships, and onboarding help.',
     },
-    '/blog': {
-      title: 'ContentCard Blog | Social Media Strategy and Content Playbooks',
-      description:
-        'Read practical guides on social media growth, AI content workflows, and campaign strategy from the ContentCard team.',
-    },
     '/careers': {
       title: 'Careers at ContentCard | Build the Future of Social Content',
       description:
         'Join ContentCard and help build the AI platform powering social content teams across growth-stage and enterprise brands.',
-    },
-    '/changelog': {
-      title: 'ContentCard Changelog | Product Updates and Improvements',
-      description:
-        'Track ContentCard product updates, feature releases, and improvements across content generation, workflow, and publishing.',
     },
     '/roadmap': {
       title: 'ContentCard Roadmap | What We Are Building Next',
@@ -230,13 +176,11 @@ function buildSeo(pathname) {
   }
 
   const structuredData = [organizationSchema(), websiteSchema(), softwareApplicationSchema()]
-  if (pageMeta.includeFaqSchema) structuredData.push(faqSchema())
 
   return { ...pageMeta, structuredData }
 }
 
 export default function MarketingLayout({ children }) {
-  const navigate = useNavigate()
   const location = useLocation()
   const seo = buildSeo(location.pathname)
   const marketingLightThemeVars = {
@@ -259,11 +203,25 @@ export default function MarketingLayout({ children }) {
       />
       {/* Nav */}
       <nav className="sticky top-0 z-50 border-b border-fog bg-page/95 backdrop-blur-xl">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link to="/"><LogoFull size={26} /></Link>
-          <div className="flex items-center gap-3">
-            <button onClick={() => navigate('/login')} className="text-ink/60 hover:text-ink text-sm font-medium transition-colors hidden sm:block px-3 py-2">Sign in</button>
-            <button onClick={() => navigate('/signup')} className="btn-primary text-sm px-4 py-2">Start free forever <ArrowRight size={13} /></button>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center gap-6">
+          <Link to="/" aria-label="ContentCard"><LogoFull size={26} /></Link>
+          <div className="hidden md:flex flex-1 items-center justify-center gap-7">
+            {MARKETING_NAV.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `text-sm font-medium transition-colors ${
+                    isActive ? 'text-ink' : 'text-ink/55 hover:text-ink'
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+          <div className="ml-auto flex items-center gap-2 md:ml-0">
+            <TryContentCardPill />
           </div>
         </div>
       </nav>

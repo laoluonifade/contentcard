@@ -1,8 +1,9 @@
 import asyncio
+import hmac
 import logging
 import re
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc, delete, or_, case
 from sqlalchemy.orm import aliased, selectinload
@@ -64,6 +65,24 @@ def require_admin(current_user: User = Depends(get_current_user)):
     if current_user.email not in ADMIN_EMAILS:
         raise HTTPException(status_code=403, detail="Admin access required")
     return current_user
+
+
+def require_cron_secret(request: Request) -> None:
+    """Gate cron-only endpoints with a shared secret header.
+
+    Render Cron jobs invoke these via plain HTTP, so they can't authenticate
+    as a logged-in admin. Instead they pass `X-Cron-Secret: <value>` matching
+    the `CRON_SHARED_SECRET` env var. Local dev / tests can leave the env
+    var unset to disable the gate.
+    """
+    expected = (settings.CRON_SHARED_SECRET or "").strip()
+    if not expected:
+        # Unset means the endpoint is disabled in this environment — fail
+        # closed so a misconfigured prod doesn't run cron without auth.
+        raise HTTPException(status_code=503, detail="Cron endpoint not configured")
+    provided = (request.headers.get("x-cron-secret") or "").strip()
+    if not hmac.compare_digest(provided, expected):
+        raise HTTPException(status_code=403, detail="Invalid cron secret")
 
 
 def _slugify(value: str) -> str:
@@ -978,7 +997,8 @@ async def _reconcile_paystack_transaction_for_workspace(
         ws.customer_id = customer["customer_code"]
 
     auth = data.get("authorization") or {}
-    _apply_paystack_authorization_to_workspace(ws, auth)
+    if auth.get("last4"):
+        _apply_paystack_authorization_to_workspace(ws, auth)
 
     npd = data.get("next_payment_date")
     if npd and hasattr(ws, "next_payment_date"):
@@ -986,6 +1006,18 @@ async def _reconcile_paystack_transaction_for_workspace(
             ws.next_payment_date = datetime.fromisoformat(str(npd).replace("Z", "+00:00"))
         except Exception:
             pass
+
+    # If verify didn't carry the authorization, fetch it from the subscription
+    # record (or customer authorizations list) — Paystack frequently omits the
+    # authorization block for subscription transaction verifies.
+    if hasattr(ws, "card_last4") and not getattr(ws, "card_last4", None):
+        from app.services.billing_service import fetch_paystack_authorization
+        fallback_auth = await fetch_paystack_authorization(
+            subscription_code=getattr(ws, "subscription_id", None),
+            customer_code=getattr(ws, "customer_id", None),
+        )
+        if fallback_auth:
+            _apply_paystack_authorization_to_workspace(ws, fallback_auth)
 
     await db.commit()
 
@@ -1330,6 +1362,7 @@ async def admin_sales_sandbox_bootstrap(
             hashed_password=hash_password(secrets.token_urlsafe(16)),
             country_code=country_code,
             is_active=True,
+            email_verified=True,  # admin-created accounts skip the verification flow
         )
         db.add(owner)
         await db.flush()
@@ -1467,6 +1500,7 @@ async def admin_adopt_workspace_owner(
             hashed_password=hash_password(secrets.token_urlsafe(16)),
             country_code=((body.country_code or "NG").strip().upper() or None),
             is_active=True,
+            email_verified=True,  # admin-created accounts skip the verification flow
         )
         db.add(user)
         await db.flush()
@@ -2487,3 +2521,58 @@ async def seed_nairavault(
         await db.refresh(brand)
         asyncio.create_task(_bg_sync_assistant(brand.id))
         return {"created": True, "brand_id": brand.id, "message": "NairaVault brand created"}
+
+
+# ── Phase 2: billing email cron sweepers ─────────────────────────────────────
+
+
+@router.post("/cron/billing-email-sweep", include_in_schema=False)
+async def cron_billing_email_sweep(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Daily Render Cron entry point for trial_ending + card_expiring sweeps.
+
+    Configure a Render Cron Job to POST here once a day:
+
+        URL:     {API_BASE}/api/v1/admin/cron/billing-email-sweep
+        Header:  X-Cron-Secret: <CRON_SHARED_SECRET>
+        Schedule: 0 9 * * *  (daily 09:00 UTC, adjust to taste)
+
+    Both sweepers are idempotent — running twice in a day is safe; the
+    underlying send_once() de-dups on the same key.
+    """
+    require_cron_secret(request)
+    from app.services.billing_email_sweeper import sweep_card_expiring, sweep_trial_ending
+    trial_report = await sweep_trial_ending(db)
+    card_report = await sweep_card_expiring(db)
+    return {"trial_ending": trial_report, "card_expiring": card_report}
+
+
+@router.post("/cron/autopilot-email-sweep", include_in_schema=False)
+async def cron_autopilot_email_sweep(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Daily Render Cron entry point for Phase 3 autopilot health emails.
+
+    Configure a Render Cron Job to POST here once a day:
+
+        URL:     {API_BASE}/api/v1/admin/cron/autopilot-email-sweep
+        Header:  X-Cron-Secret: <CRON_SHARED_SECRET>
+        Schedule: 0 9 * * *  (daily 09:00 UTC)
+
+    Idempotent — running twice in a day is safe; underlying send_once()
+    de-dups on the same key.
+    """
+    require_cron_secret(request)
+    from app.services.autopilot_email_sweeper import (
+        sweep_publish_failure_digest,
+        sweep_reconnect_required,
+    )
+    reconnect_report = await sweep_reconnect_required(db)
+    digest_report = await sweep_publish_failure_digest(db)
+    return {
+        "reconnect_required": reconnect_report,
+        "publish_failure_digest": digest_report,
+    }
