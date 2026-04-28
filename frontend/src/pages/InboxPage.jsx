@@ -71,7 +71,7 @@ export default function InboxPage() {
   if (!enabled) {
     return (
       <div className="p-6 lg:p-8 max-w-3xl mx-auto">
-        <EmptyState icon={Inbox} title="Inbox is disabled" body="Enable the inbox.page feature flag." />
+        <EmptyState icon={Inbox} title="Inbox isn't switched on yet" body="Turn on the inbox.page feature flag to start receiving comments and DMs here." />
       </div>
     )
   }
@@ -101,8 +101,8 @@ export default function InboxPage() {
       ) : items.length === 0 ? (
         <EmptyState
           icon={Inbox}
-          title="No conversations yet"
-          body="Replies, DMs, and mentions land here as soon as they arrive."
+          title="It's quiet in here"
+          body="Replies, DMs, and mentions across your connected platforms will land here as soon as they come in."
         />
       ) : (
         <ul className="space-y-3">
