@@ -15,7 +15,6 @@ import PricingPage          from './pages/PricingPage'
 import EnterprisePage       from './pages/EnterprisePage'
 import DemoPage             from './pages/DemoPage'
 import SolutionsPage        from './pages/SolutionsPage'
-import AboutPage            from './pages/AboutPage'
 import ContactPage          from './pages/ContactPage'
 import BlogPage             from './pages/BlogPage'
 import CareersPage          from './pages/CareersPage'
@@ -89,13 +88,14 @@ export default function App() {
       <Routes>
         {/* Marketing */}
         <Route path="/"                      element={<Navigate to="/dashboard/calendar" replace />} />
-        <Route path="/landing"               element={<LandingPage />} />
+        {/* Marketing landing lives at /about (replaces the old /landing path). */}
+        <Route path="/landing"               element={<Navigate to="/about" replace />} />
+        <Route path="/about"                 element={<LandingPage />} />
         <Route path="/features"              element={<FeaturesPage />} />
         <Route path="/pricing"               element={<PricingPage />} />
         <Route path="/enterprise"            element={<EnterprisePage />} />
         <Route path="/demo"                  element={<DemoPage />} />
         <Route path="/solutions/:type"       element={<SolutionsPage />} />
-        <Route path="/about"                 element={<AboutPage />} />
         <Route path="/contact"               element={<ContactPage />} />
         <Route path="/blog"                  element={<BlogPage />} />
         <Route path="/careers"               element={<CareersPage />} />

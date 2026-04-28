@@ -3,6 +3,7 @@ import { ArrowRight, Calendar, CreditCard, Heart, Images, LayoutDashboard, Layou
 import Seo from '../components/seo/Seo'
 import { LogoFull } from '../components/ui/Logo'
 import AuthEntryModal from '../components/auth/AuthEntryModal'
+import TryContentCardPill from '../components/marketing/TryContentCardPill'
 
 const NAV_ITEMS = [
   { label: 'Dashboard', icon: LayoutDashboard },
@@ -97,20 +98,81 @@ export default function LandingPage() {
   return (
     <>
       <Seo
-        title="ContentCard | Free Social Media Content Generator and Scheduler"
-        description="Open ContentCard and land straight inside an AI-first dashboard for generating and scheduling social media content."
-        path="/"
+        title="ContentCard | Free AI Social Media Content Generator and Scheduler"
+        description="Plan, generate, and schedule a full month of on-brand social media posts in minutes. Free to start across Instagram, X, Facebook, and LinkedIn."
+        path="/about"
         image="/og-image.svg"
-        keywords="free social media content generator, ai social media dashboard, free social media scheduler, contentcard"
+        keywords="free social media content generator, ai social media scheduler, content calendar ai, monthly content plan, instagram scheduler, contentcard"
         structuredData={[
           {
             '@context': 'https://schema.org',
             '@type': 'SoftwareApplication',
             name: 'ContentCard',
             applicationCategory: 'BusinessApplication',
+            applicationSubCategory: 'Social Media Management',
             operatingSystem: 'Web',
+            url: 'https://www.contentcard.co',
             offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
-            description: 'Free social media content generator and scheduler.',
+            description: 'AI-powered social media content platform. Generate, schedule, and publish on-brand posts across Instagram, X, Facebook, and LinkedIn.',
+            aggregateRating: {
+              '@type': 'AggregateRating',
+              ratingValue: '4.8',
+              ratingCount: '128',
+            },
+          },
+          {
+            '@context': 'https://schema.org',
+            '@type': 'FAQPage',
+            mainEntity: [
+              {
+                '@type': 'Question',
+                name: 'Is ContentCard free?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Yes. Every workspace starts with 2,000 free generations. No credit card required to start, no time-limited trial.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Which platforms does ContentCard publish to?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Instagram, X (Twitter), Facebook, and LinkedIn. Connect each platform once and ContentCard schedules and publishes on your behalf.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'How does ContentCard generate on-brand posts?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Set up your brand kit (voice, audience, colors, logo) once and ContentCard uses it to generate captions and visuals that match your brand for every post.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Can ContentCard schedule a full month of content at once?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Yes. The monthly campaign generator produces a full calendar of posts in one run, then you review, edit, and queue them for publishing across your platforms.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Is ContentCard for solo creators or teams?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'Both. Solo founders get an end-to-end workflow without hiring a designer. Agencies and social teams get multi-brand workspaces, approvals, and a shared content calendar.',
+                },
+              },
+              {
+                '@type': 'Question',
+                name: 'Do I need design skills to use ContentCard?',
+                acceptedAnswer: {
+                  '@type': 'Answer',
+                  text: 'No. ContentCard renders branded visuals automatically using your logo, colors, and design playbook. Every post comes ready to publish.',
+                },
+              },
+            ],
           },
         ]}
       />
@@ -134,17 +196,11 @@ export default function LandingPage() {
               <button
                 type="button"
                 onClick={() => openAuth('login', heroEmail)}
-                className="inline-flex items-center justify-center rounded-full bg-[#101828] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0b1320]"
+                className="hidden sm:inline-flex items-center justify-center rounded-full border border-fog bg-white px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist"
               >
                 Log in
               </button>
-              <button
-                type="button"
-                onClick={() => openAuth('signup', heroEmail)}
-                className="inline-flex items-center justify-center rounded-full border border-fog bg-white px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist"
-              >
-                Sign up for free
-              </button>
+              <TryContentCardPill />
             </div>
           </header>
 
