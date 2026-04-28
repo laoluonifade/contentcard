@@ -353,11 +353,13 @@ export default function BrandKitPage() {
   const { user } = useAuthStore()
   const brand = brands.find(b => b.id === activeBrandId)
   const countryCode = user?.country_code || ''
+  const isAuthenticated = !!user?.id
 
   const langOptions = LANGUAGE_OPTIONS_BY_COUNTRY[countryCode] || DEFAULT_LANG_OPTIONS
 
   const [tab, setTab]       = useState('Basics')
   const [saving, setSaving] = useState(false)
+  const [saveState, setSaveState] = useState('idle')
   const [logoUploading, setLogoUploading] = useState(false)
   const [brandImagesUploading, setBrandImagesUploading] = useState(false)
   const [logoCropOpen, setLogoCropOpen] = useState(false)
@@ -405,6 +407,11 @@ export default function BrandKitPage() {
   const logoFileRef = useRef(null)
   const brandImagesFileRef = useRef(null)
   const reviewPhotoFileRef = useRef(null)
+  const lastSavedSnapshotRef = useRef('')
+  const autosaveEnabledRef = useRef(false)
+  const autosaveTimerRef = useRef(null)
+
+  const snapshotForm = (value) => JSON.stringify(value || {})
 
   useEffect(() => {
     if (!brand) return
@@ -427,7 +434,19 @@ export default function BrandKitPage() {
       ...(kit.website_intelligence.auth_capture || {}),
     }
     kit.reviews = Array.isArray(kit.reviews) ? kit.reviews : []
-    setForm({ ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} })
+    const hydratedForm = { ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} }
+    setForm(hydratedForm)
+    lastSavedSnapshotRef.current = snapshotForm(hydratedForm)
+    autosaveEnabledRef.current = false
+    setSaveState('idle')
+  }, [brand?.id])
+
+  useEffect(() => {
+    if (!brand?.id) return
+    const timer = window.setTimeout(() => {
+      autosaveEnabledRef.current = true
+    }, 0)
+    return () => window.clearTimeout(timer)
   }, [brand?.id])
 
   useEffect(() => {
@@ -518,21 +537,57 @@ export default function BrandKitPage() {
     toast(`${preset.charAt(0).toUpperCase() + preset.slice(1)} compliance preset applied`)
   }
 
-  const save = async () => {
-    if (!activeBrandId || !activeWorkspaceId) return
+  const persistBrandForm = async (nextForm, { notify = false } = {}) => {
+    if (!activeBrandId || !activeWorkspaceId || !isAuthenticated) return false
     setSaving(true)
+    setSaveState('saving')
     try {
-      await updateBrand(activeBrandId, form)
-      const missing = getMissingFields(form)
-      toast(
-        missing.length
-          ? `Saved. ${missing.length} required ${missing.length === 1 ? 'field is' : 'fields are'} still missing before AI generation is unlocked.`
-          : 'Brand kit saved and ready for AI generation!'
-      )
+      await updateBrand(activeBrandId, nextForm)
+      lastSavedSnapshotRef.current = snapshotForm(nextForm)
+      setSaveState('saved')
+      if (notify) {
+        const missing = getMissingFields(nextForm)
+        toast(
+          missing.length
+            ? `Saved. ${missing.length} required ${missing.length === 1 ? 'field is' : 'fields are'} still missing before AI generation is unlocked.`
+            : 'Brand kit saved and ready for AI generation!'
+        )
+      }
+      return true
     } catch (err) {
+      setSaveState('error')
       toast(err.response?.data?.detail || err.message || 'Failed to save', 'error')
-    } finally { setSaving(false) }
+      return false
+    } finally {
+      setSaving(false)
+    }
   }
+
+  const save = async () => {
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current)
+      autosaveTimerRef.current = null
+    }
+    await persistBrandForm(form, { notify: true })
+  }
+
+  useEffect(() => {
+    if (!activeBrandId || !activeWorkspaceId || !isAuthenticated) return
+    if (!autosaveEnabledRef.current) return
+    const nextSnapshot = snapshotForm(form)
+    if (!nextSnapshot || nextSnapshot === lastSavedSnapshotRef.current) return
+    if (autosaveTimerRef.current) window.clearTimeout(autosaveTimerRef.current)
+    autosaveTimerRef.current = window.setTimeout(() => {
+      persistBrandForm(form)
+      autosaveTimerRef.current = null
+    }, 900)
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current)
+        autosaveTimerRef.current = null
+      }
+    }
+  }, [form, activeBrandId, activeWorkspaceId, isAuthenticated])
 
   const setWebsiteCfg = (patch) => {
     const kit = { ...(form.brand_kit || {}) }
@@ -985,6 +1040,12 @@ export default function BrandKitPage() {
           <p className="text-ink/40 text-sm">
             {brand.name} · {brand.industry || 'No industry set'}
             {brand.sub_industry ? ` · ${brand.sub_industry}` : ''}
+          </p>
+          <p className="text-[11px] text-ink/45 mt-2">
+            {saveState === 'saving' && 'Saving your brand kit…'}
+            {saveState === 'saved' && 'All changes saved automatically.'}
+            {saveState === 'error' && 'Could not save your latest changes. Try again.'}
+            {saveState === 'idle' && 'Changes save automatically while you edit.'}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
