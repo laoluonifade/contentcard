@@ -149,16 +149,24 @@ const useAuthStore = create(
             isCheckingAuth: false,
           })
           return true
-        } catch {
-          clearPersistedSession()
-          set({
-            user: null,
-            token: null,
-            isAuthenticated: false,
-            authResolved: true,
-            isCheckingAuth: false,
-          })
-          return false
+        } catch (err) {
+          const status = err?.response?.status
+          // Only drop the session on a confirmed auth rejection. Transient
+          // failures (network, 5xx, cold starts, CORS) must not log the user
+          // out — keep the persisted token so the next request can retry.
+          if (status === 401 || status === 403) {
+            clearPersistedSession()
+            set({
+              user: null,
+              token: null,
+              isAuthenticated: false,
+              authResolved: true,
+              isCheckingAuth: false,
+            })
+            return false
+          }
+          set({ authResolved: true, isCheckingAuth: false })
+          return useAuthStore.getState().isAuthenticated
         }
       },
 
