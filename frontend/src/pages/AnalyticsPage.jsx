@@ -59,8 +59,8 @@ export default function AnalyticsPage() {
       <div className="p-6 lg:p-8 max-w-5xl mx-auto">
         <EmptyState
           icon={BarChart3}
-          title="Analytics is disabled"
-          body="Enable the analytics.page feature flag to see this page."
+          title="Analytics isn't switched on yet"
+          body="Turn on the analytics.page feature flag to start tracking your content's performance."
         />
       </div>
     )
@@ -122,8 +122,8 @@ export default function AnalyticsPage() {
       {!activeBrandId && (
         <EmptyState
           icon={BarChart3}
-          title="Pick a brand"
-          body="Select a brand from the sidebar to view its analytics."
+          title="Pick a brand to see how it's doing"
+          body="Choose one from the sidebar — analytics here is per-brand."
         />
       )}
 
@@ -155,7 +155,7 @@ export default function AnalyticsPage() {
             {loading ? (
               <Skeleton className="h-28 w-full" />
             ) : (data?.top_posts || []).length === 0 ? (
-              <EmptyState compact icon={Award} title="No top posts yet" body="Publish to start the leaderboard." />
+              <EmptyState compact icon={Award} title="No top posts yet" body="Once a few posts go live, the best performers show up here." />
             ) : (
               <ul className="divide-y divide-fog">
                 {(data.top_posts || []).map((p, i) => (
@@ -179,9 +179,9 @@ export default function AnalyticsPage() {
               <EmptyState
                 compact
                 icon={Users}
-                title="Competitor benchmarking is opt-in"
-                body={competitors?.note || 'Add up to 5 public handles per platform to start tracking.'}
-                cta={{ label: 'Add handles (coming soon)', onClick: () => track('analytics.competitors.add_clicked', {}) }}
+                title="See how you stack up — opt in to track competitors"
+                body={competitors?.note || "Add up to 5 public handles per platform and we'll start tracking how you compare."}
+                cta={{ label: 'Add handles — coming soon', onClick: () => track('analytics.competitors.add_clicked', {}) }}
                 eventName="empty_state.cta_clicked"
                 eventProps={{ surface: 'analytics_competitors' }}
               />

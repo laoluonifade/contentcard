@@ -176,16 +176,16 @@ async def _check_brand_access(brand_id: str, user_id: str, db: AsyncSession, nee
     r = await db.execute(select(Brand).where(Brand.id == brand_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     m_r = await db.execute(select(WorkspaceMember).where(
         WorkspaceMember.workspace_id == brand.workspace_id,
         WorkspaceMember.user_id == user_id,
     ))
     member = m_r.scalar_one_or_none()
     if not member:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise HTTPException(status_code=403, detail="You're not part of this workspace. Ask the owner to invite you.")
     if need_editor and member.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
     return brand
 
 
@@ -335,7 +335,7 @@ async def get_template(
     r = await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
     tmpl = r.scalar_one_or_none()
     if not tmpl:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that template. It may have been deleted.")
     await _check_brand_access(tmpl.brand_id, current_user.id, db, need_editor=False)
     return TemplateOut.model_validate(tmpl)
 
@@ -349,7 +349,7 @@ async def update_template(
     r = await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
     tmpl = r.scalar_one_or_none()
     if not tmpl:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that template. It may have been deleted.")
     await _check_brand_access(tmpl.brand_id, current_user.id, db)
     for k, v in body.model_dump(exclude_none=True).items():
         if k == "design_spec" and isinstance(v, dict):
@@ -371,7 +371,7 @@ async def generate_template_design(
     r = await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
     tmpl = r.scalar_one_or_none()
     if not tmpl:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that template. It may have been deleted.")
     await _check_brand_access(tmpl.brand_id, current_user.id, db)
     # Templates are now content-type blueprints only; image preview generation is intentionally disabled.
     tmpl.is_design_ready = True
@@ -398,7 +398,7 @@ async def delete_template(
     r = await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
     tmpl = r.scalar_one_or_none()
     if not tmpl:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that template. It may have been deleted.")
     await _check_brand_access(tmpl.brand_id, current_user.id, db)
     await db.delete(tmpl)
     await db.commit()

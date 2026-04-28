@@ -314,18 +314,18 @@ async def _get_brand_member(
         )
     ).first()
     if not row:
-        raise HTTPException(status_code=403, detail="Not a workspace member for this brand")
+        raise HTTPException(status_code=403, detail="You're not part of this workspace. Ask the owner to invite you.")
     return row[0], row[1]
 
 
 def _require_editor(member: WorkspaceMember) -> None:
     if member.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
 
 
 def _require_admin(member: WorkspaceMember) -> None:
     if member.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN):
-        raise HTTPException(status_code=403, detail="Admin access required")
+        raise HTTPException(status_code=403, detail="Only workspace admins can do this.")
 
 
 async def _get_or_create_autopilot_config(brand_id: str, db: AsyncSession) -> SocialAutopilotConfig:
@@ -417,7 +417,7 @@ async def social_oauth_callback(
 
     brand = (await db.execute(select(Brand).where(Brand.id == brand_id))).scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     token_data = await _exchange_oauth_code(platform, code=code, callback_url=callback_url)
     access_token = str(token_data.get("access_token") or "")
@@ -611,7 +611,7 @@ async def disconnect_social_account(
         )
     ).scalar_one_or_none()
     if not conn:
-        raise HTTPException(status_code=404, detail="Connection not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that social connection. It may have been disconnected.")
     conn.status = SocialConnectionStatus.DISCONNECTED
     conn.updated_at = _now()
     await db.commit()
@@ -742,11 +742,11 @@ async def upsert_autopilot_config(
     _parse_hhmm(body.quiet_hours_start)
     _parse_hhmm(body.quiet_hours_end)
     if body.max_posts_per_day < 1 or body.max_posts_per_day > 20:
-        raise HTTPException(status_code=400, detail="max_posts_per_day must be between 1 and 20")
+        raise HTTPException(status_code=400, detail="Posts per day has to be between 1 and 20.")
     if body.min_gap_hours < 1 or body.min_gap_hours > 24:
-        raise HTTPException(status_code=400, detail="min_gap_hours must be between 1 and 24")
+        raise HTTPException(status_code=400, detail="The minimum gap between posts has to be between 1 and 24 hours.")
     if body.hashtag_cap < 1 or body.hashtag_cap > 60:
-        raise HTTPException(status_code=400, detail="hashtag_cap must be between 1 and 60")
+        raise HTTPException(status_code=400, detail="The hashtag cap has to be between 1 and 60.")
     if body.circuit_breaker_failure_threshold < 1 or body.circuit_breaker_failure_threshold > 50:
         raise HTTPException(status_code=400, detail="circuit_breaker_failure_threshold must be between 1 and 50")
     if body.circuit_breaker_window_minutes < 5 or body.circuit_breaker_window_minutes > 1440:
@@ -820,7 +820,7 @@ async def social_publish_preflight(
             )
         ).scalar_one_or_none()
         if not content_item:
-            raise HTTPException(status_code=404, detail="Content item not found for brand")
+            raise HTTPException(status_code=404, detail="We couldn't find that post on this brand. It may have been deleted.")
         if config.mode == SocialAutopilotMode.APPROVAL_REQUIRED and content_item.status != ContentStatus.APPROVED:
             return SocialPreflightResponse(
                 allowed=False,
@@ -1090,7 +1090,7 @@ async def queue_social_post(
             )
         ).scalar_one_or_none()
         if not item:
-            raise HTTPException(status_code=404, detail="Content item not found for brand")
+            raise HTTPException(status_code=404, detail="We couldn't find that post on this brand. It may have been deleted.")
 
     if body.idempotency_key:
         idem_key = body.idempotency_key
@@ -1143,7 +1143,7 @@ async def manual_confirm_social_post(
             )
         ).scalar_one_or_none()
         if not item:
-            raise HTTPException(status_code=404, detail="Content item not found for brand")
+            raise HTTPException(status_code=404, detail="We couldn't find that post on this brand. It may have been deleted.")
 
     post = None
     if body.content_item_id:
@@ -1313,11 +1313,11 @@ async def retry_dead_letter_post(
 ):
     post = (await db.execute(select(SocialPost).where(SocialPost.id == post_id))).scalar_one_or_none()
     if not post:
-        raise HTTPException(status_code=404, detail="Social post not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that social post. It may have been deleted.")
     _, member = await _get_brand_member(post.brand_id, current_user.id, db)
     _require_editor(member)
     if post.status != SocialPostStatus.FAILED:
-        raise HTTPException(status_code=400, detail="Only failed posts can be retried")
+        raise HTTPException(status_code=400, detail="Only failed posts can be retried — this one isn't in the failed state.")
     post.status = SocialPostStatus.QUEUED
     post.status_reason = "queued for retry from dead-letter"
     post.updated_at = _now()
@@ -1354,7 +1354,7 @@ async def reply_to_social_comment(
 ):
     comment = (await db.execute(select(SocialComment).where(SocialComment.id == comment_id))).scalar_one_or_none()
     if not comment:
-        raise HTTPException(status_code=404, detail="Comment not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that comment. It may have been deleted on the platform.")
     _, member = await _get_brand_member(comment.brand_id, current_user.id, db)
     _require_editor(member)
     comment.reply_text = body.reply_text

@@ -1214,7 +1214,7 @@ export default function CalendarPage() {
   }
 
   const deletePost = async () => {
-    if (!confirm('Remove this post from the calendar? Images stay in Directory.')) return
+    if (!confirm("Remove this post from the calendar? The images stay in your Directory — only this scheduled slot goes away.")) return
     try {
       await contentApi.bulkRemoveFromCalendar({ content_ids: [modal.id] })
       setModal(null)
@@ -1282,7 +1282,7 @@ export default function CalendarPage() {
   const bulkRedraftCaptions = async () => {
     const list = targetPostsForBulk
     if (!list.length) return
-    if (!confirm(`Regenerate caption copy for ${list.length} post(s)? This may take a minute.`)) return
+    if (!confirm(`Regenerate captions for ${list.length} post${list.length === 1 ? '' : 's'}? This usually takes about a minute.`)) return
     try {
       for (const p of list) {
         await contentApi.regenerate(p.id, {})
@@ -1298,7 +1298,7 @@ export default function CalendarPage() {
   const bulkRegenerateVisuals = async () => {
     const list = targetPostsForBulk
     if (!list.length) return
-    if (!confirm(`Regenerate visuals for ${list.length} post(s)? This may take several minutes.`)) return
+    if (!confirm(`Regenerate visuals for ${list.length} post${list.length === 1 ? '' : 's'}? Visuals take longer than captions — give it a few minutes.`)) return
     try {
       for (const p of list) {
         await contentApi.regenerateVisual(p.id, { mode: 'same_archetype' })
@@ -1569,7 +1569,7 @@ export default function CalendarPage() {
     }
     const capped = ids.slice(0, 15)
     if (ids.length > 15) {
-      if (!confirm(`Only the first 15 of ${ids.length} posts will be regenerated in one batch. Continue?`)) return
+      if (!confirm(`We can only regenerate 15 posts at a time. Want to start with the first 15 of your ${ids.length}?`)) return
     }
     setPrepExecuteBusy(true)
     try {

@@ -82,14 +82,14 @@ export default function AIPage({ embedded = false }) {
       const r = await contentApi.regenerateVisual(activePost.id, {})
       setActivePost(r)
     } catch {
-      toast('Visual regeneration failed', 'error')
+      toast("Couldn't regenerate the visual. Try again in a moment.", 'error')
     } finally {
       setRegenerating(false)
     }
   }
 
   if (!enabled) {
-    return <div className={embedded ? 'p-4' : 'p-6'}><EmptyState icon={Sparkles} title="Refine mode is disabled" /></div>
+    return <div className={embedded ? 'p-4' : 'p-6'}><EmptyState icon={Sparkles} title="Refine mode isn't switched on yet" body="Turn on the ai.page feature flag to start remixing captions and visuals here." /></div>
   }
 
   return (
@@ -106,14 +106,14 @@ export default function AIPage({ embedded = false }) {
       )}
 
       {!activeBrandId ? (
-        <EmptyState icon={Sparkles} title="Pick a brand" body="Select a brand from the sidebar to start iterating." />
+        <EmptyState icon={Sparkles} title="Pick a brand to start refining" body="Choose one from the sidebar — every remix runs against your brand's voice and rules." />
       ) : loading ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Skeleton className="h-64" />
           <Skeleton className="h-64 lg:col-span-2" />
         </div>
       ) : posts.length === 0 ? (
-        <EmptyState icon={Layers} title="No posts yet" body="Generate a month from the calendar to start using the AI Studio." />
+        <EmptyState icon={Layers} title="Nothing to refine yet" body="Generate a month from the calendar — once posts exist, this is where you remix them." />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Post picker */}
