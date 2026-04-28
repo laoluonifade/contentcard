@@ -76,7 +76,7 @@ export default function LivePublishFeed({ brandId }) {
           icon={Send}
           compact
           title="No publishing activity yet"
-          body="Queue or publish your first post and the most recent 5 events show up right here."
+          body="Once you queue or publish, you'll see the latest 5 events here."
           eventName="empty_state.cta_clicked"
           eventProps={{ surface: 'live_feed' }}
         />

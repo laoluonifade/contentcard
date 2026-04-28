@@ -174,7 +174,7 @@ export default function TemplatesPage() {
   }
 
   const del = async (id) => {
-    if (!confirm("Delete this template? Posts already generated from it keep their visuals — only this template goes away.")) return
+    if (!confirm('Delete this template?')) return
     try {
       await deleteTemplate(id)
       toast('Template deleted')

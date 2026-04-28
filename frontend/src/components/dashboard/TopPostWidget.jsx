@@ -36,7 +36,7 @@ export default function TopPostWidget({ brandId, windowDays = 30, onGenerateLike
           icon={Award}
           compact
           title="No performance data yet"
-          body="Publish a few posts and we'll surface the top performer here."
+          body="Publish a few posts to see your top performer."
           eventName="empty_state.cta_clicked"
           eventProps={{ surface: 'top_post' }}
         />

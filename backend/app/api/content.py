@@ -379,7 +379,7 @@ async def _resolve_generation_template(
             )
         ).scalar_one_or_none()
         if not tmpl:
-            raise HTTPException(status_code=404, detail="That template doesn't exist on this brand. Pick one from your Playbook.")
+            raise HTTPException(status_code=404, detail="Selected template not found for this brand")
         return str(tmpl.id), list(tmpl.topics or [])
 
     tmpl = (
@@ -1404,7 +1404,7 @@ async def _get_brand_and_check_access(
     r = await db.execute(select(Brand).where(Brand.id == brand_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
+        raise HTTPException(status_code=404, detail="Brand not found")
 
     member_r = await db.execute(select(WorkspaceMember).where(
         WorkspaceMember.workspace_id == brand.workspace_id,
@@ -1412,9 +1412,9 @@ async def _get_brand_and_check_access(
     ))
     member = member_r.scalar_one_or_none()
     if not member:
-        raise HTTPException(status_code=403, detail="You're not part of this workspace. Ask the owner to invite you.")
+        raise HTTPException(status_code=403, detail="Access denied")
     if need_editor and member.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
+        raise HTTPException(status_code=403, detail="Editor access required")
 
     return brand
 
@@ -1485,12 +1485,12 @@ async def generate_month(
     db: AsyncSession = Depends(get_db),
 ):
     if body.month < 1 or body.month > 12:
-        raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
+        raise HTTPException(status_code=400, detail="Month must be 1–12")
     if body.year < 2024 or body.year > 2030:
-        raise HTTPException(status_code=400, detail="That year doesn't look right — double-check it.")
+        raise HTTPException(status_code=400, detail="Invalid year")
     _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
+        raise HTTPException(status_code=400, detail="Select at least one platform")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
 
@@ -1609,12 +1609,12 @@ async def generate_month_v2(
     db: AsyncSession = Depends(get_db),
 ):
     if body.month < 1 or body.month > 12:
-        raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
+        raise HTTPException(status_code=400, detail="Month must be 1-12")
     if body.year < 2024 or body.year > 2032:
-        raise HTTPException(status_code=400, detail="That year doesn't look right — double-check it.")
+        raise HTTPException(status_code=400, detail="Invalid year")
     _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
+        raise HTTPException(status_code=400, detail="Select at least one platform")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
     monthly_post_cap: int | None = None
@@ -1736,9 +1736,9 @@ async def caption_from_photo(
     db: AsyncSession = Depends(get_db),
 ):
     if not body.description or not body.description.strip():
-        raise HTTPException(status_code=400, detail="Add a description — that's how the AI knows what to write about.")
+        raise HTTPException(status_code=400, detail="Description is required")
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
+        raise HTTPException(status_code=400, detail="Select at least one platform")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
     results = {}
@@ -1756,7 +1756,7 @@ async def caption_from_photo(
             logger.error(f"Photo caption error for {platform.value}: {e}")
             errors[platform.value] = "Generation failed. Please try again."
     if not results:
-        raise HTTPException(status_code=502, detail="Generation didn't go through for any of the platforms. Try again in a moment — it's usually a passing hiccup.")
+        raise HTTPException(status_code=502, detail="AI generation failed for all platforms")
     return {"results": results, "errors": errors}
 
 
@@ -1825,7 +1825,7 @@ async def list_directory(
         WorkspaceMember.user_id == current_user.id,
     ))
     if not member_r.scalar_one_or_none():
-        raise HTTPException(status_code=403, detail="You're not part of this workspace. Ask the owner to invite you.")
+        raise HTTPException(status_code=403, detail="Access denied")
 
     # Fetch all brand IDs for this workspace
     brands_r = await db.execute(
@@ -1883,7 +1883,7 @@ async def create_meme_asset(
 ):
     media_type = str(body.media_type or "image").strip().lower()
     if media_type not in ("image", "gif"):
-        raise HTTPException(status_code=400, detail="Memes can be image or gif only.")
+        raise HTTPException(status_code=400, detail="media_type must be image or gif")
     m = MemeAsset(
         title=body.title.strip(),
         media_url=body.media_url.strip(),
@@ -1917,10 +1917,10 @@ async def delete_meme_asset(
         await db.execute(select(MemeAsset).where(MemeAsset.id == meme_id).limit(1))
     ).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=404, detail="We couldn't find that meme. It may have been removed.")
+        raise HTTPException(status_code=404, detail="Meme not found")
     # creator can delete own memes; admins (listed in admin route) can delete any
     if row.created_by_user_id and row.created_by_user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="You can only remove memes you added yourself.")
+        raise HTTPException(status_code=403, detail="You can only remove memes you added.")
     row.is_active = False
     await db.commit()
 
@@ -1992,7 +1992,7 @@ async def generation_prep_chat(
     db: AsyncSession = Depends(get_db),
 ):
     if body.month < 1 or body.month > 12:
-        raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
+        raise HTTPException(status_code=400, detail="Month must be 1–12")
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=False)
     templates = (
         await db.execute(
@@ -2153,9 +2153,9 @@ async def prep_execute_visual(
     Run visual regeneration for multiple posts in one month (used from prep assistant).
     """
     if body.month < 1 or body.month > 12:
-        raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
+        raise HTTPException(status_code=400, detail="Month must be 1–12")
     if not body.content_ids:
-        raise HTTPException(status_code=400, detail="Pick at least one post first.")
+        raise HTTPException(status_code=400, detail="content_ids is required")
     if len(body.content_ids) > MAX_PREP_VISUAL_BATCH:
         raise HTTPException(
             status_code=400,
@@ -2233,7 +2233,7 @@ async def regenerate_month_visuals(
     db: AsyncSession = Depends(get_db),
 ):
     if body.month < 1 or body.month > 12:
-        raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
+        raise HTTPException(status_code=400, detail="Month must be 1–12")
     if body.mode not in ("same_archetype", "new_archetype"):
         raise HTTPException(status_code=400, detail="mode must be same_archetype or new_archetype")
     await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
@@ -2348,7 +2348,7 @@ async def bulk_remove_from_calendar(
     """
     ids = [str(x).strip() for x in (body.content_ids or []) if str(x).strip()]
     if not ids:
-        raise HTTPException(status_code=400, detail="Pick at least one post first.")
+        raise HTTPException(status_code=400, detail="content_ids required")
     removed = 0
     for cid in ids[:200]:
         r = await db.execute(select(ContentItem).where(ContentItem.id == cid))
@@ -2373,7 +2373,7 @@ async def bulk_delete_content(
     """Permanently delete content rows (editor+). Use when bulk-removing mistaken generations."""
     ids = [str(x).strip() for x in (body.content_ids or []) if str(x).strip()]
     if not ids:
-        raise HTTPException(status_code=400, detail="Pick at least one post first.")
+        raise HTTPException(status_code=400, detail="content_ids required")
     deleted = 0
     for cid in ids[:100]:
         r = await db.execute(select(ContentItem).where(ContentItem.id == cid))

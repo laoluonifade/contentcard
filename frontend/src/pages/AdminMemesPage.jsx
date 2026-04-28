@@ -82,7 +82,7 @@ export default function AdminMemesPage() {
   }
 
   const remove = async (id) => {
-    if (!confirm('Deactivate this meme for every user? It disappears from all libraries until re-activated.')) return
+    if (!confirm('Deactivate this meme for all users?')) return
     try {
       await adminApi.deleteMeme(id)
       toast('Meme removed.')

@@ -194,7 +194,7 @@ export default function MemesPage() {
   const modalIndex = openMemeId == null ? -1 : filtered.findIndex((m) => m.id === openMemeId)
 
   const remove = async (id) => {
-    if (!confirm('Remove this meme from your library? You can always add it back later.')) return
+    if (!confirm('Remove this meme from your library?')) return
     try {
       await contentApi.deleteMeme(id)
       toast('Meme removed.')

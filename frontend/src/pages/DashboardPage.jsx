@@ -301,7 +301,7 @@ export default function DashboardPage() {
             {loading ? 'Loading…' :
              !activeBrandId ? 'Set up your brand to get started.' :
              stats.total > 0 ? `${stats.total} posts generated for ${now.toLocaleString('default', { month: 'long' })}` :
-             `Nothing scheduled for ${now.toLocaleString('default', { month: 'long' })} yet — generate your first month to get started.`}
+             `No content yet for ${now.toLocaleString('default', { month: 'long' })}. Generate your first month.`}
           </p>
         </div>
         <button onClick={() => navigate('/dashboard/calendar')}
@@ -448,7 +448,7 @@ export default function DashboardPage() {
           <div>
             <p className="text-xs text-ink/40 font-medium mb-0.5">{monthLabel}</p>
             <p className="text-ink font-semibold text-sm">
-              {loading ? <span className="inline-block h-3 w-32 align-middle bg-mist rounded shimmer" aria-busy="true" /> : stats.total > 0 ? `${stats.ready} of ${stats.total} posts ready` : 'Nothing generated for this month yet'}
+              {loading ? <span className="inline-block h-3 w-32 align-middle bg-mist rounded shimmer" aria-busy="true" /> : stats.total > 0 ? `${stats.ready} of ${stats.total} posts ready` : 'No content generated yet'}
             </p>
           </div>
           <button onClick={() => navigate('/dashboard/calendar')}
@@ -519,8 +519,8 @@ export default function DashboardPage() {
                 <EmptyState
                   icon={BarChart3}
                   compact
-                  title="Nothing to break down yet"
-                  body="Generate a month of posts and we'll show you the platform mix here."
+                  title="No content yet"
+                  body="Generate a month of posts to see how they break down across platforms."
                   cta={{ label: 'Generate content', onClick: () => navigate('/dashboard/calendar') }}
                   eventName="empty_state.cta_clicked"
                   eventProps={{ surface: 'platform_breakdown' }}
@@ -595,11 +595,11 @@ export default function DashboardPage() {
               <EmptyState
                 icon={Calendar}
                 compact
-                title="Nothing scheduled here"
+                title="Nothing scheduled"
                 body={
                   tabsEnabled
-                    ? `No posts lined up for ${timeframe === 'today' ? 'today' : timeframe === 'week' ? 'this week' : 'this month'} yet — open the calendar to plan some.`
-                    : "No posts queued for the next 7 days — open the calendar to plan some."
+                    ? `No posts in this ${timeframe === 'today' ? 'day' : timeframe === 'week' ? 'week' : 'month'} yet.`
+                    : 'No upcoming posts in the next 7 days.'
                 }
                 cta={{ label: 'Open calendar', onClick: () => navigate('/dashboard/calendar') }}
                 eventName="empty_state.cta_clicked"
@@ -673,8 +673,8 @@ export default function DashboardPage() {
         {!planIncludesTrendingTopics(activeWorkspace?.plan) ? (
           <EmptyState
             icon={TrendingUp}
-            title="See what's trending — on Growth + Pro"
-            body="Upgrade to see what's catching fire in your industry and spin up posts on it in seconds."
+            title="Trending topics on Growth + Pro"
+            body="Upgrade to see what's trending in your industry and spin up quick posts."
             cta={{ label: 'View plans', onClick: () => navigate('/dashboard/billing') }}
             eventName="empty_state.cta_clicked"
             eventProps={{ surface: 'trends_locked' }}
@@ -687,7 +687,7 @@ export default function DashboardPage() {
           <EmptyState
             icon={TrendingUp}
             title="No trends loaded yet"
-            body="Pull the latest signals matched to your industry — it only takes a few seconds."
+            body="Pull the latest signals matched to your industry."
             cta={{ label: refreshing ? 'Fetching trends…' : 'Fetch trending topics', onClick: handleRefreshTrends }}
             eventName="empty_state.cta_clicked"
             eventProps={{ surface: 'trends_empty' }}

@@ -192,7 +192,7 @@ export default function SettingsPage() {
   }
 
   const removeMember = async (memberId) => {
-    if (!confirm("Remove this member from the workspace? They won't be able to access your content until you re-invite them.")) return
+    if (!confirm('Remove this member?')) return
     try {
       await workspaceApi.removeMember(activeWorkspaceId, memberId)
       setMembers(ms => ms.filter(m => m.id !== memberId))

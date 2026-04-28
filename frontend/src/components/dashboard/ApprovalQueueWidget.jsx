@@ -92,8 +92,8 @@ export default function ApprovalQueueWidget({ brandId }) {
         <EmptyState
           icon={Inbox}
           compact
-          title="No approvals waiting"
-          body="When a teammate marks a post ready, it'll land here for your review."
+          title="Nothing waiting"
+          body="When a teammate marks a post ready, it'll show up here for approval."
           eventName="empty_state.cta_clicked"
           eventProps={{ surface: 'approval_queue' }}
         />
