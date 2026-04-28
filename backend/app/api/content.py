@@ -1985,129 +1985,6 @@ async def list_content(
     return [ContentOut.model_validate(c) for c in rows]
 
 
-_PLATFORM_LABELS = {
-    ContentPlatform.INSTAGRAM: "Instagram",
-    ContentPlatform.FACEBOOK: "Facebook",
-    ContentPlatform.TWITTER: "X",
-    ContentPlatform.LINKEDIN: "LinkedIn",
-}
-
-_FORMAT_LABELS = {
-    ContentFormat.SINGLE: "Image",
-    ContentFormat.CAROUSEL: "Carousel",
-    ContentFormat.QUOTE: "Quote",
-}
-
-_STATUS_LABELS = {
-    ContentStatus.DRAFT: "Draft",
-    ContentStatus.READY: "Ready",
-    ContentStatus.APPROVED: "Approved",
-    ContentStatus.SCHEDULED: "Scheduled",
-}
-
-
-def _hook_from_caption(caption: str | None) -> str:
-    if not caption:
-        return ""
-    for line in caption.splitlines():
-        s = line.strip()
-        if s:
-            return s
-    return ""
-
-
-@router.get("/export")
-async def export_content_calendar(
-    brand_id: str,
-    month: int | None = None,
-    year: int | None = None,
-    platform: ContentPlatform | None = None,
-    status: ContentStatus | None = None,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Export the content calendar for a brand as an .xlsx file.
-    """
-    from io import BytesIO
-    from fastapi.responses import StreamingResponse
-    from openpyxl import Workbook
-    from openpyxl.styles import Alignment, Font, PatternFill
-    from openpyxl.utils import get_column_letter
-
-    brand = await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
-
-    conditions = [ContentItem.brand_id == brand_id]
-    if month:
-        conditions.append(ContentItem.generation_month == month)
-    if year:
-        conditions.append(ContentItem.generation_year == year)
-    if platform:
-        conditions.append(ContentItem.platform == platform)
-    if status:
-        conditions.append(ContentItem.status == status)
-    result = await db.execute(
-        select(ContentItem).where(and_(*conditions)).order_by(ContentItem.scheduled_date)
-    )
-    rows = list(result.scalars().all())
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Content Calendar"
-
-    headers = [
-        "Date", "Time", "Platform", "Content Type", "Content Pillar",
-        "Hook", "Caption", "CTA", "Post Image URL", "Status",
-    ]
-    ws.append(headers)
-    header_font = Font(bold=True, color="FFFFFF")
-    header_fill = PatternFill("solid", fgColor="1F2937")
-    for col_idx in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col_idx)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="left", vertical="center")
-    ws.freeze_panes = "A2"
-
-    for item in rows:
-        date_str = item.scheduled_date.strftime("%Y-%m-%d") if item.scheduled_date else ""
-        platform_label = _PLATFORM_LABELS.get(item.platform, str(item.platform.value if item.platform else ""))
-        content_type = (item.content_type or "").strip() or _FORMAT_LABELS.get(item.format, "")
-        hook = _hook_from_caption(item.caption)
-        caption = item.caption or ""
-        cta = item.cta or ""
-        short_url = f"https://contentcard.co/c/{item.id}"
-        status_label = _STATUS_LABELS.get(item.status, str(item.status.value if item.status else ""))
-        # Time and Content Pillar are not stored on the post — leave blank
-        # rather than fabricating values.
-        ws.append([
-            date_str, "", platform_label, content_type, "",
-            hook, caption, cta, short_url, status_label,
-        ])
-
-    widths = [12, 10, 12, 14, 16, 36, 60, 28, 38, 12]
-    for i, w in enumerate(widths, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = w
-    wrap = Alignment(wrap_text=True, vertical="top")
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=len(headers)):
-        for cell in row:
-            cell.alignment = wrap
-
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-
-    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", (brand.name or "brand").strip()).strip("-") or "brand"
-    suffix = f"-{year}-{month:02d}" if (year and month) else ""
-    filename = f"content-calendar-{safe_name}{suffix}.xlsx"
-
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-    )
-
-
 @router.post("/generation-prep-chat", response_model=GenerationPrepChatResponse)
 async def generation_prep_chat(
     body: GenerationPrepChatRequest,
@@ -2673,48 +2550,6 @@ async def delete_content(
     await db.commit()
 
 
-@router.post("/{content_id}/approve", response_model=ContentOut)
-async def approve_content(
-    content_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Mark a post as approved. Used by the dashboard "What's next" hero card and
-    the (Wave 3) approval queue. Editor-level access required because approval
-    is a write that affects the publish pipeline.
-    """
-    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
-    item = r.scalar_one_or_none()
-    if not item:
-        raise HTTPException(status_code=404, detail="Content not found")
-    await _get_brand_and_check_access(item.brand_id, current_user.id, db)
-    item.status = ContentStatus.APPROVED
-    await db.commit()
-    await db.refresh(item)
-    return ContentOut.model_validate(item)
-
-
-@router.post("/{content_id}/reject", response_model=ContentOut)
-async def reject_content(
-    content_id: str,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Send a post back to draft for revisions.
-    """
-    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
-    item = r.scalar_one_or_none()
-    if not item:
-        raise HTTPException(status_code=404, detail="Content not found")
-    await _get_brand_and_check_access(item.brand_id, current_user.id, db)
-    item.status = ContentStatus.DRAFT
-    await db.commit()
-    await db.refresh(item)
-    return ContentOut.model_validate(item)
-
-
 async def _existing_platform_dates_in_month(
     db: AsyncSession, brand_id: str, month: int, year: int
 ) -> set[tuple[str, str]]:
@@ -3017,17 +2852,11 @@ async def _do_generate_month(
             selected_template = None
             template_contract: dict = {}
             brand_for_planner = dict(brand_dict or {})
-            industry_key = _industry_key_from_brand(brand_for_planner)
-            playbook = await _load_design_playbook_for_industry(db, industry_key)
-            if playbook:
-                brand_for_planner["design_playbook"] = playbook
             if template_id:
                 selected_template = (
                     await db.execute(select(ContentTemplate).where(ContentTemplate.id == template_id))
                 ).scalar_one_or_none()
                 template_contract = _template_contract_from_row(selected_template)
-                if template_contract:
-                    brand_for_planner["selected_template_contract"] = template_contract
             holiday_context = await build_month_holiday_context(
                 db,
                 user_id,
@@ -3043,9 +2872,6 @@ async def _do_generate_month(
             compact_generation_brief = _compact_generation_brief(generation_brief)
             if compact_generation_brief:
                 brief_parts.append(compact_generation_brief)
-            contract_text = _template_contract_text(template_contract)
-            if contract_text:
-                brief_parts.append(contract_text)
             if website_grounding_text and website_grounding_text.strip():
                 brief_parts.append(website_grounding_text.strip()[:7000])
             if prior_months_brief:
@@ -3123,8 +2949,6 @@ async def _do_generate_month(
                     brand_id, month, year,
                 )
                 return
-            if template_contract:
-                posts = [_apply_template_contract_to_post(p, template_contract) for p in posts]
             occupied_dates = await _existing_platform_dates_in_month(db, brand_id, month, year)
             posts = _shift_posts_avoid_calendar_collisions(posts, occupied_dates, month, year)
             if not posts:

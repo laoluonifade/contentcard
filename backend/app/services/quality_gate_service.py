@@ -254,6 +254,27 @@ def _score_template_fit(post: dict[str, Any]) -> float:
     return 0.7
 
 
+def _score_social_design_intent(post: dict[str, Any]) -> float:
+    fam = str(post.get("template_family") or "").lower()
+    vt = str(post.get("visual_type") or "").lower()
+    arch = str(post.get("visual_archetype") or "").lower()
+    if fam in ("text_poster", "data_card", "announcement", "edu", "testimonial", "hiring"):
+        if arch == "photo_hero":
+            return 0.25
+        if vt in ("abstract", "illustration"):
+            return 0.92
+        return 0.7
+    if fam in ("promo", "product_hero"):
+        if arch in ("pattern_headline", "flat_edu"):
+            return 0.9
+        if arch == "photo_hero":
+            return 0.72
+        return 0.62
+    if fam in ("illustration_editorial", "story_carousel"):
+        return 0.84 if vt in ("illustration", "abstract", "real_people") else 0.62
+    return 0.68
+
+
 async def score_visual_quality(
     image_url: str | None,
     brand: dict[str, Any],
@@ -298,6 +319,7 @@ async def score_visual_quality(
     s_cta = _score_cta_prominence_proxy(img, post)
     s_brand = _score_brand_consistency(brand, post)
     s_fidelity = _score_template_fidelity(post)
+    s_social = _score_social_design_intent(post)
     s_lint = 1.0
     if isinstance(lint, dict):
         st = str(lint.get("status") or "")
@@ -316,6 +338,7 @@ async def score_visual_quality(
         + 0.05 * s_cta
         + 0.05 * s_brand
         + 0.04 * s_fidelity
+        + 0.08 * s_social
         + 0.04 * s_lint
     )
     scores = {
@@ -330,6 +353,7 @@ async def score_visual_quality(
         "cta_prominence": round(s_cta, 3),
         "brand_consistency": round(s_brand, 3),
         "template_fidelity": round(s_fidelity, 3),
+        "social_design_intent": round(s_social, 3),
         "lint_bonus": round(s_lint, 3),
     }
     out["scores"] = scores
@@ -371,9 +395,11 @@ async def score_visual_quality(
     if s_fidelity < 0.55:
         reasons.append("Template fidelity is weak")
         hints.append("Use a template family better matched to this format and content intent")
+    if s_social < 0.6:
+        reasons.append("Post reads more like an AI image than a designed social asset")
+        hints.append("Shift toward text-led layout families, stronger typography modules, and less hero-photo dependence")
 
     out["reasons"] = reasons
     out["retry_hints"] = hints
     out["status"] = "pass" if overall >= min_score else "fail"
     return out
-
