@@ -92,11 +92,11 @@ async def _require_owner(workspace_id: str, user_id: str, db: AsyncSession) -> W
     ))
     member = m_r.scalar_one_or_none()
     if not member or member.role != WorkspaceRole.OWNER:
-        raise HTTPException(status_code=403, detail="Only the workspace owner can manage billing")
+        raise HTTPException(status_code=403, detail="Only the workspace owner can manage billing. Ask them to update the plan or card.")
     ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
     ws = ws_r.scalar_one_or_none()
     if not ws:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that workspace. It may have been removed.")
     return ws
 
 
@@ -288,7 +288,7 @@ async def inline_checkout(
         from app.services.billing_service import _STRIPE_PRICE_IDS
         price_id = _STRIPE_PRICE_IDS.get(body.plan)
         if not price_id:
-            raise HTTPException(status_code=502, detail="Stripe price not configured. Contact support.")
+            raise HTTPException(status_code=502, detail="We hit a snag preparing your checkout. Reach out to support and we'll sort it.")
 
         # Find or create a Stripe customer for this user
         customer_id = target_ws.customer_id
@@ -421,16 +421,16 @@ async def card_save_complete(
         ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
         anchor = ws_r.scalar_one_or_none()
     if not anchor:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that workspace. It may have been removed.")
 
     if provider == "paystack":
         reference = str(body.get("reference") or "")
         if not reference:
-            raise HTTPException(status_code=400, detail="reference is required")
+            raise HTTPException(status_code=400, detail="Missing the payment reference. Restart checkout and try again.")
         result = await verify_paystack_transaction(reference)
         data = result.get("data", {})
         if data.get("status") != "success":
-            raise HTTPException(status_code=402, detail="Payment not confirmed by Paystack")
+            raise HTTPException(status_code=402, detail="Paystack hasn't confirmed your payment yet. Hold on a minute and refresh — if it still doesn't go through, contact support.")
 
         auth = data.get("authorization") or {}
         if auth.get("last4"):
@@ -502,7 +502,7 @@ async def card_save_complete(
         await db.commit()
         return {"ok": True, "card": _build_card(anchor)}
 
-    raise HTTPException(status_code=400, detail="provider must be 'paystack' or 'stripe'")
+    raise HTTPException(status_code=400, detail="Pick 'paystack' or 'stripe' as your payment provider.")
 
 
 @router.delete("/card/{workspace_id}", status_code=204)
@@ -519,7 +519,7 @@ async def remove_card(
     await _require_owner(workspace_id, current_user.id, db)
     anchor = await billing_anchor_workspace(db, current_user.id)
     if not anchor:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that workspace. It may have been removed.")
     ws = anchor
 
     period_still_active = bool(
@@ -570,10 +570,10 @@ async def cancel_subscription(
     await _require_owner(workspace_id, current_user.id, db)
     anchor = await billing_anchor_workspace(db, current_user.id)
     if not anchor:
-        raise HTTPException(status_code=404, detail="Workspace not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that workspace. It may have been removed.")
     ws = anchor
     if ws.plan not in ("starter", "smb", "pro"):
-        raise HTTPException(status_code=400, detail="No active subscription to cancel")
+        raise HTTPException(status_code=400, detail="There's no active subscription to cancel.")
 
     if ws.payment_provider == "stripe":
         if ws.subscription_id:
