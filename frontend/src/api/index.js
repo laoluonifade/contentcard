@@ -174,6 +174,8 @@ export const authApi = {
   completeShopifyOnboarding: (data) => api.post('/auth/shopify/onboarding-complete', data).then(r => r.data),
   getPostSignupDecision: () => api.get('/auth/post-signup-decision').then(r => r.data),
   setPostSignupDecision: (decision) => api.post('/auth/post-signup-decision', { decision }).then(r => r.data),
+  getEmailPreferences:    ()     => api.get('/auth/me/email-preferences').then(r => r.data),
+  updateEmailPreferences: (data) => api.put('/auth/me/email-preferences', data).then(r => r.data),
 }
 
 // ─── Workspaces ─────────────────────────────────────────────────

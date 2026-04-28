@@ -123,6 +123,11 @@ class Settings(BaseSettings):
     GMAIL_SMTP_HOST: str = "smtp.gmail.com"
     GMAIL_SMTP_PORT: int = 587
 
+    # Email notification feature flags. Default on; flip to False to silence
+    # a category without ripping out the sweepers/triggers.
+    EMAIL_GENERATION_LIFECYCLE_ENABLED: bool = True
+    EMAIL_AUTOPILOT_HEALTH_ENABLED: bool = True
+
     class Config:
         env_file = ".env"
         case_sensitive = True
