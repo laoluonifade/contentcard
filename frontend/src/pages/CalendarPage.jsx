@@ -1004,6 +1004,34 @@ export default function CalendarPage() {
     }
   }
 
+  const [exportingCalendar, setExportingCalendar] = useState(false)
+  const handleExportCalendar = async () => {
+    if (!activeBrandId || exportingCalendar) return
+    setExportingCalendar(true)
+    try {
+      const res = await contentApi.exportCalendar({ brand_id: activeBrandId, month, year })
+      const disp = res.headers?.['content-disposition'] || ''
+      const match = /filename="?([^"]+)"?/i.exec(disp)
+      const fallback = `content-calendar-${year}-${String(month).padStart(2, '0')}.xlsx`
+      const filename = match?.[1] || fallback
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      toast(err?.response?.status === 404 ? 'Brand not found' : 'Export failed', 'error')
+    } finally {
+      setExportingCalendar(false)
+    }
+  }
+
   const targetPostsForBulk = filterPlat === 'all' ? posts : posts.filter((p) => p.platform === filterPlat)
 
   const bulkRedraftCaptions = async () => {
@@ -1527,6 +1555,18 @@ export default function CalendarPage() {
               }`}
             >
               Select
+            </button>
+          )}
+          {activeBrandId && posts.length > 0 && (
+            <button
+              type="button"
+              onClick={handleExportCalendar}
+              disabled={exportingCalendar}
+              className="text-sm px-3 py-2 rounded-xl border border-fog text-ink/60 hover:border-ink/20 hover:text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
+              title={`Download ${MONTHS[month - 1]} ${year} as Excel`}
+            >
+              <Download size={14} />
+              <span className="hidden sm:inline">{exportingCalendar ? 'Exporting…' : 'Export'}</span>
             </button>
           )}
           <button
