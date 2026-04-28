@@ -2,8 +2,10 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Send, Globe, Sparkles, ArrowRight, RotateCcw } from 'lucide-react'
 import useAppStore from '../stores/appStore'
+import useAuthStore from '../stores/authStore'
 import { contentApi, uploadApi } from '../api'
 import { buildCampaignBrief } from '../utils/campaignBrief'
+import AuthEntryModal from '../components/auth/AuthEntryModal'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -231,6 +233,7 @@ function EmptyState({ onSuggestion }) {
 
 export default function AssistantPage({ embedded = false }) {
   const navigate = useNavigate()
+  const { isAuthenticated } = useAuthStore()
   const {
     activeBrandId,
     brands,
@@ -252,10 +255,12 @@ export default function AssistantPage({ embedded = false }) {
   const [browsing, setBrowsing] = useState(false)
   const [prepUploadingAsset, setPrepUploadingAsset] = useState(false)
   const [ctaBusy, setCtaBusy] = useState(false)
+  const [authModal, setAuthModal] = useState({ open: false, mode: 'signup' })
 
   const chatEndRef   = useRef(null)
   const textareaRef  = useRef(null)
   const browsingTimer = useRef(null)
+  const isGuestMode = !isAuthenticated
 
   // Auto-scroll on new messages
   useEffect(() => {
@@ -277,6 +282,19 @@ export default function AssistantPage({ embedded = false }) {
     setMessages((prev) => [...prev, msg])
   }, [])
 
+  const openAuth = useCallback((mode = 'signup') => {
+    setAuthModal({ open: true, mode })
+  }, [])
+
+  const promptGuestAccess = useCallback((message, mode = 'signup') => {
+    appendMessage({
+      role: 'assistant',
+      type: 'message',
+      content: message,
+    })
+    openAuth(mode)
+  }, [appendMessage, openAuth])
+
   const updateLastAssistantMessage = useCallback((updates) => {
     setMessages((prev) => {
       const copy = [...prev]
@@ -292,6 +310,14 @@ export default function AssistantPage({ embedded = false }) {
 
   const handleGenerate = useCallback(
     async (chatMessages, month, year, platform) => {
+      if (isGuestMode) {
+        promptGuestAccess(
+          'You are in guest mode. Log in or create an account to generate real posts, save this workspace, and open the calendar.',
+          'signup'
+        )
+        return
+      }
+
       const brief = buildBrief(chatMessages)
       const campaignBrief = buildCampaignBrief({
         brand: activeBrand,
@@ -334,7 +360,7 @@ export default function AssistantPage({ embedded = false }) {
         })
       }
     },
-    [activeBrand, appendMessage, generateMonth, updateLastAssistantMessage],
+    [activeBrand, appendMessage, generateMonth, isGuestMode, promptGuestAccess, updateLastAssistantMessage],
   )
 
   const sendMessage = useCallback(
@@ -347,6 +373,14 @@ export default function AssistantPage({ embedded = false }) {
       const userMsg = { role: 'user', content: txt }
       const nextMessages = [...messages, userMsg]
       setMessages(nextMessages)
+
+      if (isGuestMode) {
+        promptGuestAccess(
+          'This assistant is in guest mode right now. Log in or sign up to run this prompt for real, generate your month, and keep the workspace.',
+          'signup'
+        )
+        return
+      }
 
       setThinking(true)
 
@@ -390,8 +424,16 @@ export default function AssistantPage({ embedded = false }) {
       }
     },
     [
-      input, thinking, messages, activeBrandId, selMonth, selYear, selPlatform,
-      handleGenerate, appendMessage,
+      activeBrandId,
+      appendMessage,
+      input,
+      isGuestMode,
+      messages,
+      promptGuestAccess,
+      selMonth,
+      selYear,
+      selPlatform,
+      thinking,
     ],
   )
 
@@ -417,6 +459,13 @@ export default function AssistantPage({ embedded = false }) {
 
   const handleUploadAsset = useCallback(
     async (file) => {
+      if (isGuestMode) {
+        promptGuestAccess(
+          'Guest mode lets you explore the AI workspace. Log in or sign up to attach screenshots and recordings to your brief.',
+          'login'
+        )
+        return
+      }
       if (!file || !activeBrandId || prepUploadingAsset) return
       const isVideo = String(file.type || '').startsWith('video/')
       setPrepUploadingAsset(true)
@@ -436,7 +485,7 @@ export default function AssistantPage({ embedded = false }) {
         setPrepUploadingAsset(false)
       }
     },
-    [activeBrandId, appendMessage, prepUploadingAsset, sendMessage],
+    [activeBrandId, appendMessage, isGuestMode, prepUploadingAsset, promptGuestAccess, sendMessage],
   )
 
   const handleRunCta = useCallback(
@@ -479,9 +528,9 @@ export default function AssistantPage({ embedded = false }) {
             </div>
             <div>
               <span className="font-semibold text-ink text-sm">ContentCard AI</span>
-              {activeBrand && (
-                <span className="ml-2 text-xs text-ink/40">{activeBrand.name}</span>
-              )}
+              <span className="ml-2 text-xs text-ink/40">
+                {isGuestMode ? 'Guest mode' : activeBrand?.name || 'Workspace'}
+              </span>
             </div>
           </div>
 
@@ -624,7 +673,7 @@ export default function AssistantPage({ embedded = false }) {
               <input
                 type="file"
                 accept="image/*,video/mp4,video/webm,video/quicktime"
-                disabled={thinking || generatingMonth || prepUploadingAsset || !activeBrandId}
+                disabled={thinking || generatingMonth || prepUploadingAsset || (!activeBrandId && !isGuestMode)}
                 onChange={(e) => handleUploadAsset(e.target.files?.[0] || null)}
                 className="hidden"
               />
@@ -640,7 +689,11 @@ export default function AssistantPage({ embedded = false }) {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Tell me the offer, launch, event, proof, or assets for this month…"
+              placeholder={
+                isGuestMode
+                  ? 'Try the AI in guest mode, then log in or sign up to generate for real…'
+                  : 'Tell me the offer, launch, event, proof, or assets for this month…'
+              }
               disabled={thinking || generatingMonth || prepUploadingAsset}
               className="flex-1 resize-none bg-transparent text-sm text-ink placeholder:text-ink/40 focus:outline-none leading-relaxed disabled:opacity-50 min-h-[22px] max-h-[160px]"
             />
@@ -657,10 +710,18 @@ export default function AssistantPage({ embedded = false }) {
           </div>
 
           <p className="mt-1.5 text-center text-[11px] text-ink/30">
-            <kbd className="font-mono">Enter</kbd> to send · <kbd className="font-mono">Shift+Enter</kbd> for new line
+            {isGuestMode
+              ? 'Guest mode preview · log in or sign up when you are ready to generate'
+              : <><kbd className="font-mono">Enter</kbd> to send · <kbd className="font-mono">Shift+Enter</kbd> for new line</>}
           </p>
         </div>
       </div>
+
+      <AuthEntryModal
+        open={authModal.open}
+        mode={authModal.mode}
+        onClose={() => setAuthModal((current) => ({ ...current, open: false }))}
+      />
     </div>
   )
 }
