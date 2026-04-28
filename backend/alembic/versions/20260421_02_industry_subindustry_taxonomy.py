@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 
 revision: str = "20260421_02"
-down_revision: Union[str, None] = "20260421_01_trending_topics_country_code"
+down_revision: Union[str, None] = "20260421_01"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

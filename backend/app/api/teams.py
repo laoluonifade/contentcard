@@ -207,6 +207,7 @@ async def accept_invite(token: str, body: AcceptInviteRequest, db: AsyncSession 
             email=target_email,
             phone=body.phone,
             hashed_password=hash_password(body.password),
+            email_verified=True,  # accepting an emailed invite confirms email ownership
         )
         db.add(user)
         await db.flush()

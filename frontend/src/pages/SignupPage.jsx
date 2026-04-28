@@ -1,11 +1,10 @@
-import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { Eye, EyeOff, ArrowRight, Check, Instagram, Facebook, Twitter, Linkedin } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
 import ShopifyIcon from '../components/ui/ShopifyIcon'
 import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
-import useAppStore from '../stores/appStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
 import { authApi } from '../api'
@@ -58,15 +57,22 @@ export const COUNTRIES_LIST = [
 ]
 
 export default function SignupPage() {
+  const [searchParams] = useSearchParams()
+  const initialBrand   = searchParams.get('brand')   || ''
+  const initialWebsite = searchParams.get('website') || ''
   const [step, setStep]     = useState(1)
-  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '', workspace_name: '' })
-  const [quickFillWebsite, setQuickFillWebsite] = useState('')
-  const [quickFillEnabled, setQuickFillEnabled] = useState(false)
+  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '', workspace_name: initialBrand })
+  const [quickFillWebsite, setQuickFillWebsite] = useState(initialWebsite)
+  const [quickFillEnabled, setQuickFillEnabled] = useState(Boolean(initialWebsite))
+
+  useEffect(() => {
+    if (initialBrand && !form.workspace_name) setForm((f) => ({ ...f, workspace_name: initialBrand }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialBrand])
   const [showPw, setShowPw] = useState(false)
   const [shopDomain, setShopDomain] = useState('')
   const [showShopifyPrompt, setShowShopifyPrompt] = useState(false)
   const { signup, isLoading } = useAuthStore()
-  const { fetchWorkspaces } = useAppStore()
   const navigate = useNavigate()
   const authLightThemeVars = {
     '--cc-ink-rgb': '15 23 42',
@@ -102,16 +108,16 @@ export default function SignupPage() {
     const fullPhone = selectedCountry && form.phone.trim()
       ? `${selectedCountry.dial} ${form.phone.trim()}`
       : form.phone.trim() || undefined
+    const email = form.email.trim().toLowerCase()
     try {
       await signup({
         full_name: `${form.first_name.trim()} ${form.last_name.trim()}`,
-        email: form.email.trim().toLowerCase(),
+        email,
         password: form.password,
         phone: fullPhone,
         country_code: form.country_code || undefined,
         workspace_name: form.workspace_name.trim() || undefined,
       })
-      await fetchWorkspaces().catch(() => {})
       try {
         if (quickFillEnabled && quickFillWebsite.trim()) {
           localStorage.setItem('contentcard.signup.quickFillWebsite', quickFillWebsite.trim())
@@ -121,7 +127,7 @@ export default function SignupPage() {
       } catch {
         /* ignore */
       }
-      navigate('/onboarding')
+      navigate(`/verify-email?email=${encodeURIComponent(email)}`)
     } catch (err) {
       toast(err.message || 'Account creation failed. Please try again.', 'error')
     }

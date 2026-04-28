@@ -124,6 +124,7 @@ const useAppStore = create(
         variant_count,
         confirm_duplicate,
         custom_plan,
+        campaign_brief,
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
@@ -142,6 +143,7 @@ const useAppStore = create(
             use_reference_research: use_reference_research !== false,
             variant_count: Number(variant_count || 2),
             generation_brief: generation_brief || null,
+            campaign_brief: campaign_brief || null,
             use_website_intelligence: use_website_intelligence !== false,
             only_new_changes: !!only_new_changes,
             confirm_duplicate: !!confirm_duplicate,
@@ -161,6 +163,7 @@ const useAppStore = create(
                 template_id: template_id || null,
                 include_holidays_in_content: include_holidays_in_content !== false,
                 generation_brief: generation_brief || null,
+                campaign_brief: campaign_brief || null,
                 confirm_duplicate: !!confirm_duplicate,
               })
             } else {

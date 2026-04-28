@@ -10,6 +10,7 @@ import OnboardingPage       from './pages/OnboardingPage'
 import AcceptInvite         from './pages/AcceptInvite'
 import ForgotPasswordPage   from './pages/ForgotPasswordPage'
 import ResetPasswordPage    from './pages/ResetPasswordPage'
+import VerifyEmailPage      from './pages/VerifyEmailPage'
 import FeaturesPage         from './pages/FeaturesPage'
 import PricingPage          from './pages/PricingPage'
 import EnterprisePage       from './pages/EnterprisePage'
@@ -35,8 +36,11 @@ import BillingPage          from './pages/BillingPage'
 import DirectoryPage        from './pages/DirectoryPage'
 import MemesPage            from './pages/MemesPage'
 import SocialAutopilotPage  from './pages/SocialAutopilotPage'
-import DesignEditorPage from './pages/DesignEditorPage'
-import AssistantPage   from './pages/AssistantPage'
+import DesignEditorPage     from './pages/DesignEditorPage'
+import AssistantPage        from './pages/AssistantPage'
+import AnalyticsPage        from './pages/AnalyticsPage'
+import InboxPage            from './pages/InboxPage'
+import AIPage               from './pages/AIPage'
 import ShopifyAuthCallbackPage from './pages/ShopifyAuthCallbackPage'
 import ShopifyOnboardingCompletionPage from './pages/ShopifyOnboardingCompletionPage'
 import ShopifyPostSignupDecisionPage from './pages/ShopifyPostSignupDecisionPage'
@@ -68,7 +72,7 @@ function AuthGateFallback() {
   )
 }
 
-function RouteGate({ children, requireAuth }) {
+function RouteGate({ children, requireAuth, redirectAuthed = '/dashboard/calendar', redirectUnauthed = '/login' }) {
   const {
     token,
     isAuthenticated,
@@ -89,23 +93,30 @@ function RouteGate({ children, requireAuth }) {
   }
 
   if (requireAuth) {
-    return isAuthenticated ? children : <Navigate to="/login" replace />
+    return isAuthenticated ? children : <Navigate to={redirectUnauthed} replace />
   }
 
-  return !isAuthenticated ? children : <Navigate to="/dashboard" replace />
+  return !isAuthenticated ? children : <Navigate to={redirectAuthed} replace />
 }
 
 function PrivateRoute({ children }) {
-  return <RouteGate requireAuth>{children}</RouteGate>
+  return <RouteGate requireAuth redirectUnauthed="/login">{children}</RouteGate>
 }
 
 function GuestRoute({ children }) {
-  return <RouteGate requireAuth={false}>{children}</RouteGate>
+  return <RouteGate requireAuth={false} redirectAuthed="/dashboard/calendar">{children}</RouteGate>
 }
 
 function AdminRoute({ children }) {
   const admin = localStorage.getItem('contentcard-admin')
   return admin ? children : <Navigate to="/admindash/login" replace />
+}
+
+// Inside the dashboard, some pages aren't ready for the guest demo yet
+// (Playbook, e.g., relies on backend playbook catalog). Bounce guests to
+// the calendar instead of letting them land on a broken page.
+function AuthOnlyDashRoute({ children }) {
+  return <RouteGate requireAuth redirectUnauthed="/dashboard/calendar">{children}</RouteGate>
 }
 
 export default function App() {
@@ -114,7 +125,8 @@ export default function App() {
       <ToastProvider />
       <Routes>
         {/* Marketing */}
-        <Route path="/"                      element={<LandingPage />} />
+        <Route path="/"                      element={<Navigate to="/dashboard/calendar" replace />} />
+        <Route path="/landing"               element={<LandingPage />} />
         <Route path="/features"              element={<FeaturesPage />} />
         <Route path="/pricing"               element={<PricingPage />} />
         <Route path="/enterprise"            element={<EnterprisePage />} />
@@ -138,26 +150,30 @@ export default function App() {
         <Route path="/signup"                element={<GuestRoute><SignupPage /></GuestRoute>} />
         <Route path="/forgot-password"       element={<ForgotPasswordPage />} />
         <Route path="/reset-password"        element={<ResetPasswordPage />} />
+        <Route path="/verify-email"          element={<VerifyEmailPage />} />
         <Route path="/accept-invite"         element={<AcceptInvite />} />
         <Route path="/onboarding"            element={<PrivateRoute><OnboardingPage /></PrivateRoute>} />
         <Route path="/shopify/callback"      element={<ShopifyAuthCallbackPage />} />
         <Route path="/shopify/complete-onboarding" element={<PrivateRoute><ShopifyOnboardingCompletionPage /></PrivateRoute>} />
         <Route path="/shopify/decision"      element={<PrivateRoute><ShopifyPostSignupDecisionPage /></PrivateRoute>} />
 
-        {/* Dashboard */}
-        <Route path="/dashboard" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
-          <Route index             element={<DashboardPage />} />
-          <Route path="generate"   element={<GeneratePage />} />
+        {/* Dashboard — open to guests, ChatGPT-style */}
+        <Route path="/dashboard" element={<DashboardLayout />}>
+          <Route index             element={<AuthOnlyDashRoute><DashboardPage /></AuthOnlyDashRoute>} />
+          <Route path="generate"   element={<AuthOnlyDashRoute><GeneratePage /></AuthOnlyDashRoute>} />
           <Route path="calendar"   element={<CalendarPage />} />
-          <Route path="templates"  element={<TemplatesPage />} />
+          <Route path="templates"  element={<AuthOnlyDashRoute><TemplatesPage /></AuthOnlyDashRoute>} />
           <Route path="brand-kit"  element={<BrandKitPage />} />
           <Route path="settings"   element={<SettingsPage />} />
-          <Route path="billing"    element={<BillingPage />} />
-          <Route path="directory"  element={<DirectoryPage />} />
-          <Route path="memes"      element={<MemesPage />} />
-          <Route path="social"     element={<SocialAutopilotPage />} />
-          <Route path="calendar/editor/:contentId" element={<DesignEditorPage />} />
+          <Route path="billing"    element={<AuthOnlyDashRoute><BillingPage /></AuthOnlyDashRoute>} />
+          <Route path="directory"  element={<AuthOnlyDashRoute><DirectoryPage /></AuthOnlyDashRoute>} />
+          <Route path="memes"      element={<AuthOnlyDashRoute><MemesPage /></AuthOnlyDashRoute>} />
+          <Route path="social"     element={<AuthOnlyDashRoute><SocialAutopilotPage /></AuthOnlyDashRoute>} />
+          <Route path="calendar/editor/:contentId" element={<AuthOnlyDashRoute><DesignEditorPage /></AuthOnlyDashRoute>} />
           <Route path="assistant"  element={<AssistantPage />} />
+          <Route path="ai"         element={<AIPage />} />
+          <Route path="inbox"      element={<InboxPage />} />
+          <Route path="analytics"  element={<AnalyticsPage />} />
         </Route>
 
         {/* Admin */}

@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Building2, Users, Palette, Check, Zap } from 'lucide-react'
 import { LogoMark } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAppStore from '../stores/appStore'
-import { workspaceApi, templateApi, brandApi } from '../api'
+import { workspaceApi, templateApi, brandApi, contentApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
@@ -40,6 +40,21 @@ export default function OnboardingPage() {
   })
   const [quickFillPlatform, setQuickFillPlatform] = useState('auto')
 
+  useEffect(() => {
+    if (!user || user.onboarding_completed) return undefined
+    const handleBeforeUnload = () => {
+      try {
+        localStorage.removeItem('contentcard-auth')
+        localStorage.removeItem('contentcard-app')
+        localStorage.removeItem('contentcard.signup.quickFillWebsite')
+      } catch {
+        /* ignore */
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [user?.id, user?.onboarding_completed])
+
   const [form, setForm] = useState({
     name: '',
     industry: '',
@@ -64,8 +79,11 @@ export default function OnboardingPage() {
     return `https://${raw}`
   }
 
-  const inferIndustryFromWebsite = (website) => {
+  const inferIndustryFromWebsite = (website, platformHint = 'auto') => {
     const full = String(website || '').toLowerCase()
+    if (['shopify', 'bumpa', 'wordpress_woocommerce'].includes(String(platformHint || '').toLowerCase())) {
+      return { industry: 'E-commerce & Retail', sub_industry: 'Marketplace' }
+    }
     if (/restaurant|diner|cafe|kitchen|menu|food|grill|bakery|\/restaurants\//.test(full)) {
       return { industry: 'Food & Beverage', sub_industry: 'Quick Service Restaurant' }
     }
@@ -154,6 +172,35 @@ export default function OnboardingPage() {
     }
   }
 
+  const pickPaletteFromFingerprint = (fingerprint) => {
+    const palette = Array.isArray(fingerprint?.palette) ? fingerprint.palette : []
+    const cleaned = palette
+      .map((hex) => String(hex || '').trim().toLowerCase())
+      .filter((hex) => /^#[0-9a-f]{6}$/.test(hex))
+    return [...new Set(cleaned)].slice(0, 5)
+  }
+
+  const buildBrandUpdatePayload = (patch, palette = []) => {
+    const payload = { ...(patch || {}) }
+    const brandKit = payload.brand_kit && typeof payload.brand_kit === 'object' ? { ...payload.brand_kit } : {}
+    const visualSystem = brandKit.visual_system && typeof brandKit.visual_system === 'object' ? { ...brandKit.visual_system } : {}
+    const finalPalette = Array.isArray(payload.brand_colors) && payload.brand_colors.length >= 2 ? payload.brand_colors : palette
+    if (finalPalette.length >= 2) {
+      payload.brand_colors = finalPalette
+      visualSystem.primary_hex = visualSystem.primary_hex || finalPalette[0]
+      visualSystem.secondary_hex = visualSystem.secondary_hex || finalPalette[1] || finalPalette[0]
+      visualSystem.accent_hex = visualSystem.accent_hex || finalPalette[2] || finalPalette[0]
+      if (finalPalette[3]) visualSystem.neutral_hex = visualSystem.neutral_hex || finalPalette[3]
+    }
+    if (Object.keys(visualSystem).length) {
+      brandKit.visual_system = visualSystem
+    }
+    if (Object.keys(brandKit).length) {
+      payload.brand_kit = brandKit
+    }
+    return payload
+  }
+
   const quickFillFromWebsite = async () => {
     const website = normalizeWebsite(quickFillWebsite)
     if (!website) {
@@ -197,71 +244,126 @@ export default function OnboardingPage() {
         .filter(Boolean)
         .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
         .join(' ') || 'My Brand'
-      const inferred = inferIndustryFromWebsite(website)
       const platformHint = quickFillPlatform === 'auto' ? inferPlatformFromWebsite(website) : quickFillPlatform
-
-      const brand = await createBrand({
+      const inferred = inferIndustryFromWebsite(website, platformHint)
+      const onboardingPrefill = await contentApi.brandFormCoach({
+        mode: 'onboarding',
+        brand_id: null,
+        form_snapshot: {
+          name: niceName,
+          industry: inferred.industry,
+          sub_industry: inferred.sub_industry,
+          website,
+        },
+        messages: [
+          {
+            role: 'user',
+            content: `Fill the onboarding form as accurately as possible from this business website. Website: ${website}. Brand name candidate: ${niceName}. Use grounded facts from the site. If the site signals a clearer industry or sub-industry than the default guess, use that instead.`,
+          },
+        ],
+        research_urls: [website],
+        fetch_urls_from_message: true,
+        enable_web_search: true,
+      }).catch(() => null)
+      const onboardingPatch = onboardingPrefill?.patch && typeof onboardingPrefill.patch === 'object'
+        ? onboardingPrefill.patch
+        : {}
+      const onboardingForm = mergeBrandFormPatch({
         name: niceName,
-        website,
         industry: inferred.industry,
         sub_industry: inferred.sub_industry,
         description: `${niceName} helps customers discover and buy with a smoother online experience.`,
         target_audience: `People searching for trusted options and clear value before they buy.`,
-        pain_point: `Customers often face unclear offers, inconsistent quality signals, and too much friction in the buying journey.`,
         tone_tags: ['professional', 'confident', 'friendly', 'authentic', 'energetic'],
         language_style: 'english',
         personality_score: 58,
-        brand_colors: ['#10A37F', '#111827', '#F3F4F6'],
-        design_style: 'bold',
-        brand_font: 'Inter',
-        words_to_avoid: ['cheap', 'guaranteed results', 'perfect'],
-        guidelines: 'Keep copy clear and concise, always include a direct CTA, avoid hype-only claims, and prioritize benefit-first storytelling with practical proof.',
+      }, onboardingPatch)
+
+      const brand = await createBrand({
+        name: onboardingForm.name || niceName,
+        website,
+        industry: onboardingForm.industry || inferred.industry,
+        sub_industry: onboardingForm.sub_industry || inferred.sub_industry,
+        description: onboardingForm.description || `${niceName} helps customers discover and buy with a smoother online experience.`,
+        target_audience: onboardingForm.target_audience || `People searching for trusted options and clear value before they buy.`,
+        pain_point: `Customers often face unclear offers, inconsistent quality signals, and too much friction in the buying journey.`,
+        tone_tags: Array.isArray(onboardingForm.tone_tags) && onboardingForm.tone_tags.length
+          ? onboardingForm.tone_tags.map((t) => String(t).toLowerCase())
+          : ['professional', 'confident', 'friendly', 'authentic', 'energetic'],
+        language_style: onboardingForm.language_style || 'english',
+        personality_score: Number(onboardingForm.personality_score || 58),
+        instagram_handle: onboardingForm.instagram_handle || null,
+        facebook_handle: onboardingForm.facebook_handle || null,
+        twitter_handle: onboardingForm.twitter_handle || null,
+        brand_colors: [],
+        design_style: '',
+        brand_font: null,
+        words_to_avoid: [],
+        guidelines: '',
         brand_kit: {
           website_intelligence: {
             platform_hint: platformHint,
-          },
-          writing_style: 'Clear, confident, conversion-focused',
-          key_messages: [
-            `Choose ${niceName} for reliable quality`,
-            'Fast response and smooth customer experience',
-            'Clear outcomes and value for money',
-          ],
-          visual_system: {
-            primary_hex: '#10A37F',
-            secondary_hex: '#111827',
-            accent_hex: '#F59E0B',
-            neutral_hex: '#F3F4F6',
           },
         },
       })
 
       await brandApi.syncWebsite(wsId, brand.id, { force: true }).catch(() => {})
+      await brandApi.syncReferences(wsId, brand.id, { force: true }).catch(() => {})
       const [products, opportunities] = await Promise.all([
         brandApi.websiteProducts(wsId, brand.id, { limit: 12 }).catch(() => []),
         brandApi.websiteOpportunities(wsId, brand.id, { limit: 8 }).catch(() => []),
       ])
+      const styleFingerprint = await brandApi.styleFingerprint(wsId, brand.id).catch(() => null)
+      const websiteEntities = await brandApi.websiteEntities(wsId, brand.id, { limit: 16 }).catch(() => [])
       const profile = buildQuickFillProfile({
         brandName: niceName,
         inferred,
         products: Array.isArray(products) ? products : [],
         opportunities: Array.isArray(opportunities) ? opportunities : [],
       })
-      await brandApi.update(wsId, brand.id, {
+      const syncedContextLines = [
+        `Website: ${website}`,
+        `Products: ${Array.isArray(products) ? products.slice(0, 6).map((p) => p?.title).filter(Boolean).join(', ') : 'none'}`,
+        `Opportunities: ${Array.isArray(opportunities) ? opportunities.slice(0, 5).map((o) => o?.title).filter(Boolean).join(' | ') : 'none'}`,
+        `Entities: ${Array.isArray(websiteEntities) ? websiteEntities.slice(0, 8).map((e) => `${e?.entity_type}: ${e?.title}`).filter(Boolean).join(' | ') : 'none'}`,
+        `Style fingerprint palette: ${pickPaletteFromFingerprint(styleFingerprint).join(', ') || 'none'}`,
+      ].join('\n')
+      const brandKitPrefill = await contentApi.brandFormCoach({
+        mode: 'brand_kit',
+        brand_id: brand.id,
+        form_snapshot: {},
+        messages: [
+          {
+            role: 'user',
+            content: `Fill the brand kit as accurately as possible from this business website and synced storefront context. Use grounded facts, avoid guessing, and prefer commercially useful wording over generic branding language.\n\n${syncedContextLines}`,
+          },
+        ],
+        research_urls: [website],
+        fetch_urls_from_message: true,
+        enable_web_search: true,
+      }).catch(() => null)
+      const brandKitPatch = brandKitPrefill?.patch && typeof brandKitPrefill.patch === 'object'
+        ? brandKitPrefill.patch
+        : {}
+      const updatePayload = buildBrandUpdatePayload({
         description: profile.description,
         target_audience: profile.target_audience,
         pain_point: profile.pain_point,
         brand_kit: {
           writing_style: 'Clear, practical, and conversion-focused',
           key_messages: profile.key_messages,
+          cta_style: 'Direct, action-oriented, and benefit-led',
         },
-      })
+        ...brandKitPatch,
+      }, pickPaletteFromFingerprint(styleFingerprint))
+      await brandApi.update(wsId, brand.id, updatePayload)
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false }).catch(() => {})
       try {
         localStorage.removeItem('contentcard.signup.quickFillWebsite')
       } catch {
         /* ignore */
       }
-      toast('Quick fill complete. Upload your logo as the final step.', 'success')
+      toast('Quick fill complete. Review the brand kit, then upload your logo as the final step.', 'success')
       navigate('/dashboard/brand-kit')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Quick fill failed. Please continue manually.', 'error')
@@ -302,8 +404,8 @@ export default function OnboardingPage() {
       })
       setTemplateSetupRunning(true)
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false })
-      toast('Brand profile created. Your industry templates are ready.')
-      navigate('/dashboard/generate')
+      toast('Brand profile created. Finish the required brand kit fields before generating content.')
+      navigate('/dashboard/brand-kit')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Something went wrong. Please try again.', 'error')
     } finally {

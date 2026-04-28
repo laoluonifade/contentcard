@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom'
 import { LogoFull } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
-import useAppStore from '../../stores/appStore'
 
 const INITIAL_LOGIN = { email: '', password: '' }
 const INITIAL_SIGNUP = { workspace_name: '', full_name: '', email: '', password: '' }
@@ -17,7 +16,6 @@ export default function AuthEntryModal({
 }) {
   const navigate = useNavigate()
   const { login, signup, isLoading } = useAuthStore()
-  const { fetchWorkspaces } = useAppStore()
   const [activeMode, setActiveMode] = useState(mode)
   const [showPassword, setShowPassword] = useState(false)
   const [loginForm, setLoginForm] = useState(INITIAL_LOGIN)
@@ -56,7 +54,7 @@ export default function AuthEntryModal({
       })
       toast.success('Welcome back!')
       onClose?.()
-      navigate('/dashboard')
+      navigate('/dashboard/calendar')
     } catch (err) {
       toast.error(err.message || 'Sign in failed. Please try again.')
     }
@@ -65,15 +63,15 @@ export default function AuthEntryModal({
   const submitSignup = async (event) => {
     event.preventDefault()
     try {
+      const email = signupForm.email.trim().toLowerCase()
       await signup({
         workspace_name: signupForm.workspace_name.trim(),
         full_name: signupForm.full_name.trim(),
-        email: signupForm.email.trim().toLowerCase(),
+        email,
         password: signupForm.password,
       })
-      await fetchWorkspaces().catch(() => {})
       onClose?.()
-      navigate('/onboarding')
+      navigate(`/verify-email?email=${encodeURIComponent(email)}`)
     } catch (err) {
       toast.error(err.message || 'Sign up failed. Please try again.')
     }

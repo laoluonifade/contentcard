@@ -4,10 +4,13 @@ import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check,
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
-import { contentApi, holidaysApi, uploadApi } from '../api'
+import { contentApi, holidaysApi, socialApi, uploadApi } from '../api'
+import { detectConflicts } from '../utils/calendarConflicts'
+import { useFeatureFlag } from '../lib/featureFlags'
 import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
+import { buildCampaignBrief } from '../utils/campaignBrief'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
 import GenerationPlanModal from '../components/ui/GenerationPlanModal'
 import PaymentModal from '../components/ui/PaymentModal'
@@ -248,7 +251,7 @@ function CalendarPrepBody({
               <Sparkles size={14} className="text-brand-500" />
             </div>
             <p className="text-ink/40 text-[11px] leading-relaxed max-w-[200px]">
-              Chat to brief the AI, then say &ldquo;generate&rdquo; when ready.
+              Brief the AI, review the month plan, then generate when it looks right.
             </p>
           </div>
         )}
@@ -352,8 +355,8 @@ function CalendarPrepBody({
                       </div>
                     )}
 
-                    {/* Generate CTA — shown on last assistant message */}
-                    {(m.cta?.action === 'start_generation' || i === messages.length - 1) && (() => {
+                    {/* Generate CTA — shown only when the plan is explicitly ready */}
+                    {m.cta?.action === 'start_generation' && (() => {
                       const ctaKey = String(i)
                       const isUsed = usedCtaKeys?.has(ctaKey)
                       const busy = Boolean(isUsed || ctaBusy || generatingMonth || prepServiceDown)
@@ -370,8 +373,9 @@ function CalendarPrepBody({
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors"
                           >
                             <Zap size={10} />
-                            {generatingMonth ? 'Generating…' : (m.cta?.label || 'Generate posts now')}
+                            {generatingMonth ? 'Generating…' : (m.cta?.label || 'Approve plan and generate')}
                           </button>
+                          <p className="mt-1 text-[10px] text-ink/35">Review the plan above first, then launch generation.</p>
                         </div>
                       )
                     })()}
@@ -458,7 +462,7 @@ function CalendarPrepBody({
           </button>
         </div>
 
-        {/* Generate button — always visible */}
+        {/* Generate button — always visible for manual runs */}
         <button
           type="button"
           onClick={() => onRunCta({ action: 'start_generation' }, '')}
@@ -466,7 +470,7 @@ function CalendarPrepBody({
           className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors"
         >
           <Zap size={11} />
-          {generatingMonth ? 'Generating…' : 'Generate posts'}
+          {generatingMonth ? 'Generating…' : 'Generate with current brief'}
         </button>
       </div>
     </div>
@@ -606,6 +610,7 @@ export default function CalendarPage() {
   const [filterPlat, setFilterPlat] = useState('all')
   const [showGenPanel, setShowGenPanel] = useState(false)
   const [showPlanModal, setShowPlanModal] = useState(false)
+  const [markingPosted, setMarkingPosted] = useState(false)
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
@@ -917,6 +922,24 @@ export default function CalendarPage() {
     }
   }
 
+  const markPostedManually = async () => {
+    if (!modal?.id || !activeBrandId || !modal?.platform) return
+    setMarkingPosted(true)
+    try {
+      await socialApi.manualConfirmPost({
+        brand_id: activeBrandId,
+        content_item_id: modal.id,
+        platform: modal.platform,
+        status_reason: 'confirmed posted manually from calendar',
+      })
+      toast('Marked as posted')
+    } catch (e) {
+      toast(e?.response?.data?.detail || e.message || 'Could not save manual post status', 'error')
+    } finally {
+      setMarkingPosted(false)
+    }
+  }
+
   const deletePost = async () => {
     if (!confirm('Remove this post from the calendar? Images stay in Directory.')) return
     try {
@@ -1041,12 +1064,6 @@ export default function CalendarPage() {
       }))
       setPrepMessages([...next, ...assistantRows])
 
-      // Auto-trigger generation when the AI signals it's ready
-      if (data.cta?.action === 'start_generation' && !generatingMonth) {
-        setTimeout(() => {
-          handleGenerate()
-        }, 600)
-      }
     } catch (e) {
       if (isAiCapacityError(e)) {
         setPrepServiceDown(true)
@@ -1273,16 +1290,24 @@ export default function CalendarPage() {
             .join('\n')
             .slice(0, 12000)
         : null
+    const campaign_brief = buildCampaignBrief({
+      brand: activeBrand,
+      messages: prepMessages,
+      topicOverride: genTopic.trim() || null,
+      platform: genPlatform,
+      monthLabel: `${MONTHS[month - 1]} ${year}`,
+    })
     await generateMonth({
       month,
       year,
       platforms: [genPlatform],
-      format_mix: 'single_only',
+      format_mix: 'mixed',
       posts_per_week: genPPW,
       topic_override: genTopic.trim() || null,
       template_id: genTemplateId || null,
       include_holidays_in_content: includeHolidays,
       generation_brief,
+      campaign_brief,
       confirm_duplicate: confirmDuplicate,
       custom_plan: customPlan || null,
     })
@@ -1453,8 +1478,28 @@ export default function CalendarPage() {
     : Number(renderStatusPoll?.total ?? 0)
   const showFinishingCounts = finishingBannerActive && finishingTotal > 0
 
+  const conflictWarningsEnabled = useFeatureFlag('calendar.conflict_warnings')
+  const calendarConflicts = conflictWarningsEnabled ? detectConflicts(posts) : []
+
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
+
+      {/* Conflict warnings (R2.6) */}
+      {conflictWarningsEnabled && calendarConflicts.length > 0 && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <p className="text-[10px] uppercase tracking-widest text-amber-700 font-bold mb-1">
+            {calendarConflicts.length} potential conflict{calendarConflicts.length === 1 ? '' : 's'}
+          </p>
+          <ul className="text-amber-900 text-xs space-y-0.5">
+            {calendarConflicts.slice(0, 4).map((c, i) => (
+              <li key={i}>• {c.reason}</li>
+            ))}
+            {calendarConflicts.length > 4 && (
+              <li className="text-amber-700/80">…and {calendarConflicts.length - 4} more</li>
+            )}
+          </ul>
+        </div>
+      )}
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
@@ -2171,6 +2216,14 @@ export default function CalendarPage() {
                     composer to paste.
                   </p>
                   <div className="flex flex-wrap gap-2 w-full justify-center">
+                    <button
+                      type="button"
+                      onClick={markPostedManually}
+                      disabled={markingPosted}
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 btn-primary text-xs disabled:opacity-50"
+                    >
+                      <Check size={12} /> {markingPosted ? 'Saving…' : "I've posted this"}
+                    </button>
                     {modal.platform === 'twitter' && (
                       <a
                         href={twitterIntentUrl(fullPostCaptionText(editCaption, editHashtags))}

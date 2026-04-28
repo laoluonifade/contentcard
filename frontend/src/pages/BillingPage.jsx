@@ -13,8 +13,8 @@ const PLANS_NGN = [
   {
     id: 'starter',
     name: 'Starter',
-    price: '₦20,000',
-    priceRaw: 20000,
+    ngn: '₦20,000',
+    usd: '$29',
     desc: 'For solo creators.',
     features: [
       'Unlimited content generation',
@@ -27,8 +27,8 @@ const PLANS_NGN = [
   {
     id: 'smb',
     name: 'Growth',
-    price: '₦50,000',
-    priceRaw: 50000,
+    ngn: '₦50,000',
+    usd: '$49',
     desc: 'For growing businesses.',
     features: [
       'Everything in Starter',
@@ -41,8 +41,8 @@ const PLANS_NGN = [
   {
     id: 'pro',
     name: 'Pro',
-    price: '₦200,000',
-    priceRaw: 200000,
+    ngn: '₦200,000',
+    usd: '$99',
     desc: 'For agencies.',
     features: [
       'Everything in Growth',
@@ -159,7 +159,7 @@ function SavedCard({ card, onRemove, removing }) {
         onClick={onRemove}
         disabled={removing}
         className="flex items-center gap-1.5 text-xs text-ink/40 hover:text-red-500 font-medium transition-colors disabled:opacity-40"
-        title="Remove card and cancel subscription"
+        title="Remove card and stop renewal (subscription continues until period end)"
       >
         {removing
           ? <><RefreshCw size={13} className="animate-spin" /> Removing…</>
@@ -211,6 +211,11 @@ export default function BillingPage() {
   } = useAppStore()
 
   const [loading, setLoading] = useState(null)          // plan id being checked out
+  // Auto-detect currency from timezone: Nigeria → NGN/Paystack, everywhere else → USD/Stripe
+  const [currency] = useState(() => {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''
+    return tz.startsWith('Africa/') ? 'NGN' : 'USD'
+  })
   const [showCancelModal, setShowCancelModal] = useState(false)
   const [showRemoveModal, setShowRemoveModal] = useState(false)
   const [cancelling, setCancelling] = useState(false)
@@ -258,7 +263,12 @@ export default function BillingPage() {
     try {
       await removeCard()
       setShowRemoveModal(false)
-      toast('Card removed and subscription cancelled.')
+      const endDate = subscription?.next_payment_date
+      if (isSubscribed && endDate) {
+        toast(`Card removed. Your subscription stays active until ${formatDate(endDate)}.`)
+      } else {
+        toast('Card removed.')
+      }
     } catch (err) {
       toast(err.response?.data?.detail || 'Failed to remove card', 'error')
     } finally {
@@ -336,13 +346,23 @@ export default function BillingPage() {
 
       {/* ── Plans ── */}
       <div className="mb-3">
-        <p className="text-xs font-semibold uppercase tracking-widest text-ink/40 mb-4">
-          {isSubscribed ? 'Switch plan' : 'Choose a plan'}
-        </p>
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-xs font-semibold uppercase tracking-widest text-ink/40">
+            {isSubscribed ? 'Switch plan' : 'Choose a plan'}
+          </p>
+          <span className="text-xs text-ink/40">
+            {currency === 'NGN'
+              ? 'Paying in ₦ NGN via Paystack'
+              : 'Paying in $ USD via Stripe'}
+          </span>
+        </div>
+
         <div className="grid md:grid-cols-3 gap-4">
           {PLANS.map(plan => {
             const isCurrent = subscription?.plan === plan.id
             const isLoading = loading === plan.id
+            const price = currency === 'USD' ? plan.usd : plan.ngn
+            const provider = currency === 'USD' ? 'Stripe' : 'Paystack'
             return (
               <div
                 key={plan.id}
@@ -365,7 +385,7 @@ export default function BillingPage() {
 
                 <div className="mb-5">
                   <p className="text-ink/50 text-xs font-bold uppercase tracking-widest mb-2">{plan.name}</p>
-                  <p className="text-3xl font-bold text-ink mb-0.5" style={{ letterSpacing: '-0.02em' }}>{plan.price}</p>
+                  <p className="text-3xl font-bold text-ink mb-0.5" style={{ letterSpacing: '-0.02em' }}>{price}</p>
                   <p className="text-ink/40 text-xs">/month · billed monthly</p>
                   <p className="text-ink/40 text-xs mt-2 leading-relaxed">{plan.desc}</p>
                 </div>
@@ -427,7 +447,11 @@ export default function BillingPage() {
       {showRemoveModal && (
         <ConfirmModal
           title="Remove saved card?"
-          body="This will cancel your active subscription and remove your card. You'll need to re-enter card details to subscribe again."
+          body={
+            isSubscribed && subscription?.next_payment_date
+              ? `Your card will be removed and renewal stopped, but your ${currentPlan?.name || 'paid'} plan stays active until ${formatDate(subscription.next_payment_date)} since you've already paid for this period. After that, your account moves to the free tier.`
+              : "Your card will be removed. You'll need to re-enter card details to subscribe again."
+          }
           confirmLabel="Remove card"
           confirmClass="bg-red-500 hover:bg-red-600"
           onConfirm={handleRemoveCard}

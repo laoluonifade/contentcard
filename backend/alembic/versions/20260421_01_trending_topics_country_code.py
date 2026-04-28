@@ -1,7 +1,7 @@
 """add country_code to trending_topics
 
-Revision ID: 20260421_01_trending_topics_country_code
-Revises: 20260420_05_design_playbook_all_supported_industries
+Revision ID: 20260421_01
+Revises: 20260420_05
 Create Date: 2026-04-21
 """
 
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "20260421_01_trending_topics_country_code"
-down_revision = "20260420_05_design_playbook_all_supported_industries"
+revision = "20260421_01"
+down_revision = "20260420_05"
 branch_labels = None
 depends_on = None
 

@@ -1,0 +1,12 @@
+{
+  "thresholds": {
+    "min_avg_score_a": 72.0,
+    "min_wins": 1,
+    "max_generic_caption_warnings": 0,
+    "max_shallow_visual_warnings": 0,
+    "max_short_prompt_warnings": 0,
+    "min_image_avg_score": 0.66,
+    "require_image_checks": false
+  },
+  "scenarios": []
+}
