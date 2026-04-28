@@ -3,7 +3,6 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { ToastProvider } from './components/ui/Toast'
 import useAuthStore from './stores/authStore'
 
-import LandingPage          from './pages/LandingPage'
 import LoginPage            from './pages/LoginPage'
 import SignupPage           from './pages/SignupPage'
 import OnboardingPage       from './pages/OnboardingPage'
@@ -17,9 +16,7 @@ import EnterprisePage       from './pages/EnterprisePage'
 import DemoPage             from './pages/DemoPage'
 import SolutionsPage        from './pages/SolutionsPage'
 import ContactPage          from './pages/ContactPage'
-import BlogPage             from './pages/BlogPage'
 import CareersPage          from './pages/CareersPage'
-import ChangelogPage        from './pages/ChangelogPage'
 import RoadmapPage          from './pages/RoadmapPage'
 import LegalPage            from './pages/LegalPage'
 import PitchDeckPage        from './pages/PitchDeckPage'
@@ -124,18 +121,13 @@ export default function App() {
       <Routes>
         {/* Marketing */}
         <Route path="/"                      element={<Navigate to="/dashboard/calendar" replace />} />
-        {/* Marketing landing lives at /about (replaces the old /landing path). */}
-        <Route path="/landing"               element={<Navigate to="/about" replace />} />
-        <Route path="/about"                 element={<LandingPage />} />
         <Route path="/features"              element={<FeaturesPage />} />
         <Route path="/pricing"               element={<PricingPage />} />
         <Route path="/enterprise"            element={<EnterprisePage />} />
         <Route path="/demo"                  element={<DemoPage />} />
         <Route path="/solutions/:type"       element={<SolutionsPage />} />
         <Route path="/contact"               element={<ContactPage />} />
-        <Route path="/blog"                  element={<BlogPage />} />
         <Route path="/careers"               element={<CareersPage />} />
-        <Route path="/changelog"             element={<ChangelogPage />} />
         <Route path="/roadmap"               element={<RoadmapPage />} />
         <Route path="/privacy"               element={<LegalPage />} />
         <Route path="/terms"                 element={<LegalPage />} />
