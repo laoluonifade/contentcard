@@ -44,6 +44,7 @@ export default function OnboardingPage() {
     }
   })
   const [quickFillPlatform, setQuickFillPlatform] = useState('auto')
+  const [quickFillStatus, setQuickFillStatus] = useState('')
 
   useEffect(() => {
     if (!user || user.onboarding_completed) return undefined
@@ -233,6 +234,7 @@ export default function OnboardingPage() {
     }
     setQuickFillRunning(true)
     setQuickFillStage('Setting up workspace…')
+    setQuickFillStatus('Setting up your workspace…')
     try {
       let workspaces = await fetchWorkspaces().catch(() => [])
       if (!workspaces?.length) {
@@ -262,6 +264,7 @@ export default function OnboardingPage() {
       const platformHint = quickFillPlatform === 'auto' ? inferPlatformFromWebsite(website) : quickFillPlatform
       const inferred = inferIndustryFromWebsite(website, platformHint)
       setQuickFillStage('Reading your website…')
+      setQuickFillStatus('Researching your site…')
       const onboardingPrefill = await contentApi.brandFormCoach({
         mode: 'onboarding',
         brand_id: null,
@@ -296,6 +299,7 @@ export default function OnboardingPage() {
       }, onboardingPatch)
 
       setQuickFillStage('Creating your brand…')
+      setQuickFillStatus('Creating your brand…')
       const brand = await createBrand({
         name: onboardingForm.name || niceName,
         website,
@@ -325,8 +329,10 @@ export default function OnboardingPage() {
       })
 
       setQuickFillStage('Syncing storefront context…')
+      setQuickFillStatus('Syncing your storefront…')
       await brandApi.syncWebsite(wsId, brand.id, { force: true }).catch(() => {})
       await brandApi.syncReferences(wsId, brand.id, { force: true }).catch(() => {})
+      setQuickFillStatus('Loading your products…')
       const [products, opportunities] = await Promise.all([
         brandApi.websiteProducts(wsId, brand.id, { limit: 12 }).catch(() => []),
         brandApi.websiteOpportunities(wsId, brand.id, { limit: 8 }).catch(() => []),
@@ -347,6 +353,7 @@ export default function OnboardingPage() {
         `Style fingerprint palette: ${pickPaletteFromFingerprint(styleFingerprint).join(', ') || 'none'}`,
       ].join('\n')
       setQuickFillStage('Building your brand kit…')
+      setQuickFillStatus('Building your brand kit…')
       const brandKitPrefill = await contentApi.brandFormCoach({
         mode: 'brand_kit',
         brand_id: brand.id,
@@ -375,8 +382,10 @@ export default function OnboardingPage() {
         },
         ...brandKitPatch,
       }, pickPaletteFromFingerprint(styleFingerprint))
+      setQuickFillStatus('Saving your kit…')
       await brandApi.update(wsId, brand.id, updatePayload)
       setQuickFillStage('Preparing templates…')
+      setQuickFillStatus('Setting up templates…')
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false }).catch(() => {})
       try {
         localStorage.removeItem('contentcard.signup.quickFillWebsite')
@@ -392,6 +401,7 @@ export default function OnboardingPage() {
     } finally {
       setQuickFillRunning(false)
       setQuickFillStage('')
+      setQuickFillStatus('')
     }
   }
 
@@ -529,7 +539,14 @@ export default function OnboardingPage() {
                     onChange={(e) => { setQuickFillWebsite(e.target.value); if (quickFillError) setQuickFillError('') }}
                     placeholder="https://yourwebsite.com"
                     className="input mt-3"
+                    disabled={quickFillRunning}
                   />
+                  {quickFillRunning && (
+                    <p className="text-xs text-ink/60 mt-2 flex items-center gap-2">
+                      <span className="inline-block h-3 w-3 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
+                      {quickFillStatus || 'Working on it…'} This usually takes 1–3 minutes.
+                    </p>
+                  )}
                   <label className="block text-[11px] font-semibold text-ink/65 mt-3 mb-1">Website type</label>
                   <select
                     value={quickFillPlatform}
