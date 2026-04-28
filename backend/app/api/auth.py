@@ -22,33 +22,17 @@ from app.core.dependencies import get_current_user
 from app.schemas.auth import (
     LoginRequest,
     PasswordChangeRequest,
-    EmailPreferencesUpdate,
     PostSignupDecisionRequest,
-    ResendVerificationRequest,
     ShopifyAuthStartResponse,
     ShopifyOnboardingCompleteRequest,
     ShopifyOnboardingStatusOut,
     SignupRequest,
-    SignupResponse,
     TokenResponse,
     UserOut,
-    VerifyEmailRequest,
 )
-from app.models.user import DEFAULT_EMAIL_PREFERENCES
 from app.services.geo_service import get_country_from_ip, get_payment_provider
-from app.services.email_service import send_email_verification, send_password_reset, send_welcome
+from app.services.email_service import send_password_reset, send_welcome
 from app.core.config import settings
-
-
-VERIFICATION_TOKEN_TTL = timedelta(hours=24)
-
-
-def _new_verification_token(user: User) -> str:
-    """Mint a fresh email-verification token on the user (caller commits)."""
-    token = secrets.token_urlsafe(48)
-    user.email_verification_token = token
-    user.email_verification_token_expires = datetime.now(timezone.utc) + VERIFICATION_TOKEN_TTL
-    return token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -69,7 +53,39 @@ async def ensure_unique_slug(db: AsyncSession, base: str) -> str:
         i += 1
 
 
-@router.post("/signup", response_model=SignupResponse, status_code=201)
+async def _user_onboarding_completed(db: AsyncSession, user: User) -> bool:
+    owned_workspace_ids = (
+        await db.execute(select(Workspace.id).where(Workspace.owner_id == user.id))
+    ).scalars().all()
+
+    # Collaborators or invite-only users should not be forced through owner onboarding.
+    if not owned_workspace_ids:
+        return True
+
+    first_brand = (
+        await db.execute(
+            select(Brand.id).where(Brand.workspace_id.in_(owned_workspace_ids)).limit(1)
+        )
+    ).scalar_one_or_none()
+
+    return first_brand is not None
+
+
+async def _serialize_user_out(db: AsyncSession, user: User) -> UserOut:
+    payload = {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "phone": user.phone,
+        "country_code": user.country_code,
+        "onboarding_completed": await _user_onboarding_completed(db, user),
+        "agency_mode": bool(user.agency_mode),
+        "auth_provider": user.auth_provider or "password",
+    }
+    return UserOut.model_validate(payload)
+
+
+@router.post("/signup", response_model=TokenResponse, status_code=201)
 async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depends(get_db)):
     # Check duplicate email
     existing = await db.execute(select(User).where(User.email == body.email))
@@ -88,7 +104,7 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     country_code = (body.country_code or detected_country or "").upper() or None
     payment_provider = get_payment_provider(country_code)
 
-    # Create user (email_verified=False — verification email sent below)
+    # Create user
     user = User(
         full_name=body.full_name,
         email=body.email,
@@ -124,20 +140,17 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
         role=WorkspaceRole.OWNER,
     )
     db.add(member)
-
-    # Mint verification token before commit
-    verification_token = _new_verification_token(user)
     await db.commit()
     await db.refresh(user)
 
-    # Send verification email (fire-and-forget)
+    # Send welcome email (fire-and-forget — never block the signup response)
     import asyncio
-    verify_url = f"{settings.FRONTEND_URL}/verify-email?token={verification_token}"
     asyncio.create_task(
-        send_email_verification(user.email, verify_url, user.full_name)
+        send_welcome(user.email, user.full_name, settings.FRONTEND_URL + "/dashboard")
     )
 
-    return SignupResponse(email=user.email)
+    token = create_access_token(user.id)
+    return TokenResponse(access_token=token, user=await _serialize_user_out(db, user))
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -147,81 +160,13 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user or not verify_password(body.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    if not user.email_verified:
-        raise HTTPException(
-            status_code=403,
-            detail="Please verify your email before signing in. Check your inbox for the verification link.",
-        )
-
     token = create_access_token(user.id)
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
-
-
-@router.post("/verify-email", response_model=TokenResponse)
-async def verify_email(body: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
-    """
-    Consume a verification token. On success the user is marked verified,
-    the welcome email fires, and a session token is returned so the client
-    can drop them straight into onboarding.
-    """
-    token = body.token.strip()
-    if not token:
-        raise HTTPException(status_code=422, detail="Verification token is required.")
-
-    result = await db.execute(
-        select(User).where(User.email_verification_token == token, User.is_active == True)
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=400, detail="Invalid or already-used verification link.")
-    if user.email_verification_token_expires is None or datetime.now(timezone.utc) > user.email_verification_token_expires:
-        raise HTTPException(
-            status_code=400,
-            detail="This verification link has expired. Request a new one to continue.",
-        )
-
-    already_verified = user.email_verified
-    user.email_verified = True
-    user.email_verification_token = None
-    user.email_verification_token_expires = None
-    await db.commit()
-    await db.refresh(user)
-
-    # Welcome email only on first successful verification
-    if not already_verified:
-        import asyncio
-        asyncio.create_task(
-            send_welcome(user.email, user.full_name, settings.FRONTEND_URL + "/dashboard")
-        )
-
-    access = create_access_token(user.id)
-    return TokenResponse(access_token=access, user=UserOut.model_validate(user))
-
-
-@router.post("/resend-verification", status_code=204)
-async def resend_verification(body: ResendVerificationRequest, db: AsyncSession = Depends(get_db)):
-    """
-    Request a fresh verification email. Always returns 204 — never reveals
-    whether the email exists or is already verified.
-    """
-    import asyncio
-    email = body.email.strip().lower()
-    result = await db.execute(
-        select(User).where(User.email == email, User.is_active == True)
-    )
-    user = result.scalar_one_or_none()
-    if user and not user.email_verified:
-        token = _new_verification_token(user)
-        await db.commit()
-        verify_url = f"{settings.FRONTEND_URL}/verify-email?token={token}"
-        asyncio.create_task(
-            send_email_verification(user.email, verify_url, user.full_name)
-        )
+    return TokenResponse(access_token=token, user=await _serialize_user_out(db, user))
 
 
 @router.get("/me", response_model=UserOut)
-async def me(current_user: User = Depends(get_current_user)):
-    return UserOut.model_validate(current_user)
+async def me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await _serialize_user_out(db, current_user)
 
 
 @router.put("/me", response_model=UserOut)
@@ -260,45 +205,7 @@ async def update_profile(
 
     await db.commit()
     await db.refresh(current_user)
-    return UserOut.model_validate(current_user)
-
-
-@router.get("/me/email-preferences")
-async def get_email_preferences(current_user: User = Depends(get_current_user)):
-    """Return the user's email opt-in state, filling defaults for legacy rows.
-
-    Transactional is reported as a permanent True so the UI can show it as
-    a non-editable line without confusing users about why it can't be turned off.
-    """
-    stored = current_user.email_preferences if isinstance(current_user.email_preferences, dict) else {}
-    effective = dict(DEFAULT_EMAIL_PREFERENCES)
-    for k in effective:
-        if k in stored:
-            effective[k] = bool(stored[k])
-    return effective
-
-
-@router.put("/me/email-preferences")
-async def update_email_preferences(
-    body: EmailPreferencesUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Update editable email preferences. Transactional is fixed True.
-
-    Accepts a partial body — only the keys the caller submits are touched.
-    Returns the full effective state, mirroring GET.
-    """
-    current = dict(current_user.email_preferences) if isinstance(current_user.email_preferences, dict) else dict(DEFAULT_EMAIL_PREFERENCES)
-    if body.product_updates is not None:
-        current["product_updates"] = bool(body.product_updates)
-    if body.marketing is not None:
-        current["marketing"] = bool(body.marketing)
-    # Always pin transactional True — never let the client flip it off.
-    current["transactional"] = True
-    current_user.email_preferences = current
-    await db.commit()
-    return current
+    return await _serialize_user_out(db, current_user)
 
 
 @router.delete("/me", status_code=204)
@@ -667,7 +574,6 @@ async def shopify_callback(
             country_code=(shop_info.get("country_code") or None),
             auth_provider="shopify",
             shopify_shop_domain=shop_domain,
-            email_verified=True,  # Shopify already verified the shop owner's email
         )
         db.add(user)
         await db.flush()
@@ -675,8 +581,6 @@ async def shopify_callback(
         if user.auth_provider == "password":
             user.auth_provider = "mixed"
         user.shopify_shop_domain = shop_domain
-        # A successful Shopify OAuth confirms ownership of this email
-        user.email_verified = True
 
     connection_result = await db.execute(select(ShopifyConnection).where(ShopifyConnection.shop_domain == shop_domain))
     connection = connection_result.scalar_one_or_none()

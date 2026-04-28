@@ -8,6 +8,7 @@ import useAuthStore from '../stores/authStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
 import { authApi } from '../api'
+import { getPostAuthPath } from '../utils/authFlow'
 
 const SUPPORTED_ICONS = [
   { id: 'shopify', label: 'Shopify', custom: true },
@@ -33,18 +34,11 @@ export default function LoginPage() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     try {
-      await login(form)
+      const res = await login(form)
       toast.success('Welcome back!')
-      navigate('/dashboard')
+      navigate(getPostAuthPath(res?.user, '/dashboard'))
     } catch (err) {
-      const msg = err.message || 'Sign in failed. Please check your credentials.'
-      // 403 from backend includes the word "verify" — bounce them to the verify page.
-      if (/verify your email/i.test(msg)) {
-        toast.error('Please verify your email before signing in.')
-        navigate(`/verify-email?email=${encodeURIComponent(form.email.trim().toLowerCase())}`)
-        return
-      }
-      toast.error(msg)
+      toast.error(err.message || 'Sign in failed. Please check your credentials.')
     }
   }
 

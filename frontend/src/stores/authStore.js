@@ -24,6 +24,11 @@ function formatApiErrorDetail(err) {
   return null
 }
 
+function isFatalAuthFailure(err) {
+  const status = Number(err?.response?.status || 0)
+  return status === 401 || status === 403
+}
+
 const useAuthStore = create(
   persist(
     (set) => ({
@@ -39,27 +44,7 @@ const useAuthStore = create(
       signup: async (data) => {
         set({ isLoading: true, error: null })
         try {
-          // Backend returns { email, requires_verification, message } — no token
-          // until the user clicks the link in the verification email.
           const res = await authApi.signup(data)
-          set({ isLoading: false, authResolved: true })
-          return res
-        } catch (err) {
-          const msg =
-            formatApiErrorDetail(err) ||
-            (err.code === 'ERR_NETWORK' || err.message === 'Network Error'
-              ? 'Cannot reach the API server. Hard refresh (Cmd+Shift+R), wait a minute after deploy, or try without VPN/ad blockers.'
-              : err.message) ||
-            'Signup failed'
-          set({ error: msg, isLoading: false })
-          throw new Error(msg)
-        }
-      },
-
-      verifyEmail: async (token) => {
-        set({ isLoading: true, error: null })
-        try {
-          const res = await authApi.verifyEmail({ token })
           set({
             user: res.user,
             token: res.access_token,
@@ -69,7 +54,12 @@ const useAuthStore = create(
           })
           return res
         } catch (err) {
-          const msg = formatApiErrorDetail(err) || err.message || 'Verification failed'
+          const msg =
+            formatApiErrorDetail(err) ||
+            (err.code === 'ERR_NETWORK' || err.message === 'Network Error'
+              ? 'Cannot reach the API server. Hard refresh (Cmd+Shift+R), wait a minute after deploy, or try without VPN/ad blockers.'
+              : err.message) ||
+            'Signup failed'
           set({ error: msg, isLoading: false })
           throw new Error(msg)
         }
@@ -150,11 +140,7 @@ const useAuthStore = create(
           })
           return true
         } catch (err) {
-          const status = err?.response?.status
-          // Only drop the session on a confirmed auth rejection. Transient
-          // failures (network, 5xx, cold starts, CORS) must not log the user
-          // out — keep the persisted token so the next request can retry.
-          if (status === 401 || status === 403) {
+          if (isFatalAuthFailure(err)) {
             clearPersistedSession()
             set({
               user: null,
@@ -165,8 +151,16 @@ const useAuthStore = create(
             })
             return false
           }
-          set({ authResolved: true, isCheckingAuth: false })
-          return useAuthStore.getState().isAuthenticated
+
+          // Keep the persisted session on transient failures so refreshes
+          // or backend cold starts do not kick signed-in users out.
+          set({
+            user: state.user,
+            isAuthenticated: true,
+            authResolved: true,
+            isCheckingAuth: false,
+          })
+          return true
         }
       },
 

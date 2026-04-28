@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Building2, Users, Palette, Check, Zap } from 'lucide-react'
 import { LogoMark } from '../components/ui/Logo'
@@ -8,6 +8,7 @@ import { workspaceApi, templateApi, brandApi, contentApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
+import { clearGuestContext, readGuestContext, readQuickFillWebsite } from '../utils/authFlow'
 
 const TONES = [
   'Bold','Authentic','Energetic','Playful','Luxury','Minimal',
@@ -26,9 +27,10 @@ const WEBSITE_PLATFORMS = [
 ]
 
 export default function OnboardingPage() {
+  const guestContext = readGuestContext()
   const navigate = useNavigate()
   const { createBrand, setActiveWorkspace, activeWorkspaceId, fetchWorkspaces } = useAppStore()
-  const { user } = useAuthStore()
+  const { user, updateUser } = useAuthStore()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
   const [templateSetupRunning, setTemplateSetupRunning] = useState(false)
@@ -36,37 +38,14 @@ export default function OnboardingPage() {
   const [quickFillError, setQuickFillError] = useState('')
   const [stepErrors, setStepErrors] = useState({})
   const [quickFillWebsite, setQuickFillWebsite] = useState(() => {
-    try {
-      return localStorage.getItem('contentcard.signup.quickFillWebsite') || ''
-    } catch {
-      return ''
-    }
+    return guestContext?.website || readQuickFillWebsite()
   })
   const [quickFillPlatform, setQuickFillPlatform] = useState('auto')
   const [quickFillStatus, setQuickFillStatus] = useState('')
 
-  useEffect(() => {
-    if (!user || user.onboarding_completed) return undefined
-    const handleBeforeUnload = (event) => {
-      // Warn the user — leaving here clears their pending session.
-      event.preventDefault()
-      event.returnValue = ''
-      try {
-        localStorage.removeItem('contentcard-auth')
-        localStorage.removeItem('contentcard-app')
-        localStorage.removeItem('contentcard.signup.quickFillWebsite')
-      } catch {
-        /* ignore */
-      }
-      return ''
-    }
-    window.addEventListener('beforeunload', handleBeforeUnload)
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
-  }, [user?.id, user?.onboarding_completed])
-
   const [form, setForm] = useState({
-    name: '',
-    industry: '',
+    name: guestContext?.brandName || '',
+    industry: guestContext?.industry || '',
     sub_industry: '',
     description: '',
     target_audience: '',
@@ -232,7 +211,6 @@ export default function OnboardingPage() {
       return
     }
     setQuickFillRunning(true)
-    setQuickFillStatus('Setting up your workspace…')
     try {
       let workspaces = await fetchWorkspaces().catch(() => [])
       if (!workspaces?.length) {
@@ -261,7 +239,6 @@ export default function OnboardingPage() {
         .join(' ') || 'My Brand'
       const platformHint = quickFillPlatform === 'auto' ? inferPlatformFromWebsite(website) : quickFillPlatform
       const inferred = inferIndustryFromWebsite(website, platformHint)
-      setQuickFillStatus('Researching your site…')
       const onboardingPrefill = await contentApi.brandFormCoach({
         mode: 'onboarding',
         brand_id: null,
@@ -295,7 +272,6 @@ export default function OnboardingPage() {
         personality_score: 58,
       }, onboardingPatch)
 
-      setQuickFillStatus('Creating your brand…')
       const brand = await createBrand({
         name: onboardingForm.name || niceName,
         website,
@@ -324,10 +300,8 @@ export default function OnboardingPage() {
         },
       })
 
-      setQuickFillStatus('Syncing your storefront…')
       await brandApi.syncWebsite(wsId, brand.id, { force: true }).catch(() => {})
       await brandApi.syncReferences(wsId, brand.id, { force: true }).catch(() => {})
-      setQuickFillStatus('Loading your products…')
       const [products, opportunities] = await Promise.all([
         brandApi.websiteProducts(wsId, brand.id, { limit: 12 }).catch(() => []),
         brandApi.websiteOpportunities(wsId, brand.id, { limit: 8 }).catch(() => []),
@@ -347,7 +321,6 @@ export default function OnboardingPage() {
         `Entities: ${Array.isArray(websiteEntities) ? websiteEntities.slice(0, 8).map((e) => `${e?.entity_type}: ${e?.title}`).filter(Boolean).join(' | ') : 'none'}`,
         `Style fingerprint palette: ${pickPaletteFromFingerprint(styleFingerprint).join(', ') || 'none'}`,
       ].join('\n')
-      setQuickFillStatus('Building your brand kit…')
       const brandKitPrefill = await contentApi.brandFormCoach({
         mode: 'brand_kit',
         brand_id: brand.id,
@@ -376,15 +349,15 @@ export default function OnboardingPage() {
         },
         ...brandKitPatch,
       }, pickPaletteFromFingerprint(styleFingerprint))
-      setQuickFillStatus('Saving your kit…')
       await brandApi.update(wsId, brand.id, updatePayload)
-      setQuickFillStatus('Setting up templates…')
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false }).catch(() => {})
       try {
         localStorage.removeItem('contentcard.signup.quickFillWebsite')
       } catch {
         /* ignore */
       }
+      clearGuestContext()
+      updateUser({ onboarding_completed: true })
       toast('Quick fill complete. Review the brand kit, then upload your logo as the final step.', 'success')
       navigate('/dashboard/brand-kit')
     } catch (err) {
@@ -393,7 +366,6 @@ export default function OnboardingPage() {
       toast('Quick fill didn\'t finish. Continue manually below.', 'error')
     } finally {
       setQuickFillRunning(false)
-      setQuickFillStatus('')
     }
   }
 
@@ -446,6 +418,13 @@ export default function OnboardingPage() {
       })
       setTemplateSetupRunning(true)
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false })
+      clearGuestContext()
+      try {
+        localStorage.removeItem('contentcard.signup.quickFillWebsite')
+      } catch {
+        /* ignore */
+      }
+      updateUser({ onboarding_completed: true })
       toast('Brand profile created. Finish the required brand kit fields before generating content.')
       navigate('/dashboard/brand-kit')
     } catch (err) {

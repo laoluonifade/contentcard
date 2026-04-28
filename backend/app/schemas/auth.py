@@ -36,43 +36,17 @@ class TokenResponse(BaseModel):
     user: "UserOut"
 
 
-class SignupResponse(BaseModel):
-    """Returned by /auth/signup — no token; user must verify email before logging in."""
-    email: EmailStr
-    requires_verification: bool = True
-    message: str = "Account created. Check your inbox for a verification link."
-
-
-class VerifyEmailRequest(BaseModel):
-    token: str
-
-
-class ResendVerificationRequest(BaseModel):
-    email: EmailStr
-
-
 class UserOut(BaseModel):
     id: str
     email: str
     full_name: str
     phone: str | None
     country_code: str | None
+    onboarding_completed: bool = False
     agency_mode: bool = False
     auth_provider: str = "password"
-    email_verified: bool = False
-    # Per-user opt-in for non-transactional emails. NULL on legacy rows is
-    # surfaced as the default state by /me/email-preferences.
-    email_preferences: dict | None = None
 
     model_config = {"from_attributes": True}
-
-
-class EmailPreferencesUpdate(BaseModel):
-    # Only the editable categories are accepted — transactional is implicit
-    # and never changes. Caller may submit either or both keys; the rest of
-    # the prefs dict is preserved.
-    product_updates: bool | None = None
-    marketing: bool | None = None
 
 
 class PasswordChangeRequest(BaseModel):
