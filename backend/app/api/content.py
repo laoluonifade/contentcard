@@ -1940,10 +1940,31 @@ async def list_content(
 ):
     await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
     conditions = [ContentItem.brand_id == brand_id]
-    if month:
-        conditions.append(ContentItem.generation_month == month)
-    if year:
-        conditions.append(ContentItem.generation_year == year)
+    if month and year:
+        start = date(year, month, 1)
+        end = date(year, month, monthrange(year, month)[1])
+        # Calendar views should follow the actual scheduled month first.
+        # Fall back to generation_month/year only for rows that have not been
+        # explicitly scheduled yet, so newly generated drafts still appear.
+        conditions.append(
+            or_(
+                and_(
+                    ContentItem.scheduled_date.isnot(None),
+                    ContentItem.scheduled_date >= start,
+                    ContentItem.scheduled_date <= end,
+                ),
+                and_(
+                    ContentItem.scheduled_date.is_(None),
+                    ContentItem.generation_month == month,
+                    ContentItem.generation_year == year,
+                ),
+            )
+        )
+    else:
+        if month:
+            conditions.append(ContentItem.generation_month == month)
+        if year:
+            conditions.append(ContentItem.generation_year == year)
     if platform:
         conditions.append(ContentItem.platform == platform)
     if status:
