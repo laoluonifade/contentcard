@@ -64,7 +64,7 @@ export default function InboxPage() {
       setItems(prev => prev.filter(i => i.id !== id))
       toast.success('Marked as spam')
     } catch {
-      toast('Could not mark spam', 'error')
+      toast("Couldn't mark that as spam. Try again in a moment.", 'error')
     }
   }
 

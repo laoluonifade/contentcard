@@ -23,7 +23,7 @@ export default function ForgotPasswordPage() {
       // Never reveal whether the email exists — show success regardless of 4xx
       // Only surface genuine network / server errors
       if (!err?.response || err.response.status >= 500) {
-        setError('Something went wrong. Please try again in a moment.')
+        setError("Couldn't send the reset link. Try again in a moment.")
       } else {
         setSent(true)
       }

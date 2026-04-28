@@ -92,11 +92,11 @@ export default function SignupPage() {
   }
 
   const validateStep1 = () => {
-    if (!form.workspace_name.trim()) { toast('Please enter your brand or workspace name.', 'error'); return false }
-    if (!form.first_name.trim()) { toast('Please enter your first name.', 'error'); return false }
-    if (!form.last_name.trim())  { toast('Please enter your last name.', 'error'); return false }
-    if (!form.email.trim())      { toast('Please enter your email address.', 'error'); return false }
-    if (form.password.length < 8) { toast('Password must be at least 8 characters.', 'error'); return false }
+    if (!form.workspace_name.trim()) { toast('Add your brand or workspace name to continue.', 'error'); return false }
+    if (!form.first_name.trim()) { toast('Add your first name to continue.', 'error'); return false }
+    if (!form.last_name.trim())  { toast('Add your last name to continue.', 'error'); return false }
+    if (!form.email.trim())      { toast('Add the email you want to sign up with.', 'error'); return false }
+    if (form.password.length < 8) { toast("Pick a password that's at least 8 characters long.", 'error'); return false }
     return true
   }
 
@@ -131,7 +131,7 @@ export default function SignupPage() {
       }
       navigate(getPostAuthPath(res?.user, '/dashboard'))
     } catch (err) {
-      toast(err.message || 'Account creation failed. Please try again.', 'error')
+      toast(err.message || "Sign-up didn't go through. Mind trying again?", 'error')
     }
   }
 
@@ -147,7 +147,7 @@ export default function SignupPage() {
       const res = await authApi.shopifyStart({ shop: candidate, mode: 'signup', next_path: '/onboarding' })
       window.location.href = res.authorization_url
     } catch (err) {
-      toast(err?.response?.data?.detail || 'Could not start Shopify signup.', 'error')
+      toast(err?.response?.data?.detail || "We couldn't start the Shopify sign-up. Try again, or contact support if it keeps happening.", 'error')
     }
   }
 

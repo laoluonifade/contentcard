@@ -31,7 +31,7 @@ export default function SocialAutopilotPage() {
   const [comments, setComments] = useState([])
   const [metrics, setMetrics] = useState(null)
 
-  const comingSoonAction = () => toast('Coming soon', 'success')
+  const comingSoonAction = () => toast("Coming soon — we'll ping you when it's ready.", 'success')
 
   const loadOverview = async (brandId) => {
     if (!brandId) return

@@ -126,14 +126,14 @@ export default function SettingsPage() {
 
   const saveProfile = async () => {
     const full_name = `${profileForm.first_name.trim()} ${profileForm.last_name.trim()}`.trim()
-    if (!full_name) { toast('Enter your name', 'error'); return }
+    if (!full_name) { toast('Add your name to save your profile.', 'error'); return }
     setSaving(true)
     try {
       const newCountry = profileForm.country_code || null
       const countryChanged = newCountry !== (user?.country_code || null)
       await authApi.updateProfile({ full_name, country_code: newCountry })
       updateUser({ full_name, country_code: newCountry })
-      toast('Profile saved!')
+      toast('Profile saved.')
       // If country changed, refresh subscription so billing page immediately shows
       // the correct currency/provider (Paystack for Nigeria, Stripe for everyone else).
       if (countryChanged) fetchSubscription().catch(() => {})
@@ -142,22 +142,22 @@ export default function SettingsPage() {
   }
 
   const changePw = async () => {
-    if (!pwForm.current_password || !pwForm.new_password) { toast('Fill in both password fields', 'error'); return }
-    if ((pwForm.new_password || '').length < 8) { toast('New password must be at least 8 characters', 'error'); return }
+    if (!pwForm.current_password || !pwForm.new_password) { toast('Fill in both password fields to update your password.', 'error'); return }
+    if ((pwForm.new_password || '').length < 8) { toast("Your new password needs to be at least 8 characters long.", 'error'); return }
     setSaving(true)
     try {
       await authApi.changePassword(pwForm)
       setPwForm({ current_password: '', new_password: '' })
-      toast('Password updated!')
+      toast('Password updated.')
     } catch (err) {
       const detail = err?.response?.data?.detail
       if (Array.isArray(detail) && detail.length > 0) {
-        const msg = detail[0]?.msg || detail[0]?.message || 'Password update failed'
+        const msg = detail[0]?.msg || detail[0]?.message || "Couldn't update your password. Try again in a moment."
         toast(msg, 'error')
       } else if (typeof detail === 'string' && detail.trim()) {
         toast(detail, 'error')
       } else {
-        toast(err.message || 'Password update failed', 'error')
+        toast(err.message || "Couldn't update your password. Try again in a moment.", 'error')
       }
     }
     finally { setSaving(false) }
@@ -187,7 +187,7 @@ export default function SettingsPage() {
     try {
       await workspaceApi.updateMemberRole(activeWorkspaceId, memberId, role)
       setMembers(ms => ms.map(m => m.id === memberId ? { ...m, role } : m))
-      toast('Role updated')
+      toast('Role updated.')
     } catch (err) { toast(err.message, 'error') }
   }
 
@@ -196,7 +196,7 @@ export default function SettingsPage() {
     try {
       await workspaceApi.removeMember(activeWorkspaceId, memberId)
       setMembers(ms => ms.filter(m => m.id !== memberId))
-      toast('Member removed')
+      toast('Member removed.')
     } catch (err) { toast(err.message, 'error') }
   }
 
@@ -205,27 +205,27 @@ export default function SettingsPage() {
 
   const saveWorkspaceName = async () => {
     const nextName = workspaceName.trim()
-    if (!activeWorkspaceId) { toast('No active workspace', 'error'); return }
-    if (!nextName) { toast('Workspace name is required', 'error'); return }
+    if (!activeWorkspaceId) { toast('Pick a workspace first.', 'error'); return }
+    if (!nextName) { toast('Give the workspace a name.', 'error'); return }
     if (nextName === (activeWorkspace?.name || '')) return
     setRenamingWorkspace(true)
     try {
       await renameWorkspace(activeWorkspaceId, nextName)
-      toast('Workspace name updated')
+      toast('Workspace renamed.')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Could not update workspace name', 'error')
+      toast(err.response?.data?.detail || err.message || "Couldn't rename the workspace. Try again in a moment.", 'error')
     } finally {
       setRenamingWorkspace(false)
     }
   }
 
   const saveSocialSettings = () => {
-    toast('Coming soon')
+    toast("Coming soon — we'll ping you when it's ready.")
   }
 
   const handleDeleteAccount = async () => {
     if (deleteConfirmText !== 'DELETE') {
-      toast('Type DELETE in capitals to confirm', 'error')
+      toast("Type DELETE (in capitals) to confirm you really want to delete your account.", 'error')
       return
     }
     setDeleting(true)

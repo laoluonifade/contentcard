@@ -46,7 +46,7 @@ export default function DesignEditorPage() {
           setPrompt(row?.image_prompt || row?.visual_direction || '')
         }
       } catch {
-        toast('Could not open editor for this design.', 'error')
+        toast("Couldn't open the editor for this design. Refresh and try again.", 'error')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -69,7 +69,7 @@ export default function DesignEditorPage() {
       setReferenceImageUrl(url)
       toast('Reference image uploaded.')
     } catch (e) {
-      toast(e.response?.data?.detail || e.message || 'Upload failed', 'error')
+      toast(e.response?.data?.detail || e.message || "Upload didn't go through. Try again in a moment.", 'error')
     } finally {
       setUploading(false)
     }
@@ -79,7 +79,7 @@ export default function DesignEditorPage() {
     if (!post) return
     const basePrompt = String(prompt || '').trim()
     if (!basePrompt) {
-      toast('Add a prompt for the selected section.', 'error')
+      toast('Type a prompt to tell the AI what to change in this section.', 'error')
       return
     }
     const sectionLabel = SECTION_PRESETS.find((s) => s.id === section)?.label || section
@@ -96,9 +96,9 @@ export default function DesignEditorPage() {
         prompt_text: withRef,
       })
       setPost(updated)
-      toast('Design section updated.')
+      toast('Section updated.')
     } catch (e) {
-      toast(e.response?.data?.detail || 'AI section edit failed', 'error')
+      toast(e.response?.data?.detail || "Couldn't update that section. Try a different prompt or try again.", 'error')
     } finally {
       setSaving(false)
     }

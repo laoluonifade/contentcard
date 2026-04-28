@@ -159,7 +159,7 @@ export default function GeneratePage() {
   }
 
   const handleGenerate = async () => {
-    if (!activeBrandId) { toast('Select or create a brand first', 'error'); return }
+    if (!activeBrandId) { toast('Pick a brand (or set one up) before generating.', 'error'); return }
     const visErr = brandVisualBlockReason(activeBrand)
     if (visErr) {
       toast(visErr, 'error')

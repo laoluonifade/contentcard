@@ -502,7 +502,7 @@ export default function BrandKitPage() {
   }
 
   const addColor = () => {
-    if (!/^#[0-9A-Fa-f]{6}$/.test(newColorHex)) { toast('Enter a valid hex like #6C63FF', 'error'); return }
+    if (!/^#[0-9A-Fa-f]{6}$/.test(newColorHex)) { toast("That doesn't look like a hex colour. Try something like #6C63FF.", 'error'); return }
     set('brand_colors', [...(form.brand_colors || []), newColorHex])
   }
 
@@ -526,7 +526,7 @@ export default function BrandKitPage() {
     const cur = vs().allowed_archetypes || [...VISUAL_ARCHETYPES]
     const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
     if (next.length === 0) {
-      toast('Keep at least one layout archetype', 'error')
+      toast('Keep at least one layout archetype — your brand needs one to generate posts.', 'error')
       return
     }
     setVs({ allowed_archetypes: next })
@@ -642,7 +642,7 @@ export default function BrandKitPage() {
   const addManualReview = () => {
     const quote = String(manualReviewForm.quote || '').trim()
     if (quote.length < 12) {
-      toast('Add a stronger customer quote (at least 12 characters).', 'error')
+      toast("That quote feels too short to read as real. Try at least a full sentence.", 'error')
       return
     }
     const customer = String(manualReviewForm.customer_name || '').trim() || 'Customer'
@@ -666,7 +666,7 @@ export default function BrandKitPage() {
       customer_image_url: '',
       source_url: '',
     })
-    toast('Review added to Brand Kit.')
+    toast('Review saved.')
   }
 
   const removeReviewAt = (idx) => {
@@ -696,24 +696,24 @@ export default function BrandKitPage() {
     }
     const current = Array.isArray(form.brand_kit?.reviews) ? [...form.brand_kit.reviews] : []
     if (current.some((r) => String(r.quote || '').trim().toLowerCase() === payload.quote.trim().toLowerCase())) {
-      toast('This review is already in your Brand Kit.')
+      toast('Already saved this review.')
       return
     }
     current.unshift(payload)
     set('brand_kit', { ...(form.brand_kit || {}), reviews: current.slice(0, 60) })
-    toast('Imported review into Brand Kit.')
+    toast('Review imported.')
   }
 
   const createManualProduct = async () => {
     if (!activeWorkspaceId || !activeBrandId) return
     const title = String(manualProductForm.title || '').trim()
     if (title.length < 2) {
-      toast('Enter a product name.', 'error')
+      toast('Give the product a name.', 'error')
       return
     }
     const imageUrl = String(manualProductForm.image_url || '').trim()
     if (!imageUrl) {
-      toast('Add a product image URL.', 'error')
+      toast('Add a product image so it shows up nicely on the calendar.', 'error')
       return
     }
     setManualProductSaving(true)
@@ -745,7 +745,7 @@ export default function BrandKitPage() {
         tags: '',
         summary: '',
       })
-      toast('Product added.')
+      toast('Product saved.')
       await loadProducts(productStateFilter)
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to add product', 'error')
@@ -857,7 +857,7 @@ export default function BrandKitPage() {
         pii_block_mode: authCaptureCfg.pii_block_mode || 'strict',
       }
       await brandApi.configureAuthCapture(activeWorkspaceId, activeBrandId, payload)
-      toast('Auth capture governance saved')
+      toast('Auth capture rules saved.')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to save auth capture config', 'error')
     } finally {
@@ -870,7 +870,7 @@ export default function BrandKitPage() {
     setAuthCaptureRunning(true)
     try {
       await brandApi.runAuthCapture(activeWorkspaceId, activeBrandId, { reason: 'manual QA capture' })
-      toast('Auth capture run queued')
+      toast("Auth capture started — we'll let you know when it's done.")
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to queue auth capture', 'error')
     } finally {
@@ -900,7 +900,7 @@ export default function BrandKitPage() {
       useAppStore.setState((s) => ({
         brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, logo_url: logoUrl } : b)),
       }))
-      toast('Logo saved with a transparent-friendly treatment so it sits cleanly on any generated design.')
+      toast('Logo saved. Transparent backgrounds will sit cleanly on every generated post.')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Upload failed', 'error')
       throw err
@@ -923,7 +923,7 @@ export default function BrandKitPage() {
     e.target.value = ''
     if (!file || !activeBrandId || !activeWorkspaceId) return
     if (!file.type.startsWith('image/')) {
-      toast('Please choose an image file (PNG, JPG, or SVG).', 'error')
+      toast('Pick an image file (PNG, JPG, or SVG).', 'error')
       return
     }
     if (file.type === 'image/svg+xml') {
@@ -942,7 +942,7 @@ export default function BrandKitPage() {
     if (!files.length || !activeBrandId || !activeWorkspaceId) return
     const imageFiles = files.filter((f) => String(f.type || '').startsWith('image/'))
     if (!imageFiles.length) {
-      toast('Please choose image files (PNG, JPG, or WEBP).', 'error')
+      toast('Pick image files only (PNG, JPG, or WEBP).', 'error')
       return
     }
     setBrandImagesUploading(true)
@@ -971,7 +971,7 @@ export default function BrandKitPage() {
     e.target.value = ''
     if (!file || !activeBrandId || !activeWorkspaceId) return
     if (!String(file.type || '').startsWith('image/')) {
-      toast('Please choose an image file for the customer photo.', 'error')
+      toast('Pick an image for the customer photo.', 'error')
       return
     }
     setReviewPhotoUploading(true)
@@ -986,7 +986,7 @@ export default function BrandKitPage() {
       useAppStore.setState((s) => ({
         brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, brand_photos: latestPhotos } : b)),
       }))
-      toast('Customer photo uploaded.')
+      toast('Customer photo saved.')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Review photo upload failed', 'error')
     } finally {

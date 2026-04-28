@@ -38,7 +38,7 @@ export default function LoginPage() {
       toast.success('Welcome back!')
       navigate(getPostAuthPath(res?.user, '/dashboard'))
     } catch (err) {
-      toast.error(err.message || 'Sign in failed. Please check your credentials.')
+      toast.error(err.message || "That email and password don't match. Check the spelling, or reset your password.")
     }
   }
 
@@ -54,7 +54,7 @@ export default function LoginPage() {
       const res = await authApi.shopifyStart({ shop: candidate, mode: 'login', next_path: '/dashboard' })
       window.location.href = res.authorization_url
     } catch (err) {
-      toast.error(err?.response?.data?.detail || 'Could not start Shopify login.')
+      toast.error(err?.response?.data?.detail || "We couldn't start the Shopify login. Try again, or contact support if it keeps happening.")
     }
   }
 

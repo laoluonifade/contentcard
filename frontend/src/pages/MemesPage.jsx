@@ -143,12 +143,12 @@ export default function MemesPage() {
     e.preventDefault()
     const title = String(form.title || '').trim()
     if (title.length < 2) {
-      toast('Add a short title for this meme.', 'error')
+      toast("Give the meme a short title so you can find it later.", 'error')
       return
     }
     const media_url = String(form.media_url || '').trim()
     if (!media_url) {
-      toast('Add a media URL or upload a file.', 'error')
+      toast('Paste a link or upload an image to add the meme.', 'error')
       return
     }
     const tags = String(form.tags || '')
@@ -159,10 +159,10 @@ export default function MemesPage() {
     try {
       await contentApi.addMeme({ title, media_url, media_type: form.media_type, tags })
       setForm({ title: '', media_url: '', media_type: 'image', tags: '' })
-      toast('Meme added to the library.')
+      toast('Meme saved to your library.')
       await load()
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Could not add meme', 'error')
+      toast(err.response?.data?.detail || err.message || "Couldn't save the meme. Try again in a moment.", 'error')
     } finally {
       setSaving(false)
     }
@@ -173,7 +173,7 @@ export default function MemesPage() {
     e.target.value = ''
     if (!file) return
     if (!String(file.type || '').startsWith('image/')) {
-      toast('Choose an image or GIF file.', 'error')
+      toast('Pick an image or GIF file to upload.', 'error')
       return
     }
     setUploading(true)
@@ -183,9 +183,9 @@ export default function MemesPage() {
       if (!url) throw new Error('Upload failed')
       const isGif = file.type === 'image/gif' || /\.gif($|\?)/i.test(url)
       setForm((f) => ({ ...f, media_url: url, media_type: isGif ? 'gif' : 'image' }))
-      toast('Upload complete — add a title and save.')
+      toast('Uploaded. Add a title and save.')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Upload failed', 'error')
+      toast(err.response?.data?.detail || err.message || "Upload didn't go through. Try again in a moment.", 'error')
     } finally {
       setUploading(false)
     }
@@ -200,7 +200,7 @@ export default function MemesPage() {
       toast('Meme removed.')
       await load()
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Could not remove', 'error')
+      toast(err.response?.data?.detail || err.message || "Couldn't remove the meme. Try again in a moment.", 'error')
     }
   }
 

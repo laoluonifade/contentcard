@@ -233,7 +233,7 @@ export default function BillingPage() {
   useEffect(() => {
     fetchSubscription().catch(() => {})
     if (searchParams.get('success')) {
-      toast('Payment confirmed: your plan is now active!')
+      toast("Payment confirmed — your plan's active. Enjoy.")
       fetchSubscription().catch(() => {})
     }
   }, [])
@@ -248,9 +248,9 @@ export default function BillingPage() {
     try {
       await cancelSubscription()
       setShowCancelModal(false)
-      toast('Subscription cancelled. Your card stays saved: re-subscribe anytime.')
+      toast('Subscription cancelled. Your card stays saved — come back whenever.')
     } catch (err) {
-      toast(err.response?.data?.detail || 'Cancellation failed', 'error')
+      toast(err.response?.data?.detail || "Cancel didn't go through. Try again — your subscription is still active.", 'error')
     } finally {
       setCancelling(false)
     }
@@ -268,7 +268,7 @@ export default function BillingPage() {
         toast('Card removed.')
       }
     } catch (err) {
-      toast(err.response?.data?.detail || 'Failed to remove card', 'error')
+      toast(err.response?.data?.detail || "Couldn't remove the card. Try again, or contact us if it keeps happening.", 'error')
     } finally {
       setRemoving(false)
     }

@@ -122,9 +122,9 @@ def _canonical_taxonomy(industry: str | None, sub_industry: str | None) -> tuple
     ind_raw = str(industry or "").strip()
     sub_raw = str(sub_industry or "").strip()
     if not ind_raw:
-        raise HTTPException(status_code=400, detail="industry is required")
+        raise HTTPException(status_code=400, detail="Pick an industry — that's how we match the right voice and templates.")
     if not sub_raw:
-        raise HTTPException(status_code=400, detail="sub_industry is required")
+        raise HTTPException(status_code=400, detail="Pick a sub-industry too — it makes generated content much more on-brand.")
     ind_map = {k.lower(): k for k in INDUSTRY_TAXONOMY.keys()}
     ind_key = ind_map.get(ind_raw.lower())
     if not ind_key:
@@ -339,7 +339,7 @@ async def _check_member(workspace_id: str, user_id: str, db: AsyncSession) -> Wo
     ))
     m = r.scalar_one_or_none()
     if not m:
-        raise HTTPException(status_code=403, detail="Not a workspace member")
+        raise HTTPException(status_code=403, detail="You're not part of this workspace. Ask the owner to invite you.")
     return m
 
 
@@ -368,7 +368,7 @@ async def create_brand(
 ):
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
 
     canon_industry, canon_sub_industry = _canonical_taxonomy(body.industry, body.sub_industry)
     payload = body.model_dump()
@@ -393,7 +393,7 @@ async def get_brand(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     return BrandOut.model_validate(brand)
 
 
@@ -417,12 +417,12 @@ async def update_brand(
 ):
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
 
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     data = body.model_dump(exclude_none=True)
     effective_industry = data.get("industry", brand.industry)
@@ -452,12 +452,12 @@ async def delete_brand(
 ):
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN):
-        raise HTTPException(status_code=403, detail="Admin required")
+        raise HTTPException(status_code=403, detail="Only workspace admins can do this.")
 
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     assistant_id = brand.openai_assistant_id
     vs_id = brand.openai_vector_store_id
@@ -480,7 +480,7 @@ async def generate_ai_insights(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     from app.api.content import _brand_to_dict
     from app.services.ai_service import _openai_chat
@@ -534,12 +534,12 @@ async def resync_brand_assistant(
     """
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
 
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     background_tasks.add_task(_sync_brand_assistant, brand.id)
     return {"message": "Brand assistant resync started. Allow 30 to 60 seconds then regenerate content."}
@@ -555,12 +555,12 @@ async def upload_brand_photo(
     """Upload a brand photo to Cloudinary and add it to brand_photos list."""
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
 
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
@@ -595,12 +595,12 @@ async def delete_brand_photo(
     """Remove a brand photo by index."""
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
 
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     photos = list(brand.brand_photos or [])
     if photo_index < 0 or photo_index >= len(photos):
@@ -622,7 +622,7 @@ async def upload_logo(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     contents = await file.read()
     if len(contents) > 10 * 1024 * 1024:
@@ -683,11 +683,11 @@ async def sync_brand_website(
 ):
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     try:
         result = await sync_brand_website_intelligence(db, brand, force=body.force)
     except ValueError as exc:
@@ -706,7 +706,7 @@ async def get_brand_website_status(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     ensure_website_intelligence_defaults(brand)
     return WebsiteStatusOut(**(await website_status(db, brand)))
 
@@ -726,7 +726,7 @@ async def list_brand_website_entities(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     q = select(WebsiteEntity).where(WebsiteEntity.brand_id == brand.id).order_by(WebsiteEntity.last_seen_at.desc()).limit(limit)
     if entity_type:
         q = q.where(WebsiteEntity.entity_type == entity_type)
@@ -752,7 +752,7 @@ async def list_brand_website_products(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     entities = (
         await db.execute(
@@ -849,12 +849,12 @@ async def create_brand_manual_product(
 ):
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
 
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     title = str(body.title or "").strip()
     if len(title) < 2:
@@ -931,12 +931,12 @@ async def delete_brand_manual_product(
 ):
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
 
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     row = (
         await db.execute(
@@ -971,7 +971,7 @@ async def list_brand_website_changes(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     rows = (
         await db.execute(
             select(WebsiteChangeEvent)
@@ -997,7 +997,7 @@ async def list_brand_website_opportunities(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     rows = (
         await db.execute(
             select(WebsiteOpportunity)
@@ -1020,14 +1020,14 @@ async def update_brand_website_opportunity(
 ):
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
     if body.status not in ("pending_approval", "approved", "dismissed"):
         raise HTTPException(status_code=400, detail="status must be pending_approval, approved, or dismissed")
 
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     op_r = await db.execute(
         select(WebsiteOpportunity).where(
@@ -1069,7 +1069,7 @@ async def configure_brand_auth_capture(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
 
     ensure_website_intelligence_defaults(brand)
     kit = dict(brand.brand_kit or {})
@@ -1105,7 +1105,7 @@ async def run_brand_auth_capture(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     ensure_website_intelligence_defaults(brand)
     cfg = dict((brand.brand_kit or {}).get("website_intelligence") or {})
     ac = dict(cfg.get("auth_capture") or {})
@@ -1140,7 +1140,7 @@ async def brand_screenshot_asset_status(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     verified = len(list(brand.brand_photos or []))
     entities = (
         await db.execute(
@@ -1172,11 +1172,11 @@ async def sync_brand_references(
 ):
     m = await _check_member(workspace_id, current_user.id, db)
     if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
-        raise HTTPException(status_code=403, detail="Editor access required")
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     res = await sync_brand_reference_research(db, brand, force=body.force)
     await db.commit()
     return ReferenceSyncResponse(**res)
@@ -1193,7 +1193,7 @@ async def get_brand_reference_status(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     profile = dict((brand.brand_kit or {}).get("creative_profile") or {})
     fp = (
         await db.execute(
@@ -1220,7 +1220,7 @@ async def get_brand_style_fingerprint(
     r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
     brand = r.scalar_one_or_none()
     if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
     fp = (
         await db.execute(
             select(StyleFingerprint).where(StyleFingerprint.brand_id == brand.id).order_by(StyleFingerprint.updated_at.desc()).limit(1)

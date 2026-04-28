@@ -823,7 +823,7 @@ export default function CalendarPage() {
     const website = guestForm.website.trim()
     const industry = guestForm.industry.trim()
     if (!brandName || (!website && !industry)) {
-      toast('Add your brand name plus a website or industry to generate the guest preview.', 'error')
+      toast('Add your brand name plus a website (or industry) to see a preview.', 'error')
       focusGuestPrompt()
       return
     }
@@ -841,7 +841,7 @@ export default function CalendarPage() {
         design_intent: null,
       },
     ])
-    toast('Guest preview generated')
+    toast('Preview ready.')
   }
   const lastPrepGenPollRef = useRef(0)
   const [modal, setModal]   = useState(null)

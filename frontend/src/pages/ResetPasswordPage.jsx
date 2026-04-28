@@ -26,15 +26,15 @@ export default function ResetPasswordPage() {
     setTokenExpired(false)
 
     if (password.length < 8) {
-      setError('Password must be at least 8 characters.')
+      setError("Pick a password that's at least 8 characters long.")
       return
     }
     if (password !== confirm) {
-      setError('Passwords do not match.')
+      setError("Those passwords don't match. Re-type the new password to confirm.")
       return
     }
     if (!token) {
-      setError('Reset link is missing or invalid. Please request a new one.')
+      setError("We couldn't read your reset link. Request a new one and try again.")
       return
     }
 
@@ -51,9 +51,9 @@ export default function ResetPasswordPage() {
         /expired|invalid|already\s+used/i.test(err?.message || '')
       if (expired) {
         setTokenExpired(true)
-        setError('This reset link has expired or is no longer valid. Request a new one to continue.')
+        setError("This reset link no longer works — they expire after 24 hours. Request a fresh one and we'll email it over.")
       } else {
-        setError(detail || 'Something went wrong. Please try again.')
+        setError(detail || "Couldn't reset your password. Try again in a moment.")
       }
     } finally {
       setLoading(false)

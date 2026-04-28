@@ -358,12 +358,12 @@ export default function OnboardingPage() {
       }
       clearGuestContext()
       updateUser({ onboarding_completed: true })
-      toast('Quick fill complete. Review the brand kit, then upload your logo as the final step.', 'success')
+      toast("Quick fill done. Review your brand kit, then upload your logo to wrap up.", 'success')
       navigate('/dashboard/brand-kit')
     } catch (err) {
-      const detail = err.response?.data?.detail || err.message || 'Something went wrong while reading your website.'
-      setQuickFillError(`${detail} You can continue filling the form manually below.`)
-      toast('Quick fill didn\'t finish. Continue manually below.', 'error')
+      const detail = err.response?.data?.detail || err.message || "We couldn't read your website."
+      setQuickFillError(`${detail} No worries — you can fill in the rest manually below.`)
+      toast("Quick fill didn't finish. Fill in the rest below — it only takes a minute.", 'error')
     } finally {
       setQuickFillRunning(false)
     }
@@ -385,13 +385,13 @@ export default function OnboardingPage() {
   const next = () => {
     if (step === 1) {
       const errors = {}
-      if (!form.name.trim()) errors.name = 'Enter your brand name.'
-      if (!form.industry) errors.industry = 'Select your industry.'
-      if (!form.sub_industry) errors.sub_industry = 'Select your sub-industry.'
-      if (!form.website_platform) errors.website_platform = 'Select your website type.'
+      if (!form.name.trim()) errors.name = 'Add your brand name to continue.'
+      if (!form.industry) errors.industry = "Pick the industry that fits best — we'll match the right voice."
+      if (!form.sub_industry) errors.sub_industry = 'Pick a sub-industry too. The more specific, the better.'
+      if (!form.website_platform) errors.website_platform = 'Pick your website type so we know how to read your site.'
       if (Object.keys(errors).length) {
         setStepErrors(errors)
-        toast('Please complete the required fields.', 'error')
+        toast('A few fields still need filling in.', 'error')
         return
       }
       setStepErrors({})
@@ -425,10 +425,10 @@ export default function OnboardingPage() {
         /* ignore */
       }
       updateUser({ onboarding_completed: true })
-      toast('Brand profile created. Finish the required brand kit fields before generating content.')
+      toast("Brand profile saved. Finish the required brand kit fields and you're ready to generate.")
       navigate('/dashboard/brand-kit')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Something went wrong. Please try again.', 'error')
+      toast(err.response?.data?.detail || err.message || "Couldn't save the brand profile. Try again in a moment.", 'error')
     } finally {
       setTemplateSetupRunning(false)
       setSaving(false)
