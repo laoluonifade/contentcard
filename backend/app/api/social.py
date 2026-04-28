@@ -3,6 +3,7 @@ import hmac
 import json
 import base64
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 import re
@@ -48,6 +49,7 @@ from app.schemas.social import (
     SocialOAuthStartResponse,
     SocialOpsAlertsOut,
     SocialMetricsSummaryOut,
+    SocialManualPostRequest,
     SocialPostOut,
     SocialQueueRequest,
     SocialPreflightRequest,
@@ -1117,6 +1119,72 @@ async def queue_social_post(
         media_hash=_hash_media(body.media_urls),
     )
     db.add(post)
+    await db.commit()
+    await db.refresh(post)
+    return SocialPostOut.model_validate(post)
+
+
+@router.post("/posts/manual-confirm", response_model=SocialPostOut)
+async def manual_confirm_social_post(
+    body: SocialManualPostRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _, member = await _get_brand_member(body.brand_id, current_user.id, db)
+    _require_editor(member)
+
+    if body.content_item_id:
+        item = (
+            await db.execute(
+                select(ContentItem).where(
+                    ContentItem.id == body.content_item_id,
+                    ContentItem.brand_id == body.brand_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if not item:
+            raise HTTPException(status_code=404, detail="Content item not found for brand")
+
+    post = None
+    if body.content_item_id:
+        post = (
+            await db.execute(
+                select(SocialPost)
+                .where(
+                    SocialPost.brand_id == body.brand_id,
+                    SocialPost.content_item_id == body.content_item_id,
+                    SocialPost.platform == body.platform,
+                )
+                .order_by(SocialPost.updated_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+
+    published_at = body.published_at or _now()
+    reason = (body.status_reason or "").strip() or "marked as posted manually"
+
+    if not post:
+        manual_ref = body.content_item_id or uuid.uuid4().hex[:12]
+        post = SocialPost(
+            brand_id=body.brand_id,
+            content_item_id=body.content_item_id,
+            platform=body.platform,
+            status=SocialPostStatus.POSTED,
+            status_reason=reason,
+            idempotency_key=f"manual:{body.brand_id}:{manual_ref}:{body.platform.value}",
+            scheduled_for=published_at,
+            provider_post_id="manual",
+            published_at=published_at,
+        )
+        db.add(post)
+    else:
+        post.status = SocialPostStatus.POSTED
+        post.status_reason = reason
+        post.provider_post_id = post.provider_post_id or "manual"
+        post.scheduled_for = post.scheduled_for or published_at
+        post.published_at = published_at
+        post.updated_at = _now()
+
     await db.commit()
     await db.refresh(post)
     return SocialPostOut.model_validate(post)

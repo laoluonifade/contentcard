@@ -210,6 +210,57 @@ async def get_subscription_next_payment(subscription_code: str) -> str | None:
     return None
 
 
+async def fetch_paystack_authorization(
+    *,
+    subscription_code: str | None = None,
+    customer_code: str | None = None,
+) -> dict | None:
+    """
+    Look up a card authorization for a customer when the inline /transaction/verify
+    response didn't carry one. Tries the subscription record first (always includes
+    the active authorization), then falls back to the customer's authorization list
+    (returns the most recently used card).
+
+    Returns a Paystack-shaped authorization dict (with last4, card_type, bank, etc.)
+    or None if nothing is found.
+    """
+    if not settings.PAYSTACK_SECRET_KEY:
+        return None
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        if subscription_code:
+            try:
+                r = await client.get(
+                    f"{PAYSTACK_BASE}/subscription/{subscription_code}",
+                    headers=_headers(),
+                )
+                if r.status_code == 200:
+                    auth = (r.json().get("data") or {}).get("authorization") or {}
+                    if auth.get("last4"):
+                        return auth
+            except Exception as exc:
+                logger.warning("Paystack subscription lookup failed: %s", exc)
+
+        if customer_code:
+            try:
+                r = await client.get(
+                    f"{PAYSTACK_BASE}/customer/{customer_code}",
+                    headers=_headers(),
+                )
+                if r.status_code == 200:
+                    auths = (r.json().get("data") or {}).get("authorizations") or []
+                    # Most recent reusable authorization first
+                    for a in auths:
+                        if a.get("reusable") and a.get("last4"):
+                            return a
+                    if auths and auths[0].get("last4"):
+                        return auths[0]
+            except Exception as exc:
+                logger.warning("Paystack customer lookup failed: %s", exc)
+
+    return None
+
+
 async def charge_saved_authorization(
     *,
     email: str,

@@ -8,9 +8,25 @@ import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
 import { normalizeHex } from '../lib/brandVisualValidate'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
+import BrandHealthScore from '../components/brand/BrandHealthScore'
+import BrandModeToggle, { getBrandKitMode } from '../components/brand/BrandModeToggle'
+import { useFeatureFlag } from '../lib/featureFlags'
+
+function BrandKitModeAndScore({ brand, onJumpToTab }) {
+  const scoreEnabled = useFeatureFlag('brand_kit.score')
+  const modeEnabled = useFeatureFlag('brand_kit.two_mode')
+  const [mode, setMode] = useState(getBrandKitMode())
+  return (
+    <div className="flex items-center gap-3">
+      {modeEnabled && <BrandModeToggle value={mode} onChange={setMode} />}
+      {scoreEnabled && <BrandHealthScore brand={brand} onTabSelect={onJumpToTab} />}
+    </div>
+  )
+}
 import LogoCropModal from '../components/brand/LogoCropModal'
 import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
+import { getMissingFields } from '../utils/brandReadiness'
 
 const TABS = ['Basics', 'Products', 'Reviews', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
 
@@ -507,7 +523,12 @@ export default function BrandKitPage() {
     setSaving(true)
     try {
       await updateBrand(activeBrandId, form)
-      toast('Brand kit saved!')
+      const missing = getMissingFields(form)
+      toast(
+        missing.length
+          ? `Saved. ${missing.length} required ${missing.length === 1 ? 'field is' : 'fields are'} still missing before AI generation is unlocked.`
+          : 'Brand kit saved and ready for AI generation!'
+      )
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to save', 'error')
     } finally { setSaving(false) }
@@ -935,6 +956,7 @@ export default function BrandKitPage() {
 
   // Live scores: recomputed on every keystroke
   const { S, overall, overallLevel } = useBrandScores(form)
+  const missingRequiredFields = getMissingFields(form)
 
   if (!brand) {
     return (
@@ -957,7 +979,7 @@ export default function BrandKitPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="flex items-start justify-between gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
           <p className="text-ink/40 text-sm">
@@ -965,14 +987,45 @@ export default function BrandKitPage() {
             {brand.sub_industry ? ` · ${brand.sub_industry}` : ''}
           </p>
         </div>
-        <button onClick={save} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
-          <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <BrandKitModeAndScore brand={brand} onJumpToTab={(t) => setTab(t)} />
+          <button onClick={save} disabled={saving}
+            className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
+            <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
       </div>
 
       {/* Brand Strength Banner */}
       <StrengthBanner overall={overall} overallLevel={overallLevel} />
+      {missingRequiredFields.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-amber-800/70 mb-1">Required before AI generation</p>
+              <h2 className="text-sm font-bold text-amber-900 mb-1.5">
+                Fill these {missingRequiredFields.length} fields so generated posts sound ready to publish.
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {missingRequiredFields.map((field) => (
+                  <button
+                    key={`${field.tab}:${field.label}`}
+                    type="button"
+                    onClick={() => setTab(field.tab)}
+                    className="px-2.5 py-1 rounded-lg border border-amber-200 bg-white text-[11px] font-semibold text-amber-900 hover:border-amber-300"
+                  >
+                    {field.label} · {field.tab}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-bold text-amber-900">{missingRequiredFields.length}</div>
+              <div className="text-[11px] text-amber-800/75">left to complete</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className={clsx(
         'grid gap-8 items-start',

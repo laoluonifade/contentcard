@@ -53,6 +53,38 @@ async def ensure_unique_slug(db: AsyncSession, base: str) -> str:
         i += 1
 
 
+async def _user_onboarding_completed(db: AsyncSession, user: User) -> bool:
+    owned_workspace_ids = (
+        await db.execute(select(Workspace.id).where(Workspace.owner_id == user.id))
+    ).scalars().all()
+
+    # Collaborators or invite-only users should not be forced through owner onboarding.
+    if not owned_workspace_ids:
+        return True
+
+    first_brand = (
+        await db.execute(
+            select(Brand.id).where(Brand.workspace_id.in_(owned_workspace_ids)).limit(1)
+        )
+    ).scalar_one_or_none()
+
+    return first_brand is not None
+
+
+async def _serialize_user_out(db: AsyncSession, user: User) -> UserOut:
+    payload = {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "phone": user.phone,
+        "country_code": user.country_code,
+        "onboarding_completed": await _user_onboarding_completed(db, user),
+        "agency_mode": bool(user.agency_mode),
+        "auth_provider": user.auth_provider or "password",
+    }
+    return UserOut.model_validate(payload)
+
+
 @router.post("/signup", response_model=TokenResponse, status_code=201)
 async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depends(get_db)):
     # Check duplicate email
@@ -83,13 +115,15 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     db.add(user)
     await db.flush()  # get user.id
 
-    # Create default workspace
-    base_slug = slugify(body.full_name + " workspace")
+    # Create default workspace — use the brand/workspace name the user typed at signup,
+    # or fall back to "{full_name}'s Workspace" if they didn't provide one.
+    ws_display_name = (body.workspace_name or "").strip() or f"{body.full_name}'s Workspace"
+    base_slug = slugify(ws_display_name)
     slug = await ensure_unique_slug(db, base_slug)
     trial_ends = datetime.now(timezone.utc) + timedelta(days=settings.FREE_TRIAL_DAYS)
 
     workspace = Workspace(
-        name=f"{body.full_name}'s Workspace",
+        name=ws_display_name,
         slug=slug,
         owner_id=user.id,
         plan="trial",
@@ -116,7 +150,7 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     )
 
     token = create_access_token(user.id)
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+    return TokenResponse(access_token=token, user=await _serialize_user_out(db, user))
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -127,12 +161,12 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     token = create_access_token(user.id)
-    return TokenResponse(access_token=token, user=UserOut.model_validate(user))
+    return TokenResponse(access_token=token, user=await _serialize_user_out(db, user))
 
 
 @router.get("/me", response_model=UserOut)
-async def me(current_user: User = Depends(get_current_user)):
-    return UserOut.model_validate(current_user)
+async def me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    return await _serialize_user_out(db, current_user)
 
 
 @router.put("/me", response_model=UserOut)
@@ -159,19 +193,19 @@ async def update_profile(
         else:
             setattr(current_user, key, val)
 
-    # When billing country changes, sync payment_provider on all owned workspaces
-    # so subscription queries immediately reflect the correct provider.
     if country_changed:
+        # Propagate the new payment provider to all workspaces the user owns
+        # so billing queries immediately return the correct provider/currency.
         new_provider = get_payment_provider(current_user.country_code)
-        owned = await db.execute(
+        result = await db.execute(
             select(Workspace).where(Workspace.owner_id == current_user.id)
         )
-        for ws in owned.scalars().all():
+        for ws in result.scalars().all():
             ws.payment_provider = new_provider
 
     await db.commit()
     await db.refresh(current_user)
-    return UserOut.model_validate(current_user)
+    return await _serialize_user_out(db, current_user)
 
 
 @router.delete("/me", status_code=204)

@@ -1,24 +1,23 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { ToastProvider } from './components/ui/Toast'
 import useAuthStore from './stores/authStore'
+import { getPostAuthPath } from './utils/authFlow'
 
-import LandingPage          from './pages/LandingPage'
 import LoginPage            from './pages/LoginPage'
 import SignupPage           from './pages/SignupPage'
 import OnboardingPage       from './pages/OnboardingPage'
 import AcceptInvite         from './pages/AcceptInvite'
 import ForgotPasswordPage   from './pages/ForgotPasswordPage'
 import ResetPasswordPage    from './pages/ResetPasswordPage'
+import VerifyEmailPage      from './pages/VerifyEmailPage'
 import FeaturesPage         from './pages/FeaturesPage'
 import PricingPage          from './pages/PricingPage'
 import EnterprisePage       from './pages/EnterprisePage'
 import DemoPage             from './pages/DemoPage'
 import SolutionsPage        from './pages/SolutionsPage'
-import AboutPage            from './pages/AboutPage'
 import ContactPage          from './pages/ContactPage'
-import BlogPage             from './pages/BlogPage'
 import CareersPage          from './pages/CareersPage'
-import ChangelogPage        from './pages/ChangelogPage'
 import RoadmapPage          from './pages/RoadmapPage'
 import LegalPage            from './pages/LegalPage'
 import PitchDeckPage        from './pages/PitchDeckPage'
@@ -34,8 +33,10 @@ import BillingPage          from './pages/BillingPage'
 import DirectoryPage        from './pages/DirectoryPage'
 import MemesPage            from './pages/MemesPage'
 import SocialAutopilotPage  from './pages/SocialAutopilotPage'
-import DesignEditorPage from './pages/DesignEditorPage'
-import AssistantPage   from './pages/AssistantPage'
+import DesignEditorPage     from './pages/DesignEditorPage'
+import AnalyticsPage        from './pages/AnalyticsPage'
+import InboxPage            from './pages/InboxPage'
+import AIWorkspacePage      from './pages/AIWorkspacePage'
 import ShopifyAuthCallbackPage from './pages/ShopifyAuthCallbackPage'
 import ShopifyOnboardingCompletionPage from './pages/ShopifyOnboardingCompletionPage'
 import ShopifyPostSignupDecisionPage from './pages/ShopifyPostSignupDecisionPage'
@@ -56,19 +57,68 @@ import AdminDesignPlaybookPage from './pages/AdminDesignPlaybookPage'
 import AdminMemesPage       from './pages/AdminMemesPage'
 import AdminDemoRequestsPage from './pages/AdminDemoRequestsPage'
 
+function AuthGateFallback() {
+  return (
+    <div className="min-h-screen grid place-items-center bg-mist px-6">
+      <div className="text-center">
+        <div className="mx-auto h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+        <p className="mt-3 text-sm text-ink/55">Checking your session…</p>
+      </div>
+    </div>
+  )
+}
+
+function RouteGate({ children, requireAuth, redirectAuthed = '/dashboard/calendar', redirectUnauthed = '/login' }) {
+  const {
+    token,
+    user,
+    isAuthenticated,
+    hasHydrated,
+    authResolved,
+    bootstrapAuth,
+  } = useAuthStore()
+  const location = useLocation()
+
+  useEffect(() => {
+    if (!hasHydrated) return
+    bootstrapAuth()
+  }, [hasHydrated, bootstrapAuth])
+
+  const waitingForValidation = hasHydrated && !!token && !authResolved
+
+  if (!hasHydrated || waitingForValidation) {
+    return <AuthGateFallback />
+  }
+
+  const shouldResumeOnboarding =
+    isAuthenticated &&
+    user?.onboarding_completed === false &&
+    !new Set(['/onboarding', '/shopify/complete-onboarding', '/shopify/decision', '/shopify/callback']).has(location.pathname)
+
+  if (requireAuth) {
+    if (!isAuthenticated) return <Navigate to={redirectUnauthed} replace />
+    if (shouldResumeOnboarding) return <Navigate to="/onboarding" replace />
+    return children
+  }
+
+  return !isAuthenticated ? children : <Navigate to={getPostAuthPath(user, redirectAuthed)} replace />
+}
+
 function PrivateRoute({ children }) {
-  const { isAuthenticated } = useAuthStore()
-  return isAuthenticated ? children : <Navigate to="/login" replace />
+  return <RouteGate requireAuth redirectUnauthed="/login">{children}</RouteGate>
 }
 
 function GuestRoute({ children }) {
-  const { isAuthenticated } = useAuthStore()
-  return !isAuthenticated ? children : <Navigate to="/dashboard" replace />
+  return <RouteGate requireAuth={false} redirectAuthed="/dashboard/calendar">{children}</RouteGate>
 }
 
 function AdminRoute({ children }) {
   const admin = localStorage.getItem('contentcard-admin')
   return admin ? children : <Navigate to="/admindash/login" replace />
+}
+
+function AuthOnlyDashRoute({ children }) {
+  return <RouteGate requireAuth redirectUnauthed="/dashboard/calendar">{children}</RouteGate>
 }
 
 export default function App() {
@@ -77,17 +127,14 @@ export default function App() {
       <ToastProvider />
       <Routes>
         {/* Marketing */}
-        <Route path="/"                      element={<LandingPage />} />
+        <Route path="/"                      element={<Navigate to="/dashboard/calendar" replace />} />
         <Route path="/features"              element={<FeaturesPage />} />
         <Route path="/pricing"               element={<PricingPage />} />
         <Route path="/enterprise"            element={<EnterprisePage />} />
         <Route path="/demo"                  element={<DemoPage />} />
         <Route path="/solutions/:type"       element={<SolutionsPage />} />
-        <Route path="/about"                 element={<AboutPage />} />
         <Route path="/contact"               element={<ContactPage />} />
-        <Route path="/blog"                  element={<BlogPage />} />
         <Route path="/careers"               element={<CareersPage />} />
-        <Route path="/changelog"             element={<ChangelogPage />} />
         <Route path="/roadmap"               element={<RoadmapPage />} />
         <Route path="/privacy"               element={<LegalPage />} />
         <Route path="/terms"                 element={<LegalPage />} />
@@ -101,26 +148,30 @@ export default function App() {
         <Route path="/signup"                element={<GuestRoute><SignupPage /></GuestRoute>} />
         <Route path="/forgot-password"       element={<ForgotPasswordPage />} />
         <Route path="/reset-password"        element={<ResetPasswordPage />} />
+        <Route path="/verify-email"          element={<VerifyEmailPage />} />
         <Route path="/accept-invite"         element={<AcceptInvite />} />
         <Route path="/onboarding"            element={<PrivateRoute><OnboardingPage /></PrivateRoute>} />
         <Route path="/shopify/callback"      element={<ShopifyAuthCallbackPage />} />
         <Route path="/shopify/complete-onboarding" element={<PrivateRoute><ShopifyOnboardingCompletionPage /></PrivateRoute>} />
         <Route path="/shopify/decision"      element={<PrivateRoute><ShopifyPostSignupDecisionPage /></PrivateRoute>} />
 
-        {/* Dashboard */}
-        <Route path="/dashboard" element={<PrivateRoute><DashboardLayout /></PrivateRoute>}>
-          <Route index             element={<DashboardPage />} />
-          <Route path="generate"   element={<GeneratePage />} />
+        {/* Dashboard — app-first entry, with auth required only where needed */}
+        <Route path="/dashboard" element={<DashboardLayout />}>
+          <Route index             element={<AuthOnlyDashRoute><DashboardPage /></AuthOnlyDashRoute>} />
+          <Route path="generate"   element={<AuthOnlyDashRoute><GeneratePage /></AuthOnlyDashRoute>} />
           <Route path="calendar"   element={<CalendarPage />} />
-          <Route path="templates"  element={<TemplatesPage />} />
+          <Route path="templates"  element={<AuthOnlyDashRoute><TemplatesPage /></AuthOnlyDashRoute>} />
           <Route path="brand-kit"  element={<BrandKitPage />} />
           <Route path="settings"   element={<SettingsPage />} />
-          <Route path="billing"    element={<BillingPage />} />
-          <Route path="directory"  element={<DirectoryPage />} />
-          <Route path="memes"      element={<MemesPage />} />
-          <Route path="social"     element={<SocialAutopilotPage />} />
-          <Route path="calendar/editor/:contentId" element={<DesignEditorPage />} />
-          <Route path="assistant"  element={<AssistantPage />} />
+          <Route path="billing"    element={<AuthOnlyDashRoute><BillingPage /></AuthOnlyDashRoute>} />
+          <Route path="directory"  element={<AuthOnlyDashRoute><DirectoryPage /></AuthOnlyDashRoute>} />
+          <Route path="memes"      element={<AuthOnlyDashRoute><MemesPage /></AuthOnlyDashRoute>} />
+          <Route path="social"     element={<AuthOnlyDashRoute><SocialAutopilotPage /></AuthOnlyDashRoute>} />
+          <Route path="calendar/editor/:contentId" element={<AuthOnlyDashRoute><DesignEditorPage /></AuthOnlyDashRoute>} />
+          <Route path="assistant"  element={<AIWorkspacePage />} />
+          <Route path="ai"         element={<AIWorkspacePage />} />
+          <Route path="inbox"      element={<InboxPage />} />
+          <Route path="analytics"  element={<AnalyticsPage />} />
         </Route>
 
         {/* Admin */}

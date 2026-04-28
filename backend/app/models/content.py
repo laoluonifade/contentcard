@@ -70,10 +70,18 @@ class ContentItem(Base):
     visual_strategy_used: Mapped[str | None] = mapped_column(String(100), nullable=True)
     composition_description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Visual diversity engine
+    visual_strategy: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    diversity_checks_passed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    rejection_log: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     # Calendar
     scheduled_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     generation_month: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-12
     generation_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Campaign banding (R2.4) — posts sharing a campaign_id render under a coloured ribbon
+    campaign_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

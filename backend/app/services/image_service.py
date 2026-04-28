@@ -46,6 +46,12 @@ _CONTENT_DESIGN_MAP = {
     "founder story": "Personal editorial feel with human warmth: founder presence (face or workspace detail), narrative composition, behind-the-brand authenticity. Avoid cold corporate feel.",
     "industry insight": "Thought-leadership editorial with data-point energy: clean information scene or abstracted data visualization as focal point, expert and forward-looking mood. Avoid vague decorative visuals.",
     "monday motivation": "Energizing motivational composition: bold typography hero or dynamic action scene, uplifting and aspirational. Avoid generic inspirational stock photo clichés.",
+    # Canonical content_planner slot keys (used when post["content_type_slot"] is set)
+    "product_spotlight": "Premium product hero with contextual lifestyle story: product as clear focal subject, styled environment as supporting narrative, tactile material and lighting. Avoid generic white-background packshots.",
+    "promotional": "Bold product or offer hero composition with urgency energy: strong color contrast, clear focal subject, action-ready visual hierarchy.",
+    "social_proof": "Quote-first typographic hero — the customer's words ARE the visual. Optional warm authenticated context (kitchen, workspace, hand). Trust-focused, no generic stock smiles.",
+    "engagement": "Bold question-forward composition: large typography question as dominant element with supporting visual context. Conversational and inviting energy.",
+    "story": "Candid documentary energy with raw authenticity: real-world textures, unposed moments, genuine access. Avoid overly staged or polished looks.",
 }
 
 
@@ -95,12 +101,21 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     logo_safe_zone = str(post.get("logo_safe_zone") or "lower_right").strip().lower().replace("-", "_")
     content_idea = post.get("content_idea") or post.get("topic", "")
     content_type = str(post.get("content_type") or "").strip().lower()
+    content_type_slot = str(post.get("content_type_slot") or "").strip().lower()
     description = post.get("description", "")
     visual_direction = post.get("visual_direction", "")
     ai_image_prompt = post.get("image_prompt", "")
     fmt = post.get("format", "single")
-    # Content-type art direction
-    _ct_design = _CONTENT_DESIGN_MAP.get(content_type, "")
+    # Visual diversity engine — structured strategy assigned by the scheduler.
+    # The strategy contract is keyed on the canonical slot when available so
+    # promotional / social_proof / engagement / story all hit the right
+    # negative-prompt bundle even when the brand's free-form label drifts.
+    from app.services import visual_strategy as _vs
+    _strategy_obj = _vs.VisualStrategy.from_dict(post.get("visual_strategy") if isinstance(post.get("visual_strategy"), dict) else None)
+    _ct_for_strategy = content_type_slot or content_type
+    strategy_block = _vs.render_strategy_constraints(_strategy_obj, _ct_for_strategy) if _strategy_obj else ""
+    # Content-type art direction (slot key wins over the free-form label).
+    _ct_design = _CONTENT_DESIGN_MAP.get(content_type_slot) or _CONTENT_DESIGN_MAP.get(content_type, "")
     qg_notes = str(post.get("quality_gate_notes") or "").strip()
     qg_retry = int(post.get("quality_gate_retry") or 0) if str(post.get("quality_gate_retry") or "").isdigit() else 0
     message_arch = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
@@ -541,7 +556,12 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         "no glassy doll-like eyes, no uncanny smile geometry, no over-smoothed beauty-filter skin, and no impossible reflections. "
         "Prefer believable documentary camera rendering with natural texture, grounded shadows, and authentic micro-imperfections."
     )
-    prompt = f"{prompt.strip()}{edge_guard}"
+    # Strategy constraints go FIRST so the model treats them as the primary brief,
+    # not flavor — the "person holding phone" attractor only breaks under hard constraints.
+    if strategy_block:
+        prompt = f"{strategy_block}\n\n{prompt.strip()}{edge_guard}"
+    else:
+        prompt = f"{prompt.strip()}{edge_guard}"
 
     return prompt.strip()
 

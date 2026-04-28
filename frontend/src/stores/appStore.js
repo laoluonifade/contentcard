@@ -124,6 +124,7 @@ const useAppStore = create(
         variant_count,
         confirm_duplicate,
         custom_plan,
+        campaign_brief,
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
@@ -142,6 +143,7 @@ const useAppStore = create(
             use_reference_research: use_reference_research !== false,
             variant_count: Number(variant_count || 2),
             generation_brief: generation_brief || null,
+            campaign_brief: campaign_brief || null,
             use_website_intelligence: use_website_intelligence !== false,
             only_new_changes: !!only_new_changes,
             confirm_duplicate: !!confirm_duplicate,
@@ -161,13 +163,14 @@ const useAppStore = create(
                 template_id: template_id || null,
                 include_holidays_in_content: include_holidays_in_content !== false,
                 generation_brief: generation_brief || null,
+                campaign_brief: campaign_brief || null,
                 confirm_duplicate: !!confirm_duplicate,
               })
             } else {
               throw e
             }
           }
-          const count = await get()._pollForContent(brandId, month, year, Number(baseline_total || 0))
+          const count = await get()._pollForContent(brandId, month, year)
           return count
         } finally {
           set({ generatingMonth: false, generationStartedAt: null, generationProgress: null })
@@ -175,7 +178,7 @@ const useAppStore = create(
       },
 
       // Poll with exponential backoff: returns number of posts found
-      _pollForContent: async (brandId, month, year, baselineTotal = 0) => {
+      _pollForContent: async (brandId, month, year) => {
         const maxAttempts = 36
         const delays = [3000, 3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
 
@@ -194,20 +197,20 @@ const useAppStore = create(
                 ? { with: withV, total }
                 : { with: 0, total: 0 },
             })
-            if (status.ready && total > baselineTotal) {
+            if (status.ready && withV > 0) {
               const items = await get().fetchMonthContent(month, year)
               return items.length
             }
           } catch (e) {
             if (e.message && !e.message.includes('fetch') && !e.message.includes('Network')) throw e
             const items = await get().fetchMonthContent(month, year)
-            if (items.length > baselineTotal) return items.length
+            if (items.length > 0) return items.length
           }
         }
         const items = await get().fetchMonthContent(month, year)
-        if (items.length <= baselineTotal) {
+        if (items.length === 0) {
           throw new Error(
-            'Generation request was accepted but no new posts were created yet. This usually means the worker failed or is still processing. Please retry once and check again in 1-2 minutes.'
+            'Generation is taking longer than expected. Finished posts will appear on the calendar automatically; check back in a minute.'
           )
         }
         return items.length
@@ -357,10 +360,10 @@ const useAppStore = create(
         return sub
       },
 
-      createCheckout: async (plan, currency = 'NGN') => {
+      createCheckout: async (plan) => {
         const wsId = get().activeWorkspaceId
         if (!wsId) throw new Error('No active workspace')
-        return billingApi.createCheckout({ plan, workspace_id: wsId, currency })
+        return billingApi.createCheckout({ plan, workspace_id: wsId })
       },
 
       cancelSubscription: async () => {

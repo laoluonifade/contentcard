@@ -55,7 +55,9 @@ export default function Seo({
     ensureMeta('name', 'twitter:image', absoluteUrl(image))
     ensureLink('canonical', absoluteUrl(path))
 
-    const scriptId = 'contentcard-jsonld'
+    // Per-page JSON-LD lives in its own <script> id so the static
+    // Organization + WebSite blocks in index.html stay untouched.
+    const scriptId = 'contentcard-jsonld-page'
     let script = document.getElementById(scriptId)
     if (!structuredData) {
       if (script) script.remove()

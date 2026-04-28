@@ -8,6 +8,7 @@ class SignupRequest(BaseModel):
     password: str
     phone: str | None = None
     country_code: str | None = None  # Optional — user-selected; falls back to geo-detection
+    workspace_name: str | None = None  # Brand / workspace name; defaults to "{full_name}'s Workspace"
 
     @field_validator("password")
     @classmethod
@@ -41,6 +42,7 @@ class UserOut(BaseModel):
     full_name: str
     phone: str | None
     country_code: str | None
+    onboarding_completed: bool = False
     agency_mode: bool = False
     auth_provider: str = "password"
 

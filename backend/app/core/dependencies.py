@@ -1,4 +1,4 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -9,6 +9,7 @@ from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from datetime import datetime, timezone
 
 bearer = HTTPBearer()
+bearer_optional = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
@@ -24,6 +25,25 @@ async def get_current_user(
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
+
+
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_optional),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """
+    Like get_current_user but returns None instead of 401 when no/invalid token.
+
+    Used by best-effort endpoints (telemetry, public health pings) that should
+    record context when a user is logged in without rejecting anonymous traffic.
+    """
+    if not credentials or not credentials.credentials:
+        return None
+    user_id = decode_token(credentials.credentials)
+    if not user_id:
+        return None
+    result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
+    return result.scalar_one_or_none()
 
 
 async def get_workspace_member(
@@ -75,10 +95,10 @@ def check_trial_or_active(workspace: Workspace) -> None:
     """Raise 402 if workspace has exhausted free generations and has no paid plan."""
     if workspace.plan in ("starter", "smb", "pro"):
         return  # paid plan — always allowed
-    # Free / trial: enforce 2-generation cap
+    # Free / trial: enforce 2,000-generation cap
     used = workspace.free_generations_used or 0
-    if used >= 2:
+    if used >= 2000:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail="You've used your 2 free content generations. Subscribe to continue generating unlimited content.",
+            detail="You've reached your 2,000 free content generations for this workspace.",
         )

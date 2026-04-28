@@ -22,6 +22,8 @@ class GenerateMonthRequest(BaseModel):
     only_new_changes: bool = False
     # Set true after the UI confirms generating again for a month that already has posts.
     confirm_duplicate: bool = False
+    # Optional structured brief collected by prep or onboarding.
+    campaign_brief: dict | None = None
 
 
 class GenerationPrepMessage(BaseModel):

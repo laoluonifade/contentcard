@@ -9,6 +9,7 @@ import useAppStore from '../stores/appStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
 import { authApi } from '../api'
+import { getPostAuthPath, readGuestContext, readQuickFillWebsite } from '../utils/authFlow'
 
 const SUPPORTED_ICONS = [
   { id: 'shopify', label: 'Shopify', custom: true },
@@ -58,24 +59,31 @@ export const COUNTRIES_LIST = [
 ]
 
 export default function SignupPage() {
+  const guestContext = readGuestContext()
   const [step, setStep]     = useState(1)
-  const [form, setForm]     = useState({ first_name: '', last_name: '', email: '', password: '', phone: '', country_code: '' })
-  const [quickFillWebsite, setQuickFillWebsite] = useState('')
-  const [quickFillEnabled, setQuickFillEnabled] = useState(false)
+  const [form, setForm]     = useState({
+    first_name: '',
+    last_name: '',
+    email: '',
+    password: '',
+    phone: '',
+    country_code: '',
+    workspace_name: guestContext?.brandName || '',
+  })
+  const [quickFillWebsite, setQuickFillWebsite] = useState(() => guestContext?.website || readQuickFillWebsite())
+  const [quickFillEnabled, setQuickFillEnabled] = useState(() => Boolean(guestContext?.website || readQuickFillWebsite()))
   const [showPw, setShowPw] = useState(false)
   const [shopDomain, setShopDomain] = useState('')
+  const [shopDomainError, setShopDomainError] = useState('')
   const [showShopifyPrompt, setShowShopifyPrompt] = useState(false)
+  const [countryQuery, setCountryQuery] = useState('')
   const { signup, isLoading } = useAuthStore()
   const { fetchWorkspaces } = useAppStore()
   const navigate = useNavigate()
-  const authLightThemeVars = {
-    '--cc-ink-rgb': '15 23 42',
-    '--cc-fog-rgb': '229 231 235',
-    '--cc-mist-rgb': '247 247 248',
-    '--cc-surface-rgb': '255 255 255',
-    '--cc-page-rgb': '255 255 255',
-  }
   const shopifyEnabled = String(import.meta.env.VITE_SHOPIFY_AUTH_ENABLED || 'false') === 'true'
+
+  const isShopDomainValid = (value) =>
+    String(value || '').trim().toLowerCase().endsWith('.myshopify.com')
 
   const selectedCountry = COUNTRIES_LIST.find(c => c.code === form.country_code)
 
@@ -84,6 +92,7 @@ export default function SignupPage() {
   }
 
   const validateStep1 = () => {
+    if (!form.workspace_name.trim()) { toast('Please enter your brand or workspace name.', 'error'); return false }
     if (!form.first_name.trim()) { toast('Please enter your first name.', 'error'); return false }
     if (!form.last_name.trim())  { toast('Please enter your last name.', 'error'); return false }
     if (!form.email.trim())      { toast('Please enter your email address.', 'error'); return false }
@@ -102,12 +111,13 @@ export default function SignupPage() {
       ? `${selectedCountry.dial} ${form.phone.trim()}`
       : form.phone.trim() || undefined
     try {
-      await signup({
+      const res = await signup({
         full_name: `${form.first_name.trim()} ${form.last_name.trim()}`,
         email: form.email.trim().toLowerCase(),
         password: form.password,
         phone: fullPhone,
         country_code: form.country_code || undefined,
+        workspace_name: form.workspace_name.trim() || undefined,
       })
       await fetchWorkspaces().catch(() => {})
       try {
@@ -119,7 +129,7 @@ export default function SignupPage() {
       } catch {
         /* ignore */
       }
-      navigate('/onboarding')
+      navigate(getPostAuthPath(res?.user, '/dashboard'))
     } catch (err) {
       toast(err.message || 'Account creation failed. Please try again.', 'error')
     }
@@ -128,9 +138,10 @@ export default function SignupPage() {
   const startShopify = async (domainOverride = '') => {
     const candidate = String(domainOverride || shopDomain).trim().toLowerCase()
     if (!candidate.endsWith('.myshopify.com')) {
-      toast('Enter your Shopify domain, e.g. yourstore.myshopify.com', 'error')
+      setShopDomainError('Enter your Shopify domain, e.g. yourstore.myshopify.com')
       return
     }
+    setShopDomainError('')
     try {
       localStorage.setItem('contentcard.shopify.domain', candidate)
       const res = await authApi.shopifyStart({ shop: candidate, mode: 'signup', next_path: '/onboarding' })
@@ -149,14 +160,39 @@ export default function SignupPage() {
   const pwStrength = () => {
     const l = form.password.length
     if (!l) return null
-    if (l < 8)  return { label: 'Too short', color: '#FF6584', w: '25%' }
-    if (l < 12) return { label: 'Good',      color: '#f59e0b', w: '60%' }
-    return             { label: 'Strong',     color: '#10A37F', w: '100%' }
+    if (l < 8) {
+      return {
+        label: 'Too short',
+        w: '25%',
+        bar: 'bg-red-500 dark:bg-red-400',
+        text: 'text-red-600 dark:text-red-300',
+      }
+    }
+    if (l < 12) {
+      return {
+        label: 'Good',
+        w: '60%',
+        bar: 'bg-amber-500 dark:bg-amber-400',
+        text: 'text-amber-600 dark:text-amber-300',
+      }
+    }
+    return {
+      label: 'Strong',
+      w: '100%',
+      bar: 'bg-brand-500',
+      text: 'text-brand-500',
+    }
   }
   const strength = pwStrength()
 
+  const filteredCountries = COUNTRIES_LIST.filter((c) => {
+    const q = countryQuery.trim().toLowerCase()
+    if (!q) return true
+    return c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q) || c.dial.includes(q)
+  })
+
   return (
-    <div className="min-h-screen flex" style={authLightThemeVars}>
+    <div className="min-h-screen flex">
       <Seo
         title="Start free | ContentCard"
         description="Create your ContentCard account and start generating on-brand social content."
@@ -189,7 +225,7 @@ export default function SignupPage() {
         {step === 1 && (
           <>
             <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Create your account</h1>
-            <p className="text-ink/50 mb-6 text-sm">Start free · No credit card required.</p>
+            <p className="text-ink/70 mb-6 text-sm font-medium">Start free · No credit card required.</p>
             {shopifyEnabled && (
               <div className="mb-5">
                 <button
@@ -208,10 +244,17 @@ export default function SignupPage() {
               </div>
             )}
             <form onSubmit={nextStep} className="space-y-4">
+              <div>
+                <label className="label">Brand / workspace name</label>
+                <input autoFocus value={form.workspace_name}
+                  onChange={e => setForm(f => ({ ...f, workspace_name: e.target.value }))}
+                  placeholder="Acme Inc." className="input" required />
+                <p className="text-[11px] text-ink/40 mt-1">This becomes your workspace name — you can change it later.</p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">First name</label>
-                  <input autoFocus value={form.first_name}
+                  <input value={form.first_name}
                     onChange={e => setForm(f => ({ ...f, first_name: e.target.value }))}
                     placeholder="Ada" className="input" required />
                 </div>
@@ -235,69 +278,82 @@ export default function SignupPage() {
                     onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
                     placeholder="Min. 8 characters" className="input pr-12" required />
                   <button type="button" onClick={() => setShowPw(v => !v)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/30 hover:text-ink/60">
+                    aria-label={showPw ? 'Hide password' : 'Show password'}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/65 hover:text-ink transition-colors">
                     {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
                   </button>
                 </div>
                 {strength && (
                   <div className="mt-2 flex items-center gap-2">
                     <div className="flex-1 h-1 bg-fog rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{ width: strength.w, background: strength.color }} />
+                      <div className={`h-full rounded-full transition-all ${strength.bar}`} style={{ width: strength.w }} />
                     </div>
-                    <span className="text-xs font-semibold" style={{ color: strength.color }}>{strength.label}</span>
+                    <span className={`text-xs font-semibold ${strength.text}`}>{strength.label}</span>
                   </div>
                 )}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Country</label>
+                  <input
+                    type="text"
+                    value={countryQuery}
+                    onChange={(e) => setCountryQuery(e.target.value)}
+                    placeholder="Search countries…"
+                    className="input mb-2"
+                    aria-label="Search countries"
+                  />
                   <select value={form.country_code} onChange={e => handleCountryChange(e.target.value)} className="input cursor-pointer">
                     <option value="">Select country</option>
-                    {COUNTRIES_LIST.map(c => (
+                    {filteredCountries.map(c => (
                       <option key={c.code} value={c.code}>{c.name}</option>
                     ))}
                   </select>
+                  {filteredCountries.length === 0 && (
+                    <p className="text-[11px] text-ink/50 mt-1">No countries match “{countryQuery}”.</p>
+                  )}
                 </div>
                 <div>
                   <label className="label">
-                    Phone <span className="text-ink/25 font-normal normal-case">(optional)</span>
+                    Phone <span className="text-ink/40 font-normal normal-case">(optional)</span>
                   </label>
                   <div className="flex">
                     {selectedCountry && (
-                      <span className="flex items-center px-3 bg-fog border border-r-0 border-fog rounded-l-xl text-ink/50 text-sm whitespace-nowrap">
+                      <span className="flex items-center px-3 bg-mist border border-r-0 border-fog rounded-l-xl text-ink/65 text-sm whitespace-nowrap">
                         {selectedCountry.dial}
                       </span>
                     )}
                     <input type="tel" value={form.phone}
                       onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                      placeholder={selectedCountry ? selectedCountry.placeholder : '+1 555 000 0000'}
+                      placeholder={selectedCountry ? selectedCountry.placeholder : 'Phone number'}
                       className={`input ${selectedCountry ? 'rounded-l-none' : ''}`} />
                   </div>
                 </div>
               </div>
               <div className="rounded-2xl border border-fog bg-surface p-3">
                 <div className="flex items-center justify-between gap-2 mb-2">
-                  <p className="text-xs font-semibold text-ink">Quick fill</p>
+                  <p className="text-xs font-semibold text-ink">Quick fill from website <span className="text-ink/45 font-normal normal-case">(optional)</span></p>
                   <button
                     type="button"
                     onClick={() => setQuickFillEnabled((v) => !v)}
+                    aria-pressed={quickFillEnabled}
                     className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors ${
                       quickFillEnabled
-                        ? 'border-brand-500 bg-brand-500/10 text-brand-700'
-                        : 'border-fog text-ink/50 hover:text-ink'
+                        ? 'border-brand-500 bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                        : 'border-fog text-ink/65 hover:text-ink'
                     }`}
                   >
-                    {quickFillEnabled ? 'Enabled' : 'Quick fill'}
+                    {quickFillEnabled ? 'On' : 'Off'}
                   </button>
                 </div>
-                <p className="text-[11px] text-ink/50 mb-2">
-                  Add your website and we will prefill your Brand Kit to full strength. Logo upload stays as the final step.
+                <p className="text-[11px] text-ink/60 mb-2">
+                  Add your website and we'll prefill your Brand Kit after signup. You can skip this and fill manually later.
                 </p>
                 <input
                   value={quickFillWebsite}
                   onChange={(e) => setQuickFillWebsite(e.target.value)}
                   placeholder="https://yourwebsite.com"
-                  className="input"
+                  className="input disabled:opacity-50 disabled:cursor-not-allowed"
                   disabled={!quickFillEnabled}
                 />
               </div>
@@ -314,6 +370,7 @@ export default function SignupPage() {
             <p className="text-ink/60 mb-6 text-sm">Review your details, then create your account.</p>
             <div className="bg-surface border border-fog rounded-2xl p-5 mb-6 space-y-3">
               {[
+                { label: 'Brand name', val: form.workspace_name.trim() || `${form.first_name} ${form.last_name}'s Workspace` },
                 { label: 'Name',    val: `${form.first_name} ${form.last_name}` },
                 { label: 'Email',   val: form.email },
                 { label: 'Country', val: selectedCountry?.name || 'Not specified' },
@@ -374,20 +431,32 @@ export default function SignupPage() {
         </div>
       </div>
       {showShopifyPrompt && (
-        <div className="fixed inset-0 bg-black/35 flex items-center justify-center p-4 z-50">
-          <div className="w-full max-w-md bg-white rounded-2xl border border-fog p-5">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="w-full max-w-md bg-surface rounded-2xl border border-fog p-5">
             <h3 className="text-lg font-bold text-ink mb-1">Enter your Shopify store</h3>
             <p className="text-sm text-ink/60 mb-3">We will redirect you to Shopify to continue sign-up.</p>
             <input
               value={shopDomain}
-              onChange={(e) => setShopDomain(e.target.value)}
+              onChange={(e) => { setShopDomain(e.target.value); if (shopDomainError) setShopDomainError('') }}
               placeholder="yourstore.myshopify.com"
               className="input"
               autoFocus
+              aria-invalid={Boolean(shopDomainError)}
+              aria-describedby={shopDomainError ? 'shop-domain-error' : undefined}
             />
+            {shopDomainError && (
+              <p id="shop-domain-error" className="text-xs text-red-600 dark:text-red-300 mt-2">{shopDomainError}</p>
+            )}
             <div className="mt-4 flex justify-end gap-2">
-              <button type="button" className="btn-secondary" onClick={() => setShowShopifyPrompt(false)}>Cancel</button>
-              <button type="button" className="btn-primary" onClick={() => startShopify()}>Continue</button>
+              <button type="button" className="btn-secondary" onClick={() => { setShowShopifyPrompt(false); setShopDomainError('') }}>Cancel</button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => startShopify()}
+                disabled={!isShopDomainValid(shopDomain)}
+              >
+                Continue
+              </button>
             </div>
           </div>
         </div>

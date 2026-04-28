@@ -38,9 +38,7 @@ def _sanitize_ai_copy_dashes(text: str | None) -> str | None:
 def _sanitize_ai_mentions(text: str | None) -> str | None:
     if text is None or not isinstance(text, str):
         return text
-    t = re.sub(r"\bartificial intelligence\b", "content", text, flags=re.IGNORECASE)
-    t = re.sub(r"\bai\b", "content", t, flags=re.IGNORECASE)
-    return t
+    return text
 
 
 def _sanitize_post_copy_fields(post: dict) -> dict:
@@ -271,25 +269,44 @@ def _validate_design_quality(posts: list[dict], brand: dict | None = None) -> li
     Logs warnings for generic or low-quality design language; does NOT drop posts.
     """
     for i, post in enumerate(posts):
-        caption = str(post.get("caption") or "").lower()
-        visual_dir = str(post.get("visual_direction") or "").lower()
-        image_prompt = str(post.get("image_prompt") or "").lower()
-
-        # Check for generic AI phrases in caption
-        generic_hits = [p for p in _GENERIC_PHRASES if p in caption]
-        if generic_hits:
-            logger.warning(f"Post {i} ({post.get('date')}): generic phrases in caption: {generic_hits}")
-
-        # Check visual_direction has compositional depth signals
-        has_composition = any(k in visual_dir for k in _COMPOSITION_KEYWORDS)
-        if not has_composition and len(visual_dir) > 20:
-            logger.warning(f"Post {i} ({post.get('date')}): visual_direction lacks composition depth signals")
-
-        # Check image_prompt isn't too short or too generic
-        if len(image_prompt) < 60:
-            logger.warning(f"Post {i} ({post.get('date')}): image_prompt is very short ({len(image_prompt)} chars)")
+        warnings = _collect_post_quality_warnings(post)
+        if warnings:
+            post["quality_warnings"] = warnings[:8]
+            logger.warning(f"Post {i} ({post.get('date')}): quality warnings: {warnings}")
+        else:
+            post.pop("quality_warnings", None)
 
     return posts
+
+
+def _collect_post_quality_warnings(post: dict, words_to_avoid: list[str] | None = None) -> list[str]:
+    warnings: list[str] = []
+    caption = str(post.get("caption") or "").lower()
+    visual_dir = str(post.get("visual_direction") or "").lower()
+    image_prompt = str(post.get("image_prompt") or "").lower()
+
+    generic_hits = [p for p in _GENERIC_PHRASES if p in caption]
+    if generic_hits:
+        warnings.append("generic_caption_language")
+
+    has_composition = any(k in visual_dir for k in _COMPOSITION_KEYWORDS)
+    if not has_composition and len(visual_dir) > 20:
+        warnings.append("shallow_visual_direction")
+
+    if len(image_prompt) < 60:
+        warnings.append("short_image_prompt")
+
+    if words_to_avoid:
+        violations = [w for w in words_to_avoid if str(w).lower() in caption]
+        if violations:
+            warnings.append("forbidden_words_present")
+
+    if str(post.get("format") or "").lower() == "carousel":
+        slide_count = max(1, int(post.get("slide_count") or 1))
+        if slide_count < 3:
+            warnings.append("weak_carousel_depth")
+
+    return list(dict.fromkeys(warnings))
 
 
 # ── Output validation ──────────────────────────────────────────────────────────
@@ -1039,6 +1056,7 @@ def _validate_posts(
 
         _ensure_post_cta(post, brand)
         _ensure_message_architecture(post, brand)
+        post["quality_warnings"] = _collect_post_quality_warnings(post, words_to_avoid=avoid)
         valid.append(_sanitize_post_copy_fields(post))
 
     valid = _apply_style_mix_targets(valid, brand)
@@ -1046,6 +1064,7 @@ def _validate_posts(
     for p in valid:
         _ensure_message_architecture(p, brand)
         _sync_visual_direction_layout_typography(p, brand)
+        p["quality_warnings"] = _collect_post_quality_warnings(p, words_to_avoid=avoid)
         _sanitize_post_copy_fields(p)
     return valid
 
@@ -1220,6 +1239,54 @@ def _get_posting_dates(year: int, month: int, posts_per_week: int) -> list[str]:
 
 
 def _playbook_from_brand(brand: dict | None) -> dict | None:
+    selected_template_contract = (
+        (brand or {}).get("selected_template_contract")
+        if isinstance((brand or {}).get("selected_template_contract"), dict)
+        else None
+    )
+    if selected_template_contract:
+        selected_slots = (
+            selected_template_contract.get("visual_direction_slots")
+            if isinstance(selected_template_contract.get("visual_direction_slots"), list)
+            else []
+        )
+        selected_content_type = str(selected_template_contract.get("content_template_type") or "").strip()
+        selected_name = selected_content_type or str(selected_template_contract.get("template_name") or "Template playbook").strip()
+        normalized_selected_opts: list[dict] = []
+        for idx, opt in enumerate(selected_slots, start=1):
+            if not isinstance(opt, dict):
+                continue
+            vd = str(opt.get("visual_direction") or "").strip()
+            if not vd:
+                continue
+            normalized_selected_opts.append(
+                {
+                    "slot_key": str(opt.get("slot_key") or f"VD{idx:02d}").strip().upper(),
+                    "post_type": "carousel" if "carousel" in str(opt.get("post_type") or "").lower() else "single",
+                    "visual_direction": vd,
+                }
+            )
+        preferred_slot = (
+            selected_template_contract.get("preferred_visual_direction_slot")
+            if isinstance(selected_template_contract.get("preferred_visual_direction_slot"), dict)
+            else None
+        )
+        if preferred_slot and not normalized_selected_opts:
+            normalized_selected_opts.append(
+                {
+                    "slot_key": str(preferred_slot.get("slot_key") or "VD01").strip().upper(),
+                    "post_type": "carousel" if "carousel" in str(preferred_slot.get("post_type") or "").lower() else "single",
+                    "visual_direction": str(preferred_slot.get("visual_direction") or "").strip(),
+                }
+            )
+        if normalized_selected_opts:
+            return {
+                "industry_key": str((brand or {}).get("industry") or ""),
+                "industry_name": str((brand or {}).get("industry") or ""),
+                "selected_template_name": str(selected_template_contract.get("template_name") or "").strip(),
+                "content_types": [{"name": selected_name, "options": normalized_selected_opts}],
+            }
+
     pb = (brand or {}).get("design_playbook")
     if not isinstance(pb, dict):
         return None
@@ -1244,6 +1311,7 @@ def _playbook_from_brand(brand: dict | None) -> dict | None:
             post_type = "carousel" if "carousel" in str(opt.get("post_type") or "").lower() else "single"
             normalized_opts.append(
                 {
+                    "slot_key": str(opt.get("slot_key") or "").strip().upper() or None,
                     "post_type": post_type,
                     "visual_direction": vd,
                 }
@@ -1300,6 +1368,7 @@ def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, se
             {
                 "date": d,
                 "content_type": str(ct.get("name") or ""),
+                "slot_key": str(selected.get("slot_key") or "").strip().upper() or None,
                 "post_type": "carousel" if str(selected.get("post_type") or "") == "carousel" else "single",
                 "visual_direction": vd,
             }
@@ -1311,7 +1380,11 @@ def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, se
 def _playbook_assignment_text(plan: list[dict]) -> str:
     return "\n".join(
         [
-            f"• {row.get('date')}: content_type={row.get('content_type')} | post_type={row.get('post_type')} | visual_direction={row.get('visual_direction')}"
+            (
+                f"• {row.get('date')}: content_type={row.get('content_type')} | "
+                f"post_type={row.get('post_type')} | slot_key={row.get('slot_key') or 'N/A'} | "
+                f"visual_direction={row.get('visual_direction')}"
+            )
             for row in plan
         ]
     )
@@ -1379,6 +1452,8 @@ def _enforce_playbook_assignments(posts: list[dict], plan: list[dict]) -> list[d
         if not assigned:
             continue
         post["content_type"] = assigned.get("content_type")
+        if assigned.get("slot_key"):
+            post["playbook_slot_key"] = assigned.get("slot_key")
         fmt = "carousel" if str(assigned.get("post_type") or "") == "carousel" else "single"
         post["format"] = fmt
         post["slide_count"] = max(4, int(post.get("slide_count") or 1)) if fmt == "carousel" else 1
@@ -1415,9 +1490,12 @@ async def _generate_for_platform(
         playbook,
         seed_key=f"{month_name}{year}{platform}",
     )
-    if single_only and playbook_plan:
+    template_locked_playbook = bool(playbook and str(playbook.get("selected_template_name") or "").strip())
+    if single_only and playbook_plan and not template_locked_playbook:
         for row in playbook_plan:
             row["post_type"] = "single"
+    if template_locked_playbook and any(str(row.get("post_type") or "") == "carousel" for row in playbook_plan):
+        single_only = False
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
     rng = random.Random(seed)
@@ -1512,6 +1590,12 @@ Format preference: {format_mix}
 
 Assign one post to each date using this exact assignment map:
 {assignment_instructions}
+
+Treat the assignment map as a creative contract, not a loose hint:
+• Keep content_type exactly as assigned.
+• Preserve each visual_direction's core scene idea and composition logic, expand it only with sharper brand-specific detail.
+• If slot_key is present, stay recognisably within that slot's concept family instead of inventing a totally different frame.
+• If a slot says carousel, build a truly carousel-native idea, not a single-post caption forced into slides.
 
 For EACH post return ALL these fields:
 
@@ -1608,7 +1692,6 @@ Return a JSON object with a single key "posts" containing the array:
                         {"role": "system", "content": SYSTEM_PROMPT},
                         {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
                         {"role": "user", "content": brand_system},
-                        {"role": "assistant", "content": f"Understood. I have memorised the {brand_name} brand context and all guardrails. Ready to generate fully on-brand, campaign-quality content with world-class design direction."},
                         {"role": "user", "content": creative_brief},
                     ],
                     max_tokens=12000,
@@ -1658,6 +1741,372 @@ Return a JSON object with a single key "posts" containing the array:
     raise ValueError(f"All {max_attempts} generation attempts failed for {platform}: {last_error}")
 
 
+_generate_for_platform_single_pass = _generate_for_platform
+
+
+def _normalize_campaign_brief(provided: dict | None) -> dict:
+    if not isinstance(provided, dict):
+        return {}
+    out: dict[str, object] = {}
+    for key in (
+        "objective",
+        "primary_offer",
+        "audience_focus",
+        "campaign_angle",
+        "cta_goal",
+    ):
+        value = str(provided.get(key) or "").strip()
+        if value:
+            out[key] = value[:400]
+    for key in ("key_proof_points", "content_themes", "asset_notes", "tone_overrides"):
+        value = provided.get(key)
+        if isinstance(value, list):
+            cleaned = [str(x).strip()[:220] for x in value if str(x).strip()]
+            if cleaned:
+                out[key] = cleaned[:8]
+    return out
+
+
+def _campaign_brief_text(brief: dict | None) -> str:
+    if not isinstance(brief, dict) or not brief:
+        return ""
+    lines = ["=== STRUCTURED CAMPAIGN BRIEF ==="]
+    for key in ("objective", "primary_offer", "audience_focus", "campaign_angle", "cta_goal"):
+        value = str(brief.get(key) or "").strip()
+        if value:
+            lines.append(f"{key}: {value}")
+    for key in ("key_proof_points", "content_themes", "asset_notes", "tone_overrides"):
+        vals = brief.get(key)
+        if isinstance(vals, list) and vals:
+            lines.append(f"{key}: " + " | ".join(str(v) for v in vals[:8]))
+    return "\n".join(lines)
+
+
+async def _synthesize_campaign_brief(
+    *,
+    brand_name: str,
+    brand_ctx: str,
+    month_name: str,
+    year: int,
+    platforms: list[str],
+    posts_per_week: int,
+    topics_hint: str,
+    planner_addon: str,
+    provided_brief: dict | None,
+) -> dict:
+    normalized = _normalize_campaign_brief(provided_brief)
+    if normalized:
+        return normalized
+
+    prompt = f"""Build a structured monthly social campaign brief for {brand_name}.
+
+Return ONLY valid JSON with this shape:
+{{
+  "objective": "one sentence",
+  "primary_offer": "one sentence",
+  "audience_focus": "one sentence",
+  "campaign_angle": "one sentence",
+  "key_proof_points": ["short point"],
+  "content_themes": ["short theme"],
+  "asset_notes": ["short note"],
+  "tone_overrides": ["short note"],
+  "cta_goal": "one sentence"
+}}
+
+Rules:
+- Be concrete and commercial, not generic.
+- Use only facts grounded in the brand context and strategist add-ons.
+- If something is unknown, omit it or use an empty array, never invent.
+- Content themes must be month-usable themes, not generic buzzwords.
+
+Month: {month_name} {year}
+Platforms: {', '.join(platforms)}
+Posts per week: {posts_per_week}
+Topic hint: {topics_hint or 'none'}
+
+Brand context:
+{brand_ctx}
+
+Strategist add-ons:
+{planner_addon or 'none'}
+"""
+    try:
+        raw = await _openai_chat(
+            [{"role": "user", "content": prompt}],
+            max_tokens=1400,
+            temperature=0.3,
+            json_mode=True,
+            endpoint_name="monthly_generation_plan",
+            high_quality_required=True,
+        )
+        data = _parse_json_safe(raw)
+        return _normalize_campaign_brief(data if isinstance(data, dict) else {})
+    except Exception:
+        return {}
+
+
+async def _plan_platform_slots(
+    *,
+    brand_name: str,
+    platform: str,
+    month_name: str,
+    year: int,
+    assignment_instructions: str,
+    campaign_brief: dict | None,
+    planner_addon: str,
+) -> str:
+    brief_text = _campaign_brief_text(campaign_brief) or "No structured brief available."
+    prompt = f"""You are planning a platform-specific month of social posts for {brand_name}.
+
+Return ONLY valid JSON with this shape:
+{{
+  "slots": [
+    {{
+      "date": "YYYY-MM-DD",
+      "content_type": "keep assigned content type",
+      "post_type": "single or carousel",
+      "slot_key": "VD01 or null",
+      "topic_angle": "specific angle",
+      "hook_direction": "how the opening line should feel",
+      "proof_point": "specific proof or evidence cue",
+      "visual_anchor": "specific visual anchor"
+    }}
+  ]
+}}
+
+Rules:
+- Preserve the assignment map exactly.
+- Make every slot more specific, more commercially useful, and more exciting.
+- topic_angle must sound like a ready content angle, not a generic category.
+- proof_point should name an actual form of proof, habit, offer, product, or trust cue when possible.
+- visual_anchor should describe the core frame the later drafter should build around.
+
+Platform: {platform}
+Month: {month_name} {year}
+
+Structured brief:
+{brief_text}
+
+Strategist add-ons:
+{planner_addon or 'none'}
+
+Assignment map:
+{assignment_instructions}
+"""
+    try:
+        raw = await _openai_chat(
+            [{"role": "user", "content": prompt}],
+            max_tokens=2200,
+            temperature=0.35,
+            json_mode=True,
+            endpoint_name="monthly_generation_plan",
+            high_quality_required=True,
+        )
+        data = _parse_json_safe(raw)
+        slots = data.get("slots") if isinstance(data, dict) else None
+        if not isinstance(slots, list) or not slots:
+            return ""
+        lines = ["=== PLATFORM SLOT PLAN ==="]
+        for slot in slots[:20]:
+            if not isinstance(slot, dict):
+                continue
+            lines.append(
+                " | ".join(
+                    [
+                        f"date={str(slot.get('date') or '').strip()}",
+                        f"content_type={str(slot.get('content_type') or '').strip()}",
+                        f"post_type={str(slot.get('post_type') or '').strip()}",
+                        f"slot_key={str(slot.get('slot_key') or '').strip() or 'N/A'}",
+                        f"topic_angle={str(slot.get('topic_angle') or '').strip()}",
+                        f"hook_direction={str(slot.get('hook_direction') or '').strip()}",
+                        f"proof_point={str(slot.get('proof_point') or '').strip()}",
+                        f"visual_anchor={str(slot.get('visual_anchor') or '').strip()}",
+                    ]
+                )
+            )
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _summarize_quality_warnings(posts: list[dict]) -> str:
+    counts: dict[str, int] = {}
+    for post in posts:
+        for warning in (post.get("quality_warnings") or []):
+            key = str(warning or "").strip()
+            if not key:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+    if not counts:
+        return ""
+    return ", ".join(f"{key} ({count})" for key, count in counts.items())
+
+
+async def _qa_polish_posts(
+    *,
+    brand_name: str,
+    platform: str,
+    month_name: str,
+    year: int,
+    words_to_avoid: list[str],
+    campaign_brief: dict | None,
+    posts: list[dict],
+) -> tuple[list[dict], dict]:
+    if not posts:
+        return posts, {"qa_polish_applied": False, "qa_polish_attempts": 0, "qa_polish_succeeded": False}
+    retry_focus = _summarize_quality_warnings(posts)
+    last_error = ""
+    attempts = 0
+    for attempt in range(2):
+        attempts = attempt + 1
+        focus_block = f"\nPriority fixes for this pass: {retry_focus}\n" if retry_focus else "\n"
+        prompt = f"""Improve these drafted {platform} posts for {brand_name} so they feel more ready-to-post, exciting, and brand-specific.
+
+Return ONLY valid JSON with this shape:
+{{"posts": [{{...full post objects...}}]}}
+
+Rules:
+- Keep the same number of posts, dates, content types, formats, and core topic intent.
+- Improve specificity, hook strength, caption energy, CTA clarity, and message architecture.
+- Remove generic phrases and weak filler.
+- Keep every field required by the original objects.
+- Never use words from this avoid list: {', '.join(words_to_avoid) if words_to_avoid else 'none'}
+- Preserve visual_direction meaning but make it more concrete when vague.
+- Treat carousel posts like one cohesive design system: every body slide must feel as premium and intentional as the cover.
+
+Month: {month_name} {year}
+Structured brief:
+{_campaign_brief_text(campaign_brief) or 'none'}
+{focus_block}
+
+Draft posts JSON:
+{json.dumps(posts, ensure_ascii=False)[:30000]}
+"""
+        try:
+            raw = await _openai_chat(
+                [{"role": "user", "content": prompt}],
+                max_tokens=9000,
+                temperature=0.25,
+                json_mode=True,
+                endpoint_name="monthly_generation_plan",
+                high_quality_required=True,
+            )
+            data = _parse_json_safe(raw)
+            polished = data.get("posts") if isinstance(data, dict) else None
+            if isinstance(polished, list) and len(polished) == len(posts):
+                remaining = _summarize_quality_warnings([
+                    {**p, "quality_warnings": _collect_post_quality_warnings(p, words_to_avoid=words_to_avoid)}
+                    for p in polished if isinstance(p, dict)
+                ])
+                if not remaining:
+                    return polished, {
+                        "qa_polish_applied": True,
+                        "qa_polish_attempts": attempts,
+                        "qa_polish_succeeded": True,
+                        "qa_polish_retry_focus": retry_focus or None,
+                    }
+                retry_focus = remaining
+                last_error = f"quality warnings remained: {remaining}"
+                continue
+            last_error = "qa polish returned wrong shape"
+        except Exception as exc:
+            last_error = str(exc)
+    return posts, {
+        "qa_polish_applied": False,
+        "qa_polish_attempts": attempts,
+        "qa_polish_succeeded": False,
+        "qa_polish_retry_focus": retry_focus or None,
+        "qa_polish_error": last_error or None,
+    }
+
+
+async def _generate_for_platform(
+    brand_ctx: str,
+    brand_name: str,
+    industry: str,
+    month_name: str,
+    year: int,
+    platform: str,
+    format_mix: str,
+    topics_hint: str,
+    posting_dates: list[str],
+    words_to_avoid: list[str],
+    assistant_id: str | None = None,
+    brand_dict: dict | None = None,
+    planner_addon: str = "",
+    campaign_brief: dict | None = None,
+    posts_per_week: int = 3,
+) -> list[dict]:
+    playbook = _playbook_from_brand(brand_dict)
+    playbook_plan = _build_playbook_schedule(
+        posting_dates,
+        playbook,
+        seed_key=f"{month_name}{year}{platform}",
+    )
+    assignment_instructions = _playbook_assignment_text(playbook_plan) if playbook_plan else "\n".join(
+        [f"• {d}: content_type=general | post_type=single | slot_key=N/A | visual_direction=Create a clear, campaign-ready social concept." for d in posting_dates]
+    )
+    staged_campaign_brief = await _synthesize_campaign_brief(
+        brand_name=brand_name,
+        brand_ctx=brand_ctx,
+        month_name=month_name,
+        year=year,
+        platforms=[platform],
+        posts_per_week=posts_per_week,
+        topics_hint=topics_hint,
+        planner_addon=planner_addon,
+        provided_brief=campaign_brief,
+    )
+    platform_slot_plan = await _plan_platform_slots(
+        brand_name=brand_name,
+        platform=platform,
+        month_name=month_name,
+        year=year,
+        assignment_instructions=assignment_instructions,
+        campaign_brief=staged_campaign_brief,
+        planner_addon=planner_addon,
+    )
+    staged_addons = [planner_addon.strip(), _campaign_brief_text(staged_campaign_brief), platform_slot_plan]
+    drafted = await _generate_for_platform_single_pass(
+        brand_ctx=brand_ctx,
+        brand_name=brand_name,
+        industry=industry,
+        month_name=month_name,
+        year=year,
+        platform=platform,
+        format_mix=format_mix,
+        topics_hint=topics_hint,
+        posting_dates=posting_dates,
+        words_to_avoid=words_to_avoid,
+        assistant_id=assistant_id,
+        brand_dict=brand_dict,
+        planner_addon="\n\n".join([x for x in staged_addons if x and str(x).strip()]),
+    )
+    polished, qa_meta = await _qa_polish_posts(
+        brand_name=brand_name,
+        platform=platform,
+        month_name=month_name,
+        year=year,
+        words_to_avoid=words_to_avoid,
+        campaign_brief=staged_campaign_brief,
+        posts=drafted,
+    )
+    validated = _validate_posts(
+        polished,
+        words_to_avoid=words_to_avoid,
+        brand=brand_dict,
+        playbook_plan=playbook_plan,
+    )
+    if not validated:
+        return drafted
+    validated = _unique_dates_per_platform_batch(validated, posting_dates, playbook_plan)
+    validated = _validate_design_quality(validated, brand=brand_dict)
+    for post in validated:
+        if isinstance(post, dict):
+            post["qa_polish"] = qa_meta
+    return validated or drafted
+
+
 # ── Monthly plan ───────────────────────────────────────────────────────────────
 
 async def generate_monthly_plan(
@@ -1671,6 +2120,7 @@ async def generate_monthly_plan(
     template_topics: list[str] | None = None,
     holiday_context: str | None = None,
     generation_brief: str | None = None,
+    campaign_brief: dict | None = None,
 ) -> list[dict]:
     import calendar
     month_name = calendar.month_name[month]
@@ -1801,6 +2251,8 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
                 assistant_id=assistant_id,
                 brand_dict=brand,
                 planner_addon=planner_addon,
+                campaign_brief=campaign_brief,
+                posts_per_week=posts_per_week,
             )
             all_posts.extend(posts)
         except Exception as e:
@@ -1814,14 +2266,43 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
 
 # ── Single caption (regenerate) ────────────────────────────────────────────────
 
-async def generate_single_caption(
-    brand: dict,
-    topic: str,
-    platform: str,
-    mood: str | None = None,
-    description: str | None = None,
-    existing_caption: str | None = None,
-) -> dict:
+def _brand_campaign_brief_from_profile(brand: dict, topic: str | None = None, description: str | None = None) -> dict:
+    kit = brand.get("brand_kit") if isinstance(brand.get("brand_kit"), dict) else {}
+    return _normalize_campaign_brief({
+        "objective": topic or kit.get("campaign_theme") or brand.get("description"),
+        "primary_offer": kit.get("value_proposition") or brand.get("description"),
+        "audience_focus": brand.get("target_audience"),
+        "campaign_angle": kit.get("campaign_angle") or description,
+        "key_proof_points": kit.get("key_messages") or [],
+        "content_themes": kit.get("brand_narratives") or kit.get("content_goals") or [],
+        "asset_notes": ["Brand photos available"] if isinstance(brand.get("brand_photos"), list) and brand.get("brand_photos") else [],
+        "tone_overrides": (brand.get("tone_tags") or [])[:5],
+        "cta_goal": kit.get("cta_style") or "",
+    })
+
+
+def _caption_playbook_summary(brand: dict | None) -> str:
+    playbook = _playbook_from_brand(brand)
+    if not playbook:
+        return "No playbook selected."
+    lines: list[str] = []
+    for ct in (playbook.get("content_types") or [])[:4]:
+        if not isinstance(ct, dict):
+            continue
+        name = str(ct.get("name") or "").strip() or "General"
+        opts = ct.get("options") if isinstance(ct.get("options"), list) else []
+        slot = next((opt for opt in opts if isinstance(opt, dict)), None)
+        if slot:
+            lines.append(
+                f"{name}: post_type={str(slot.get('post_type') or 'single').strip()} | "
+                f"visual_direction={str(slot.get('visual_direction') or '').strip()[:120]}"
+            )
+        else:
+            lines.append(name)
+    return "\n".join(lines) if lines else "No playbook selected."
+
+
+def _caption_brand_context(brand: dict, *, topic: str | None = None, description: str | None = None) -> str:
     review_rows = brand.get('reviews') if isinstance(brand.get('reviews'), list) else []
     review_snippets = []
     for row in review_rows[:3]:
@@ -1837,9 +2318,9 @@ async def generate_single_caption(
             snippet += f' ({rating}/5)'
         review_snippets.append(snippet)
     social_proof_line = ' | '.join(review_snippets) if review_snippets else 'N/A'
-
     avoid = ', '.join(brand.get('words_to_avoid') or []) or 'none'
-    brand_ctx = f"""Brand: {brand.get('name', 'My Brand')}
+    brief = _brand_campaign_brief_from_profile(brand, topic=topic, description=description)
+    return f"""Brand: {brand.get('name', 'My Brand')}
 Industry: {brand.get('industry', '')}
 Website: {brand.get('website') or 'N/A'}
 Tone: {', '.join(brand.get('tone_tags') or [])}
@@ -1850,8 +2331,26 @@ Key messages: {', '.join(brand.get('key_messages') or []) or 'N/A'}
 Customer reviews/social proof: {social_proof_line}
 CTA style: {brand.get('cta_style') or 'N/A'}
 Words to avoid (NEVER use): {avoid}
-Guidelines: {brand.get('guidelines', '')}""".strip()
+Guidelines: {brand.get('guidelines', '')}
 
+Structured campaign brief:
+{_campaign_brief_text(brief) or 'none'}
+
+Playbook context:
+{_caption_playbook_summary(brand)}""".strip()
+
+
+async def _generate_caption_with_structured_brief(
+    *,
+    brand: dict,
+    platform: str,
+    topic: str | None = None,
+    description: str | None = None,
+    mood: str | None = None,
+    existing_caption: str | None = None,
+    source_kind: str,
+) -> dict:
+    brand_ctx = _caption_brand_context(brand, topic=topic, description=description)
     if existing_caption:
         prompt = f"""Rewrite this {platform} caption for {brand.get('name', 'the brand')}.
 Brand profile:
@@ -1861,18 +2360,31 @@ Mood: {mood or 'same as original'}
 Original caption: {existing_caption}
 
 Return JSON object: {{"caption": "...", "cta": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: max 100 words in caption, platform-native, no generic phrases, no forbidden words. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption.
+Rules:
+- max 100 words in caption
+- platform-native and commercially useful
+- stronger first-line hook, clearer proof, and more tailored brand language
+- no generic phrases, no forbidden words
+- keep it aligned to the structured campaign brief and playbook context above
+- for carousel-linked themes, let the caption support the slide story instead of repeating it
+- Never use long dash, en dash, or two hyphens in a row as punctuation in the caption
 Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, visit website or link in bio, or engagement (comment, DM, save, share). Never leave cta empty."""
     else:
         prompt = f"""Write one {platform} caption for {brand.get('name', 'the brand')}.
 Brand profile:
 {brand_ctx}
-Topic: {topic}
+Topic: {topic or 'Photo-led post'}
 {f'Mood: {mood}' if mood else ''}
 {f'Context: {description}' if description else ''}
 
 Return JSON object: {{"caption": "...", "cta": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: max 100 words in caption, platform-native, strong hook on first line, no generic phrases, no forbidden words, max 2 hashtags. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption.
+Rules:
+- max 100 words in caption
+- platform-native, strong hook on first line, no generic phrases, no forbidden words
+- ground the copy in the structured campaign brief and playbook context above
+- make it feel ready to publish, not like placeholder social copy
+- max 2 hashtags
+- Never use long dash, en dash, or two hyphens in a row as punctuation in the caption
 Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, visit website or link in bio, or engagement (comment, DM, save, share). Never leave cta empty."""
 
     raw = await _openai_chat(
@@ -1880,31 +2392,41 @@ Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, vi
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": prompt},
         ],
-        max_tokens=1000,
-        temperature=0.6,
+        max_tokens=1000 if source_kind == "single_caption" else 800,
+        temperature=0.55,
         json_mode=True,
-        endpoint_name="caption_generation",
+        endpoint_name="caption_generation" if source_kind == "single_caption" else "photo_caption",
         high_quality_required=True,
     )
     result = _parse_json_safe(raw)
     if not isinstance(result, dict):
         raise ValueError("Expected JSON object for caption")
-
-    # Coerce hashtags
     if not isinstance(result.get("hashtags"), list):
         result["hashtags"] = []
     result["hashtags"] = [str(h).lstrip("#") for h in result["hashtags"]][:2]
-
     if isinstance(result.get("caption"), str):
         result["caption"] = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(result["caption"])) or ""
-
     cta_text = _normalize_cta_raw(result.get("cta"))
-    if len(cta_text) < 3:
-        cta_text = _default_cta_from_brand(brand, None)
-    cta_text = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(cta_text)) or _default_cta_from_brand(brand, None)
-    result["cta"] = str(cta_text).strip()[:300]
-
+    result["cta"] = cta_text or _default_cta_from_brand(brand, {"platform": platform, "topic": topic or description or ""})
     return result
+
+async def generate_single_caption(
+    brand: dict,
+    topic: str,
+    platform: str,
+    mood: str | None = None,
+    description: str | None = None,
+    existing_caption: str | None = None,
+) -> dict:
+    return await _generate_caption_with_structured_brief(
+        brand=brand,
+        platform=platform,
+        topic=topic,
+        description=description,
+        mood=mood,
+        existing_caption=existing_caption,
+        source_kind="single_caption",
+    )
 
 
 # ── Brand form coach (onboarding + brand kit, free, form-only scope) ───────────
@@ -2008,6 +2530,7 @@ _BRAND_KIT_NESTED_KEYS = frozenset(
         "objections",
         "content_goals",
         "funnel_stages",
+        "visual_system",
     }
 )
 
@@ -2175,6 +2698,32 @@ def _filter_brand_form_patch(mode: str, patch: dict | None) -> dict | None:
             "funnel_stages",
             "brand_motifs",
         }
+        if nk == "visual_system":
+            if not isinstance(nv, dict):
+                return None
+            allowed_visual_keys = {
+                "primary_hex",
+                "secondary_hex",
+                "accent_hex",
+                "neutral_hex",
+                "imagery_style",
+                "lighting_style",
+                "logo_description",
+            }
+            visual_out: dict = {}
+            for vk, vv in nv.items():
+                if vk not in allowed_visual_keys:
+                    continue
+                text = str(vv or "").strip()
+                if not text:
+                    continue
+                if vk.endswith("_hex"):
+                    if not re.fullmatch(r"#?[0-9A-Fa-f]{6}", text):
+                        continue
+                    visual_out[vk] = text.lower() if text.startswith("#") else f"#{text.lower()}"
+                else:
+                    visual_out[vk] = _truncate_str(text, 500)
+            return visual_out or None
         if nk in list_like_keys:
             if isinstance(nv, list):
                 vals = [str(x).strip() for x in nv if str(x).strip()][:40]
@@ -2340,11 +2889,17 @@ emotional_tone, verbosity_level, clarity_level, key_messages, value_pillars, cta
 imagery_style, lighting_style, brand_motifs, logo_description, strategy_note, campaign_name, campaign_theme,
 campaign_angle, seasonal_context, good_examples, bad_examples, regulatory_constraints, forbidden_claims,
 required_keywords, tone_restrictions, brand_safety_rules, income_level, psychographics, aspirations, objections,
-content_goals, funnel_stages.
+content_goals, funnel_stages, visual_system.
 
 key_messages and similar list fields must be arrays of short strings when you patch them.
+brand_kit.visual_system may include ONLY: primary_hex, secondary_hex, accent_hex, neutral_hex, imagery_style, lighting_style, logo_description.
 
 design_style: use one of bold, minimal, warm, premium when suggesting.
+
+Accuracy rules for quick fill and web-grounded fills:
+- Do not guess brand colors from a random photo or one-off accent. Only set brand_colors or visual_system hex values when the website clearly repeats those colors across the identity.
+- If the business category is still ambiguous, prefer a conservative description over a confident but wrong one.
+- Product or service descriptions should sound commercially useful, not generic. Name what the business sells, who it helps, and why customers choose it.
 
 Help the user strengthen weak sections tab by tab. When they paste details, map them into patch fields the UI can apply.
 """
@@ -2483,11 +3038,14 @@ async def run_brand_form_coach_chat(
 _PREP_CHAT_SYSTEM = """You are a friendly strategist helping prepare one calendar month of social posts.
 Ask one or two short, concrete questions at a time (product updates, launches, promos, screenshots, events, partnerships, seasonal angles).
 Ask for clarification screenshots or short screen recordings (under 1 minute) whenever visual context is missing.
-When a plan is ready, present 3 to 6 concise bullet points and include a clear CTA to approve or modify.
+When a plan is ready, present 3 to 6 concise bullet points that read like a working campaign plan, not generic advice.
+Do not rush to generation. First confirm the month has a clear offer or objective, at least 2 concrete content angles, and any proof or asset gaps called out plainly.
+Only suggest generation after you have enough context to explain what the month will focus on and what still might be missing.
 Use playbook context from the user's templates as the source of truth for what content types to prepare.
 Stay under the brand's industry; never invent product facts.
 If product catalog context says products already exist, do not ask for generic product screenshots again.
 Never ask for vague "any visual you want to include". Ask for a specific asset tied to a specific planned post (for example event flyer for Friday launch post).
+Prefer tightening strategy over being agreeable. If the brief is still fuzzy, say what is missing.
 Do not use long dash, en dash, or two hyphens in a row as punctuation in your replies. Use commas or periods instead."""
 
 _PREP_JSON_RULES = """
@@ -2521,6 +3079,7 @@ Rules for questions:
 - Keep field_key short snake_case and stable per topic (e.g. cta_offer, product_screen, proof_asset).
 Rules for cta:
 - Use action "start_generation" only when enough context exists to generate high-quality posts.
+- When action is "start_generation", the label must sound like an approval gate such as "Approve plan and generate" or "Generate from this approved plan", never a vague "continue".
 - Otherwise set cta null or action "none".
 Rules for design_intent:
 - action is "none" unless the user clearly wants new graphics or a visual refresh for existing posts.
@@ -2566,11 +3125,11 @@ async def run_generation_prep_chat(
         msgs.append({"role": r, "content": str(m.get("content", ""))[:8000]})
     raw = await _openai_chat(
         msgs,
-        max_tokens=1100,
+        max_tokens=1800,
         temperature=0.5,
         json_mode=True,
         endpoint_name="prep_chat",
-        high_quality_required=not settings.AI_LOW_COST_PREP_MODE,
+        high_quality_required=True,
     )
     try:
         data = _parse_json_safe(raw)
@@ -2773,66 +3332,10 @@ async def generate_photo_caption(
     description: str,
     mood: str | None = None,
 ) -> dict:
-    review_rows = brand.get('reviews') if isinstance(brand.get('reviews'), list) else []
-    review_snippets = []
-    for row in review_rows[:2]:
-        if not isinstance(row, dict):
-            continue
-        quote = str(row.get('quote') or row.get('summary') or '').strip()
-        if not quote:
-            continue
-        name = str(row.get('customer_name') or 'Customer').strip()
-        review_snippets.append(f'{name}: "{quote[:100]}"')
-    social_proof_line = ' | '.join(review_snippets) if review_snippets else 'N/A'
-
-    avoid = ', '.join(brand.get('words_to_avoid') or []) or 'none'
-    brand_ctx = f"""Brand: {brand.get('name', 'My Brand')}
-Website: {brand.get('website') or 'N/A'}
-Industry: {brand.get('industry', '')}
-Tone: {', '.join(brand.get('tone_tags') or [])}
-Language: {brand.get('language_style', 'english')}
-Audience: {brand.get('target_audience', '')}
-Key messages: {', '.join(brand.get('key_messages') or []) or 'N/A'}
-Customer reviews/social proof: {social_proof_line}
-CTA style: {brand.get('cta_style') or 'N/A'}
-Words to avoid (NEVER use): {avoid}""".strip()
-
-    prompt = f"""Write a {platform} caption for a photo.
-Brand:
-{brand_ctx}
-Photo description: {description}
-{f'Mood: {mood}' if mood else ''}
-
-Return JSON object: {{"caption": "...", "cta": "...", "hashtags": ["tag1", "tag2"]}}
-Rules: platform-native, strong hook, no generic phrases, no forbidden words, max 2 hashtags. Never use long dash, en dash, or two hyphens in a row as punctuation in the caption.
-Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, visit website or link in bio, or engagement (comment, DM, save, share). Never leave cta empty."""
-
-    raw = await _openai_chat(
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        max_tokens=800,
-        temperature=0.6,
-        json_mode=True,
-        endpoint_name="photo_caption",
-        high_quality_required=True,
+    return await _generate_caption_with_structured_brief(
+        brand=brand,
+        platform=platform,
+        description=description,
+        mood=mood,
+        source_kind="photo_caption",
     )
-    result = _parse_json_safe(raw)
-    if not isinstance(result, dict):
-        raise ValueError("Expected JSON object for photo caption")
-
-    if not isinstance(result.get("hashtags"), list):
-        result["hashtags"] = []
-    result["hashtags"] = [str(h).lstrip("#") for h in result["hashtags"]][:2]
-
-    if isinstance(result.get("caption"), str):
-        result["caption"] = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(result["caption"])) or ""
-
-    cta_text = _normalize_cta_raw(result.get("cta"))
-    if len(cta_text) < 3:
-        cta_text = _default_cta_from_brand(brand, None)
-    cta_text = _sanitize_ai_mentions(_sanitize_ai_copy_dashes(cta_text)) or _default_cta_from_brand(brand, None)
-    result["cta"] = str(cta_text).strip()[:300]
-
-    return result

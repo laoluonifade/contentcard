@@ -4,15 +4,18 @@ import { ArrowRight, Building2, Users, Palette, Check, Zap } from 'lucide-react'
 import { LogoMark } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAppStore from '../stores/appStore'
-import { workspaceApi, templateApi, brandApi } from '../api'
+import { workspaceApi, templateApi, brandApi, contentApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
+import { clearGuestContext, readGuestContext, readQuickFillWebsite } from '../utils/authFlow'
 
 const TONES = [
   'Bold','Authentic','Energetic','Playful','Luxury','Minimal',
   'Warm','Professional','Witty','Inspirational','Confident','Friendly',
 ]
+
+const MAX_TONE_TAGS = 5
 
 const WEBSITE_PLATFORMS = [
   { id: 'auto', label: 'Auto-detect' },
@@ -24,25 +27,25 @@ const WEBSITE_PLATFORMS = [
 ]
 
 export default function OnboardingPage() {
+  const guestContext = readGuestContext()
   const navigate = useNavigate()
   const { createBrand, setActiveWorkspace, activeWorkspaceId, fetchWorkspaces } = useAppStore()
-  const { user } = useAuthStore()
+  const { user, updateUser } = useAuthStore()
   const [step, setStep] = useState(1)
   const [saving, setSaving] = useState(false)
   const [templateSetupRunning, setTemplateSetupRunning] = useState(false)
   const [quickFillRunning, setQuickFillRunning] = useState(false)
+  const [quickFillError, setQuickFillError] = useState('')
+  const [stepErrors, setStepErrors] = useState({})
   const [quickFillWebsite, setQuickFillWebsite] = useState(() => {
-    try {
-      return localStorage.getItem('contentcard.signup.quickFillWebsite') || ''
-    } catch {
-      return ''
-    }
+    return guestContext?.website || readQuickFillWebsite()
   })
   const [quickFillPlatform, setQuickFillPlatform] = useState('auto')
+  const [quickFillStatus, setQuickFillStatus] = useState('')
 
   const [form, setForm] = useState({
-    name: '',
-    industry: '',
+    name: guestContext?.brandName || '',
+    industry: guestContext?.industry || '',
     sub_industry: '',
     description: '',
     target_audience: '',
@@ -64,8 +67,11 @@ export default function OnboardingPage() {
     return `https://${raw}`
   }
 
-  const inferIndustryFromWebsite = (website) => {
+  const inferIndustryFromWebsite = (website, platformHint = 'auto') => {
     const full = String(website || '').toLowerCase()
+    if (['shopify', 'bumpa', 'wordpress_woocommerce'].includes(String(platformHint || '').toLowerCase())) {
+      return { industry: 'E-commerce & Retail', sub_industry: 'Marketplace' }
+    }
     if (/restaurant|diner|cafe|kitchen|menu|food|grill|bakery|\/restaurants\//.test(full)) {
       return { industry: 'Food & Beverage', sub_industry: 'Quick Service Restaurant' }
     }
@@ -154,10 +160,42 @@ export default function OnboardingPage() {
     }
   }
 
+  const pickPaletteFromFingerprint = (fingerprint) => {
+    const palette = Array.isArray(fingerprint?.palette) ? fingerprint.palette : []
+    const cleaned = palette
+      .map((hex) => String(hex || '').trim().toLowerCase())
+      .filter((hex) => /^#[0-9a-f]{6}$/.test(hex))
+    return [...new Set(cleaned)].slice(0, 5)
+  }
+
+  const buildBrandUpdatePayload = (patch, palette = []) => {
+    const payload = { ...(patch || {}) }
+    const brandKit = payload.brand_kit && typeof payload.brand_kit === 'object' ? { ...payload.brand_kit } : {}
+    const visualSystem = brandKit.visual_system && typeof brandKit.visual_system === 'object' ? { ...brandKit.visual_system } : {}
+    const finalPalette = Array.isArray(payload.brand_colors) && payload.brand_colors.length >= 2 ? payload.brand_colors : palette
+    if (finalPalette.length >= 2) {
+      payload.brand_colors = finalPalette
+      visualSystem.primary_hex = visualSystem.primary_hex || finalPalette[0]
+      visualSystem.secondary_hex = visualSystem.secondary_hex || finalPalette[1] || finalPalette[0]
+      visualSystem.accent_hex = visualSystem.accent_hex || finalPalette[2] || finalPalette[0]
+      if (finalPalette[3]) visualSystem.neutral_hex = visualSystem.neutral_hex || finalPalette[3]
+    }
+    if (Object.keys(visualSystem).length) {
+      brandKit.visual_system = visualSystem
+    }
+    if (Object.keys(brandKit).length) {
+      payload.brand_kit = brandKit
+    }
+    return payload
+  }
+
   const quickFillFromWebsite = async () => {
+    setQuickFillError('')
     const website = normalizeWebsite(quickFillWebsite)
     if (!website) {
-      toast('Add your website link to run quick fill.', 'error')
+      const msg = 'Add your website link to run quick fill.'
+      setQuickFillError(msg)
+      toast(msg, 'error')
       return
     }
     let site
@@ -167,7 +205,9 @@ export default function OnboardingPage() {
         throw new Error('invalid host')
       }
     } catch {
-      toast('Enter a valid website URL (example: https://golemon.co).', 'error')
+      const msg = 'Enter a valid website URL (example: https://golemon.co).'
+      setQuickFillError(msg)
+      toast(msg, 'error')
       return
     }
     setQuickFillRunning(true)
@@ -197,74 +237,133 @@ export default function OnboardingPage() {
         .filter(Boolean)
         .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
         .join(' ') || 'My Brand'
-      const inferred = inferIndustryFromWebsite(website)
       const platformHint = quickFillPlatform === 'auto' ? inferPlatformFromWebsite(website) : quickFillPlatform
-
-      const brand = await createBrand({
+      const inferred = inferIndustryFromWebsite(website, platformHint)
+      const onboardingPrefill = await contentApi.brandFormCoach({
+        mode: 'onboarding',
+        brand_id: null,
+        form_snapshot: {
+          name: niceName,
+          industry: inferred.industry,
+          sub_industry: inferred.sub_industry,
+          website,
+        },
+        messages: [
+          {
+            role: 'user',
+            content: `Fill the onboarding form as accurately as possible from this business website. Website: ${website}. Brand name candidate: ${niceName}. Use grounded facts from the site. If the site signals a clearer industry or sub-industry than the default guess, use that instead.`,
+          },
+        ],
+        research_urls: [website],
+        fetch_urls_from_message: true,
+        enable_web_search: true,
+      }).catch(() => null)
+      const onboardingPatch = onboardingPrefill?.patch && typeof onboardingPrefill.patch === 'object'
+        ? onboardingPrefill.patch
+        : {}
+      const onboardingForm = mergeBrandFormPatch({
         name: niceName,
-        website,
         industry: inferred.industry,
         sub_industry: inferred.sub_industry,
         description: `${niceName} helps customers discover and buy with a smoother online experience.`,
         target_audience: `People searching for trusted options and clear value before they buy.`,
-        pain_point: `Customers often face unclear offers, inconsistent quality signals, and too much friction in the buying journey.`,
         tone_tags: ['professional', 'confident', 'friendly', 'authentic', 'energetic'],
         language_style: 'english',
         personality_score: 58,
-        brand_colors: ['#10A37F', '#111827', '#F3F4F6'],
-        design_style: 'bold',
-        brand_font: 'Inter',
-        words_to_avoid: ['cheap', 'guaranteed results', 'perfect'],
-        guidelines: 'Keep copy clear and concise, always include a direct CTA, avoid hype-only claims, and prioritize benefit-first storytelling with practical proof.',
+      }, onboardingPatch)
+
+      const brand = await createBrand({
+        name: onboardingForm.name || niceName,
+        website,
+        industry: onboardingForm.industry || inferred.industry,
+        sub_industry: onboardingForm.sub_industry || inferred.sub_industry,
+        description: onboardingForm.description || `${niceName} helps customers discover and buy with a smoother online experience.`,
+        target_audience: onboardingForm.target_audience || `People searching for trusted options and clear value before they buy.`,
+        pain_point: `Customers often face unclear offers, inconsistent quality signals, and too much friction in the buying journey.`,
+        tone_tags: Array.isArray(onboardingForm.tone_tags) && onboardingForm.tone_tags.length
+          ? onboardingForm.tone_tags.map((t) => String(t).toLowerCase())
+          : ['professional', 'confident', 'friendly', 'authentic', 'energetic'],
+        language_style: onboardingForm.language_style || 'english',
+        personality_score: Number(onboardingForm.personality_score || 58),
+        instagram_handle: onboardingForm.instagram_handle || null,
+        facebook_handle: onboardingForm.facebook_handle || null,
+        twitter_handle: onboardingForm.twitter_handle || null,
+        brand_colors: [],
+        design_style: '',
+        brand_font: null,
+        words_to_avoid: [],
+        guidelines: '',
         brand_kit: {
           website_intelligence: {
             platform_hint: platformHint,
-          },
-          writing_style: 'Clear, confident, conversion-focused',
-          key_messages: [
-            `Choose ${niceName} for reliable quality`,
-            'Fast response and smooth customer experience',
-            'Clear outcomes and value for money',
-          ],
-          visual_system: {
-            primary_hex: '#10A37F',
-            secondary_hex: '#111827',
-            accent_hex: '#F59E0B',
-            neutral_hex: '#F3F4F6',
           },
         },
       })
 
       await brandApi.syncWebsite(wsId, brand.id, { force: true }).catch(() => {})
+      await brandApi.syncReferences(wsId, brand.id, { force: true }).catch(() => {})
       const [products, opportunities] = await Promise.all([
         brandApi.websiteProducts(wsId, brand.id, { limit: 12 }).catch(() => []),
         brandApi.websiteOpportunities(wsId, brand.id, { limit: 8 }).catch(() => []),
       ])
+      const styleFingerprint = await brandApi.styleFingerprint(wsId, brand.id).catch(() => null)
+      const websiteEntities = await brandApi.websiteEntities(wsId, brand.id, { limit: 16 }).catch(() => [])
       const profile = buildQuickFillProfile({
         brandName: niceName,
         inferred,
         products: Array.isArray(products) ? products : [],
         opportunities: Array.isArray(opportunities) ? opportunities : [],
       })
-      await brandApi.update(wsId, brand.id, {
+      const syncedContextLines = [
+        `Website: ${website}`,
+        `Products: ${Array.isArray(products) ? products.slice(0, 6).map((p) => p?.title).filter(Boolean).join(', ') : 'none'}`,
+        `Opportunities: ${Array.isArray(opportunities) ? opportunities.slice(0, 5).map((o) => o?.title).filter(Boolean).join(' | ') : 'none'}`,
+        `Entities: ${Array.isArray(websiteEntities) ? websiteEntities.slice(0, 8).map((e) => `${e?.entity_type}: ${e?.title}`).filter(Boolean).join(' | ') : 'none'}`,
+        `Style fingerprint palette: ${pickPaletteFromFingerprint(styleFingerprint).join(', ') || 'none'}`,
+      ].join('\n')
+      const brandKitPrefill = await contentApi.brandFormCoach({
+        mode: 'brand_kit',
+        brand_id: brand.id,
+        form_snapshot: {},
+        messages: [
+          {
+            role: 'user',
+            content: `Fill the brand kit as accurately as possible from this business website and synced storefront context. Use grounded facts, avoid guessing, and prefer commercially useful wording over generic branding language.\n\n${syncedContextLines}`,
+          },
+        ],
+        research_urls: [website],
+        fetch_urls_from_message: true,
+        enable_web_search: true,
+      }).catch(() => null)
+      const brandKitPatch = brandKitPrefill?.patch && typeof brandKitPrefill.patch === 'object'
+        ? brandKitPrefill.patch
+        : {}
+      const updatePayload = buildBrandUpdatePayload({
         description: profile.description,
         target_audience: profile.target_audience,
         pain_point: profile.pain_point,
         brand_kit: {
           writing_style: 'Clear, practical, and conversion-focused',
           key_messages: profile.key_messages,
+          cta_style: 'Direct, action-oriented, and benefit-led',
         },
-      })
+        ...brandKitPatch,
+      }, pickPaletteFromFingerprint(styleFingerprint))
+      await brandApi.update(wsId, brand.id, updatePayload)
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false }).catch(() => {})
       try {
         localStorage.removeItem('contentcard.signup.quickFillWebsite')
       } catch {
         /* ignore */
       }
-      toast('Quick fill complete. Upload your logo as the final step.', 'success')
+      clearGuestContext()
+      updateUser({ onboarding_completed: true })
+      toast('Quick fill complete. Review the brand kit, then upload your logo as the final step.', 'success')
       navigate('/dashboard/brand-kit')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Quick fill failed. Please continue manually.', 'error')
+      const detail = err.response?.data?.detail || err.message || 'Something went wrong while reading your website.'
+      setQuickFillError(`${detail} You can continue filling the form manually below.`)
+      toast('Quick fill didn\'t finish. Continue manually below.', 'error')
     } finally {
       setQuickFillRunning(false)
     }
@@ -272,14 +371,31 @@ export default function OnboardingPage() {
 
   const toggleTone = (t) => {
     const tags = form.tone_tags
-    set('tone_tags', tags.includes(t) ? tags.filter(x => x !== t) : [...tags, t])
+    if (tags.includes(t)) {
+      set('tone_tags', tags.filter(x => x !== t))
+      return
+    }
+    if (tags.length >= MAX_TONE_TAGS) {
+      toast(`Pick up to ${MAX_TONE_TAGS} tones — strong voices come from focused choices.`, 'error')
+      return
+    }
+    set('tone_tags', [...tags, t])
   }
 
   const next = () => {
-    if (step === 1 && !form.name.trim()) { toast('Please enter your brand name.', 'error'); return }
-    if (step === 1 && !form.industry) { toast('Please select your industry.', 'error'); return }
-    if (step === 1 && !form.sub_industry) { toast('Please select your sub-industry.', 'error'); return }
-    if (step === 1 && !form.website_platform) { toast('Please select your website type.', 'error'); return }
+    if (step === 1) {
+      const errors = {}
+      if (!form.name.trim()) errors.name = 'Enter your brand name.'
+      if (!form.industry) errors.industry = 'Select your industry.'
+      if (!form.sub_industry) errors.sub_industry = 'Select your sub-industry.'
+      if (!form.website_platform) errors.website_platform = 'Select your website type.'
+      if (Object.keys(errors).length) {
+        setStepErrors(errors)
+        toast('Please complete the required fields.', 'error')
+        return
+      }
+      setStepErrors({})
+    }
     setStep(s => s + 1)
   }
 
@@ -302,8 +418,15 @@ export default function OnboardingPage() {
       })
       setTemplateSetupRunning(true)
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false })
-      toast('Brand profile created. Your industry templates are ready.')
-      navigate('/dashboard/generate')
+      clearGuestContext()
+      try {
+        localStorage.removeItem('contentcard.signup.quickFillWebsite')
+      } catch {
+        /* ignore */
+      }
+      updateUser({ onboarding_completed: true })
+      toast('Brand profile created. Finish the required brand kit fields before generating content.')
+      navigate('/dashboard/brand-kit')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Something went wrong. Please try again.', 'error')
     } finally {
@@ -356,7 +479,7 @@ export default function OnboardingPage() {
             })}
           </div>
 
-          <div className="bg-white border border-fog rounded-2xl p-7 shadow-sm">
+          <div className="bg-surface border border-fog rounded-2xl p-7 shadow-sm">
 
             {/* Step 1: Brand basics */}
             {step === 1 && (
@@ -367,11 +490,11 @@ export default function OnboardingPage() {
                   </h2>
                   <p className="text-ink/50 text-sm">This information shapes every piece of content we generate for you.</p>
                 </div>
-                <div className="rounded-xl border border-brand-200 bg-brand-500/5 p-4">
+                <div className="rounded-xl border border-brand-200 dark:border-brand-700/40 bg-brand-500/5 p-4">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>
-                      <p className="text-sm font-semibold text-ink">Quick fill from website</p>
-                      <p className="text-xs text-ink/55">We prefill your Brand Kit to 100%, then you upload logo as final step.</p>
+                      <p className="text-sm font-semibold text-ink">Quick fill from website <span className="text-ink/55 font-normal">(optional)</span></p>
+                      <p className="text-xs text-ink/65">We'll prefill your Brand Kit from your website. You can also skip and fill manually.</p>
                     </div>
                     <button
                       type="button"
@@ -379,71 +502,95 @@ export default function OnboardingPage() {
                       disabled={quickFillRunning || !quickFillWebsite.trim()}
                       className="btn-primary text-xs px-3 py-2 disabled:opacity-60"
                     >
-                      {quickFillRunning ? 'Quick filling…' : 'Quick fill'}
+                      {quickFillRunning ? (quickFillStatus || 'Quick filling…') : 'Quick fill'}
                     </button>
                   </div>
                   <input
                     value={quickFillWebsite}
-                    onChange={(e) => setQuickFillWebsite(e.target.value)}
+                    onChange={(e) => { setQuickFillWebsite(e.target.value); if (quickFillError) setQuickFillError('') }}
                     placeholder="https://yourwebsite.com"
                     className="input mt-3"
+                    disabled={quickFillRunning}
                   />
-                <select
-                  value={quickFillPlatform}
-                  onChange={(e) => setQuickFillPlatform(e.target.value)}
-                  className="input mt-2"
-                >
-                  {WEBSITE_PLATFORMS.map((p) => (
-                    <option key={p.id} value={p.id}>{`Quick fill website type: ${p.label}`}</option>
-                  ))}
-                </select>
-                </div>
-                <div>
-                  <label className="label">Brand or business name <span className="text-red-400">*</span></label>
-                  <input value={form.name} onChange={e => set('name', e.target.value)}
-                    placeholder="e.g. Nova Studio, Grace Foods, TechBridge"
-                    className="input" autoFocus />
-                </div>
-                <div>
-                  <label className="label">Industry <span className="text-red-400">*</span></label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {INDUSTRIES.map(ind => (
-                      <button key={ind} type="button" onClick={() => setForm((f) => ({ ...f, industry: ind, sub_industry: '' }))}
-                        className={`px-3 py-2.5 rounded-xl text-xs font-semibold text-left border transition-all ${
-                          form.industry === ind
-                            ? 'border-brand-400 bg-brand-50 text-brand-700'
-                            : 'border-slate-300 text-ink/75 hover:border-brand-300 hover:text-ink'
-                        }`}>
-                        {ind}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="label">Sub-industry <span className="text-red-400">*</span></label>
+                  <label className="block text-[11px] font-semibold text-ink/65 mt-3 mb-1">Website type</label>
                   <select
-                    value={form.sub_industry || ''}
-                    onChange={e => set('sub_industry', e.target.value)}
+                    value={quickFillPlatform}
+                    onChange={(e) => setQuickFillPlatform(e.target.value)}
                     className="input"
-                    disabled={!form.industry}
-                  >
-                    <option value="">{form.industry ? 'Select sub-industry…' : 'Choose industry first'}</option>
-                    {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
-                      <option key={sub} value={sub}>{sub}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Website type <span className="text-red-400">*</span></label>
-                  <select
-                    value={form.website_platform || 'auto'}
-                    onChange={e => set('website_platform', e.target.value)}
-                    className="input"
+                    aria-label="Website type for quick fill"
                   >
                     {WEBSITE_PLATFORMS.map((p) => (
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                   </select>
+                  {quickFillRunning && (
+                    <p className="text-xs text-ink/65 mt-3 flex items-center gap-2" role="status" aria-live="polite">
+                      <span className="inline-block h-3 w-3 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
+                      {quickFillStatus || 'Working on it…'} This usually takes 1–3 minutes.
+                    </p>
+                  )}
+                  {quickFillError && (
+                    <div role="alert" className="mt-3 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 text-xs">
+                      {quickFillError}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="label">Brand or business name <span className="text-red-500 dark:text-red-400" aria-hidden="true">*</span></label>
+                  <input value={form.name}
+                    onChange={e => { set('name', e.target.value); if (stepErrors.name) setStepErrors(s => ({ ...s, name: undefined })) }}
+                    placeholder="e.g. Nova Studio, Grace Foods, TechBridge"
+                    className="input" autoFocus
+                    aria-invalid={Boolean(stepErrors.name)}
+                  />
+                  {stepErrors.name && <p className="text-xs text-red-600 dark:text-red-300 mt-1">{stepErrors.name}</p>}
+                </div>
+                <div>
+                  <label className="label">Industry <span className="text-red-500 dark:text-red-400" aria-hidden="true">*</span></label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {INDUSTRIES.map(ind => (
+                      <button key={ind} type="button"
+                        onClick={() => { setForm((f) => ({ ...f, industry: ind, sub_industry: '' })); if (stepErrors.industry) setStepErrors(s => ({ ...s, industry: undefined, sub_industry: undefined })) }}
+                        className={`min-h-[44px] px-3 py-2.5 rounded-xl text-xs font-semibold text-left border transition-all ${
+                          form.industry === ind
+                            ? 'border-brand-400 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                            : 'border-fog text-ink/75 hover:border-brand-300 hover:text-ink'
+                        }`}>
+                        {ind}
+                      </button>
+                    ))}
+                  </div>
+                  {stepErrors.industry && <p className="text-xs text-red-600 dark:text-red-300 mt-1">{stepErrors.industry}</p>}
+                </div>
+                <div>
+                  <label className="label">Sub-industry <span className="text-red-500 dark:text-red-400" aria-hidden="true">*</span></label>
+                  <select
+                    value={form.sub_industry || ''}
+                    onChange={e => { set('sub_industry', e.target.value); if (stepErrors.sub_industry) setStepErrors(s => ({ ...s, sub_industry: undefined })) }}
+                    className="input disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!form.industry}
+                    aria-invalid={Boolean(stepErrors.sub_industry)}
+                  >
+                    <option value="">{form.industry ? 'Select sub-industry…' : 'Choose an industry first'}</option>
+                    {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
+                      <option key={sub} value={sub}>{sub}</option>
+                    ))}
+                  </select>
+                  {stepErrors.sub_industry && <p className="text-xs text-red-600 dark:text-red-300 mt-1">{stepErrors.sub_industry}</p>}
+                </div>
+                <div>
+                  <label className="label">Website type <span className="text-red-500 dark:text-red-400" aria-hidden="true">*</span></label>
+                  <select
+                    value={form.website_platform || 'auto'}
+                    onChange={e => set('website_platform', e.target.value)}
+                    className="input"
+                    aria-invalid={Boolean(stepErrors.website_platform)}
+                  >
+                    {WEBSITE_PLATFORMS.map((p) => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
+                  {stepErrors.website_platform && <p className="text-xs text-red-600 dark:text-red-300 mt-1">{stepErrors.website_platform}</p>}
                 </div>
                 <div>
                   <label className="label">What your business does <span className="text-ink/30 font-normal normal-case">(optional)</span></label>
@@ -489,20 +636,26 @@ export default function OnboardingPage() {
                   <p className="text-ink/50 text-sm">Select the tone that best reflects how your brand communicates. You can refine this at any time in your Brand Kit.</p>
                 </div>
                 <div>
-                  <label className="label">Tone <span className="text-ink/30 font-normal normal-case">(select all that apply)</span></label>
+                  <label className="label">Tone <span className="text-ink/55 font-normal normal-case">(pick up to {MAX_TONE_TAGS})</span></label>
                   <div className="flex flex-wrap gap-2">
                     {TONES.map(t => {
                       const on = form.tone_tags.includes(t)
+                      const atCap = !on && form.tone_tags.length >= MAX_TONE_TAGS
                       return (
                         <button key={t} type="button" onClick={() => toggleTone(t)}
-                          className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
-                            on ? 'bg-brand-500 border-brand-500 text-white' : 'border-slate-300 text-ink/75 hover:border-brand-300 hover:text-ink'
+                          disabled={atCap}
+                          aria-pressed={on}
+                          className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                            on ? 'bg-brand-500 border-brand-500 text-white' : 'border-fog text-ink/75 hover:border-brand-300 hover:text-ink'
                           }`}>
                           {t}
                         </button>
                       )
                     })}
                   </div>
+                  <p className="text-[11px] text-ink/55 mt-1.5">
+                    {form.tone_tags.length}/{MAX_TONE_TAGS} selected
+                  </p>
                 </div>
                 <div>
                   <label className="label">
@@ -528,10 +681,11 @@ export default function OnboardingPage() {
                       ['mix',             'Mixed (code-switching)'],
                     ].map(([val, label]) => (
                       <button key={val} type="button" onClick={() => set('language_style', val)}
-                        className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${
+                        aria-pressed={form.language_style === val}
+                        className={`py-2.5 px-2 rounded-xl text-xs font-semibold border transition-all ${
                           form.language_style === val
-                            ? 'border-brand-400 bg-brand-50 text-brand-700'
-                            : 'border-slate-300 text-ink/75 hover:border-brand-300 hover:text-ink'
+                            ? 'border-brand-400 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                            : 'border-fog text-ink/75 hover:border-brand-300 hover:text-ink'
                         }`}>
                         {label}
                       </button>
@@ -544,16 +698,16 @@ export default function OnboardingPage() {
             {step === 4 && (
               <div className="space-y-5">
                 <div>
-                  <h2 className="text-xl font-bold text-ink mb-1">Industry templates are auto-created</h2>
-                  <p className="text-ink/50 text-sm">
-                    As soon as you finish, ContentCard automatically prepares templates from your industry playbook and brand kit.
+                  <h2 className="text-xl font-bold text-ink mb-1">You're ready to launch</h2>
+                  <p className="text-ink/60 text-sm">
+                    When you click <span className="font-semibold text-ink">Create brand</span>, we'll save your profile and prepare a starter set of templates from your industry playbook.
                   </p>
                 </div>
-                <div className="rounded-xl border border-fog bg-mist p-4">
-                  <p className="text-xs text-ink/60">
-                    You can generate content immediately. Templates will appear in the Templates tab and can be refined any time.
-                  </p>
-                </div>
+                <ul className="space-y-2 text-sm text-ink/75">
+                  <li className="flex items-start gap-2"><Check size={14} className="text-brand-500 mt-1 flex-shrink-0" /> Brand profile saved to your workspace</li>
+                  <li className="flex items-start gap-2"><Check size={14} className="text-brand-500 mt-1 flex-shrink-0" /> Industry templates generated automatically</li>
+                  <li className="flex items-start gap-2"><Check size={14} className="text-brand-500 mt-1 flex-shrink-0" /> You can refine everything later in the Brand Kit</li>
+                </ul>
               </div>
             )}
 
@@ -568,22 +722,24 @@ export default function OnboardingPage() {
                     Continue <ArrowRight size={15} />
                   </button>
                 ) : (
-                  <button onClick={finish} disabled={saving} className="btn-primary px-6 py-2.5 text-sm">
-                    {saving || templateSetupRunning
-                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating your brand…</>
-                      : <><Zap size={15} /> Create brand</>}
+                  <button onClick={finish} disabled={saving || templateSetupRunning} className="btn-primary px-6 py-2.5 text-sm">
+                    {templateSetupRunning
+                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Generating templates…</>
+                      : saving
+                        ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving brand profile…</>
+                        : <><Zap size={15} /> Create brand</>}
                   </button>
                 )}
             </div>
           </div>
 
-          <p className="text-center text-ink/30 text-xs mt-5">
+          <p className="text-center text-ink/65 text-xs mt-5">
             All settings can be updated later in your Brand Kit.
           </p>
         </div>
       </div>
 
-      <div className="w-full lg:w-[min(420px,40vw)] lg:shrink-0 border-t lg:border-t-0 lg:border-l border-fog bg-white p-4 lg:min-h-screen flex flex-col">
+      <div className="w-full lg:w-[min(420px,40vw)] lg:shrink-0 border-t lg:border-t-0 lg:border-l border-fog bg-surface p-4 lg:min-h-screen flex flex-col">
         <BrandFormCoachPanel
           mode="onboarding"
           brandId={null}

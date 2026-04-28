@@ -67,7 +67,6 @@ class InviteCreated(InviteOut):
 
 
 class AcceptInviteRequest(BaseModel):
-    token: str
     full_name: str
     password: str
     phone: str | None = None

@@ -6,6 +6,7 @@ import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
 import Seo from '../seo/Seo'
+import { getMissingFields, isBrandReady } from '../../utils/brandReadiness'
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
@@ -29,17 +30,29 @@ const MOBILE_NAV = [
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'  },
 ]
 
+function clearVisitorSession() {
+  try {
+    localStorage.removeItem('contentcard-auth')
+    localStorage.removeItem('contentcard-app')
+    localStorage.removeItem('contentcard.signup.quickFillWebsite')
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function DashboardLayout() {
   const { user, logout, fetchMe }                 = useAuthStore()
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
-          fetchTrends, createWorkspace }        = useAppStore()
+          fetchTrends, createWorkspace,
+          brands, activeBrandId }        = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [newWsOpen, setNewWsOpen] = useState(false)
   const [newWsName, setNewWsName] = useState('')
   const [creatingWs, setCreatingWs] = useState(false)
+  const activeBrand = brands.find((brand) => brand.id === activeBrandId) || null
 
   useEffect(() => {
     setSidebarOpen(false)
@@ -52,6 +65,23 @@ export default function DashboardLayout() {
     fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
   }, [])
+
+  useEffect(() => {
+    const protectedPaths = new Set([
+      '/dashboard',
+      '/dashboard/assistant',
+      '/dashboard/calendar',
+      '/dashboard/templates',
+    ])
+    if (!activeBrand || isBrandReady(activeBrand) || location.pathname === '/dashboard/brand-kit') return
+    if (!protectedPaths.has(location.pathname)) return
+    const missing = getMissingFields(activeBrand)
+    toast(
+      `Finish ${missing.length} required brand kit ${missing.length === 1 ? 'field' : 'fields'} before using AI generation.`,
+      'error'
+    )
+    navigate('/dashboard/brand-kit', { replace: true })
+  }, [activeBrand, location.pathname, navigate])
 
   const agencyMode = !!user?.agency_mode
 
@@ -83,15 +113,11 @@ export default function DashboardLayout() {
     } catch {
       /* ignore */
     }
+    clearVisitorSession()
     logout()
     toast('Signed out', 'success')
     navigate('/login')
   }
-
-  const freeGenerationsUsed = useAppStore(s => s.subscription?.free_generations_used ?? null)
-  const planTier = activeWorkspace?.effective_plan || activeWorkspace?.plan
-  const isSubscribed = ['starter', 'smb', 'pro'].includes(planTier)
-  const freeRemaining = isSubscribed ? null : Math.max(0, 2 - (freeGenerationsUsed ?? 0))
 
   const initials = user?.full_name
     ? user.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
@@ -136,18 +162,6 @@ export default function DashboardLayout() {
         <div className="px-4 py-2 border-b border-fog flex-shrink-0">
           <p className="text-ink/40 text-[10px] font-semibold uppercase tracking-widest">Workspace</p>
           <p className="text-ink text-xs font-semibold truncate">{activeWorkspace.name}</p>
-        </div>
-      )}
-
-      {freeRemaining !== null && (
-        <div className={`mx-3 mt-2 px-3 py-2 rounded-lg text-xs font-medium flex-shrink-0 border ${
-          freeRemaining === 0
-            ? 'bg-red-50 border-red-200 text-red-600'
-            : 'bg-amber-50 border-amber-200 text-amber-700'
-        }`}>
-          {freeRemaining === 0
-            ? 'Free generations used up: subscribe to continue'
-            : `${freeRemaining} free generation${freeRemaining !== 1 ? 's' : ''} remaining`}
         </div>
       )}
 
