@@ -1,8 +1,9 @@
-import { useState } from 'react'
-import { ArrowRight, Calendar, CreditCard, Heart, Images, LayoutDashboard, LayoutTemplate, LogIn, Send, Settings, Share2, Smile, Sparkles, Wand2 } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { ArrowRight, Calendar, CreditCard, Heart, Images, LayoutDashboard, LayoutTemplate, LogIn, Settings, Share2, Smile, Sparkles, Wand2, Globe, Loader2, CheckCircle2, Lock } from 'lucide-react'
 import Seo from '../components/seo/Seo'
 import { LogoFull } from '../components/ui/Logo'
 import AuthEntryModal from '../components/auth/AuthEntryModal'
+import { buildGuestPlanSummary, buildGuestSamplePosts, buildGuestWorkspaceProfile } from '../utils/guestFlow'
 
 const NAV_ITEMS = [
   { label: 'Dashboard', icon: LayoutDashboard },
@@ -17,23 +18,23 @@ const NAV_ITEMS = [
   { label: 'Billing', icon: CreditCard },
 ]
 
-const SUGGESTIONS = [
-  'Generate my Instagram posts for this month',
-  "What should I post this week for my brand?",
-  'Create a promo campaign for a product launch',
-  'Plan content around upcoming holidays',
+const STARTER_PROMPTS = [
+  'Generate a month of launch content',
+  'Show me how ContentCard would position my brand',
+  'Build a social plan from my website',
+  'Write posts for every major platform',
 ]
 
 function PublicDashboardSidebar() {
   return (
-    <aside className="hidden w-[230px] flex-shrink-0 flex-col border-r border-fog bg-white lg:flex">
+    <aside className="hidden w-[238px] flex-shrink-0 flex-col border-r border-fog bg-white lg:flex">
       <div className="border-b border-fog px-4 py-[18px]">
         <LogoFull size={26} />
       </div>
 
       <div className="border-b border-fog px-4 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-ink/35">Workspace</p>
-        <p className="mt-1 text-xs font-semibold text-ink">Your ContentCard Workspace</p>
+        <p className="mt-1 text-xs font-semibold text-ink">Guest test drive</p>
       </div>
 
       <nav className="flex-1 px-2 py-3">
@@ -51,40 +52,116 @@ function PublicDashboardSidebar() {
       </nav>
 
       <div className="border-t border-fog px-3 py-3">
-        <button className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-ink/40 transition-all">
-          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-brand-500 text-[10px] font-bold text-white">
-            CC
-          </div>
-          <div className="min-w-0 text-left">
-            <div className="truncate text-xs font-semibold text-ink">Content creator</div>
-            <div className="truncate text-[10px] text-ink/40">Log in to save your chat</div>
-          </div>
-        </button>
+        <div className="rounded-2xl border border-fog bg-mist px-3 py-3">
+          <p className="text-[10px] font-semibold uppercase tracking-widest text-brand-700">Guest mode</p>
+          <p className="mt-2 text-xs font-semibold text-ink">Try the first generation before signing up.</p>
+          <p className="mt-1 text-[11px] leading-relaxed text-ink/45">
+            When you’re impressed, create an account to save the workspace, edit posts, and schedule them.
+          </p>
+        </div>
       </div>
     </aside>
   )
 }
 
-function SuggestionGrid({ onOpenAuth }) {
+function PromptChips({ onSelect }) {
   return (
     <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-      {SUGGESTIONS.map((suggestion) => (
+      {STARTER_PROMPTS.map((prompt) => (
         <button
-          key={suggestion}
+          key={prompt}
           type="button"
-          onClick={() => onOpenAuth('signup')}
+          onClick={() => onSelect(prompt)}
           className="rounded-xl border border-fog bg-surface px-4 py-3 text-left text-sm text-ink/70 transition-all duration-200 hover:border-brand-300 hover:bg-mist hover:text-ink"
         >
-          {suggestion}
+          {prompt}
         </button>
       ))}
     </div>
   )
 }
 
+function SummaryPill({ label, value }) {
+  return (
+    <div className="rounded-2xl border border-fog bg-white px-4 py-3">
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-ink/35">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-ink">{value}</p>
+    </div>
+  )
+}
+
+function GuestPostCard({ post, onUnlock }) {
+  return (
+    <article className="rounded-[24px] border border-fog bg-white shadow-[0_12px_34px_rgba(15,23,42,0.05)] overflow-hidden">
+      <div className="border-b border-fog px-4 py-3 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold ${post.accent}`}>
+            {post.platformLabel}
+          </span>
+          <span className="text-[11px] text-ink/35">{post.type}</span>
+        </div>
+        <span className="text-[11px] font-medium text-ink/40">{post.day} {buildGuestWorkspaceProfile({}).monthLabel.split(' ')[0]}</span>
+      </div>
+
+      <div className="p-4">
+        <div className="rounded-[22px] border border-fog bg-gradient-to-br from-[#101828] via-[#17324f] to-[#215d5a] p-5 text-white">
+          <p className="text-[11px] uppercase tracking-[0.22em] text-white/55">{post.angle}</p>
+          <h3 className="mt-3 text-xl font-semibold tracking-tight">{post.title}</h3>
+          <p className="mt-3 text-sm leading-relaxed text-white/82">{post.hook}</p>
+        </div>
+
+        <div className="mt-4">
+          <p className="text-sm font-semibold text-ink">Suggested caption</p>
+          <p className="mt-2 text-sm leading-relaxed text-ink/62">{post.caption}</p>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {post.hashtags.map((tag) => (
+              <span key={tag} className="rounded-full bg-mist px-2.5 py-1 text-[10px] font-semibold text-ink/55">
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-fog bg-mist px-3 py-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-ink/35">Best publish window</p>
+            <p className="mt-1 text-sm font-semibold text-ink">{post.bestTime}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onUnlock}
+            className="inline-flex items-center gap-1.5 rounded-full border border-fog bg-white px-3 py-2 text-xs font-semibold text-ink hover:bg-mist"
+          >
+            <Lock size={12} /> {post.cta}
+          </button>
+        </div>
+      </div>
+    </article>
+  )
+}
+
 export default function LandingPage() {
   const [authModal, setAuthModal] = useState({ open: false, mode: 'signup', email: '' })
-  const [heroEmail, setHeroEmail] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [guestForm, setGuestForm] = useState({
+    brandName: '',
+    website: '',
+    goal: '',
+  })
+  const [guestRun, setGuestRun] = useState(null)
+
+  const guestProfile = useMemo(
+    () => buildGuestWorkspaceProfile(guestRun || guestForm),
+    [guestForm, guestRun]
+  )
+  const guestPosts = useMemo(
+    () => (guestRun ? buildGuestSamplePosts(guestRun) : []),
+    [guestRun]
+  )
+  const planSummary = useMemo(
+    () => buildGuestPlanSummary(guestRun || guestForm),
+    [guestForm, guestRun]
+  )
 
   const openAuth = (mode = 'signup', email = '') => {
     setAuthModal({
@@ -94,14 +171,36 @@ export default function LandingPage() {
     })
   }
 
+  const runGuestGeneration = () => {
+    const brandName = guestForm.brandName.trim()
+    const website = guestForm.website.trim()
+    if (!brandName) return
+    setGenerating(true)
+    window.setTimeout(() => {
+      setGuestRun({
+        brandName,
+        website,
+        goal: guestForm.goal.trim(),
+      })
+      setGenerating(false)
+    }, 1200)
+  }
+
+  const onSubmit = (event) => {
+    event.preventDefault()
+    runGuestGeneration()
+  }
+
+  const canGenerate = guestForm.brandName.trim().length > 1
+
   return (
     <>
       <Seo
-        title="ContentCard | Free Social Media Content Generator and Scheduler"
-        description="Open ContentCard and land straight inside an AI-first dashboard for generating and scheduling social media content."
+        title="ContentCard | Try the app first"
+        description="Go straight into ContentCard, enter your brand and website, and test a first social content generation before creating an account."
         path="/"
         image="/og-image.svg"
-        keywords="free social media content generator, ai social media dashboard, free social media scheduler, contentcard"
+        keywords="try contentcard, guest social media content generator, ai social media dashboard, generate content from website"
         structuredData={[
           {
             '@context': 'https://schema.org',
@@ -110,7 +209,7 @@ export default function LandingPage() {
             applicationCategory: 'BusinessApplication',
             operatingSystem: 'Web',
             offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
-            description: 'Free social media content generator and scheduler.',
+            description: 'Guest-first social media content generator and scheduler.',
           },
         ]}
       />
@@ -126,131 +225,195 @@ export default function LandingPage() {
               </div>
               <div>
                 <span className="text-sm font-semibold text-ink">ContentCard AI</span>
-                <span className="ml-2 text-xs text-ink/40">Public dashboard preview</span>
+                <span className="ml-2 text-xs text-ink/40">Guest workspace</span>
               </div>
             </div>
 
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => openAuth('login', heroEmail)}
+                onClick={() => openAuth('login')}
                 className="inline-flex items-center justify-center rounded-full bg-[#101828] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#0b1320]"
               >
                 Log in
               </button>
               <button
                 type="button"
-                onClick={() => openAuth('signup', heroEmail)}
+                onClick={() => openAuth('signup')}
                 className="inline-flex items-center justify-center rounded-full border border-fog bg-white px-5 py-2.5 text-sm font-semibold text-ink transition-colors hover:bg-mist"
               >
-                Sign up for free
+                Start free
               </button>
             </div>
           </header>
 
-          <div className="flex flex-1 flex-col">
-            <div className="border-b border-fog bg-gradient-to-b from-white via-[#fcfdfc] to-[#f6faf8] px-5 py-6 sm:px-8">
-              <div className="max-w-4xl">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-brand-700">Dashboard on landing</p>
-                <h1 className="mt-2 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
-                  Open the product, not a marketing page.
-                </h1>
-                <p className="mt-4 max-w-3xl text-base leading-relaxed text-ink/58 sm:text-lg">
-                  Just like ChatGPT, ContentCard opens on the product surface first. The AI workspace is already selected, so visitors can see exactly how they would start generating.
-                </p>
-              </div>
-            </div>
+          <div className="flex-1 overflow-y-auto">
+            <div className="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-8 sm:px-6">
+              <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+                <div className="rounded-[30px] border border-fog bg-gradient-to-br from-white via-[#fcfdfc] to-[#eef7f3] p-6 shadow-[0_16px_40px_rgba(15,23,42,0.06)] sm:p-8">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-brand-700">First-generation moment</p>
+                  <h1 className="mt-3 max-w-[14ch] text-4xl font-semibold tracking-tight text-ink sm:text-5xl">
+                    Land in the app. Test your brand. Feel the value first.
+                  </h1>
+                  <p className="mt-4 max-w-3xl text-base leading-relaxed text-ink/58 sm:text-lg">
+                    Enter a brand name and website, and ContentCard will sketch a cross-platform sample month immediately. If you like what you see, save it by creating an account. If you already have one, just log in and keep going.
+                  </p>
 
-            <div className="flex-1 overflow-y-auto">
-              <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-8 sm:px-6">
-                <section className="rounded-[28px] border border-fog bg-white shadow-[0_12px_34px_rgba(15,23,42,0.05)]">
-                  <div className="flex items-center justify-between gap-4 border-b border-fog px-5 py-4">
+                  <form onSubmit={onSubmit} className="mt-7 rounded-[28px] border border-fog bg-white p-4 shadow-[0_12px_28px_rgba(15,23,42,0.05)] sm:p-5">
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-ink/35">Brand name</span>
+                        <input
+                          value={guestForm.brandName}
+                          onChange={(event) => setGuestForm((current) => ({ ...current, brandName: event.target.value }))}
+                          placeholder="Juicy Junction"
+                          className="w-full rounded-2xl border border-fog bg-surface px-4 py-3 text-sm text-ink outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-300/30"
+                        />
+                      </label>
+
+                      <label className="block">
+                        <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-ink/35">Website</span>
+                        <div className="relative">
+                          <Globe size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/30" />
+                          <input
+                            value={guestForm.website}
+                            onChange={(event) => setGuestForm((current) => ({ ...current, website: event.target.value }))}
+                            placeholder="juicyjunction.com"
+                            className="w-full rounded-2xl border border-fog bg-surface py-3 pl-11 pr-4 text-sm text-ink outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-300/30"
+                          />
+                        </div>
+                      </label>
+                    </div>
+
+                    <label className="mt-3 block">
+                      <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-widest text-ink/35">What should the content push this month?</span>
+                      <textarea
+                        rows={3}
+                        value={guestForm.goal}
+                        onChange={(event) => setGuestForm((current) => ({ ...current, goal: event.target.value }))}
+                        placeholder="Launch a new product, increase awareness, get more website traffic, close more leads..."
+                        className="w-full resize-none rounded-2xl border border-fog bg-surface px-4 py-3 text-sm text-ink outline-none focus:border-brand-400 focus:ring-2 focus:ring-brand-300/30"
+                      />
+                    </label>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                      <p className="text-[11px] text-ink/35">
+                        Returning user? Log in. New visitor? Test the product before you decide.
+                      </p>
+                      <button
+                        type="submit"
+                        disabled={!canGenerate || generating}
+                        className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {generating ? <Loader2 size={16} className="animate-spin" /> : <Wand2 size={16} />}
+                        {generating ? 'Generating sample month...' : 'Generate sample month'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+
+                <div className="rounded-[30px] border border-fog bg-white p-6 shadow-[0_16px_40px_rgba(15,23,42,0.05)] sm:p-8">
+                  <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-xl font-semibold text-ink">ContentCard AI</h2>
-                      <p className="mt-1 text-sm text-ink/40">Ask anything or generate content instantly</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-brand-700">Why this works</p>
+                      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-ink">A guest flow that sells the product by using it</h2>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      <span className="inline-flex rounded-full border border-fog bg-mist px-3 py-1 text-xs font-semibold text-ink/60">No credit card</span>
-                    </div>
-                  </div>
-
-                  <div className="px-5 py-8 sm:px-8">
-                    <div className="flex flex-col items-center justify-center gap-8 px-4 pb-8 text-center">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-500 shadow-lg shadow-brand-500/20">
-                          <Wand2 size={26} className="text-white" />
-                        </div>
-                        <div>
-                          <h3 className="text-2xl font-semibold text-ink">Start generating immediately</h3>
-                          <p className="mt-1 text-sm text-ink/50">The default tab is AI, so the product opens exactly where generation starts.</p>
-                        </div>
-                      </div>
-
-                      <div className="w-full max-w-3xl">
-                        <SuggestionGrid onOpenAuth={openAuth} />
-                      </div>
+                    <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-brand-500/10">
+                      <CheckCircle2 size={20} className="text-brand-600" />
                     </div>
                   </div>
-                </section>
 
-                <section className="rounded-[28px] border border-fog bg-white px-4 py-4 shadow-[0_12px_34px_rgba(15,23,42,0.05)] sm:px-6">
-                  <div className="flex items-end gap-3 rounded-2xl border border-fog bg-mist px-4 py-3 transition-all focus-within:border-brand-400 focus-within:ring-2 focus-within:ring-brand-300/30">
-                    <textarea
-                      rows={1}
-                      value={heroEmail}
-                      onChange={(event) => setHeroEmail(event.target.value)}
-                      placeholder="Ask anything or say 'generate my posts for this month'..."
-                      className="min-h-[22px] flex-1 resize-none bg-transparent text-sm leading-relaxed text-ink placeholder:text-ink/40 focus:outline-none"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => openAuth('signup', heroEmail)}
-                      className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm transition-all duration-200 hover:bg-slate-800"
-                    >
-                      <Send size={14} />
-                    </button>
+                  <div className="mt-6 grid gap-3">
+                    {planSummary.map((item) => (
+                      <SummaryPill key={item.label} label={item.label} value={item.value} />
+                    ))}
                   </div>
 
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-[11px] text-ink/30">
-                      <kbd className="font-mono">Enter</kbd> to send · <kbd className="font-mono">Shift+Enter</kbd> for new line
+                  <div className="mt-6 rounded-[24px] border border-fog bg-mist p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-widest text-ink/35">Try these prompts</p>
+                    <div className="mt-3">
+                      <PromptChips onSelect={(prompt) => setGuestForm((current) => ({ ...current, goal: prompt }))} />
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-[30px] border border-fog bg-white shadow-[0_12px_34px_rgba(15,23,42,0.05)]">
+                <div className="flex flex-wrap items-center justify-between gap-4 border-b border-fog px-5 py-4">
+                  <div>
+                    <h2 className="text-xl font-semibold text-ink">Guest content workspace</h2>
+                    <p className="mt-1 text-sm text-ink/40">
+                      {guestRun
+                        ? `Sample month generated for ${guestProfile.brandName}`
+                        : 'Fill the form above to generate a brand-specific first month across your main channels.'}
                     </p>
+                  </div>
 
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openAuth('signup', heroEmail)}
-                        className="btn-primary rounded-[16px] px-5 py-3"
-                      >
-                        <Sparkles size={16} /> Start free
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => openAuth('login', heroEmail)}
-                        className="btn-secondary rounded-[16px] px-5 py-3"
-                      >
-                        <LogIn size={16} /> Log in
-                      </button>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="inline-flex rounded-full border border-fog bg-mist px-3 py-1 text-xs font-semibold text-ink/60">No credit card</span>
+                    <span className="inline-flex rounded-full border border-fog bg-mist px-3 py-1 text-xs font-semibold text-ink/60">Instagram + Facebook + X + LinkedIn</span>
+                  </div>
+                </div>
+
+                {!guestRun ? (
+                  <div className="px-5 py-10 sm:px-8">
+                    <div className="mx-auto flex max-w-3xl flex-col items-center justify-center gap-6 text-center">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-brand-500 shadow-lg shadow-brand-500/15">
+                        <Sparkles size={30} className="text-white" />
+                      </div>
+                      <div>
+                        <h3 className="text-2xl font-semibold text-ink">This is where the first impression happens</h3>
+                        <p className="mt-2 text-sm leading-relaxed text-ink/50">
+                          Give ContentCard just enough context to understand your brand, and we’ll turn that into a believable starter month so you can judge the product on output, not promises.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </section>
+                ) : (
+                  <div className="px-5 py-6 sm:px-8">
+                    <div className="mb-6 grid gap-3 lg:grid-cols-4">
+                      {planSummary.map((item) => (
+                        <SummaryPill key={item.label} label={item.label} value={item.value} />
+                      ))}
+                    </div>
 
-                <section className="grid gap-4 lg:grid-cols-3">
-                  <div className="rounded-[24px] border border-fog bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
-                    <p className="text-[11px] font-semibold uppercase tracking-widest text-brand-700">AI first</p>
-                    <p className="mt-3 text-lg font-semibold text-ink">Visitors land where content generation actually happens.</p>
+                    <div className="grid gap-5 lg:grid-cols-2">
+                      {guestPosts.map((post) => (
+                        <GuestPostCard key={post.id} post={post} onUnlock={() => openAuth('signup')} />
+                      ))}
+                    </div>
+
+                    <div className="mt-6 rounded-[24px] border border-brand-400/25 bg-brand-500/8 px-5 py-5">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-brand-700">You’ve seen the value</p>
+                          <h3 className="mt-1 text-xl font-semibold text-ink">Now save this workspace and keep building</h3>
+                          <p className="mt-2 max-w-2xl text-sm leading-relaxed text-ink/58">
+                            Create an account to store this brand, edit the sample posts, generate a full calendar, connect social accounts, and schedule everything properly.
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openAuth('signup')}
+                            className="inline-flex items-center gap-2 rounded-full bg-brand-500 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-brand-600"
+                          >
+                            Start free <ArrowRight size={15} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openAuth('login')}
+                            className="inline-flex items-center gap-2 rounded-full border border-fog bg-white px-5 py-3 text-sm font-semibold text-ink transition-colors hover:bg-mist"
+                          >
+                            <LogIn size={15} /> I already have an account
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="rounded-[24px] border border-fog bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
-                    <p className="text-[11px] font-semibold uppercase tracking-widest text-brand-700">Product-led</p>
-                    <p className="mt-3 text-lg font-semibold text-ink">The root URL behaves like a dashboard shell instead of a classic marketing homepage.</p>
-                  </div>
-                  <div className="rounded-[24px] border border-fog bg-white p-5 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
-                    <p className="text-[11px] font-semibold uppercase tracking-widest text-brand-700">Auth gated</p>
-                    <p className="mt-3 text-lg font-semibold text-ink">Real actions still funnel into the popup sign-up or login flow you asked for.</p>
-                  </div>
-                </section>
-              </div>
+                )}
+              </section>
             </div>
           </div>
         </main>
