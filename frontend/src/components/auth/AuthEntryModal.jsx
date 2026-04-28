@@ -80,7 +80,7 @@ export default function AuthEntryModal({
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[#0f172a]/55 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
       <div className="absolute inset-0" onClick={() => onClose?.()} aria-hidden="true" />
-      <div className="relative z-10 w-full max-w-[880px] overflow-hidden rounded-[28px] border border-white/60 bg-white shadow-[0_24px_100px_rgba(15,23,42,0.24)]">
+      <div className="relative z-10 w-full max-w-[880px] overflow-hidden rounded-[28px] border border-fog bg-surface shadow-[0_24px_100px_rgba(15,23,42,0.24)]">
         <div className="grid lg:grid-cols-[0.92fr_1.08fr]">
           <div className="hidden lg:flex flex-col justify-between bg-[#0f172a] p-8 text-white">
             <div>
@@ -108,13 +108,13 @@ export default function AuthEntryModal({
             </div>
           </div>
 
-          <div className="bg-white p-6 sm:p-8">
+          <div className="bg-surface p-6 sm:p-8">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="lg:hidden">
                   <LogoFull size={26} />
                 </div>
-                <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.22em] text-brand-700">Access ContentCard</p>
+                <p className="mt-5 text-[11px] font-semibold uppercase tracking-[0.22em] text-brand-600 dark:text-brand-300">Access ContentCard</p>
                 <h3 className="mt-2 text-3xl font-semibold tracking-tight text-ink">
                   {activeMode === 'signup' ? 'Start free' : 'Log in'}
                 </h3>
@@ -127,7 +127,7 @@ export default function AuthEntryModal({
               <button
                 type="button"
                 onClick={() => onClose?.()}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-fog text-ink/45 transition-colors hover:text-ink"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-fog text-ink/65 transition-colors hover:text-ink"
                 aria-label="Close authentication modal"
               >
                 <X size={18} />
@@ -138,14 +138,14 @@ export default function AuthEntryModal({
               <button
                 type="button"
                 onClick={() => setActiveMode('login')}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${activeMode === 'login' ? 'bg-white text-ink shadow-sm' : 'text-ink/50'}`}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${activeMode === 'login' ? 'bg-surface text-ink shadow-sm' : 'text-ink/55'}`}
               >
                 Log in
               </button>
               <button
                 type="button"
                 onClick={() => setActiveMode('signup')}
-                className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${activeMode === 'signup' ? 'bg-white text-ink shadow-sm' : 'text-ink/50'}`}
+                className={`rounded-full px-4 py-2 text-sm font-semibold transition-all ${activeMode === 'signup' ? 'bg-surface text-ink shadow-sm' : 'text-ink/55'}`}
               >
                 Sign up for free
               </button>
@@ -179,7 +179,8 @@ export default function AuthEntryModal({
                     <button
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/40"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/65 hover:text-ink transition-colors"
                     >
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
@@ -238,7 +239,8 @@ export default function AuthEntryModal({
                     <button
                       type="button"
                       onClick={() => setShowPassword((current) => !current)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/40"
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/65 hover:text-ink transition-colors"
                     >
                       {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>

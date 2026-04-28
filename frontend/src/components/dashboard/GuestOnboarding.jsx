@@ -27,7 +27,24 @@ export default function GuestOnboarding({ initialProfile, onDone, onDismiss }) {
   const [intent, setIntent] = useState(initialProfile?.intent || null)
   const fileInputRef = useRef(null)
 
-  const websiteValid = website.trim().length >= 4 && /\./.test(website.trim())
+  const validateWebsite = (raw) => {
+    const value = String(raw || '').trim()
+    if (value.length < 4) return false
+    const candidate = /^https?:\/\//i.test(value) ? value : `https://${value}`
+    try {
+      const url = new URL(candidate)
+      const host = url.hostname
+      if (!host || !host.includes('.')) return false
+      const labels = host.split('.')
+      if (labels.some((label) => !label || label.length < 2)) return false
+      return /^[a-z]{2,}$/i.test(labels[labels.length - 1])
+    } catch {
+      return false
+    }
+  }
+  const websiteTrimmed = website.trim()
+  const websiteValid = validateWebsite(websiteTrimmed)
+  const websiteShowError = websiteTrimmed.length > 0 && !websiteValid
   const canContinue = brandName.trim().length > 0 && websiteValid && Boolean(logoDataUrl)
 
   const handlePickLogo = async (file) => {
@@ -129,11 +146,20 @@ export default function GuestOnboarding({ initialProfile, onDone, onDismiss }) {
                 value={website}
                 onChange={(e) => setWebsite(e.target.value)}
                 placeholder="acmecoffee.com"
-                className="w-full px-3.5 py-2.5 bg-mist border border-fog rounded-xl text-sm text-ink outline-none focus:ring-2 focus:ring-brand-300/40 focus:border-brand-400 transition-all"
+                className={`w-full px-3.5 py-2.5 bg-mist border rounded-xl text-sm text-ink outline-none focus:ring-2 focus:ring-brand-300/40 focus:border-brand-400 transition-all ${
+                  websiteShowError ? 'border-red-400 dark:border-red-500' : 'border-fog'
+                }`}
                 maxLength={120}
+                aria-invalid={websiteShowError}
+                aria-describedby="brand-website-help"
               />
-              <p className="text-ink/35 text-[11px] mt-1.5">
-                We'll personalize the calendar with copy and tone tuned for your brand.
+              <p
+                id="brand-website-help"
+                className={`text-[11px] mt-1.5 ${websiteShowError ? 'text-red-600 dark:text-red-300' : 'text-ink/55'}`}
+              >
+                {websiteShowError
+                  ? 'Enter a valid web address — for example, acmecoffee.com.'
+                  : "We'll personalize the calendar with copy and tone tuned for your brand."}
               </p>
             </div>
 

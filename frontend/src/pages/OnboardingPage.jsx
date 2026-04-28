@@ -14,6 +14,8 @@ const TONES = [
   'Warm','Professional','Witty','Inspirational','Confident','Friendly',
 ]
 
+const MAX_TONE_TAGS = 5
+
 const WEBSITE_PLATFORMS = [
   { id: 'auto', label: 'Auto-detect' },
   { id: 'shopify', label: 'Shopify' },
@@ -31,6 +33,8 @@ export default function OnboardingPage() {
   const [saving, setSaving] = useState(false)
   const [templateSetupRunning, setTemplateSetupRunning] = useState(false)
   const [quickFillRunning, setQuickFillRunning] = useState(false)
+  const [quickFillError, setQuickFillError] = useState('')
+  const [stepErrors, setStepErrors] = useState({})
   const [quickFillWebsite, setQuickFillWebsite] = useState(() => {
     try {
       return localStorage.getItem('contentcard.signup.quickFillWebsite') || ''
@@ -43,7 +47,10 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     if (!user || user.onboarding_completed) return undefined
-    const handleBeforeUnload = () => {
+    const handleBeforeUnload = (event) => {
+      // Warn the user — leaving here clears their pending session.
+      event.preventDefault()
+      event.returnValue = ''
       try {
         localStorage.removeItem('contentcard-auth')
         localStorage.removeItem('contentcard-app')
@@ -51,6 +58,7 @@ export default function OnboardingPage() {
       } catch {
         /* ignore */
       }
+      return ''
     }
     window.addEventListener('beforeunload', handleBeforeUnload)
     return () => window.removeEventListener('beforeunload', handleBeforeUnload)
@@ -203,9 +211,12 @@ export default function OnboardingPage() {
   }
 
   const quickFillFromWebsite = async () => {
+    setQuickFillError('')
     const website = normalizeWebsite(quickFillWebsite)
     if (!website) {
-      toast('Add your website link to run quick fill.', 'error')
+      const msg = 'Add your website link to run quick fill.'
+      setQuickFillError(msg)
+      toast(msg, 'error')
       return
     }
     let site
@@ -215,7 +226,9 @@ export default function OnboardingPage() {
         throw new Error('invalid host')
       }
     } catch {
-      toast('Enter a valid website URL (example: https://golemon.co).', 'error')
+      const msg = 'Enter a valid website URL (example: https://golemon.co).'
+      setQuickFillError(msg)
+      toast(msg, 'error')
       return
     }
     setQuickFillRunning(true)
@@ -375,7 +388,9 @@ export default function OnboardingPage() {
       toast('Quick fill complete. Review the brand kit, then upload your logo as the final step.', 'success')
       navigate('/dashboard/brand-kit')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Quick fill failed. Please continue manually.', 'error')
+      const detail = err.response?.data?.detail || err.message || 'Something went wrong while reading your website.'
+      setQuickFillError(`${detail} You can continue filling the form manually below.`)
+      toast('Quick fill didn\'t finish. Continue manually below.', 'error')
     } finally {
       setQuickFillRunning(false)
       setQuickFillStatus('')
@@ -384,14 +399,31 @@ export default function OnboardingPage() {
 
   const toggleTone = (t) => {
     const tags = form.tone_tags
-    set('tone_tags', tags.includes(t) ? tags.filter(x => x !== t) : [...tags, t])
+    if (tags.includes(t)) {
+      set('tone_tags', tags.filter(x => x !== t))
+      return
+    }
+    if (tags.length >= MAX_TONE_TAGS) {
+      toast(`Pick up to ${MAX_TONE_TAGS} tones — strong voices come from focused choices.`, 'error')
+      return
+    }
+    set('tone_tags', [...tags, t])
   }
 
   const next = () => {
-    if (step === 1 && !form.name.trim()) { toast('Please enter your brand name.', 'error'); return }
-    if (step === 1 && !form.industry) { toast('Please select your industry.', 'error'); return }
-    if (step === 1 && !form.sub_industry) { toast('Please select your sub-industry.', 'error'); return }
-    if (step === 1 && !form.website_platform) { toast('Please select your website type.', 'error'); return }
+    if (step === 1) {
+      const errors = {}
+      if (!form.name.trim()) errors.name = 'Enter your brand name.'
+      if (!form.industry) errors.industry = 'Select your industry.'
+      if (!form.sub_industry) errors.sub_industry = 'Select your sub-industry.'
+      if (!form.website_platform) errors.website_platform = 'Select your website type.'
+      if (Object.keys(errors).length) {
+        setStepErrors(errors)
+        toast('Please complete the required fields.', 'error')
+        return
+      }
+      setStepErrors({})
+    }
     setStep(s => s + 1)
   }
 
@@ -468,7 +500,7 @@ export default function OnboardingPage() {
             })}
           </div>
 
-          <div className="bg-white border border-fog rounded-2xl p-7 shadow-sm">
+          <div className="bg-surface border border-fog rounded-2xl p-7 shadow-sm">
 
             {/* Step 1: Brand basics */}
             {step === 1 && (
@@ -479,11 +511,11 @@ export default function OnboardingPage() {
                   </h2>
                   <p className="text-ink/50 text-sm">This information shapes every piece of content we generate for you.</p>
                 </div>
-                <div className="rounded-xl border border-brand-200 bg-brand-500/5 p-4">
+                <div className="rounded-xl border border-brand-200 dark:border-brand-700/40 bg-brand-500/5 p-4">
                   <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div>
-                      <p className="text-sm font-semibold text-ink">Quick fill from website</p>
-                      <p className="text-xs text-ink/55">We prefill your Brand Kit to 100%, then you upload logo as final step.</p>
+                      <p className="text-sm font-semibold text-ink">Quick fill from website <span className="text-ink/55 font-normal">(optional)</span></p>
+                      <p className="text-xs text-ink/65">We'll prefill your Brand Kit from your website. You can also skip and fill manually.</p>
                     </div>
                     <button
                       type="button"
@@ -491,78 +523,95 @@ export default function OnboardingPage() {
                       disabled={quickFillRunning || !quickFillWebsite.trim()}
                       className="btn-primary text-xs px-3 py-2 disabled:opacity-60"
                     >
-                      {quickFillRunning ? 'Quick filling…' : 'Quick fill'}
+                      {quickFillRunning ? (quickFillStatus || 'Quick filling…') : 'Quick fill'}
                     </button>
                   </div>
                   <input
                     value={quickFillWebsite}
-                    onChange={(e) => setQuickFillWebsite(e.target.value)}
+                    onChange={(e) => { setQuickFillWebsite(e.target.value); if (quickFillError) setQuickFillError('') }}
                     placeholder="https://yourwebsite.com"
                     className="input mt-3"
                     disabled={quickFillRunning}
                   />
-                  {quickFillRunning && (
-                    <p className="text-xs text-ink/60 mt-2 flex items-center gap-2">
-                      <span className="inline-block h-3 w-3 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
-                      {quickFillStatus || 'Working on it…'} This usually takes 1–3 minutes.
-                    </p>
-                  )}
-                <select
-                  value={quickFillPlatform}
-                  onChange={(e) => setQuickFillPlatform(e.target.value)}
-                  className="input mt-2"
-                >
-                  {WEBSITE_PLATFORMS.map((p) => (
-                    <option key={p.id} value={p.id}>{`Quick fill website type: ${p.label}`}</option>
-                  ))}
-                </select>
-                </div>
-                <div>
-                  <label className="label">Brand or business name <span className="text-red-400">*</span></label>
-                  <input value={form.name} onChange={e => set('name', e.target.value)}
-                    placeholder="e.g. Nova Studio, Grace Foods, TechBridge"
-                    className="input" autoFocus />
-                </div>
-                <div>
-                  <label className="label">Industry <span className="text-red-400">*</span></label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {INDUSTRIES.map(ind => (
-                      <button key={ind} type="button" onClick={() => setForm((f) => ({ ...f, industry: ind, sub_industry: '' }))}
-                        className={`px-3 py-2.5 rounded-xl text-xs font-semibold text-left border transition-all ${
-                          form.industry === ind
-                            ? 'border-brand-400 bg-brand-50 text-brand-700'
-                            : 'border-slate-300 text-ink/75 hover:border-brand-300 hover:text-ink'
-                        }`}>
-                        {ind}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <label className="label">Sub-industry <span className="text-red-400">*</span></label>
+                  <label className="block text-[11px] font-semibold text-ink/65 mt-3 mb-1">Website type</label>
                   <select
-                    value={form.sub_industry || ''}
-                    onChange={e => set('sub_industry', e.target.value)}
+                    value={quickFillPlatform}
+                    onChange={(e) => setQuickFillPlatform(e.target.value)}
                     className="input"
-                    disabled={!form.industry}
-                  >
-                    <option value="">{form.industry ? 'Select sub-industry…' : 'Choose industry first'}</option>
-                    {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
-                      <option key={sub} value={sub}>{sub}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="label">Website type <span className="text-red-400">*</span></label>
-                  <select
-                    value={form.website_platform || 'auto'}
-                    onChange={e => set('website_platform', e.target.value)}
-                    className="input"
+                    aria-label="Website type for quick fill"
                   >
                     {WEBSITE_PLATFORMS.map((p) => (
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
                   </select>
+                  {quickFillRunning && (
+                    <p className="text-xs text-ink/65 mt-3 flex items-center gap-2" role="status" aria-live="polite">
+                      <span className="inline-block h-3 w-3 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
+                      {quickFillStatus || 'Working on it…'} This usually takes 1–3 minutes.
+                    </p>
+                  )}
+                  {quickFillError && (
+                    <div role="alert" className="mt-3 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 text-xs">
+                      {quickFillError}
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="label">Brand or business name <span className="text-red-500 dark:text-red-400" aria-hidden="true">*</span></label>
+                  <input value={form.name}
+                    onChange={e => { set('name', e.target.value); if (stepErrors.name) setStepErrors(s => ({ ...s, name: undefined })) }}
+                    placeholder="e.g. Nova Studio, Grace Foods, TechBridge"
+                    className="input" autoFocus
+                    aria-invalid={Boolean(stepErrors.name)}
+                  />
+                  {stepErrors.name && <p className="text-xs text-red-600 dark:text-red-300 mt-1">{stepErrors.name}</p>}
+                </div>
+                <div>
+                  <label className="label">Industry <span className="text-red-500 dark:text-red-400" aria-hidden="true">*</span></label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {INDUSTRIES.map(ind => (
+                      <button key={ind} type="button"
+                        onClick={() => { setForm((f) => ({ ...f, industry: ind, sub_industry: '' })); if (stepErrors.industry) setStepErrors(s => ({ ...s, industry: undefined, sub_industry: undefined })) }}
+                        className={`min-h-[44px] px-3 py-2.5 rounded-xl text-xs font-semibold text-left border transition-all ${
+                          form.industry === ind
+                            ? 'border-brand-400 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                            : 'border-fog text-ink/75 hover:border-brand-300 hover:text-ink'
+                        }`}>
+                        {ind}
+                      </button>
+                    ))}
+                  </div>
+                  {stepErrors.industry && <p className="text-xs text-red-600 dark:text-red-300 mt-1">{stepErrors.industry}</p>}
+                </div>
+                <div>
+                  <label className="label">Sub-industry <span className="text-red-500 dark:text-red-400" aria-hidden="true">*</span></label>
+                  <select
+                    value={form.sub_industry || ''}
+                    onChange={e => { set('sub_industry', e.target.value); if (stepErrors.sub_industry) setStepErrors(s => ({ ...s, sub_industry: undefined })) }}
+                    className="input disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={!form.industry}
+                    aria-invalid={Boolean(stepErrors.sub_industry)}
+                  >
+                    <option value="">{form.industry ? 'Select sub-industry…' : 'Choose an industry first'}</option>
+                    {(INDUSTRY_TAXONOMY[form.industry] || []).map((sub) => (
+                      <option key={sub} value={sub}>{sub}</option>
+                    ))}
+                  </select>
+                  {stepErrors.sub_industry && <p className="text-xs text-red-600 dark:text-red-300 mt-1">{stepErrors.sub_industry}</p>}
+                </div>
+                <div>
+                  <label className="label">Website type <span className="text-red-500 dark:text-red-400" aria-hidden="true">*</span></label>
+                  <select
+                    value={form.website_platform || 'auto'}
+                    onChange={e => set('website_platform', e.target.value)}
+                    className="input"
+                    aria-invalid={Boolean(stepErrors.website_platform)}
+                  >
+                    {WEBSITE_PLATFORMS.map((p) => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
+                  </select>
+                  {stepErrors.website_platform && <p className="text-xs text-red-600 dark:text-red-300 mt-1">{stepErrors.website_platform}</p>}
                 </div>
                 <div>
                   <label className="label">What your business does <span className="text-ink/30 font-normal normal-case">(optional)</span></label>
@@ -608,20 +657,26 @@ export default function OnboardingPage() {
                   <p className="text-ink/50 text-sm">Select the tone that best reflects how your brand communicates. You can refine this at any time in your Brand Kit.</p>
                 </div>
                 <div>
-                  <label className="label">Tone <span className="text-ink/30 font-normal normal-case">(select all that apply)</span></label>
+                  <label className="label">Tone <span className="text-ink/55 font-normal normal-case">(pick up to {MAX_TONE_TAGS})</span></label>
                   <div className="flex flex-wrap gap-2">
                     {TONES.map(t => {
                       const on = form.tone_tags.includes(t)
+                      const atCap = !on && form.tone_tags.length >= MAX_TONE_TAGS
                       return (
                         <button key={t} type="button" onClick={() => toggleTone(t)}
-                          className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-all ${
-                            on ? 'bg-brand-500 border-brand-500 text-white' : 'border-slate-300 text-ink/75 hover:border-brand-300 hover:text-ink'
+                          disabled={atCap}
+                          aria-pressed={on}
+                          className={`px-3 py-1.5 rounded-full border text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                            on ? 'bg-brand-500 border-brand-500 text-white' : 'border-fog text-ink/75 hover:border-brand-300 hover:text-ink'
                           }`}>
                           {t}
                         </button>
                       )
                     })}
                   </div>
+                  <p className="text-[11px] text-ink/55 mt-1.5">
+                    {form.tone_tags.length}/{MAX_TONE_TAGS} selected
+                  </p>
                 </div>
                 <div>
                   <label className="label">
@@ -647,10 +702,11 @@ export default function OnboardingPage() {
                       ['mix',             'Mixed (code-switching)'],
                     ].map(([val, label]) => (
                       <button key={val} type="button" onClick={() => set('language_style', val)}
-                        className={`py-2.5 rounded-xl text-xs font-semibold border transition-all ${
+                        aria-pressed={form.language_style === val}
+                        className={`py-2.5 px-2 rounded-xl text-xs font-semibold border transition-all ${
                           form.language_style === val
-                            ? 'border-brand-400 bg-brand-50 text-brand-700'
-                            : 'border-slate-300 text-ink/75 hover:border-brand-300 hover:text-ink'
+                            ? 'border-brand-400 bg-brand-50 dark:bg-brand-500/10 text-brand-700 dark:text-brand-300'
+                            : 'border-fog text-ink/75 hover:border-brand-300 hover:text-ink'
                         }`}>
                         {label}
                       </button>
@@ -663,16 +719,16 @@ export default function OnboardingPage() {
             {step === 4 && (
               <div className="space-y-5">
                 <div>
-                  <h2 className="text-xl font-bold text-ink mb-1">Industry templates are auto-created</h2>
-                  <p className="text-ink/50 text-sm">
-                    As soon as you finish, ContentCard automatically prepares templates from your industry playbook and brand kit.
+                  <h2 className="text-xl font-bold text-ink mb-1">You're ready to launch</h2>
+                  <p className="text-ink/60 text-sm">
+                    When you click <span className="font-semibold text-ink">Create brand</span>, we'll save your profile and prepare a starter set of templates from your industry playbook.
                   </p>
                 </div>
-                <div className="rounded-xl border border-fog bg-mist p-4">
-                  <p className="text-xs text-ink/60">
-                    You can generate content immediately. Templates will appear in the Templates tab and can be refined any time.
-                  </p>
-                </div>
+                <ul className="space-y-2 text-sm text-ink/75">
+                  <li className="flex items-start gap-2"><Check size={14} className="text-brand-500 mt-1 flex-shrink-0" /> Brand profile saved to your workspace</li>
+                  <li className="flex items-start gap-2"><Check size={14} className="text-brand-500 mt-1 flex-shrink-0" /> Industry templates generated automatically</li>
+                  <li className="flex items-start gap-2"><Check size={14} className="text-brand-500 mt-1 flex-shrink-0" /> You can refine everything later in the Brand Kit</li>
+                </ul>
               </div>
             )}
 
@@ -687,22 +743,24 @@ export default function OnboardingPage() {
                     Continue <ArrowRight size={15} />
                   </button>
                 ) : (
-                  <button onClick={finish} disabled={saving} className="btn-primary px-6 py-2.5 text-sm">
-                    {saving || templateSetupRunning
-                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Creating your brand…</>
-                      : <><Zap size={15} /> Create brand</>}
+                  <button onClick={finish} disabled={saving || templateSetupRunning} className="btn-primary px-6 py-2.5 text-sm">
+                    {templateSetupRunning
+                      ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Generating templates…</>
+                      : saving
+                        ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving brand profile…</>
+                        : <><Zap size={15} /> Create brand</>}
                   </button>
                 )}
             </div>
           </div>
 
-          <p className="text-center text-ink/30 text-xs mt-5">
+          <p className="text-center text-ink/65 text-xs mt-5">
             All settings can be updated later in your Brand Kit.
           </p>
         </div>
       </div>
 
-      <div className="w-full lg:w-[min(420px,40vw)] lg:shrink-0 border-t lg:border-t-0 lg:border-l border-fog bg-white p-4 lg:min-h-screen flex flex-col">
+      <div className="w-full lg:w-[min(420px,40vw)] lg:shrink-0 border-t lg:border-t-0 lg:border-l border-fog bg-surface p-4 lg:min-h-screen flex flex-col">
         <BrandFormCoachPanel
           mode="onboarding"
           brandId={null}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle, Loader2, Mail, RefreshCw } from 'lucide-react'
+import { ArrowRight, CheckCircle, Loader2, Mail, RefreshCw } from 'lucide-react'
 import { LogoFull } from '../components/ui/Logo'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
@@ -8,13 +8,7 @@ import { authApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 
-const authLightThemeVars = {
-  '--cc-ink-rgb': '15 23 42',
-  '--cc-fog-rgb': '229 231 235',
-  '--cc-mist-rgb': '247 247 248',
-  '--cc-surface-rgb': '255 255 255',
-  '--cc-page-rgb': '255 255 255',
-}
+const RESEND_COOLDOWN_SECONDS = 30
 
 function HeroPanel() {
   return (
@@ -47,6 +41,7 @@ export default function VerifyEmailPage() {
   const [resendEmail, setResendEmail] = useState(queryEmail)
   const [resending, setResending]     = useState(false)
   const [resendOk, setResendOk]       = useState(false)
+  const [cooldown, setCooldown]       = useState(0)
 
   useEffect(() => {
     if (!token) return
@@ -57,18 +52,31 @@ export default function VerifyEmailPage() {
         if (cancelled) return
         await fetchWorkspaces().catch(() => {})
         setState('done')
-        setTimeout(() => { if (!cancelled) navigate('/onboarding') }, 1500)
       } catch (err) {
         if (cancelled) return
-        setError(err.message || 'We could not verify your email.')
+        const detail = err?.response?.data?.detail
+        const msg = err.message || detail || 'We could not verify your email.'
+        const expired = /expired|invalid|already\s+used/i.test(`${msg} ${detail || ''}`)
+        setError(
+          expired
+            ? 'This verification link is no longer valid — it may have expired or already been used.'
+            : msg
+        )
         setState('error')
       }
     })()
     return () => { cancelled = true }
   }, [token, verifyEmail, fetchWorkspaces, navigate])
 
+  useEffect(() => {
+    if (cooldown <= 0) return undefined
+    const timer = setTimeout(() => setCooldown((c) => Math.max(0, c - 1)), 1000)
+    return () => clearTimeout(timer)
+  }, [cooldown])
+
   async function handleResend(e) {
     e?.preventDefault?.()
+    if (cooldown > 0 || resending) return
     const email = resendEmail.trim().toLowerCase()
     if (!email) {
       setError('Enter your email so we can re-send the link.')
@@ -79,6 +87,7 @@ export default function VerifyEmailPage() {
     try {
       await authApi.resendVerification({ email })
       setResendOk(true)
+      setCooldown(RESEND_COOLDOWN_SECONDS)
     } catch (err) {
       setError(err?.response?.data?.detail || err.message || 'Could not send a new link.')
     } finally {
@@ -89,7 +98,7 @@ export default function VerifyEmailPage() {
   // ── Verifying token from email link ───────────────────────────────────────
   if (state === 'verifying') {
     return (
-      <div className="min-h-screen flex" style={authLightThemeVars}>
+      <div className="min-h-screen flex">
         <Seo title="Verifying email | ContentCard" noindex />
         <div className="flex-1 lg:max-w-lg bg-mist flex items-center justify-center px-6">
           <div className="w-full max-w-sm text-center">
@@ -107,20 +116,24 @@ export default function VerifyEmailPage() {
   // ── Success ───────────────────────────────────────────────────────────────
   if (state === 'done') {
     return (
-      <div className="min-h-screen flex" style={authLightThemeVars}>
+      <div className="min-h-screen flex">
         <Seo title="Email verified | ContentCard" noindex />
         <div className="flex-1 lg:max-w-lg bg-mist flex items-center justify-center px-6">
           <div className="w-full max-w-sm text-center">
             <div className="w-14 h-14 rounded-full bg-brand-500/10 border border-brand-500/20 flex items-center justify-center mx-auto mb-6">
               <CheckCircle size={24} className="text-brand-500" />
             </div>
-            <h1 className="text-2xl font-bold text-ink mb-3" style={{ letterSpacing: '-0.02em' }}>Email verified!</h1>
-            <p className="text-ink/50 text-sm mb-8 leading-relaxed">
-              You're in. Taking you to onboarding…
+            <h1 className="text-2xl font-bold text-ink mb-3" style={{ letterSpacing: '-0.02em' }}>Email verified</h1>
+            <p className="text-ink/60 text-sm mb-8 leading-relaxed">
+              You're all set. Continue to onboarding to set up your brand.
             </p>
-            <Link to="/onboarding" className="text-brand-500 hover:text-brand-600 text-sm font-semibold transition-colors">
-              Go now →
-            </Link>
+            <button
+              type="button"
+              onClick={() => navigate('/onboarding')}
+              className="btn-primary w-full justify-center py-3 text-sm"
+            >
+              Continue to onboarding <ArrowRight size={15} />
+            </button>
           </div>
         </div>
         <HeroPanel />
@@ -131,7 +144,7 @@ export default function VerifyEmailPage() {
   // ── Error from a token attempt ────────────────────────────────────────────
   if (state === 'error') {
     return (
-      <div className="min-h-screen flex" style={authLightThemeVars}>
+      <div className="min-h-screen flex">
         <Seo title="Verification failed | ContentCard" noindex />
         <div className="flex-1 lg:max-w-lg bg-mist flex items-center justify-center px-6">
           <div className="w-full max-w-sm">
@@ -140,9 +153,14 @@ export default function VerifyEmailPage() {
             <p className="text-ink/55 text-sm mb-6 text-center leading-relaxed">{error}</p>
 
             {resendOk ? (
-              <p className="text-center text-brand-500 text-sm font-medium">
-                A fresh link is on the way. Check your inbox.
-              </p>
+              <div className="text-center space-y-2">
+                <p className="text-brand-500 text-sm font-semibold">
+                  A fresh link is on the way. Check your inbox.
+                </p>
+                {cooldown > 0 && (
+                  <p className="text-xs text-ink/55">You can request another in {cooldown}s.</p>
+                )}
+              </div>
             ) : (
               <form onSubmit={handleResend} className="space-y-3">
                 <label className="label">Your email</label>
@@ -156,12 +174,14 @@ export default function VerifyEmailPage() {
                 />
                 <button
                   type="submit"
-                  disabled={resending}
+                  disabled={resending || cooldown > 0}
                   className="btn-primary w-full justify-center py-3 text-sm"
                 >
                   {resending
                     ? <><Loader2 size={15} className="animate-spin" /> Sending…</>
-                    : <><RefreshCw size={15} /> Send a new link</>
+                    : cooldown > 0
+                      ? <>Resend available in {cooldown}s</>
+                      : <><RefreshCw size={15} /> Send a new link</>
                   }
                 </button>
               </form>
@@ -179,7 +199,7 @@ export default function VerifyEmailPage() {
 
   // ── 'pending' — landed here right after signup ────────────────────────────
   return (
-    <div className="min-h-screen flex" style={authLightThemeVars}>
+    <div className="min-h-screen flex">
       <Seo title="Check your email | ContentCard" description="Verify your ContentCard email to finish creating your account." path="/verify-email" noindex />
       <div className="flex-1 lg:max-w-lg bg-mist flex items-center justify-center px-6">
         <div className="w-full max-w-sm">
@@ -188,27 +208,35 @@ export default function VerifyEmailPage() {
             <Mail size={22} className="text-brand-500" />
           </div>
           <h1 className="text-2xl font-bold text-ink mb-3 text-center" style={{ letterSpacing: '-0.02em' }}>Check your email</h1>
-          <p className="text-ink/55 text-sm mb-8 text-center leading-relaxed">
+          <p className="text-ink/65 text-sm mb-3 text-center leading-relaxed">
             We sent a verification link to{' '}
             {queryEmail
               ? <span className="text-ink font-semibold">{queryEmail}</span>
               : 'your inbox'}.
-            Click it to finish setting up your account. The link expires in 24 hours.
+            Click it to finish setting up your account.
+          </p>
+          <p className="text-ink/55 text-xs mb-8 text-center">
+            The link expires in <span className="font-semibold text-ink/80">24 hours</span>.
           </p>
 
           {error && (
-            <div className="mb-5 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+            <div role="alert" className="mb-5 px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 text-sm">
               {error}
             </div>
           )}
 
           {resendOk ? (
-            <p className="text-center text-brand-500 text-sm font-medium">
-              A fresh link is on the way. Check your inbox.
-            </p>
+            <div className="text-center space-y-2">
+              <p className="text-brand-500 text-sm font-semibold">
+                A fresh link is on the way. Check your inbox.
+              </p>
+              {cooldown > 0 && (
+                <p className="text-xs text-ink/55">You can request another in {cooldown}s.</p>
+              )}
+            </div>
           ) : (
             <form onSubmit={handleResend} className="space-y-3">
-              <p className="text-xs text-ink/45 text-center">Didn't get it? Check spam, then resend below.</p>
+              <p className="text-xs text-ink/55 text-center">No email? Check spam, then resend below.</p>
               {!queryEmail && (
                 <input
                   type="email"
@@ -221,12 +249,14 @@ export default function VerifyEmailPage() {
               )}
               <button
                 type="submit"
-                disabled={resending}
+                disabled={resending || cooldown > 0}
                 className="btn-secondary w-full justify-center py-3 text-sm"
               >
                 {resending
                   ? <><Loader2 size={15} className="animate-spin" /> Sending…</>
-                  : <><RefreshCw size={15} /> Resend verification email</>
+                  : cooldown > 0
+                    ? <>Resend available in {cooldown}s</>
+                    : <><RefreshCw size={15} /> Resend verification email</>
                 }
               </button>
             </form>
