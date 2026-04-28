@@ -33,7 +33,7 @@ export default function ChangelogPage() {
         <MarketingContainer className="max-w-2xl">
           <SectionHeader
             eyebrow="Changelog"
-            title="What's new in ContentCard"
+            title="ContentCard product updates"
             subtitle="Every update, improvement, and launch in one place."
             center
           />

@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check,
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
-import { contentApi, holidaysApi, uploadApi } from '../api'
+import { contentApi, holidaysApi, socialApi, uploadApi } from '../api'
 import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
@@ -608,6 +608,7 @@ export default function CalendarPage() {
   const [filterPlat, setFilterPlat] = useState('all')
   const [showGenPanel, setShowGenPanel] = useState(false)
   const [showPlanModal, setShowPlanModal] = useState(false)
+  const [markingPosted, setMarkingPosted] = useState(false)
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
@@ -916,6 +917,24 @@ export default function CalendarPage() {
       toast(e.response?.data?.detail || 'Prompt visual generation failed', 'error')
     } finally {
       setRegenVis(false)
+    }
+  }
+
+  const markPostedManually = async () => {
+    if (!modal?.id || !activeBrandId || !modal?.platform) return
+    setMarkingPosted(true)
+    try {
+      await socialApi.manualConfirmPost({
+        brand_id: activeBrandId,
+        content_item_id: modal.id,
+        platform: modal.platform,
+        status_reason: 'confirmed posted manually from calendar',
+      })
+      toast('Marked as posted')
+    } catch (e) {
+      toast(e?.response?.data?.detail || e.message || 'Could not save manual post status', 'error')
+    } finally {
+      setMarkingPosted(false)
     }
   }
 
@@ -2175,6 +2194,14 @@ export default function CalendarPage() {
                     composer to paste.
                   </p>
                   <div className="flex flex-wrap gap-2 w-full justify-center">
+                    <button
+                      type="button"
+                      onClick={markPostedManually}
+                      disabled={markingPosted}
+                      className="flex items-center justify-center gap-1.5 py-2 px-3 btn-primary text-xs disabled:opacity-50"
+                    >
+                      <Check size={12} /> {markingPosted ? 'Saving…' : "I've posted this"}
+                    </button>
                     {modal.platform === 'twitter' && (
                       <a
                         href={twitterIntentUrl(fullPostCaptionText(editCaption, editHashtags))}

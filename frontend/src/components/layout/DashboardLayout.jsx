@@ -30,6 +30,16 @@ const MOBILE_NAV = [
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'  },
 ]
 
+function clearVisitorSession() {
+  try {
+    localStorage.removeItem('contentcard-auth')
+    localStorage.removeItem('contentcard-app')
+    localStorage.removeItem('contentcard.signup.quickFillWebsite')
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function DashboardLayout() {
   const { user, logout, fetchMe }                 = useAuthStore()
   const { workspaces, activeWorkspace,
@@ -55,6 +65,16 @@ export default function DashboardLayout() {
     fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
   }, [])
+
+  useEffect(() => {
+    const shouldClearOnClose = Boolean(user && !user.onboarding_completed)
+    if (!shouldClearOnClose) return undefined
+    const handleBeforeUnload = () => {
+      clearVisitorSession()
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [user?.id, user?.onboarding_completed])
 
   useEffect(() => {
     const protectedPaths = new Set([
@@ -103,6 +123,7 @@ export default function DashboardLayout() {
     } catch {
       /* ignore */
     }
+    clearVisitorSession()
     logout()
     toast('Signed out', 'success')
     navigate('/login')

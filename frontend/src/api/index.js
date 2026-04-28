@@ -158,7 +158,6 @@ api.interceptors.response.use(
 // ─── Auth ──────────────────────────────────────────────────────
 export const marketingApi = {
   submitDemoRequest: (data) => publicApi.post('/public/demo-request', data).then((r) => r.data),
-  guestPreviewGenerate: (data) => publicApi.post('/public/guest-preview-generate', data).then((r) => r.data),
 }
 
 export const authApi = {
@@ -166,14 +165,10 @@ export const authApi = {
   login:          (data) => postPublicAuth('/auth/login', data),
   me:             ()     => api.get('/auth/me').then(r => r.data),
   updateProfile:  (data) => api.put('/auth/me', data).then(r => r.data),
-  getEmailPreferences:    ()     => api.get('/auth/me/email-preferences').then(r => r.data),
-  updateEmailPreferences: (data) => api.put('/auth/me/email-preferences', data).then(r => r.data),
   changePassword: (data) => api.post('/auth/change-password', data).then(r => r.data),
   deleteAccount:    (data) => api.delete('/auth/me', { data }).then(r => r.data),
   forgotPassword:   (data) => postPublicAuth('/auth/forgot-password', data),
   resetPassword:    (data) => postPublicAuth('/auth/reset-password', data),
-  verifyEmail:        (data) => postPublicAuth('/auth/verify-email', data),
-  resendVerification: (data) => postPublicAuth('/auth/resend-verification', data),
   shopifyStart:   (params) => getPublicAuth('/auth/shopify/start', params),
   shopifyOnboardingStatus: () => api.get('/auth/shopify/onboarding-status').then(r => r.data),
   completeShopifyOnboarding: (data) => api.post('/auth/shopify/onboarding-complete', data).then(r => r.data),
@@ -262,7 +257,6 @@ export const brandApi = {
 // ─── Content ────────────────────────────────────────────────────
 export const contentApi = {
   generateMonth:       (data)          => api.post('/content/generate-month', data).then(r => r.data),
-  planPreview:         (data)          => api.post('/content/plan-preview', data).then(r => r.data),
   generateMonthV2:     (data)          => api.post('/content/generate-month-v2', data).then(r => r.data),
   generationPrepChat:  (data)          => api.post('/content/generation-prep-chat', data).then(r => r.data),
   prepExecuteVisual:     (data)          => api.post('/content/prep-execute-visual', data).then(r => r.data),
@@ -301,6 +295,8 @@ export const socialApi = {
     api.post('/social/autopilot/config', data).then((r) => r.data),
   queuePost: (data) =>
     api.post('/social/posts/queue', data).then((r) => r.data),
+  manualConfirmPost: (data) =>
+    api.post('/social/posts/manual-confirm', data).then((r) => r.data),
   preflight: (data) =>
     api.post('/social/publish/preflight', data).then((r) => r.data),
   listPosts: (params) =>
