@@ -8,6 +8,21 @@ import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
 import { normalizeHex } from '../lib/brandVisualValidate'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
+import BrandHealthScore from '../components/brand/BrandHealthScore'
+import BrandModeToggle, { getBrandKitMode } from '../components/brand/BrandModeToggle'
+import { useFeatureFlag } from '../lib/featureFlags'
+
+function BrandKitModeAndScore({ brand, onJumpToTab }) {
+  const scoreEnabled = useFeatureFlag('brand_kit.score')
+  const modeEnabled = useFeatureFlag('brand_kit.two_mode')
+  const [mode, setMode] = useState(getBrandKitMode())
+  return (
+    <div className="flex items-center gap-3">
+      {modeEnabled && <BrandModeToggle value={mode} onChange={setMode} />}
+      {scoreEnabled && <BrandHealthScore brand={brand} onTabSelect={onJumpToTab} />}
+    </div>
+  )
+}
 import LogoCropModal from '../components/brand/LogoCropModal'
 import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
@@ -964,7 +979,7 @@ export default function BrandKitPage() {
 
   return (
     <div className="p-6 lg:p-8 max-w-7xl mx-auto">
-      <div className="flex items-start justify-between gap-4 mb-6">
+      <div className="flex items-start justify-between gap-4 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
           <p className="text-ink/40 text-sm">
@@ -972,10 +987,13 @@ export default function BrandKitPage() {
             {brand.sub_industry ? ` · ${brand.sub_industry}` : ''}
           </p>
         </div>
-        <button onClick={save} disabled={saving}
-          className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
-          <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <BrandKitModeAndScore brand={brand} onJumpToTab={(t) => setTab(t)} />
+          <button onClick={save} disabled={saving}
+            className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
+            <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
+          </button>
+        </div>
       </div>
 
       {/* Brand Strength Banner */}

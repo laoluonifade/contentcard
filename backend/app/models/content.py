@@ -80,6 +80,9 @@ class ContentItem(Base):
     generation_month: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 1-12
     generation_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Campaign banding (R2.4) — posts sharing a campaign_id render under a coloured ribbon
+    campaign_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

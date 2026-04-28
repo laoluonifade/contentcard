@@ -19,6 +19,9 @@ from app.models import (  # noqa: F401
     ShopifyConnection,
     ShopifyProductSnapshot,
 )
+# Importing the telemetry router module also registers the TelemetryEvent
+# model on Base.metadata so create_all picks up the new table.
+import app.api.telemetry  # noqa: F401
 
 from app.api.auth import router as auth_router
 from app.api.workspaces import router as ws_router
@@ -33,6 +36,13 @@ from app.api.holidays import router as holidays_router
 from app.api.admin import router as admin_router
 from app.api.public import router as public_router
 from app.api.social import router as social_router
+from app.api.telemetry import router as telemetry_router  # noqa: E402  (model registers on import)
+from app.api.dashboard import router as dashboard_router  # noqa: E402
+import app.api.dashboard  # noqa: F401, E402  (ensure DashboardBriefing model is registered)
+from app.api.content_extras import router as content_extras_router  # noqa: E402
+import app.api.content_extras  # noqa: F401, E402  (registers ContentComment + ContentActivity models)
+from app.api.inbox import router as inbox_router  # noqa: E402
+from app.api.analytics import router as analytics_router  # noqa: E402
 
 
 async def seed_trends(db):
@@ -220,10 +230,12 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT TRUE",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(128)",
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verification_token_expires TIMESTAMPTZ",
-            # ── Email notifications plumbing (20260426_03) ────────────────
+            # ── Email notifications plumbing ──────────────────────────────
             # Per-user opt-in state for non-transactional emails. NULL is
             # treated as default opt-in by send_once() — see email_service.py.
             "ALTER TABLE users ADD COLUMN IF NOT EXISTS email_preferences JSON",
+            # ── Wave 3 dashboard rebuild (20260426_04) ────────────────────
+            "ALTER TABLE content_items ADD COLUMN IF NOT EXISTS campaign_id VARCHAR(80)",
         ]:
             try:
                 await conn.execute(__import__('sqlalchemy').text(stmt))
@@ -274,6 +286,11 @@ app.include_router(holidays_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
 app.include_router(public_router, prefix="/api/v1")
 app.include_router(social_router, prefix="/api/v1")
+app.include_router(telemetry_router, prefix="/api/v1")
+app.include_router(dashboard_router, prefix="/api/v1")
+app.include_router(content_extras_router, prefix="/api/v1")
+app.include_router(inbox_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1")
 
 
 @app.get("/health")
