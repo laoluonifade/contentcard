@@ -40,7 +40,6 @@ function NavItem({ item }) {
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/dashboard/ai',         icon: Sparkles,         label: 'AI Studio', flag: 'ai.page' },
   { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'         },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
   { to: '/dashboard/inbox',      icon: Inbox,            label: 'Inbox',     flag: 'inbox.page' },
