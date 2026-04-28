@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, Calendar, CreditCard, Heart, Images, LayoutDashboard, LayoutTemplate, LogIn, MessageSquare, Send, Settings, Share2, Smile, Sparkles, Wand2 } from 'lucide-react'
+import { ArrowRight, Calendar, CreditCard, Heart, Images, LayoutDashboard, LayoutTemplate, LogIn, Send, Settings, Share2, Smile, Sparkles, Wand2 } from 'lucide-react'
 import Seo from '../components/seo/Seo'
 import { LogoFull } from '../components/ui/Logo'
 import AuthEntryModal from '../components/auth/AuthEntryModal'
@@ -255,7 +255,7 @@ export default function LandingPage() {
                       rows={1}
                       value={heroEmail}
                       onChange={(event) => setHeroEmail(event.target.value)}
-                      placeholder="Ask anything or say 'generate my posts for this month'…"
+                      placeholder="Ask anything or say 'generate my posts for this month'..."
                       className="min-h-[22px] flex-1 resize-none bg-transparent text-sm leading-relaxed text-ink placeholder:text-ink/40 focus:outline-none"
                     />
 

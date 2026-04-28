@@ -14,6 +14,7 @@ import ConnectionHealthModal from '../social/ConnectionHealthModal'
 import { useThemeBootstrap } from '../../lib/theme'
 import { useGlobalShortcuts, KeyboardShortcutsCheatsheet } from '../../lib/keyboardShortcuts'
 import ChangelogDrawer from '../ui/ChangelogDrawer'
+import AuthEntryModal from '../auth/AuthEntryModal'
 
 function NavItem({ item }) {
   const enabled = useFeatureFlag(item.flag || '')
@@ -72,7 +73,7 @@ function clearVisitorSession() {
 }
 
 export default function DashboardLayout() {
-  const { user, logout, fetchMe }                 = useAuthStore()
+  const { user, logout, fetchMe, bootstrapAuth, hasHydrated, isAuthenticated } = useAuthStore()
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
           fetchTrends, createWorkspace,
@@ -87,6 +88,7 @@ export default function DashboardLayout() {
   const [connHealthOpen, setConnHealthOpen] = useState(false)
   const [cheatsheetOpen, setCheatsheetOpen] = useState(false)
   const [changelogOpen, setChangelogOpen] = useState(false)
+  const [authModal, setAuthModal] = useState({ open: false, mode: 'signup' })
   const activeBrand = brands.find((brand) => brand.id === activeBrandId) || null
   const connectionBadgeEnabled = useFeatureFlag('nav.connection_health_badge')
   const shortcutsEnabled = useFeatureFlag('nav.keyboard_shortcuts')
@@ -107,12 +109,18 @@ export default function DashboardLayout() {
   }, [location.pathname])
 
   useEffect(() => {
+    if (!hasHydrated) return
+    bootstrapAuth().catch(() => {})
+  }, [bootstrapAuth, hasHydrated])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
     if (!workspaces.length) {
       fetchWorkspaces().catch(() => {})
     }
     fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
-  }, [])
+  }, [fetchMe, fetchTrends, fetchWorkspaces, isAuthenticated, workspaces.length])
 
   useEffect(() => {
     const shouldClearOnClose = Boolean(user && !user.onboarding_completed)
@@ -179,6 +187,10 @@ export default function DashboardLayout() {
   }, [])
 
   const agencyMode = !!user?.agency_mode
+
+  const openAuth = (mode = 'signup') => {
+    setAuthModal({ open: true, mode })
+  }
 
   const submitNewWorkspace = async (e) => {
     e?.preventDefault?.()
@@ -332,20 +344,54 @@ export default function DashboardLayout() {
       </div>
 
       <div className="px-2 py-3 border-t border-fog flex-shrink-0">
-        <div className="flex items-center gap-3 px-3 py-2 mb-0.5">
-          <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
-            {initials}
+        {isAuthenticated ? (
+          <>
+            <div className="flex items-center gap-3 px-3 py-2 mb-0.5">
+              <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+                {initials}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-ink text-xs font-semibold truncate">{user?.full_name || 'User'}</div>
+                <div className="text-ink/40 text-[10px] truncate">{user?.email || ''}</div>
+              </div>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-ink/40 hover:text-ink hover:bg-mist transition-all"
+            >
+              <LogOut size={16} className="flex-shrink-0" />
+              <span className="text-[13px] font-semibold">Sign out</span>
+            </button>
+          </>
+        ) : (
+          <div className="px-3 py-2">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="w-7 h-7 rounded-full bg-brand-500 flex items-center justify-center text-white text-[10px] font-bold flex-shrink-0">
+                CC
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-ink text-xs font-semibold truncate">Guest preview</div>
+                <div className="text-ink/40 text-[10px] truncate">Log in or sign up to save your content.</div>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => openAuth('login')}
+                className="flex-1 rounded-xl border border-fog px-3 py-2 text-xs font-semibold text-ink/65 hover:bg-mist"
+              >
+                Log in
+              </button>
+              <button
+                type="button"
+                onClick={() => openAuth('signup')}
+                className="flex-1 rounded-xl bg-brand-500 px-3 py-2 text-xs font-semibold text-white hover:bg-brand-600"
+              >
+                Start free
+              </button>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-ink text-xs font-semibold truncate">{user?.full_name || 'User'}</div>
-            <div className="text-ink/40 text-[10px] truncate">{user?.email || ''}</div>
-          </div>
-        </div>
-        <button onClick={handleLogout}
-          className="flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-ink/40 hover:text-ink hover:bg-mist transition-all">
-          <LogOut size={16} className="flex-shrink-0" />
-          <span className="text-[13px] font-semibold">Sign out</span>
-        </button>
+        )}
       </div>
     </aside>
   )
@@ -454,6 +500,12 @@ export default function DashboardLayout() {
           ))}
         </nav>
       </main>
+
+      <AuthEntryModal
+        open={authModal.open}
+        mode={authModal.mode}
+        onClose={() => setAuthModal((current) => ({ ...current, open: false }))}
+      />
     </div>
   )
 }
