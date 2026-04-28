@@ -457,12 +457,14 @@ def build_template_design_spec(
     if default_visual_type not in {"real_people", "illustration", "abstract", "product"}:
         default_visual_type = "auto"
     if default_visual_type == "auto":
-        if people_style == "real_people":
+        if design_template_type in {"educational_explainer", "testimonial_proof_card"}:
+            visual_type = "abstract"
+        elif design_template_type in {"promo_cta_banner", "product_showcase_grid"}:
+            visual_type = "product"
+        elif people_style == "real_people" and design_template_type == "editorial_story":
             visual_type = "real_people"
         elif people_style in {"illustration", "cartoon"}:
             visual_type = "illustration"
-        elif template.category == TemplateCategory.PRODUCT:
-            visual_type = "product"
         else:
             visual_type = "illustration"
     else:
@@ -473,10 +475,16 @@ def build_template_design_spec(
         visual_type = "illustration"
     if design_template_type == "promo_cta_banner" and visual_type == "real_people":
         visual_type = "product"
-    if visual_type == "real_people":
-        visual_archetype = "photo_hero"
+    if design_template_type == "promo_cta_banner":
+        visual_archetype = "pattern_headline"
+    elif design_template_type == "educational_explainer":
+        visual_archetype = "flat_edu"
+    elif design_template_type == "testimonial_proof_card":
+        visual_archetype = "pattern_headline"
+    elif visual_type == "real_people":
+        visual_archetype = "portrait_story"
     elif visual_type == "product":
-        visual_archetype = "photo_hero"
+        visual_archetype = "flat_edu"
     elif visual_type == "abstract":
         visual_archetype = "pattern_headline"
     elif people_style == "cartoon":
@@ -516,10 +524,10 @@ def build_template_design_spec(
             "Leave clean logo lockup breathing room in the lower right for consistent brand signature."
         )
     image_prompt = (
-        f"Create a campaign-quality social media background for {brand.name} in {brand.industry or 'business'} context, "
+        f"Create a campaign-quality social design foundation for {brand.name} in {brand.industry or 'business'} context, "
         f"with palette accents {', '.join(palette)} and a composition that supports template '{template.name}'. "
         "Do not draw any logo, wordmark, or trademark; keep the lower-right visually calmer for post-production brand mark. "
-        "Designed, crisp, premium, with structured props and depth suitable for overlaying social post copy and CTA modules. "
+        "Designed, crisp, premium, and layout-aware, with strong hierarchy suitable for real social post typography modules rather than a generic hero image. "
         "No text, no letters, no words, no watermark, no UI overlays."
     )
     return {

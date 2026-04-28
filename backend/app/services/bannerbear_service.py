@@ -45,6 +45,8 @@ FAMILY_COPY_LIMITS = {
     "default": {"headline": 60, "subtitle": 96, "body": 160},
 }
 
+TEXT_FIRST_FAMILIES = frozenset({"text_poster", "data_card", "announcement", "edu", "testimonial", "hiring"})
+
 
 def _is_food_brand(brand_dict: dict, post_data: dict | None = None) -> bool:
     post_data = post_data or {}
@@ -93,6 +95,10 @@ def _background_image_modification(image_url: str) -> dict:
         "fill_type": "fit",
         "disable_smart_crop": True,
     }
+
+
+def _family_prefers_graphic_system(family: str) -> bool:
+    return str(family or "").strip().lower() in TEXT_FIRST_FAMILIES
 
 
 def _split_caption_sentences(caption: str) -> list[str]:
@@ -477,18 +483,9 @@ async def generate_post_images(
     slide_count = max(1, int(post_data.get("slide_count") or 1))
     ab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else None
     fam = detect_template_family(post_data)
-    # Restaurants are conversion-led: keep food carousels in sales-focused visual
-    # families instead of education/save/follow endings.
-    if fmt == "carousel" and _is_food_brand(brand_dict, post_data):
-        if fam in ("edu", "data_card", "text_poster", "story_carousel", "illustration_editorial", "default"):
-            fam = "product_hero"
-        elif fam == "testimonial":
-            fam = "promo"
-    # Always use the AI-generated background image on the cover slide when one
-    # is available — this ensures every post gets a unique campaign visual
-    # instead of falling back to the template's fixed stock illustration.
-    # Only quote posts skip the background (they are typography-only by design).
-    use_photo_bg = bool(background_image_url)
+    # Text-led families should behave like designed graphics first, not just
+    # photos with type added later.
+    use_photo_bg = bool(background_image_url) and not _family_prefers_graphic_system(fam)
     cover_bg_url = background_image_url if use_photo_bg else None
 
     # ── Quote post — single slide
@@ -527,11 +524,9 @@ async def generate_post_images(
         body_slides = slide_count - 2
 
         tasks = []
-        # Force one aesthetic system across carousel: same template primitive + same
-        # AI background thread as slide 1. This prevents style drift on slides 2+.
-        carousel_template = cover_template
         for i in range(body_slides):
             cp = copy_plan[i + 1] if (i + 1) < len(copy_plan) else {}
+            carousel_template = _route_template_family(post_data, body_index=i)
             # Reuse cover-style layer structure for body slides so palette/typography/
             # spacing and composition remain cohesive with slide 1.
             body_topic = _clean_inline(cp.get("headline", f"Point {i + 1}"), _copy_limit(fam, "headline", 64))
@@ -558,7 +553,7 @@ async def generate_post_images(
         cta_caption = _clean_inline(cta.get("body", ""), _copy_limit(fam, "subtitle", 96))
         tasks.append(
             _create_image(
-                carousel_template,
+                _route_template_family(post_data, body_index=body_slides),
                 _cover_mods(
                     cta_topic,
                     cta_caption,

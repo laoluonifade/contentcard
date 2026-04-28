@@ -3,6 +3,8 @@ import json
 import re
 import logging
 import time
+import math
+from collections import Counter
 import httpx
 from app.core.config import settings
 from app.services.art_brief_service import ARCHETYPE_IDS, infer_default_archetype
@@ -276,6 +278,18 @@ def _validate_design_quality(posts: list[dict], brand: dict | None = None) -> li
         else:
             post.pop("quality_warnings", None)
 
+    family_counts = Counter(_detect_template_family_for_mix(p) for p in posts if isinstance(p, dict))
+    photo_hero_count = sum(1 for p in posts if str(p.get("visual_archetype") or "").lower() == "photo_hero")
+    if posts and photo_hero_count > max(1, int(math.ceil(len(posts) * 0.35))):
+        for post in posts:
+            post.setdefault("quality_warnings", []).append("too_many_photo_hero_posts_in_batch")
+    if posts and not any(fam in TYPOGRAPHY_LED_FAMILIES for fam in family_counts):
+        for post in posts:
+            post.setdefault("quality_warnings", []).append("missing_typography_led_posts_in_batch")
+    if posts and len(family_counts) < (5 if len(posts) >= 10 else (4 if len(posts) >= 7 else 3)):
+        for post in posts:
+            post.setdefault("quality_warnings", []).append("weak_family_diversity_in_batch")
+
     return posts
 
 
@@ -306,6 +320,10 @@ def _collect_post_quality_warnings(post: dict, words_to_avoid: list[str] | None 
         if slide_count < 3:
             warnings.append("weak_carousel_depth")
 
+    fam = _detect_template_family_for_mix(post)
+    if fam in TYPOGRAPHY_LED_FAMILIES and str(post.get("visual_archetype") or "").lower() == "photo_hero":
+        warnings.append("typography_family_rendered_as_photo_hero")
+
     return list(dict.fromkeys(warnings))
 
 
@@ -317,6 +335,103 @@ VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
 VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
 VALID_LOGO_SAFE_ZONES = frozenset({"upper_left", "upper_right", "lower_left", "lower_right"})
 TEASER_STYLE_WORDS = ("inside", "part 1", "part one", "swipe", "thread", "behind the scenes", "step-by-step")
+
+TYPOGRAPHY_LED_FAMILIES = frozenset({"text_poster", "data_card", "announcement", "edu", "testimonial", "hiring"})
+
+DESIGN_FAMILY_BLUEPRINTS = [
+    {
+        "family": "promo",
+        "content_type": "CTA / Promotion",
+        "post_type": "single",
+        "design_mode": "conversion",
+        "visual_direction": (
+            "Create a designed conversion card, not a generic photo. Use one dominant headline zone, one supporting value block, "
+            "one CTA strip, and one restrained product or menu cue. Prioritise hierarchy, offer clarity, and social-ad polish."
+        ),
+    },
+    {
+        "family": "text_poster",
+        "content_type": "Hot Take",
+        "post_type": "single",
+        "design_mode": "typography",
+        "visual_direction": (
+            "Build a typography-led social post where the words are the hero. Use bold scale contrast, asymmetric alignment, "
+            "graphic accents, and negative space that feels like an art-directed poster, not a caption on a photo."
+        ),
+    },
+    {
+        "family": "data_card",
+        "content_type": "Industry Insight",
+        "post_type": "carousel",
+        "design_mode": "information",
+        "visual_direction": (
+            "Design an insight card system with headline, stat or proof module, supporting takeaway, and clean visual rhythm. "
+            "Use information-design hierarchy first; imagery is optional and secondary."
+        ),
+    },
+    {
+        "family": "testimonial",
+        "content_type": "Customer Testimonial",
+        "post_type": "single",
+        "design_mode": "proof",
+        "visual_direction": (
+            "Create a proof-led post with one standout quote or review line, trust signals, and premium brand framing. "
+            "This should feel like a designed endorsement asset, not a stock portrait with a caption."
+        ),
+    },
+    {
+        "family": "announcement",
+        "content_type": "Trending Moment",
+        "post_type": "single",
+        "design_mode": "editorial",
+        "visual_direction": (
+            "Design an editorial announcement card with a strong headline panel, secondary support line, and clean framing device. "
+            "Aim for urgency and clarity, not a decorative hero image."
+        ),
+    },
+    {
+        "family": "illustration_editorial",
+        "content_type": "Engagement Question",
+        "post_type": "single",
+        "design_mode": "editorial",
+        "visual_direction": (
+            "Create an editorial social graphic with expressive illustration cues, thoughtful composition, and a clear discussion prompt. "
+            "It should feel like a senior designer's campaign asset, not flat clip art."
+        ),
+    },
+    {
+        "family": "edu",
+        "content_type": "Educational Tip",
+        "post_type": "carousel",
+        "design_mode": "education",
+        "visual_direction": (
+            "Design a teaching-first carousel with one hook slide, one or more structured lesson panels, and one action slide. "
+            "Use modules, icons, contrast blocks, and deliberate whitespace so the design carries the explanation."
+        ),
+    },
+    {
+        "family": "story_carousel",
+        "content_type": "Behind the Scenes",
+        "post_type": "carousel",
+        "design_mode": "story",
+        "visual_direction": (
+            "Create a story-led carousel with an opener, context frame, turning-point frame, and closing action. "
+            "Keep one visual system across slides, but avoid repeating the exact same hero image."
+        ),
+    },
+    {
+        "family": "product_hero",
+        "content_type": "Product Spotlight",
+        "post_type": "single",
+        "design_mode": "product",
+        "visual_direction": (
+            "Design a product-led social ad with one hero product or dish cue, one typography module, and one clear brand value moment. "
+            "Avoid falling back to a plain close-up food photo with pasted text."
+        ),
+    },
+]
+
+FAMILY_BLUEPRINT_BY_NAME = {row["family"]: row for row in DESIGN_FAMILY_BLUEPRINTS}
 
 _FOOD_INDUSTRY_HINTS = (
     "food",
@@ -591,26 +706,23 @@ def _coerce_visual_type_by_content_type(post: dict, brand: dict | None = None) -
     current = str(post.get("visual_type") or "real_people").lower()
     if current not in VALID_VISUAL_TYPES:
         current = "real_people"
-    food = _is_food_service_post(post, brand)
-
     if any(k in bag for k in ("tip", "guide", "how to", "insight", "myth", "mistake", "breakdown", "thread")):
-        return current if current in ("illustration", "abstract", "product") else "illustration"
+        return current if current in ("illustration", "abstract", "product") else "abstract"
     if any(k in bag for k in ("promo", "offer", "sale", "launch", "product spotlight", "announcement", "update", "integration", "workflow", "process")):
-        # Prefer designed visuals over plain people-led photos for offer/update posts.
-        if current in ("product", "illustration"):
+        if current in ("product", "illustration", "abstract"):
             return current
-        # Hospitality: show real menu-quality food, not cartoon flat-lay, unless the batch chose abstract.
-        if food and current != "abstract":
-            return "product"
-        return "illustration"
+        return "abstract"
     if any(k in bag for k in ("testimonial", "customer", "case study", "proof", "review", "founder story")):
-        return current if current in ("real_people", "illustration") else "real_people"
+        return current if current in ("real_people", "illustration", "abstract") else "illustration"
     if any(k in bag for k in ("meme", "relatable humour", "hot take", "engagement question")):
-        return current if current in ("illustration", "abstract") else "illustration"
+        return current if current in ("illustration", "abstract") else "abstract"
     return current
 
 
 def _detect_template_family_for_mix(post: dict) -> str:
+    forced = str(post.get("force_template_family") or post.get("template_family") or "").strip().lower()
+    if forced in FAMILY_BLUEPRINT_BY_NAME:
+        return forced
     ctype = str(post.get("content_type") or "").lower()
     topic = str(post.get("topic") or post.get("content_idea") or "").lower()
     bag = f"{ctype} {topic}"
@@ -637,6 +749,56 @@ def _detect_template_family_for_mix(post: dict) -> str:
     return "default"
 
 
+def _apply_family_visual_defaults(post: dict) -> None:
+    fam = _detect_template_family_for_mix(post)
+    current_vt = str(post.get("visual_type") or "").lower()
+    current_arch = str(post.get("visual_archetype") or "").lower()
+
+    if fam == "text_poster":
+        post["visual_type"] = "abstract"
+        post["visual_archetype"] = "pattern_headline"
+    elif fam == "data_card":
+        post["visual_type"] = "abstract"
+        post["visual_archetype"] = "pattern_headline" if current_arch not in ("flat_edu", "pattern_headline") else current_arch
+    elif fam == "announcement":
+        post["visual_type"] = "abstract" if current_vt not in ("illustration", "abstract") else current_vt
+        post["visual_archetype"] = "pattern_headline"
+    elif fam == "edu":
+        post["visual_type"] = "illustration" if current_vt == "real_people" else (current_vt or "illustration")
+        post["visual_archetype"] = "flat_edu"
+    elif fam == "illustration_editorial":
+        post["visual_type"] = "illustration"
+        post["visual_archetype"] = "pov_comic" if current_arch not in ("flat_edu", "pov_comic") else current_arch
+    elif fam == "testimonial":
+        if current_vt in ("abstract", "product"):
+            post["visual_type"] = "illustration"
+            post["visual_archetype"] = "pattern_headline"
+        else:
+            post["visual_type"] = current_vt if current_vt in ("real_people", "illustration") else "real_people"
+            post["visual_archetype"] = "portrait_story" if post["visual_type"] == "real_people" else "pattern_headline"
+    elif fam == "story_carousel":
+        if current_vt == "product":
+            post["visual_type"] = "illustration"
+        else:
+            post["visual_type"] = current_vt if current_vt in ("real_people", "illustration") else "illustration"
+        post["visual_archetype"] = "portrait_story" if post["visual_type"] == "real_people" else "pov_comic"
+    elif fam == "promo":
+        if current_vt == "real_people":
+            post["visual_type"] = "abstract"
+            post["visual_archetype"] = "pattern_headline"
+        else:
+            post["visual_type"] = current_vt if current_vt in ("product", "illustration", "abstract") else "product"
+            post["visual_archetype"] = "pattern_headline" if post["visual_type"] == "abstract" else "flat_edu"
+    elif fam == "product_hero":
+        post["visual_type"] = "product" if current_vt not in ("product", "abstract", "illustration") else current_vt
+        if post["visual_type"] == "product":
+            post["visual_archetype"] = "flat_edu" if current_arch == "pattern_headline" else (current_arch or "flat_edu")
+        elif post["visual_type"] == "abstract":
+            post["visual_archetype"] = "pattern_headline"
+        else:
+            post["visual_archetype"] = "flat_edu"
+
+
 def _apply_style_mix_targets(valid: list[dict], brand: dict | None) -> list[dict]:
     """
     Enforce brand-level style profile and cap people-photo dominance.
@@ -654,15 +816,15 @@ def _apply_style_mix_targets(valid: list[dict], brand: dict | None) -> list[dict
         overflow = people_idxs[max_people:]
         for idx in overflow:
             fam = _detect_template_family_for_mix(valid[idx])
-            if fam in ("product_hero", "promo", "announcement"):
-                valid[idx]["visual_type"] = "product"
-                valid[idx]["visual_archetype"] = "photo_hero"
-            elif fam in ("data_card", "text_poster", "edu", "illustration_editorial"):
-                valid[idx]["visual_type"] = "illustration"
-                valid[idx]["visual_archetype"] = "flat_edu"
+            valid[idx]["template_family"] = fam
+            valid[idx]["force_template_family"] = fam
+            if fam in ("promo", "announcement", "data_card", "text_poster", "edu", "illustration_editorial"):
+                valid[idx]["visual_type"] = "abstract"
+                valid[idx]["visual_archetype"] = "pattern_headline"
             else:
                 valid[idx]["visual_type"] = "illustration"
-                valid[idx]["visual_archetype"] = "pov_comic"
+                valid[idx]["visual_archetype"] = "flat_edu"
+            _apply_family_visual_defaults(valid[idx])
             _enforce_designer_visual_direction(valid[idx])
     return valid
 
@@ -701,18 +863,18 @@ def _enforce_design_mode_rotation(valid: list[dict], brand: dict | None) -> list
             mode = _design_mode_for_post(p)
             if prev_mode and mode == prev_mode:
                 fam = _detect_template_family_for_mix(p)
-                if fam in ("product_hero", "promo", "announcement"):
-                    p["visual_type"] = "product"
-                    p["visual_archetype"] = "photo_hero"
-                elif fam in ("data_card", "text_poster", "edu"):
+                p["template_family"] = fam
+                p["force_template_family"] = fam
+                if fam in ("text_poster", "data_card", "announcement", "edu", "promo"):
                     p["visual_type"] = "abstract"
                     p["visual_archetype"] = "pattern_headline"
                 elif fam in ("testimonial", "story_carousel"):
-                    p["visual_type"] = "real_people"
-                    p["visual_archetype"] = "portrait_story"
-                else:
                     p["visual_type"] = "illustration"
                     p["visual_archetype"] = "flat_edu"
+                else:
+                    p["visual_type"] = "illustration"
+                    p["visual_archetype"] = "pov_comic"
+                _apply_family_visual_defaults(p)
                 _enforce_designer_visual_direction(p)
                 mode = _design_mode_for_post(p)
             prev_mode = mode
@@ -723,9 +885,9 @@ def _enforce_design_mode_rotation(valid: list[dict], brand: dict | None) -> list
         if len(human_idxs) == 0:
             for p in valid:
                 fam = _detect_template_family_for_mix(p)
-                if fam in ("testimonial", "story_carousel", "announcement", "product_hero"):
+                if fam in ("testimonial", "story_carousel"):
                     p["visual_type"] = "real_people"
-                    p["visual_archetype"] = "photo_hero"
+                    p["visual_archetype"] = "portrait_story"
                     _enforce_designer_visual_direction(p)
                     break
 
@@ -745,7 +907,7 @@ def _enforce_design_mode_rotation(valid: list[dict], brand: dict | None) -> list
                 elif vt == "abstract":
                     p["visual_archetype"] = "flat_edu"
                 elif vt == "product":
-                    p["visual_archetype"] = "flat_edu" if arch == "photo_hero" else "photo_hero"
+                    p["visual_archetype"] = "flat_edu" if arch == "photo_hero" else "pattern_headline"
                 _enforce_designer_visual_direction(p)
                 run_arch = str(p.get("visual_archetype") or "").lower()
                 run_len = 1
@@ -862,6 +1024,61 @@ def _enforce_carousel_visual_richness(post: dict) -> None:
     _enforce_designer_visual_direction(post)
 
 
+def _enforce_family_mix_requirements(valid: list[dict], brand: dict | None) -> list[dict]:
+    if not valid:
+        return valid
+
+    family_counts = Counter(_detect_template_family_for_mix(p) for p in valid)
+    photo_hero_idxs = [
+        idx for idx, p in enumerate(valid)
+        if str(p.get("visual_archetype") or "").lower() == "photo_hero"
+    ]
+    max_photo_hero = max(1, int(math.ceil(len(valid) * 0.35)))
+    if len(photo_hero_idxs) > max_photo_hero:
+        overflow = photo_hero_idxs[max_photo_hero:]
+        swap_cycle = ("text_poster", "data_card", "announcement", "edu")
+        for n, idx in enumerate(overflow):
+            fam = swap_cycle[n % len(swap_cycle)]
+            valid[idx]["template_family"] = fam
+            valid[idx]["force_template_family"] = fam
+            _apply_family_visual_defaults(valid[idx])
+            _enforce_designer_visual_direction(valid[idx])
+
+    family_counts = Counter(_detect_template_family_for_mix(p) for p in valid)
+    if not any(f in TYPOGRAPHY_LED_FAMILIES for f in family_counts):
+        target_idx = next((i for i, p in enumerate(valid) if _detect_template_family_for_mix(p) == "product_hero"), 0)
+        valid[target_idx]["template_family"] = "text_poster"
+        valid[target_idx]["force_template_family"] = "text_poster"
+        _apply_family_visual_defaults(valid[target_idx])
+        _enforce_designer_visual_direction(valid[target_idx])
+
+    family_counts = Counter(_detect_template_family_for_mix(p) for p in valid)
+    min_unique = 5 if len(valid) >= 10 else (4 if len(valid) >= 7 else 3)
+    if len(family_counts) < min_unique:
+        diversify_targets = ["announcement", "testimonial", "illustration_editorial", "data_card", "promo"]
+        overrepresented = [fam for fam, count in family_counts.most_common() if count > 1]
+        for fam in diversify_targets:
+            if len(Counter(_detect_template_family_for_mix(p) for p in valid)) >= min_unique:
+                break
+            if fam in family_counts:
+                continue
+            source_idx = next(
+                (
+                    idx for idx, p in enumerate(valid)
+                    if _detect_template_family_for_mix(p) in overrepresented
+                ),
+                None,
+            )
+            if source_idx is None:
+                break
+            valid[source_idx]["template_family"] = fam
+            valid[source_idx]["force_template_family"] = fam
+            _apply_family_visual_defaults(valid[source_idx])
+            _enforce_designer_visual_direction(valid[source_idx])
+
+    return valid
+
+
 def _visual_system_prompt_block(brand: dict) -> str:
     _raw = brand.get("visual_system")
     vs = _raw if isinstance(_raw, dict) else {}
@@ -935,6 +1152,10 @@ def _validate_posts(
         if assigned:
             post["content_type"] = str(assigned.get("content_type") or "")
             post["visual_direction"] = str(assigned.get("visual_direction") or "")
+            assigned_family = str(assigned.get("template_family") or "").strip().lower()
+            if assigned_family:
+                post["template_family"] = assigned_family
+                post["force_template_family"] = assigned_family
 
         # Coerce slide_count
         try:
@@ -970,39 +1191,7 @@ def _validate_posts(
         else:
             post["visual_type"] = vt_ai
         post["visual_type"] = _coerce_visual_type_by_content_type(post, brand)
-
-        # Food brands selling dishes: avoid illustration that reads as clip-art food when the angle is promo or menu-led.
-        if _is_food_service_post(post, brand) and str(post.get("visual_type") or "").lower() == "illustration":
-            idea = f"{post.get('content_idea') or ''} {post.get('topic') or ''} {post.get('description') or ''}".lower()
-            dish_angle = any(
-                w in idea
-                for w in (
-                    "menu",
-                    "dish",
-                    "meal",
-                    "order",
-                    "taste",
-                    "fresh",
-                    "flavor",
-                    "recipe",
-                    "sandwich",
-                    "burger",
-                    "combo",
-                    "checklist",
-                    "kitchen",
-                    "serve",
-                    "deliver",
-                    "price",
-                    "offer",
-                    "easter",
-                    "holiday",
-                    "seasonal",
-                )
-            )
-            urls = post.get("product_image_urls") if isinstance(post.get("product_image_urls"), list) else []
-            if dish_angle or urls:
-                post["visual_type"] = "product"
-                post["visual_archetype"] = "photo_hero"
+        _apply_family_visual_defaults(post)
 
         # visual_archetype: layout family for VBS / art brief (PRD)
         va = str(post.get("visual_archetype", "")).strip().lower()
@@ -1015,11 +1204,11 @@ def _validate_posts(
         if vt == "abstract" and post["visual_archetype"] not in ("pattern_headline", "flat_edu"):
             post["visual_archetype"] = "pattern_headline"
         elif vt == "product" and post["visual_archetype"] not in ("photo_hero", "flat_edu", "pattern_headline"):
-            post["visual_archetype"] = "photo_hero"
+            post["visual_archetype"] = "flat_edu"
         elif vt == "illustration" and post["visual_archetype"] not in ("flat_edu", "pattern_headline", "pov_comic"):
             post["visual_archetype"] = "flat_edu"
         elif vt == "real_people" and post["visual_archetype"] not in ("photo_hero", "portrait_story", "pov_comic"):
-            post["visual_archetype"] = "photo_hero"
+            post["visual_archetype"] = "portrait_story"
 
         zone = str(post.get("logo_safe_zone", "")).strip().lower().replace(" ", "_")
         if zone not in VALID_LOGO_SAFE_ZONES:
@@ -1060,6 +1249,7 @@ def _validate_posts(
         valid.append(_sanitize_post_copy_fields(post))
 
     valid = _apply_style_mix_targets(valid, brand)
+    valid = _enforce_family_mix_requirements(valid, brand)
     valid = _enforce_design_mode_rotation(valid, brand)
     for p in valid:
         _ensure_message_architecture(p, brand)
@@ -1327,6 +1517,122 @@ def _playbook_from_brand(brand: dict | None) -> dict | None:
     }
 
 
+def _family_blueprint(name: str) -> dict:
+    return dict(FAMILY_BLUEPRINT_BY_NAME.get(name) or FAMILY_BLUEPRINT_BY_NAME["text_poster"])
+
+
+def _default_design_family_mix(post_count: int, brand: dict | None, *, single_only: bool) -> list[str]:
+    post_count = max(1, int(post_count or 0))
+    industry_bag = " ".join(
+        str((brand or {}).get(key) or "").lower()
+        for key in ("industry", "sub_industry", "description")
+    )
+    is_food = any(k in industry_bag for k in _FOOD_INDUSTRY_HINTS)
+
+    seed_mix = [
+        "promo",
+        "text_poster",
+        "testimonial",
+        "data_card",
+        "illustration_editorial",
+        "announcement",
+        "edu",
+        "story_carousel",
+        "product_hero",
+    ]
+    if is_food:
+        seed_mix = [
+            "promo",
+            "text_poster",
+            "testimonial",
+            "announcement",
+            "illustration_editorial",
+            "data_card",
+            "edu",
+            "story_carousel",
+            "product_hero",
+        ]
+
+    families: list[str] = []
+    while len(families) < post_count:
+        families.extend(seed_mix)
+    families = families[:post_count]
+
+    max_product = max(1, int(math.floor(post_count * 0.25)))
+    product_seen = 0
+    for idx, fam in enumerate(list(families)):
+        if fam == "product_hero":
+            product_seen += 1
+            if product_seen > max_product:
+                families[idx] = "text_poster" if idx % 2 == 0 else "announcement"
+
+    if post_count >= 4 and not any(f in TYPOGRAPHY_LED_FAMILIES for f in families):
+        families[min(1, post_count - 1)] = "text_poster"
+    if post_count >= 6 and "data_card" not in families:
+        families[min(3, post_count - 1)] = "data_card"
+    if post_count >= 6 and "testimonial" not in families:
+        families[min(2, post_count - 1)] = "testimonial"
+    if post_count >= 8 and "announcement" not in families:
+        families[min(4, post_count - 1)] = "announcement"
+
+    if single_only:
+        families = ["text_poster" if f in {"edu", "data_card", "story_carousel"} else f for f in families]
+
+    return families
+
+
+def _build_design_mix_schedule(
+    posting_dates: list[str],
+    *,
+    brand: dict | None,
+    format_mix: str,
+    seed_key: str,
+) -> list[dict]:
+    if not posting_dates:
+        return []
+    import random
+    import hashlib
+
+    fmt_pref = str(format_mix or "").strip().lower()
+    single_only = any(k in fmt_pref for k in ("single_only", "single", "no_carousel", "single-post"))
+    seed = int(hashlib.md5(seed_key.encode()).hexdigest(), 16)
+    rng = random.Random(seed)
+
+    families = _default_design_family_mix(len(posting_dates), brand, single_only=single_only)
+    if len(families) > 2:
+        tail = families[1:]
+        rng.shuffle(tail)
+        families = [families[0], *tail]
+
+    plan: list[dict] = []
+    recent_families: list[str] = []
+    for idx, d in enumerate(posting_dates):
+        fam = families[idx]
+        if recent_families[-1:] == [fam]:
+            for swap_idx in range(idx + 1, len(families)):
+                if families[swap_idx] != fam:
+                    families[idx], families[swap_idx] = families[swap_idx], families[idx]
+                    fam = families[idx]
+                    break
+        bp = _family_blueprint(fam)
+        post_type = bp.get("post_type") or "single"
+        if single_only and post_type == "carousel":
+            post_type = "single"
+        plan.append(
+            {
+                "date": d,
+                "content_type": str(bp.get("content_type") or "General").strip(),
+                "post_type": post_type,
+                "slot_key": None,
+                "template_family": fam,
+                "design_mode": str(bp.get("design_mode") or "editorial"),
+                "visual_direction": str(bp.get("visual_direction") or "").strip(),
+            }
+        )
+        recent_families.append(fam)
+    return plan
+
+
 def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, seed_key: str) -> list[dict]:
     if not posting_dates:
         return []
@@ -1382,6 +1688,8 @@ def _playbook_assignment_text(plan: list[dict]) -> str:
         [
             (
                 f"• {row.get('date')}: content_type={row.get('content_type')} | "
+                f"template_family={row.get('template_family') or 'default'} | "
+                f"design_mode={row.get('design_mode') or 'editorial'} | "
                 f"post_type={row.get('post_type')} | slot_key={row.get('slot_key') or 'N/A'} | "
                 f"visual_direction={row.get('visual_direction')}"
             )
@@ -1452,6 +1760,10 @@ def _enforce_playbook_assignments(posts: list[dict], plan: list[dict]) -> list[d
         if not assigned:
             continue
         post["content_type"] = assigned.get("content_type")
+        fam = str(assigned.get("template_family") or "").strip().lower()
+        if fam:
+            post["template_family"] = fam
+            post["force_template_family"] = fam
         if assigned.get("slot_key"):
             post["playbook_slot_key"] = assigned.get("slot_key")
         fmt = "carousel" if str(assigned.get("post_type") or "") == "carousel" else "single"
@@ -1484,18 +1796,12 @@ async def _generate_for_platform(
 
     fmt_pref = str(format_mix or "").strip().lower()
     single_only = any(k in fmt_pref for k in ("single_only", "single", "no_carousel", "single-post"))
-    playbook = _playbook_from_brand(brand_dict)
-    playbook_plan = _build_playbook_schedule(
+    playbook_plan = _build_design_mix_schedule(
         posting_dates,
-        playbook,
+        brand=brand_dict,
+        format_mix=format_mix,
         seed_key=f"{month_name}{year}{platform}",
     )
-    template_locked_playbook = bool(playbook and str(playbook.get("selected_template_name") or "").strip())
-    if single_only and playbook_plan and not template_locked_playbook:
-        for row in playbook_plan:
-            row["post_type"] = "single"
-    if template_locked_playbook and any(str(row.get("post_type") or "") == "carousel" for row in playbook_plan):
-        single_only = False
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
     rng = random.Random(seed)
@@ -1510,7 +1816,10 @@ async def _generate_for_platform(
         ]
         assigned_types = [content_types[rng.randint(0, len(content_types) - 1)] for _ in posting_dates]
         assignment_instructions = "\n".join(
-            [f"• {d}: content_type={t} | post_type=single" for d, t in zip(posting_dates, assigned_types)]
+            [
+                f"• {d}: content_type={t} | template_family=default | design_mode=editorial | post_type=single"
+                for d, t in zip(posting_dates, assigned_types)
+            ]
         )
 
     platform_notes = {
@@ -1610,7 +1919,7 @@ For EACH post return ALL these fields:
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
 10. visual_type: {_visual_type_rule_for_style(ips)}
-11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story"; must align with content_type and visual_type (for abstract prefer pattern_headline or flat_edu; for product prefer photo_hero)
+11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story"; must align with content_type, template_family, and visual_type (for text-led families prefer pattern_headline or flat_edu; reserve photo_hero for true image-led hero concepts only)
 12. format: must match post_type assignment (single->"single" or "gif", carousel->"carousel")
 13. slide_count: 1 for single or gif, 2-5 for carousel
 14. date: posting date in YYYY-MM-DD format exactly as listed above
@@ -1620,12 +1929,14 @@ For EACH post return ALL these fields:
     - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim.
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
+17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, or product_hero.
 
 HARD RULES:
 • Every post MUST have a non-empty "cta" string (see field 5); if unsure, default to "Visit our site via the link in bio." adapted to brand voice and website if known
 • Each post must feel distinctly different; vary tone, angle, format, and style
 • Fix prior system weaknesses: avoid repeating the same centered-text layout, avoid repeating gradient-heavy backgrounds, avoid overusing flat illustration style, and avoid template-looking sameness
 • Rotate design mode across posts and do not repeat consecutively: editorial, product hero, lifestyle, abstract, ui_saas
+• Treat template_family as the strongest layout instruction in the batch. If template_family=text_poster, data_card, announcement, edu, or testimonial, the final concept must read as a designed social graphic, not a hero photo with copy added later.
 • Include human/lifestyle context in some posts (especially mixed mode), not only abstract or illustration outputs
 • Vary typography behavior between posts: change alignment, scale contrast, and structure (stacked, split, overlay)
 • If a draft visual direction resembles a previous pattern in this batch, rewrite it to be clearly different before returning
@@ -1645,6 +1956,7 @@ HARD RULES:
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
 • If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning
 • Ensure monthly composition variety: include at least one product/device hero, one lifestyle context scene, one abstract/graphic metaphor, and one trust-proof frame where batch size allows
+• Ensure monthly family variety: include multiple layout families across the batch, and never let photo-led hero cards dominate more than a third of posts
 • Realism QA for human photos: reject and rewrite prompts that would likely create uncanny outputs (waxy skin, duplicated faces, malformed hands, doll-like eyes, over-airbrushed complexion, impossible lighting reflections)
 • Prefer believable editorial camera realism over synthetic polish: natural skin pores, realistic texture, grounded shadows, and candid body language
 
@@ -2037,14 +2349,18 @@ async def _generate_for_platform(
     campaign_brief: dict | None = None,
     posts_per_week: int = 3,
 ) -> list[dict]:
-    playbook = _playbook_from_brand(brand_dict)
-    playbook_plan = _build_playbook_schedule(
+    playbook_plan = _build_design_mix_schedule(
         posting_dates,
-        playbook,
+        brand=brand_dict,
+        format_mix=format_mix,
         seed_key=f"{month_name}{year}{platform}",
     )
     assignment_instructions = _playbook_assignment_text(playbook_plan) if playbook_plan else "\n".join(
-        [f"• {d}: content_type=general | post_type=single | slot_key=N/A | visual_direction=Create a clear, campaign-ready social concept." for d in posting_dates]
+        [
+            f"• {d}: content_type=general | template_family=default | design_mode=editorial | post_type=single | "
+            "slot_key=N/A | visual_direction=Create a clear, campaign-ready social concept."
+            for d in posting_dates
+        ]
     )
     staged_campaign_brief = await _synthesize_campaign_brief(
         brand_name=brand_name,
