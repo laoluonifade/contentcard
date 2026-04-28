@@ -6,14 +6,6 @@ import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
 import { authApi } from '../api'
 
-const authLightThemeVars = {
-  '--cc-ink-rgb': '15 23 42',
-  '--cc-fog-rgb': '229 231 235',
-  '--cc-mist-rgb': '247 247 248',
-  '--cc-surface-rgb': '255 255 255',
-  '--cc-page-rgb': '255 255 255',
-}
-
 export default function ForgotPasswordPage() {
   const [email, setEmail]     = useState('')
   const [sent, setSent]       = useState(false)
@@ -56,7 +48,7 @@ export default function ForgotPasswordPage() {
 
   if (sent) {
     return (
-      <div className="min-h-screen flex" style={authLightThemeVars}>
+      <div className="min-h-screen flex">
         <Seo title="Reset password | ContentCard" description="Reset your ContentCard password." path="/forgot-password" noindex />
         <div className="flex-1 lg:max-w-lg bg-mist flex items-center justify-center px-6">
           <div className="w-full max-w-sm text-center">
@@ -84,7 +76,7 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen flex" style={authLightThemeVars}>
+    <div className="min-h-screen flex">
       <Seo title="Reset password | ContentCard" description="Reset your ContentCard password." path="/forgot-password" noindex />
       <div className="flex-1 lg:max-w-lg bg-mist flex items-center justify-center px-6">
         <div className="w-full max-w-sm">
@@ -93,7 +85,7 @@ export default function ForgotPasswordPage() {
           <p className="text-ink/50 text-sm mb-8">Enter your email and we'll send you a reset link.</p>
 
           {error && (
-            <div className="mb-5 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm">
+            <div role="alert" className="mb-5 px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 text-sm">
               {error}
             </div>
           )}
