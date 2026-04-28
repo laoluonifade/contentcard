@@ -10,9 +10,9 @@
  *  onClose()         — dismiss the whole flow
  */
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
 import { X, Plus, Trash2, Upload, Image, ChevronDown } from 'lucide-react'
-import { brandApi, contentApi, uploadApi } from '../../api'
+import { brandApi, uploadApi } from '../../api'
 import { toast } from './Toast'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -56,29 +56,9 @@ function spreadDates(month, year, count) {
   return dates
 }
 
-export function buildInitialPlan({
-  month, year, platform, postsPerWeek, templateId, templateName,
-  playbookRows = null, brandPhotos = [],
-}) {
-  // When the backend returned a playbook-driven plan, mirror it row-for-row
-  // so the user sees exactly what will be generated (dates, types, visual
-  // directions). Otherwise fall back to round-robin defaults so the modal
-  // still works for brands without a matching industry playbook.
-  if (Array.isArray(playbookRows) && playbookRows.length > 0) {
-    return playbookRows.map((row, i) => ({
-      _id:             `plan-${Date.now()}-${i}`,
-      date:            row.date,
-      platform,
-      post_type:       row.post_type === 'carousel' ? 'carousel' : 'single',
-      content_type:    row.content_type || CONTENT_TYPES[i % CONTENT_TYPES.length],
-      visual_description: row.visual_direction || '',
-      product_image_url:  brandPhotos.length > 0 ? brandPhotos[i % brandPhotos.length] : null,
-      template_id:     templateId || null,
-      template_name:   templateName || 'Auto',
-    }))
-  }
-
-  const count = Math.max(1, Math.round(postsPerWeek * 4.3))
+export function buildInitialPlan({ month, year, platform, postsPerWeek, templateId, templateName }) {
+  const weeklyCount = Number.isFinite(Number(postsPerWeek)) ? Number(postsPerWeek) : 3
+  const count = Math.max(1, Math.round(weeklyCount * 4.3))
   const dates  = spreadDates(month, year, count)
 
   return dates.map((date, i) => ({
@@ -88,7 +68,7 @@ export function buildInitialPlan({
     post_type:       POST_TYPES[i % POST_TYPES.length],
     content_type:    CONTENT_TYPES[i % CONTENT_TYPES.length],
     visual_description: '',
-    product_image_url:  brandPhotos.length > 0 ? brandPhotos[i % brandPhotos.length] : null,
+    product_image_url:  null,
     template_id:     templateId || null,
     template_name:   templateName || 'Auto',
   }))
@@ -289,47 +269,28 @@ export default function GenerationPlanModal({
   brand, workspaceId,
   onConfirm, onBack, onClose,
 }) {
-  const templateName = templates.find(t => t.id === templateId)?.name || null
-  const [brandPhotos, setBrandPhotos] = useState(() => Array.isArray(brand?.brand_photos) ? brand.brand_photos : [])
-  const [rows, setRows] = useState(() =>
-    buildInitialPlan({
-      month, year, platform, postsPerWeek, templateId, templateName,
-      brandPhotos: Array.isArray(brand?.brand_photos) ? brand.brand_photos : [],
-    })
+  const safeTemplates = useMemo(
+    () => (Array.isArray(templates) ? templates.filter(Boolean) : []),
+    [templates]
   )
+  const templateName = safeTemplates.find(t => t.id === templateId)?.name || null
+  const initialRows = useMemo(
+    () => buildInitialPlan({ month, year, platform, postsPerWeek, templateId, templateName }),
+    [month, year, platform, postsPerWeek, templateId, templateName]
+  )
+  const [rows, setRows] = useState(initialRows)
+  const [brandPhotos, setBrandPhotos] = useState(() => Array.isArray(brand?.brand_photos) ? brand.brand_photos : [])
   const [confirming, setConfirming] = useState(false)
-  const [loadingPreview, setLoadingPreview] = useState(true)
-  const [hasPlaybook, setHasPlaybook] = useState(false)
-
-  // Fetch the playbook-driven plan from the backend so the user sees the same
-  // schedule (post types, content types, visual directions) the generator
-  // will actually use, instead of arbitrary round-robin defaults.
-  useEffect(() => {
-    let cancelled = false
-    if (!brand?.id) { setLoadingPreview(false); return }
-    contentApi.planPreview({
-      brand_id: brand.id,
-      month, year, platform,
-      posts_per_week: postsPerWeek,
-    })
-      .then((res) => {
-        if (cancelled) return
-        const photos = Array.isArray(res?.brand_photos) ? res.brand_photos : (Array.isArray(brand?.brand_photos) ? brand.brand_photos : [])
-        setBrandPhotos(photos)
-        setHasPlaybook(Boolean(res?.has_playbook))
-        setRows(buildInitialPlan({
-          month, year, platform, postsPerWeek, templateId, templateName,
-          playbookRows: Array.isArray(res?.rows) ? res.rows : null,
-          brandPhotos: photos,
-        }))
-      })
-      .catch(() => { /* keep fallback rows on failure */ })
-      .finally(() => { if (!cancelled) setLoadingPreview(false) })
-    return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [brand?.id, month, year, platform, postsPerWeek])
   const minDate = toIso(year, month, 1)
   const maxDate = toIso(year, month, new Date(year, month, 0).getDate())
+
+  useEffect(() => {
+    setRows(initialRows)
+  }, [initialRows])
+
+  useEffect(() => {
+    setBrandPhotos(Array.isArray(brand?.brand_photos) ? brand.brand_photos : [])
+  }, [brand?.brand_photos])
 
   const updateRow = useCallback((id, key, val) => {
     setRows(prev => prev.map(r => r._id === id ? { ...r, [key]: val } : r))
@@ -356,14 +317,14 @@ export default function GenerationPlanModal({
         post_type:       POST_TYPES[i % POST_TYPES.length],
         content_type:    CONTENT_TYPES[i % CONTENT_TYPES.length],
         visual_description: '',
-        product_image_url:  brandPhotos.length > 0 ? brandPhotos[i % brandPhotos.length] : null,
+        product_image_url:  null,
         template_id:     templateId || null,
         template_name:   templateName || 'Auto',
       },
     ])
   }
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (rows.length === 0) { toast('Add at least one post to generate.', 'error'); return }
     setConfirming(true)
     // Strip internal _id, convert to backend-friendly shape
@@ -376,7 +337,11 @@ export default function GenerationPlanModal({
       product_image_url: r.product_image_url || null,
       template_id:       r.template_id || null,
     }))
-    onConfirm(plan)
+    try {
+      await onConfirm(plan)
+    } finally {
+      setConfirming(false)
+    }
   }
 
   return (
@@ -390,9 +355,7 @@ export default function GenerationPlanModal({
               Plan {MONTHS[month - 1]} {year} · {platform.charAt(0).toUpperCase() + platform.slice(1)}
             </h2>
             <p className="text-ink/40 text-xs mt-0.5">
-              {loadingPreview
-                ? 'Loading plan from your content playbook…'
-                : `${rows.length} post${rows.length === 1 ? '' : 's'} planned · ${hasPlaybook ? 'From your industry playbook' : 'Default plan'} · Edit before generating`}
+              {rows.length} post{rows.length === 1 ? '' : 's'} planned · Edit dates, types, and images before generating
             </p>
           </div>
           <button onClick={onClose} className="text-ink/30 hover:text-ink p-1.5 -mr-1 transition-colors">
@@ -428,7 +391,7 @@ export default function GenerationPlanModal({
                     key={row._id}
                     row={row}
                     idx={idx}
-                    templates={templates}
+                    templates={safeTemplates}
                     brandPhotos={brandPhotos}
                     onUpdate={updateRow}
                     onDelete={deleteRow}

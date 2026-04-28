@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react'
+import { useState, useEffect, useRef, useMemo, Component } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
@@ -104,6 +104,52 @@ function weekdayFromIso(isoDate) {
 
 function recommendationForPlatform(platform) {
   return PLATFORM_POST_WINDOWS[platform] || { best: 'Weekdays, midday', backup: 'Early evening', tz: 'Local time' }
+}
+
+class GenerationPlanErrorBoundary extends Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  componentDidCatch(error) {
+    console.error('Generation plan modal crashed', error)
+  }
+
+  render() {
+    if (!this.state.hasError) return this.props.children
+
+    return (
+      <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg p-6 space-y-4">
+          <div>
+            <h3 className="text-ink font-semibold text-base">Couldn&apos;t open the review step</h3>
+            <p className="text-ink/45 text-sm mt-1">
+              Something in the generation plan failed to render. Go back to settings and try again.
+            </p>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <button type="button" onClick={this.props.onBack} className="btn-secondary px-4 py-2 text-sm">
+              Back to settings
+            </button>
+            <button type="button" onClick={this.props.onClose} className="btn-primary px-4 py-2 text-sm">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 }
 
 function toIsoDate(y, m, d) {
@@ -822,6 +868,10 @@ export default function CalendarPage() {
   const cardRef = useRef(null)
   const monthsAhead = ((year - now.getFullYear()) * 12) + (month - (now.getMonth() + 1))
   const generationLockedForMonth = monthsAhead > MAX_GENERATION_MONTHS_AHEAD
+  const activeTemplates = useMemo(
+    () => (Array.isArray(templates) ? templates.filter((t) => t && t.is_active) : []),
+    [templates]
+  )
   const guestProfile = useMemo(
     () => buildGuestWorkspaceProfile({
       ...(guestRun || guestForm),
@@ -1227,34 +1277,6 @@ export default function CalendarPage() {
     }
   }
 
-  const [exportingCalendar, setExportingCalendar] = useState(false)
-  const handleExportCalendar = async () => {
-    if (!activeBrandId || exportingCalendar) return
-    setExportingCalendar(true)
-    try {
-      const res = await contentApi.exportCalendar({ brand_id: activeBrandId, month, year })
-      const disp = res.headers?.['content-disposition'] || ''
-      const match = /filename="?([^"]+)"?/i.exec(disp)
-      const fallback = `content-calendar-${year}-${String(month).padStart(2, '0')}.xlsx`
-      const filename = match?.[1] || fallback
-      const blob = new Blob([res.data], {
-        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (err) {
-      toast(err?.response?.status === 404 ? 'Brand not found' : 'Export failed', 'error')
-    } finally {
-      setExportingCalendar(false)
-    }
-  }
-
   const targetPostsForBulk = filterPlat === 'all' ? posts : posts.filter((p) => p.platform === filterPlat)
 
   const bulkRedraftCaptions = async () => {
@@ -1632,6 +1654,10 @@ export default function CalendarPage() {
       toast(visErr, 'error')
       return false
     }
+    if (!genPlatform) {
+      toast('Choose a platform first', 'error')
+      return false
+    }
     // Open plan modal — actual generation fires after user reviews/edits the plan
     setShowGenPanel(false)
     setShowPlanModal(true)
@@ -1639,8 +1665,8 @@ export default function CalendarPage() {
   }
 
   const handlePlanConfirmed = async (customPlan) => {
-    setShowPlanModal(false)
     try {
+      setShowPlanModal(false)
       setGenerationBaseline({
         with: posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length,
         total: posts.length,
@@ -1702,6 +1728,7 @@ export default function CalendarPage() {
       }
       return true
     } catch (err) {
+      setShowPlanModal(true)
       const d = err.response?.data?.detail
       if (isAiCapacityError(err)) {
         setPrepServiceDown(true)
@@ -1810,18 +1837,6 @@ export default function CalendarPage() {
               }`}
             >
               Select
-            </button>
-          )}
-          {activeBrandId && posts.length > 0 && (
-            <button
-              type="button"
-              onClick={handleExportCalendar}
-              disabled={exportingCalendar}
-              className="text-sm px-3 py-2 rounded-xl border border-fog text-ink/60 hover:border-ink/20 hover:text-ink transition-colors disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-1.5"
-              title={`Download ${MONTHS[month - 1]} ${year} as Excel`}
-            >
-              <Download size={14} />
-              <span className="hidden sm:inline">{exportingCalendar ? 'Exporting…' : 'Export'}</span>
             </button>
           )}
           <button
@@ -2444,7 +2459,7 @@ export default function CalendarPage() {
                 className="input"/>
             </div>
 
-            {(templates || []).filter(t => t.is_active).length > 0 && (
+            {activeTemplates.length > 0 && (
               <div>
                 <p className="label mb-2">Playbook template <span className="text-ink/20 font-normal normal-case tracking-normal">(optional)</span></p>
                 <div className="flex flex-wrap gap-1.5">
@@ -2454,7 +2469,7 @@ export default function CalendarPage() {
                   >
                     Auto
                   </button>
-                  {(templates || []).filter(t => t.is_active).slice(0, 6).map(t => (
+                  {activeTemplates.slice(0, 6).map(t => (
                     <button
                       key={t.id}
                       onClick={() => setGenTemplateId(t.id)}
@@ -2510,19 +2525,25 @@ export default function CalendarPage() {
 
       {/* ── Generation plan modal ── */}
       {showPlanModal && (
-        <GenerationPlanModal
-          month={month}
-          year={year}
-          platform={genPlatform}
-          postsPerWeek={genPPW}
-          templateId={genTemplateId}
-          templates={(templates || []).filter(t => t.is_active)}
-          brand={activeBrand}
-          workspaceId={activeWorkspaceId}
-          onConfirm={handlePlanConfirmed}
+        <GenerationPlanErrorBoundary
+          resetKey={`${month}-${year}-${genPlatform}-${genPPW}-${genTemplateId || 'auto'}`}
           onBack={() => { setShowPlanModal(false); setShowGenPanel(true) }}
           onClose={() => setShowPlanModal(false)}
-        />
+        >
+          <GenerationPlanModal
+            month={month}
+            year={year}
+            platform={genPlatform}
+            postsPerWeek={genPPW}
+            templateId={genTemplateId}
+            templates={activeTemplates}
+            brand={activeBrand}
+            workspaceId={activeWorkspaceId}
+            onConfirm={handlePlanConfirmed}
+            onBack={() => { setShowPlanModal(false); setShowGenPanel(true) }}
+            onClose={() => setShowPlanModal(false)}
+          />
+        </GenerationPlanErrorBoundary>
       )}
 
       {/* ── Post modal ── */}
