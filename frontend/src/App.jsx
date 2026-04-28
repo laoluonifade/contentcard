@@ -36,10 +36,9 @@ import DirectoryPage        from './pages/DirectoryPage'
 import MemesPage            from './pages/MemesPage'
 import SocialAutopilotPage  from './pages/SocialAutopilotPage'
 import DesignEditorPage from './pages/DesignEditorPage'
-import AssistantPage   from './pages/AssistantPage'
 import AnalyticsPage   from './pages/AnalyticsPage'
 import InboxPage       from './pages/InboxPage'
-import AIPage          from './pages/AIPage'
+import AIWorkspacePage from './pages/AIWorkspacePage'
 import ShopifyAuthCallbackPage from './pages/ShopifyAuthCallbackPage'
 import ShopifyOnboardingCompletionPage from './pages/ShopifyOnboardingCompletionPage'
 import ShopifyPostSignupDecisionPage from './pages/ShopifyPostSignupDecisionPage'
@@ -134,8 +133,8 @@ export default function App() {
           <Route path="memes"      element={<AuthOnlyDashRoute><MemesPage /></AuthOnlyDashRoute>} />
           <Route path="social"     element={<AuthOnlyDashRoute><SocialAutopilotPage /></AuthOnlyDashRoute>} />
           <Route path="calendar/editor/:contentId" element={<AuthOnlyDashRoute><DesignEditorPage /></AuthOnlyDashRoute>} />
-          <Route path="assistant"  element={<AssistantPage />} />
-          <Route path="ai"         element={<AIPage />} />
+          <Route path="assistant"  element={<AIWorkspacePage />} />
+          <Route path="ai"         element={<AIWorkspacePage />} />
           <Route path="inbox"      element={<InboxPage />} />
           <Route path="analytics"  element={<AnalyticsPage />} />
         </Route>

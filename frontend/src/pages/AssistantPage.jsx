@@ -229,7 +229,7 @@ function EmptyState({ onSuggestion }) {
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export default function AssistantPage() {
+export default function AssistantPage({ embedded = false }) {
   const navigate = useNavigate()
   const {
     activeBrandId,
@@ -471,62 +471,106 @@ export default function AssistantPage() {
     <div className="flex flex-col min-h-full bg-surface">
 
       {/* ── Header ───────────────────────────────────────────────────────── */}
-      <header className="sticky top-0 z-20 flex items-center justify-between px-5 py-3.5 border-b border-fog bg-surface/90 backdrop-blur-sm">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-brand-500 flex items-center justify-center">
-            <Sparkles size={14} className="text-white" />
+      {!embedded && (
+        <header className="sticky top-0 z-20 flex items-center justify-between px-5 py-3.5 border-b border-fog bg-surface/90 backdrop-blur-sm">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-brand-500 flex items-center justify-center">
+              <Sparkles size={14} className="text-white" />
+            </div>
+            <div>
+              <span className="font-semibold text-ink text-sm">ContentCard AI</span>
+              {activeBrand && (
+                <span className="ml-2 text-xs text-ink/40">{activeBrand.name}</span>
+              )}
+            </div>
           </div>
-          <div>
-            <span className="font-semibold text-ink text-sm">ContentCard AI</span>
-            {activeBrand && (
-              <span className="ml-2 text-xs text-ink/40">{activeBrand.name}</span>
+
+          <div className="flex items-center gap-2">
+            {/* Month selector */}
+            <select
+              value={selMonth}
+              onChange={(e) => setSelMonth(Number(e.target.value))}
+              className="text-xs bg-mist border border-fog rounded-lg px-2.5 py-1.5 text-ink focus:outline-none focus:ring-2 focus:ring-brand-300/40 focus:border-brand-400 transition-all cursor-pointer"
+            >
+              {MONTHS.map((m, i) => (
+                <option key={m} value={i + 1}>
+                  {m} {selYear}
+                </option>
+              ))}
+            </select>
+
+            {/* Platform toggle */}
+            <div className="flex items-center gap-0.5 bg-mist border border-fog rounded-lg p-0.5">
+              {PLATFORMS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelPlatform(p.id)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-150 ${
+                    selPlatform === p.id
+                      ? 'bg-surface shadow-sm text-ink'
+                      : 'text-ink/40 hover:text-ink/70'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Reset */}
+            {messages.length > 0 && (
+              <button
+                onClick={handleReset}
+                title="Start new chat"
+                className="w-7 h-7 flex items-center justify-center rounded-lg text-ink/40 hover:text-ink hover:bg-mist transition-all"
+              >
+                <RotateCcw size={14} />
+              </button>
             )}
           </div>
-        </div>
+        </header>
+      )}
 
-        <div className="flex items-center gap-2">
-          {/* Month selector */}
-          <select
-            value={selMonth}
-            onChange={(e) => setSelMonth(Number(e.target.value))}
-            className="text-xs bg-mist border border-fog rounded-lg px-2.5 py-1.5 text-ink focus:outline-none focus:ring-2 focus:ring-brand-300/40 focus:border-brand-400 transition-all cursor-pointer"
-          >
-            {MONTHS.map((m, i) => (
-              <option key={m} value={i + 1}>
-                {m} {selYear}
-              </option>
-            ))}
-          </select>
-
-          {/* Platform toggle */}
-          <div className="flex items-center gap-0.5 bg-mist border border-fog rounded-lg p-0.5">
-            {PLATFORMS.map((p) => (
-              <button
-                key={p.id}
-                onClick={() => setSelPlatform(p.id)}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all duration-150 ${
-                  selPlatform === p.id
-                    ? 'bg-surface shadow-sm text-ink'
-                    : 'text-ink/40 hover:text-ink/70'
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
+      {embedded && (
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-fog bg-surface">
+          <div className="flex items-center gap-2">
+            <select
+              value={selMonth}
+              onChange={(e) => setSelMonth(Number(e.target.value))}
+              className="text-xs bg-mist border border-fog rounded-lg px-2.5 py-1.5 text-ink focus:outline-none focus:ring-2 focus:ring-brand-300/40 focus:border-brand-400 transition-all cursor-pointer"
+            >
+              {MONTHS.map((m, i) => (
+                <option key={m} value={i + 1}>
+                  {m} {selYear}
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center gap-0.5 bg-mist border border-fog rounded-lg p-0.5 overflow-x-auto">
+              {PLATFORMS.map((p) => (
+                <button
+                  key={p.id}
+                  onClick={() => setSelPlatform(p.id)}
+                  className={`px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-all duration-150 ${
+                    selPlatform === p.id
+                      ? 'bg-surface shadow-sm text-ink'
+                      : 'text-ink/40 hover:text-ink/70'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
-
-          {/* Reset */}
           {messages.length > 0 && (
             <button
               onClick={handleReset}
               title="Start new chat"
-              className="w-7 h-7 flex items-center justify-center rounded-lg text-ink/40 hover:text-ink hover:bg-mist transition-all"
+              className="w-8 h-8 flex items-center justify-center rounded-lg text-ink/40 hover:text-ink hover:bg-mist transition-all"
             >
               <RotateCcw size={14} />
             </button>
           )}
         </div>
-      </header>
+      )}
 
       {/* ── Chat area ────────────────────────────────────────────────────── */}
       <div className="flex-1">
