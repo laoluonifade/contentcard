@@ -28,7 +28,7 @@ import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 import { getMissingFields } from '../utils/brandReadiness'
 
-const TABS = ['Basics', 'Products', 'Reviews', 'Audience', 'Identity', 'Visual', 'Voice', 'Compliance', 'Rules']
+const TABS = ['Basics', 'Audience', 'Messaging', 'Visual', 'Proof', 'Rules']
 
 const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
 const CAMPAIGN_ART_STYLE_PROFILES = [
@@ -1378,7 +1378,7 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {tab === 'Products' && (
+          {tab === 'Proof' && (
             <div className={cardCls}>
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div>
@@ -1575,7 +1575,7 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {tab === 'Reviews' && (
+          {tab === 'Proof' && (
             <div className={cardCls}>
               <div className="flex items-start justify-between gap-3 mb-4">
                 <div>
@@ -2126,7 +2126,7 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {tab === 'Identity' && (
+          {tab === 'Visual' && (
             <div className="space-y-4">
               <div className={cardCls}>
                 <h3 className={`${sectionTitleCls} mb-2`}>Brand colors</h3>
@@ -2181,7 +2181,7 @@ export default function BrandKitPage() {
           )}
 
           {/* ── VOICE ── */}
-          {tab === 'Voice' && (
+          {tab === 'Messaging' && (
             <div className={cardCls}>
               <h3 className={`${sectionTitleCls} mb-5`}>Brand voice & tone</h3>
               <div className="mb-5">
@@ -2228,11 +2228,57 @@ export default function BrandKitPage() {
                   ))}
                 </div>
               </div>
+              <div className="mt-5">
+                <label className={`${labelCls} mb-2`}>Writing style</label>
+                <ScoreBadge score={S.writing_style} />
+                <textarea
+                  value={form.brand_kit?.writing_style || ''}
+                  onChange={e => set('brand_kit', { ...(form.brand_kit || {}), writing_style: e.target.value })}
+                  rows={2}
+                  placeholder="Clear, practical, conversational, and conversion-focused."
+                  className={clsx(taCls, 'mt-2')}
+                />
+              </div>
+              <div className="mt-5">
+                <label className={`${labelCls} mb-2`}>Key messages</label>
+                <ScoreBadge score={S.key_messages} />
+                <textarea
+                  value={Array.isArray(form.brand_kit?.key_messages) ? form.brand_kit.key_messages.join('\n') : (form.brand_kit?.key_messages || '')}
+                  onChange={e => set('brand_kit', {
+                    ...(form.brand_kit || {}),
+                    key_messages: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean),
+                  })}
+                  rows={3}
+                  placeholder={'Fast delivery\nAuthentic flavour\nReliable ordering experience'}
+                  className={clsx(taCls, 'mt-2')}
+                />
+              </div>
+              <div className="mt-5">
+                <label className={`${labelCls} mb-2`}>Value proposition</label>
+                <ScoreBadge score={S.value_proposition} />
+                <textarea
+                  value={form.brand_kit?.value_proposition || ''}
+                  onChange={e => set('brand_kit', { ...(form.brand_kit || {}), value_proposition: e.target.value })}
+                  rows={2}
+                  placeholder="Why customers should choose you over alternatives."
+                  className={clsx(taCls, 'mt-2')}
+                />
+              </div>
+              <div className="mt-5">
+                <label className={`${labelCls} mb-2`}>CTA style</label>
+                <ScoreBadge score={S.cta_style} />
+                <input
+                  value={form.brand_kit?.cta_style || ''}
+                  onChange={e => set('brand_kit', { ...(form.brand_kit || {}), cta_style: e.target.value })}
+                  placeholder="Direct, warm, action-oriented"
+                  className={clsx(inpCls, 'mt-2')}
+                />
+              </div>
             </div>
           )}
 
           {/* ── COMPLIANCE ── */}
-          {tab === 'Compliance' && (
+          {tab === 'Rules' && (
             <div className="space-y-4">
               <div className={cardCls}>
                 <h3 className={`${sectionTitleCls} mb-1`}>Compliance presets</h3>

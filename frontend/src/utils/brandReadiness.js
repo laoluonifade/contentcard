@@ -26,25 +26,25 @@ export const REQUIRED_FIELDS = [
   },
   {
     label: 'Tone tags',
-    tab: 'Voice',
+    tab: 'Messaging',
     hint: 'How does your brand sound?',
     check: (b) => (b?.tone_tags || []).length > 0,
   },
   {
     label: 'Language / dialect',
-    tab: 'Voice',
+    tab: 'Messaging',
     hint: 'English, Nigerian English, Pidgin…',
     check: (b) => (b?.language_style || '').trim().length > 0,
   },
   {
     label: 'Writing style',
-    tab: 'Voice',
+    tab: 'Messaging',
     hint: 'Conversational, Formal, Storytelling…',
     check: (b) => ((b?.brand_kit?.writing_style) || '').trim().length > 0,
   },
   {
     label: 'Key messages',
-    tab: 'Identity',
+    tab: 'Messaging',
     hint: 'What does your brand always say?',
     check: (b) => {
       const km = b?.brand_kit?.key_messages
@@ -53,13 +53,13 @@ export const REQUIRED_FIELDS = [
   },
   {
     label: 'Value proposition',
-    tab: 'Identity',
+    tab: 'Messaging',
     hint: 'Why should customers choose you?',
     check: (b) => ((b?.brand_kit?.value_proposition) || '').trim().length > 8,
   },
   {
     label: 'CTA style',
-    tab: 'Identity',
+    tab: 'Messaging',
     hint: 'How should calls to action sound?',
     check: (b) => ((b?.brand_kit?.cta_style) || '').trim().length > 3,
   },
