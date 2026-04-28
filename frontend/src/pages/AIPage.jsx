@@ -17,7 +17,7 @@ import { toast } from '../components/ui/Toast'
  * AI Studio (R3) — picks one recent post and lets you remix / get variants /
  * read the brand-fit + why panel. Designed as a fast iteration surface.
  */
-export default function AIPage() {
+export default function AIPage({ embedded = false }) {
   const enabled = useFeatureFlag('ai.page')
   const remixEnabled = useFeatureFlag('ai.remix_chips')
   const variantsEnabled = useFeatureFlag('ai.variants')
@@ -89,19 +89,21 @@ export default function AIPage() {
   }
 
   if (!enabled) {
-    return <div className="p-6"><EmptyState icon={Sparkles} title="AI Studio is disabled" /></div>
+    return <div className={embedded ? 'p-4' : 'p-6'}><EmptyState icon={Sparkles} title="Refine mode is disabled" /></div>
   }
 
   return (
-    <div className="p-6 lg:p-8 max-w-6xl mx-auto">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
-          <span className="inline-flex items-center gap-2">
-            <Sparkles size={20} className="text-brand-500" /> AI Studio
-          </span>
-        </h1>
-        <p className="text-ink/40 text-sm">Remix captions, generate variants, see why a post was made the way it was.</p>
-      </div>
+    <div className={`${embedded ? 'p-4 lg:p-5' : 'p-6 lg:p-8'} max-w-6xl mx-auto`}>
+      {!embedded && (
+        <div className="mb-6">
+          <h1 className="text-2xl font-semibold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>
+            <span className="inline-flex items-center gap-2">
+              <Sparkles size={20} className="text-brand-500" /> AI Studio
+            </span>
+          </h1>
+          <p className="text-ink/40 text-sm">Remix captions, generate variants, see why a post was made the way it was.</p>
+        </div>
+      )}
 
       {!activeBrandId ? (
         <EmptyState icon={Sparkles} title="Pick a brand" body="Select a brand from the sidebar to start iterating." />
