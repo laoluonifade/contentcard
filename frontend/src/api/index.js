@@ -270,6 +270,7 @@ export const contentApi = {
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
+  exportCalendar: (params)     => api.get('/content/export', { params, responseType: 'blob' }),
   directory:  (workspaceId)   => api.get('/content/directory', { params: { workspace_id: workspaceId } }).then(r => r.data),
   memes:      ()              => api.get('/content/memes').then(r => r.data),
   addMeme:    (data)          => api.post('/content/memes', data).then(r => r.data),
