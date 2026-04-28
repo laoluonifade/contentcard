@@ -5,7 +5,7 @@ import json
 from datetime import datetime, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, desc
 from app.db.database import get_db, AsyncSessionLocal
 from app.models.brand import Brand
 from app.models.template import ContentTemplate
@@ -350,7 +350,11 @@ async def list_brands(
     db: AsyncSession = Depends(get_db),
 ):
     await _check_member(workspace_id, current_user.id, db)
-    result = await db.execute(select(Brand).where(Brand.workspace_id == workspace_id))
+    result = await db.execute(
+        select(Brand)
+        .where(Brand.workspace_id == workspace_id)
+        .order_by(desc(Brand.updated_at), desc(Brand.created_at))
+    )
     return [BrandOut.model_validate(b) for b in result.scalars().all()]
 
 
