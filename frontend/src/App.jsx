@@ -4,6 +4,7 @@ import { ToastProvider } from './components/ui/Toast'
 import useAuthStore from './stores/authStore'
 import { getPostAuthPath } from './utils/authFlow'
 
+import LandingPage          from './pages/LandingPage'
 import LoginPage            from './pages/LoginPage'
 import SignupPage           from './pages/SignupPage'
 import OnboardingPage       from './pages/OnboardingPage'
@@ -127,7 +128,7 @@ export default function App() {
       <ToastProvider />
       <Routes>
         {/* Marketing */}
-        <Route path="/"                      element={<Navigate to="/dashboard/calendar" replace />} />
+        <Route path="/"                      element={<GuestRoute><LandingPage /></GuestRoute>} />
         <Route path="/features"              element={<FeaturesPage />} />
         <Route path="/pricing"               element={<PricingPage />} />
         <Route path="/enterprise"            element={<EnterprisePage />} />
