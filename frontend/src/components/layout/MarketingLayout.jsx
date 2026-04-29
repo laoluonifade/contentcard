@@ -4,11 +4,10 @@ import Seo from '../seo/Seo'
 import TryContentCardPill from '../marketing/TryContentCardPill'
 
 // Top-level marketing nav items.
-const MARKETING_NAV = [
-  { to: '/features',  label: 'Features'  },
-  { to: '/pricing',   label: 'Pricing'   },
-  { to: '/enterprise',label: 'Business'  },
-]
+// Features, Pricing, and Business intentionally omitted from the header — they
+// still live in the footer and on direct routes, but the top nav stays focused
+// on the single primary CTA.
+const MARKETING_NAV = []
 
 const FOOTER_LINKS = {
   Product:  [
