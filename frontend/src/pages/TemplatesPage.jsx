@@ -881,7 +881,7 @@ export default function TemplatesPage() {
             <div className="bg-surface border border-fog rounded-2xl overflow-hidden">
               <div className="px-6 py-4 border-b border-fog">
                 <p className="text-sm font-semibold text-ink">Basic details</p>
-                <p className="text-xs text-ink/40 mt-0.5">Edit the name, type, and description — then hit Save changes.</p>
+                <p className="text-xs text-ink/40 mt-0.5">Edit the name, type, and description, then hit Save changes.</p>
               </div>
               <div className="p-6 grid sm:grid-cols-2 gap-5">
                 <div>
@@ -1093,7 +1093,7 @@ export default function TemplatesPage() {
                             setSlotDrafts((prev) => prev.map((s, sIdx) => (sIdx === idx ? { ...s, visual_direction: value } : s)))
                           }}
                           rows={4}
-                          placeholder="Describe the visual direction for this slot — layout, style, mood, imagery…"
+                          placeholder="Describe the visual direction for this slot. Layout, style, mood, imagery."
                           className="w-full rounded-xl border-2 border-fog bg-white px-4 py-3 text-base text-ink placeholder:text-ink/30 focus:outline-none focus:border-brand-400 focus:ring-4 focus:ring-brand-400/10 transition-all resize-none"
                         />
                       </div>

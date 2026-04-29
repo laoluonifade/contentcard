@@ -8,7 +8,7 @@
 export const REQUIRED_FIELDS = [
   {
     label: 'Brand description',
-    tab: 'Basics',
+    tab: 'Business',
     hint: 'What does the business actually do?',
     check: (b) => (b?.description || '').trim().length > 12,
   },
@@ -26,25 +26,25 @@ export const REQUIRED_FIELDS = [
   },
   {
     label: 'Tone tags',
-    tab: 'Messaging',
+    tab: 'Voice',
     hint: 'How does your brand sound?',
     check: (b) => (b?.tone_tags || []).length > 0,
   },
   {
     label: 'Language / dialect',
-    tab: 'Messaging',
+    tab: 'Voice',
     hint: 'English, Nigerian English, Pidgin…',
     check: (b) => (b?.language_style || '').trim().length > 0,
   },
   {
     label: 'Writing style',
-    tab: 'Messaging',
+    tab: 'Voice',
     hint: 'Conversational, Formal, Storytelling…',
     check: (b) => ((b?.brand_kit?.writing_style) || '').trim().length > 0,
   },
   {
     label: 'Key messages',
-    tab: 'Messaging',
+    tab: 'Voice',
     hint: 'What does your brand always say?',
     check: (b) => {
       const km = b?.brand_kit?.key_messages
@@ -53,19 +53,19 @@ export const REQUIRED_FIELDS = [
   },
   {
     label: 'Value proposition',
-    tab: 'Messaging',
+    tab: 'Voice',
     hint: 'Why should customers choose you?',
     check: (b) => ((b?.brand_kit?.value_proposition) || '').trim().length > 8,
   },
   {
     label: 'CTA style',
-    tab: 'Messaging',
+    tab: 'Voice',
     hint: 'How should calls to action sound?',
     check: (b) => ((b?.brand_kit?.cta_style) || '').trim().length > 3,
   },
   {
     label: 'Brand palette',
-    tab: 'Visual',
+    tab: 'Visuals',
     hint: 'Add brand colors or a visual system palette.',
     check: (b) => {
       const colors = Array.isArray(b?.brand_colors) ? b.brand_colors.filter(Boolean) : []
@@ -75,13 +75,13 @@ export const REQUIRED_FIELDS = [
   },
   {
     label: 'Design style',
-    tab: 'Visual',
+    tab: 'Visuals',
     hint: 'Bold, minimal, warm, premium…',
     check: (b) => (b?.design_style || '').trim().length > 0,
   },
   {
     label: 'Guidelines',
-    tab: 'Rules',
+    tab: 'Voice',
     hint: 'What should the AI always do or avoid?',
     check: (b) => (b?.guidelines || '').trim().length > 8,
   },

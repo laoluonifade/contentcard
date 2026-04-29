@@ -19,17 +19,13 @@ export default function BrandHealthScore({ brand, onTabSelect }) {
     })
     // Bonus signals
     const logo = !!(brand?.logo_url || brand?.brand_kit?.logo_url)
-    const colors = Array.isArray(brand?.brand_kit?.brand_colors)
-      ? brand.brand_kit.brand_colors.length > 0
+    const colors = Array.isArray(brand?.brand_colors)
+      ? brand.brand_colors.length > 0
       : !!(brand?.primary_color || brand?.brand_kit?.primary_color)
     const photos = Array.isArray(brand?.brand_photos) && brand.brand_photos.length > 0
-    const products = Array.isArray(brand?.brand_kit?.products)
-      ? brand.brand_kit.products.length > 0
-      : false
-    checks.push({ label: 'Logo uploaded', tab: 'Identity', ok: logo, weight: 12 })
-    checks.push({ label: 'Brand colours', tab: 'Visual', ok: colors, weight: 10 })
-    checks.push({ label: 'Brand photos', tab: 'Visual', ok: photos, weight: 8 })
-    checks.push({ label: 'Products listed', tab: 'Products', ok: products, weight: 10 })
+    checks.push({ label: 'Logo uploaded', tab: 'Visuals', ok: logo, weight: 12 })
+    checks.push({ label: 'Brand colours', tab: 'Visuals', ok: colors, weight: 10 })
+    checks.push({ label: 'Brand photos', tab: 'Visuals', ok: photos, weight: 8 })
 
     const total = checks.reduce((s, c) => s + c.weight, 0)
     const earned = checks.reduce((s, c) => s + (c.ok ? c.weight : 0), 0)

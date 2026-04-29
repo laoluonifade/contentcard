@@ -45,6 +45,7 @@ class UserOut(BaseModel):
     onboarding_completed: bool = False
     agency_mode: bool = False
     auth_provider: str = "password"
+    email_verified: bool = True
 
     model_config = {"from_attributes": True}
 

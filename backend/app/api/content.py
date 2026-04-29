@@ -69,8 +69,8 @@ from app.services.image_service import (
 )
 from app.services.bannerbear_service import generate_post_images, detect_template_family
 from app.services.billing_entitlements import (
-    effective_plan_for_owner,
-    total_free_generations_used_by_owner,
+    effective_plan,
+    free_generations_used,
 )
 from datetime import date, timedelta
 from calendar import month_name, monthrange
@@ -292,15 +292,16 @@ async def _enforce_generation_billing_gate(
 ) -> None:
     if not workspace:
         return
-    effective = await effective_plan_for_owner(db, workspace.owner_id)
+    # Per-workspace plan and free counter — each workspace gets its own quota.
+    effective = effective_plan(workspace)
     if effective in ("starter", "smb", "pro"):
         return
 
-    total_used = await total_free_generations_used_by_owner(db, workspace.owner_id)
+    used = free_generations_used(workspace)
     bonus_limit = TRIAL_FREE_GENERATIONS + CARD_BONUS_FREE_GENERATIONS
 
-    if total_used < TRIAL_FREE_GENERATIONS:
-        workspace.free_generations_used = (workspace.free_generations_used or 0) + 1
+    if used < TRIAL_FREE_GENERATIONS:
+        workspace.free_generations_used = used + 1
         await db.commit()
         return
 
@@ -308,7 +309,7 @@ async def _enforce_generation_billing_gate(
         status_code=402,
         detail={
             "code": "FREE_GENERATION_LIMIT_REACHED",
-            "message": f"You've reached the {bonus_limit:,} free generation limit for this workspace.",
+            "message": f"You've reached this workspace's {bonus_limit:,} free generation limit. Upgrade to keep generating.",
             "limit": bonus_limit,
         },
     )
@@ -316,12 +317,12 @@ async def _enforce_generation_billing_gate(
 
 async def _assert_plan_monthly_generation_cap(
     db: AsyncSession,
-    owner_id: str,
+    workspace: Workspace,
     brand_id: str,
     month: int,
     year: int,
 ) -> None:
-    plan = await effective_plan_for_owner(db, owner_id)
+    plan = effective_plan(workspace)
     cap = PLAN_MONTHLY_POST_CAPS.get(plan)
     if cap is None:
         return
@@ -346,12 +347,12 @@ async def _assert_plan_monthly_generation_cap(
 
 async def _plan_monthly_cap_snapshot(
     db: AsyncSession,
-    owner_id: str,
+    workspace: Workspace,
     brand_id: str,
     month: int,
     year: int,
 ) -> tuple[int | None, int]:
-    plan = await effective_plan_for_owner(db, owner_id)
+    plan = effective_plan(workspace)
     cap = PLAN_MONTHLY_POST_CAPS.get(plan)
     if cap is None:
         return None, 0
@@ -1491,10 +1492,10 @@ async def generate_month(
     if body.month < 1 or body.month > 12:
         raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
     if body.year < 2024 or body.year > 2030:
-        raise HTTPException(status_code=400, detail="That year doesn't look right — double-check it.")
+        raise HTTPException(status_code=400, detail="That year doesn't look right. Double-check it.")
     _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
+        raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
 
@@ -1504,9 +1505,9 @@ async def generate_month(
     ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
     workspace = ws_r.scalar_one_or_none()
     if workspace:
-        effective = await effective_plan_for_owner(db, workspace.owner_id)
+        effective = effective_plan(workspace)
         monthly_post_cap, current_month_total = await _plan_monthly_cap_snapshot(
-            db=db, owner_id=workspace.owner_id, brand_id=brand.id, month=body.month, year=body.year
+            db=db, workspace=workspace, brand_id=brand.id, month=body.month, year=body.year
         )
         if monthly_post_cap is not None and current_month_total >= monthly_post_cap:
             raise HTTPException(
@@ -1615,10 +1616,10 @@ async def generate_month_v2(
     if body.month < 1 or body.month > 12:
         raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
     if body.year < 2024 or body.year > 2032:
-        raise HTTPException(status_code=400, detail="That year doesn't look right — double-check it.")
+        raise HTTPException(status_code=400, detail="That year doesn't look right. Double-check it.")
     _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
+        raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
     monthly_post_cap: int | None = None
@@ -1626,9 +1627,9 @@ async def generate_month_v2(
     ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
     workspace = ws_r.scalar_one_or_none()
     if workspace:
-        effective = await effective_plan_for_owner(db, workspace.owner_id)
+        effective = effective_plan(workspace)
         monthly_post_cap, current_month_total = await _plan_monthly_cap_snapshot(
-            db=db, owner_id=workspace.owner_id, brand_id=brand.id, month=body.month, year=body.year
+            db=db, workspace=workspace, brand_id=brand.id, month=body.month, year=body.year
         )
         if monthly_post_cap is not None and current_month_total >= monthly_post_cap:
             raise HTTPException(
@@ -1740,9 +1741,9 @@ async def caption_from_photo(
     db: AsyncSession = Depends(get_db),
 ):
     if not body.description or not body.description.strip():
-        raise HTTPException(status_code=400, detail="Add a description — that's how the AI knows what to write about.")
+        raise HTTPException(status_code=400, detail="Add a description. That's how the AI knows what to write about.")
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
+        raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
     results = {}
@@ -1760,7 +1761,7 @@ async def caption_from_photo(
             logger.error(f"Photo caption error for {platform.value}: {e}")
             errors[platform.value] = "Generation failed. Please try again."
     if not results:
-        raise HTTPException(status_code=502, detail="Generation didn't go through for any of the platforms. Try again in a moment — it's usually a passing hiccup.")
+        raise HTTPException(status_code=502, detail="Generation didn't go through for any of the platforms. Try again in a moment. It's usually a passing hiccup.")
     return {"results": results, "errors": errors}
 
 

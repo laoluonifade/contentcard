@@ -119,24 +119,76 @@ INDUSTRY_TAXONOMY: dict[str, list[str]] = {
 
 
 def _canonical_taxonomy(industry: str | None, sub_industry: str | None) -> tuple[str, str]:
+    """
+    Resolve (industry, sub_industry) to taxonomy keys.
+
+    Lenient on purpose — the quick-fill flow gets these from an LLM, which
+    happily emits things like ("Technology", "Logistics") that don't line up
+    with our taxonomy. Rather than 400ing the user out of onboarding, we:
+
+      1. If the sub_industry doesn't fit the chosen industry but DOES fit
+         another industry, switch the industry to that one. ("Logistics" →
+         Professional Services / Logistics Services.)
+      2. If the sub_industry isn't recognised anywhere, fall back to the
+         first sub-industry under the chosen industry. The user can edit it.
+      3. If the industry itself is unrecognised, we still fall back instead
+         of 400ing — default to "Technology" / "SaaS".
+    """
     ind_raw = str(industry or "").strip()
     sub_raw = str(sub_industry or "").strip()
     if not ind_raw:
-        raise HTTPException(status_code=400, detail="Pick an industry — that's how we match the right voice and templates.")
+        raise HTTPException(status_code=400, detail="Pick an industry. That's how we match the right voice and templates.")
     if not sub_raw:
-        raise HTTPException(status_code=400, detail="Pick a sub-industry too — it makes generated content much more on-brand.")
+        raise HTTPException(status_code=400, detail="Pick a sub-industry too. It makes generated content much more on-brand.")
+
     ind_map = {k.lower(): k for k in INDUSTRY_TAXONOMY.keys()}
     ind_key = ind_map.get(ind_raw.lower())
+
+    # Look for sub_industry across every industry — preserves the AI's read of
+    # the user's actual business when its industry guess was off.
+    sub_lower = sub_raw.lower()
+    sub_match_industry: str | None = None
+    sub_match_key: str | None = None
+    for parent, subs in INDUSTRY_TAXONOMY.items():
+        for s in subs:
+            if s.lower() == sub_lower:
+                sub_match_industry = parent
+                sub_match_key = s
+                break
+        if sub_match_key:
+            break
+
     if not ind_key:
-        raise HTTPException(status_code=400, detail=f"Invalid industry '{ind_raw}'")
-    sub_map = {s.lower(): s for s in INDUSTRY_TAXONOMY[ind_key]}
-    sub_key = sub_map.get(sub_raw.lower())
-    if not sub_key:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid sub_industry '{sub_raw}' for industry '{ind_key}'",
+        # Industry name we don't recognise. Use the sub_industry's parent if we
+        # found one, else default to Technology / SaaS so onboarding always
+        # succeeds with sensible-looking values.
+        if sub_match_industry and sub_match_key:
+            logger.info("taxonomy: unknown industry '%s', adopting '%s' from sub_industry '%s'", ind_raw, sub_match_industry, sub_raw)
+            return sub_match_industry, sub_match_key
+        logger.info("taxonomy: unknown industry '%s' and sub '%s' — defaulting to Technology / SaaS", ind_raw, sub_raw)
+        return "Technology", INDUSTRY_TAXONOMY["Technology"][0]
+
+    # Industry recognised. Try to find sub within it first.
+    sub_within = next((s for s in INDUSTRY_TAXONOMY[ind_key] if s.lower() == sub_lower), None)
+    if sub_within:
+        return ind_key, sub_within
+
+    # Sub doesn't fit chosen industry but matches elsewhere — trust the sub
+    # and switch industry to the one that owns it.
+    if sub_match_industry and sub_match_key:
+        logger.info(
+            "taxonomy: sub '%s' doesn't fit '%s' — switching industry to '%s'",
+            sub_raw, ind_key, sub_match_industry,
         )
-    return ind_key, sub_key
+        return sub_match_industry, sub_match_key
+
+    # Sub is unrecognised everywhere — keep the chosen industry, default to
+    # its first sub. The user can change it afterwards.
+    logger.info(
+        "taxonomy: sub '%s' unrecognised; falling back to '%s' for industry '%s'",
+        sub_raw, INDUSTRY_TAXONOMY[ind_key][0], ind_key,
+    )
+    return ind_key, INDUSTRY_TAXONOMY[ind_key][0]
 
 
 async def _sync_brand_assistant(brand_id: str) -> None:

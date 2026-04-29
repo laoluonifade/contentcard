@@ -51,7 +51,7 @@ export default function ResetPasswordPage() {
         /expired|invalid|already\s+used/i.test(err?.message || '')
       if (expired) {
         setTokenExpired(true)
-        setError("This reset link no longer works — they expire after 24 hours. Request a fresh one and we'll email it over.")
+        setError("This reset link no longer works. Reset links expire after 24 hours. Request a fresh one and we'll email it over.")
       } else {
         setError(detail || "Couldn't reset your password. Try again in a moment.")
       }
@@ -144,7 +144,7 @@ export default function ResetPasswordPage() {
         <div className="w-full max-w-sm">
           <div className="mb-10"><LogoFull size={28} /></div>
           <h1 className="text-2xl font-bold text-ink mb-2" style={{ letterSpacing: '-0.02em' }}>Choose a new password</h1>
-          <p className="text-ink/50 text-sm mb-8">Make it strong — at least 8 characters.</p>
+          <p className="text-ink/50 text-sm mb-8">Make it strong. At least 8 characters.</p>
 
           {error && (
             <div role="alert" className="mb-5 px-4 py-3 rounded-lg bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-200 text-sm">

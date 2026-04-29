@@ -1260,7 +1260,7 @@ export default function CalendarPage() {
   const bulkRegenerateVisuals = async () => {
     const list = targetPostsForBulk
     if (!list.length) return
-    if (!confirm(`Regenerate visuals for ${list.length} post${list.length === 1 ? '' : 's'}? Visuals take longer than captions — give it a few minutes.`)) return
+    if (!confirm(`Regenerate visuals for ${list.length} post${list.length === 1 ? '' : 's'}? Visuals take longer than captions. Give it a few minutes.`)) return
     try {
       for (const p of list) {
         await contentApi.regenerateVisual(p.id, { mode: 'same_archetype' })
@@ -1672,7 +1672,7 @@ export default function CalendarPage() {
             /* ignore */
           }
           setRenderStatusPoll(null)
-          toast(`${platformLabel} generation is done — posts are ready with finished designs.`)
+          toast(`${platformLabel} generation is done. Posts are ready with finished designs.`)
           setPrepMinimizedPersist(false)
           await requestPrepGenerationUpdate('completed', { platformLabel, before, after })
         } else {
@@ -1844,7 +1844,7 @@ export default function CalendarPage() {
             <>
               Finishing designs… <strong className="text-ink">{finishingReady}</strong> of{' '}
               <strong className="text-ink">{finishingTotal}</strong> posts have finished visuals.
-              This page refreshes automatically when they are all done — you do not need to reload manually.
+              This page refreshes automatically when they are all done. You do not need to reload manually.
             </>
           ) : (
             <>
@@ -2683,7 +2683,7 @@ export default function CalendarPage() {
             <div className="rounded-xl border border-fog overflow-hidden relative group">
               <img
                 src="/marketing-examples/juicy-jollof.png"
-                alt="Jay's Diner – Smoky Burger Combo Night"
+                alt="Jay's Diner: Smoky Burger Combo Night"
                 className="w-full h-24 object-cover"
               />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
@@ -2698,7 +2698,7 @@ export default function CalendarPage() {
             <div className="rounded-xl border border-fog overflow-hidden relative group">
               <img
                 src="/marketing-examples/uber-ride.png"
-                alt="Paystack – Instant Transfer Proof"
+                alt="Paystack: Instant Transfer Proof"
                 className="w-full h-24 object-cover"
               />
               <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent px-2 py-1.5">
