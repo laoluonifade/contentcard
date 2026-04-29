@@ -4,12 +4,12 @@ import { resolve } from 'node:path'
 const SITE_URL = (process.env.VITE_SITE_URL || 'https://www.contentcard.co').replace(/\/+$/, '')
 const OUTPUT_PATH = resolve(process.cwd(), 'public/sitemap.xml')
 
-// `/` is the app entry (redirects into the dashboard) so it's intentionally
-// not the SEO root. The marketing landing page lives at /about, which is what
-// Google should treat as the brand-facing canonical.
+// `/` is the brand-facing marketing landing page again. Dashboard routes remain
+// excluded from the sitemap because they are app/workspace surfaces.
 const TODAY = new Date().toISOString().slice(0, 10)
 
 const routes = [
+  { path: '/',                     changefreq: 'weekly',  priority: '1.0' },
   { path: '/features',             changefreq: 'weekly',  priority: '0.9' },
   { path: '/pricing',              changefreq: 'weekly',  priority: '0.9' },
   { path: '/enterprise',           changefreq: 'weekly',  priority: '0.8' },
