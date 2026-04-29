@@ -45,7 +45,7 @@ export default function DashboardLayout() {
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
           fetchTrends, createWorkspace,
-          brands, activeBrandId }        = useAppStore()
+          brands, activeBrandId, brandsLoaded } = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -275,7 +275,16 @@ export default function DashboardLayout() {
         </div>
 
         <div className="flex-1 overflow-y-auto pb-20 lg:pb-0">
-          <Outlet />
+          {brandsLoaded ? (
+            <Outlet />
+          ) : (
+            <div className="flex items-center justify-center py-32">
+              <div className="text-center">
+                <div className="mx-auto h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+                <p className="mt-3 text-sm text-ink/55">Loading your workspace…</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Mobile bottom nav */}
