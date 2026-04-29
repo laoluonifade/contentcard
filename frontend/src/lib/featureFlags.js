@@ -27,7 +27,6 @@ const DEFAULTS = {
   'ai.variants': true,
   'ai.brand_fit': true,
   'ai.why_panel': true,
-  'brand_kit.two_mode': true,
   'brand_kit.score': true,
   // Wave 4
   'analytics.page': true,

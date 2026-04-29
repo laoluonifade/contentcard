@@ -9,34 +9,18 @@ import clsx from 'clsx'
 import { normalizeHex } from '../lib/brandVisualValidate'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 import BrandHealthScore from '../components/brand/BrandHealthScore'
-import BrandModeToggle, { getBrandKitMode } from '../components/brand/BrandModeToggle'
 import { useFeatureFlag } from '../lib/featureFlags'
-
-function BrandKitModeAndScore({ brand, onJumpToTab }) {
-  const scoreEnabled = useFeatureFlag('brand_kit.score')
-  const modeEnabled = useFeatureFlag('brand_kit.two_mode')
-  const [mode, setMode] = useState(getBrandKitMode())
-  return (
-    <div className="flex items-center gap-3">
-      {modeEnabled && <BrandModeToggle value={mode} onChange={setMode} />}
-      {scoreEnabled && <BrandHealthScore brand={brand} onTabSelect={onJumpToTab} />}
-    </div>
-  )
-}
 import LogoCropModal from '../components/brand/LogoCropModal'
 import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 import { getMissingFields } from '../utils/brandReadiness'
 
-const TABS = ['Basics', 'Audience', 'Messaging', 'Visual', 'Proof', 'Rules']
+const TABS = ['Business', 'Audience', 'Voice', 'Visuals', 'Products & Proof']
 
-const VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
-const CAMPAIGN_ART_STYLE_PROFILES = [
-  { id: 'balanced_social_ad', label: 'Balanced social ad (recommended)' },
-  { id: 'bold_illustration_offer', label: 'Bold illustration + offer-first' },
-  { id: 'minimal_premium_editorial', label: 'Minimal premium editorial' },
-  { id: 'product_cutout_collage', label: 'Product cutout collage' },
-]
+// Engine-facing defaults — kept here so saved brand kits stay valid for generation,
+// but no longer surfaced in the small-business UI.
+const DEFAULT_VISUAL_ARCHETYPES = ['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic']
+const DEFAULT_CAMPAIGN_ART_STYLE = 'balanced_social_ad'
 
 const inpCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 const taCls  = `${inpCls} resize-none`
@@ -81,7 +65,7 @@ function mergeVisualSystem(kit, brandColors, brandFont) {
     logo_min_width_px: cur.logo_min_width_px ?? 80,
     allowed_archetypes: Array.isArray(cur.allowed_archetypes) && cur.allowed_archetypes.length
       ? cur.allowed_archetypes
-      : [...VISUAL_ARCHETYPES],
+      : [...DEFAULT_VISUAL_ARCHETYPES],
     never_show_motifs: Array.isArray(cur.never_show_motifs) ? cur.never_show_motifs : [],
     reference_urls: Array.isArray(cur.reference_urls) ? cur.reference_urls : [],
     reference_rights_attested: !!cur.reference_rights_attested,
@@ -97,21 +81,14 @@ function mergeVisualSystem(kit, brandColors, brandFont) {
     )
       ? String(cur.default_visual_type || 'auto').toLowerCase()
       : 'auto',
-    campaign_art_style_profile: CAMPAIGN_ART_STYLE_PROFILES.some((x) => x.id === String(cur.campaign_art_style_profile || ''))
-      ? String(cur.campaign_art_style_profile)
-      : 'balanced_social_ad',
+    campaign_art_style_profile: cur.campaign_art_style_profile || DEFAULT_CAMPAIGN_ART_STYLE,
   }
-  const merged = {
+  return {
     ...def,
     ...cur,
     allowed_archetypes: cur.allowed_archetypes?.length ? cur.allowed_archetypes : def.allowed_archetypes,
+    campaign_art_style_profile: cur.campaign_art_style_profile || DEFAULT_CAMPAIGN_ART_STYLE,
   }
-  const ips = String(merged.image_people_style || 'real_people').toLowerCase()
-  merged.image_people_style = ['real_people', 'illustration', 'cartoon', 'mixed'].includes(ips) ? ips : 'real_people'
-  if (!CAMPAIGN_ART_STYLE_PROFILES.some((x) => x.id === String(merged.campaign_art_style_profile || ''))) {
-    merged.campaign_art_style_profile = 'balanced_social_ad'
-  }
-  return merged
 }
 
 const LANGUAGE_OPTIONS_BY_COUNTRY = {
@@ -142,14 +119,6 @@ const LANGUAGE_OPTIONS_BY_COUNTRY = {
   PK: [['english','English'],['urdu','Urdu'],['mix','Mix']],
 }
 const DEFAULT_LANG_OPTIONS = [['english','English']]
-
-const COMPLIANCE_PRESETS = {
-  finance:     { disclaimer: true, no_guarantees: true, regulatory_body: 'FCA / SEC', requires_disclosure: true },
-  health:      { disclaimer: true, no_medical_claims: true, regulatory_body: 'FDA / NAFDAC', requires_disclosure: false },
-  alcohol:     { age_gate: true, responsible_messaging: true, no_minors: true, regulatory_body: 'NAFDAC / TTB', requires_disclosure: false },
-  crypto:      { not_financial_advice: true, high_risk_warning: true, regulatory_body: 'SEC', requires_disclosure: true },
-  real_estate: { fair_housing: true, licensed_disclosure: true, regulatory_body: 'NAR / CREB', requires_disclosure: true },
-}
 
 // ── Scoring engine ─────────────────────────────────────────────────────────────
 
@@ -250,15 +219,6 @@ function computeScores(form) {
       if (vs.neutral_hex != null && String(vs.neutral_hex).trim() !== '' && !normalizeHex(String(vs.neutral_hex))) {
         return s('poor', 'Invalid neutral hex: use #RRGGBB or leave blank for default.')
       }
-      for (const h of vs.forbidden_hexes || []) {
-        if (String(h).trim() && !normalizeHex(String(h))) {
-          return s('fair', 'One or more forbidden hex colours are invalid: fix or remove the bad line.')
-        }
-      }
-      const refs = vs.reference_urls || []
-      if (refs.length > 0 && !vs.reference_rights_attested) {
-        return s('fair', 'Reference URLs need the rights confirmation checked (or remove the URLs) before generating.')
-      }
       return s('excellent', 'Visual tokens are valid for generation.')
     },
   }
@@ -347,6 +307,12 @@ function ColorSwatch({ color, onRemove, onEdit }) {
   )
 }
 
+function BrandKitScore({ brand, onJumpToTab }) {
+  const scoreEnabled = useFeatureFlag('brand_kit.score')
+  if (!scoreEnabled) return null
+  return <BrandHealthScore brand={brand} onTabSelect={onJumpToTab} />
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function BrandKitPage() {
   const navigate = useNavigate()
@@ -358,7 +324,7 @@ export default function BrandKitPage() {
 
   const langOptions = LANGUAGE_OPTIONS_BY_COUNTRY[countryCode] || DEFAULT_LANG_OPTIONS
 
-  const [tab, setTab]       = useState('Basics')
+  const [tab, setTab]       = useState('Business')
   const [saving, setSaving] = useState(false)
   const [saveState, setSaveState] = useState('idle')
   const [logoUploading, setLogoUploading] = useState(false)
@@ -370,10 +336,7 @@ export default function BrandKitPage() {
   const [newWord, setNewWord]     = useState('')
   const [newColorHex, setNewColorHex] = useState('#6C63FF')
   const [form, setForm]     = useState({})
-  const [websiteStatus, setWebsiteStatus] = useState(null)
-  const [websiteOps, setWebsiteOps] = useState([])
   const [products, setProducts] = useState([])
-  const [productStateFilter, setProductStateFilter] = useState('all')
   const [manualProductForm, setManualProductForm] = useState({
     title: '',
     image_url: '',
@@ -385,10 +348,7 @@ export default function BrandKitPage() {
     tags: '',
     summary: '',
   })
-  const [screenshotStatus, setScreenshotStatus] = useState(null)
-  const [referenceStatus, setReferenceStatus] = useState(null)
   const [websiteSyncing, setWebsiteSyncing] = useState(false)
-  const [referenceSyncing, setReferenceSyncing] = useState(false)
   const [productsLoading, setProductsLoading] = useState(false)
   const [websiteReviews, setWebsiteReviews] = useState([])
   const [reviewsLoading, setReviewsLoading] = useState(false)
@@ -402,9 +362,6 @@ export default function BrandKitPage() {
   })
   const [manualProductSaving, setManualProductSaving] = useState(false)
   const [manualProductRemovingId, setManualProductRemovingId] = useState('')
-  const [authCaptureSaving, setAuthCaptureSaving] = useState(false)
-  const [authCaptureRunning, setAuthCaptureRunning] = useState(false)
-  const [websiteLoading, setWebsiteLoading] = useState(false)
   const logoFileRef = useRef(null)
   const brandImagesFileRef = useRef(null)
   const reviewPhotoFileRef = useRef(null)
@@ -418,22 +375,6 @@ export default function BrandKitPage() {
     if (!brand) return
     const kit = { ...(brand.brand_kit || {}) }
     kit.visual_system = mergeVisualSystem(kit, brand.brand_colors || [], brand.brand_font)
-    kit.website_intelligence = {
-      enabled: true,
-      default_sync_cadence: 'weekly',
-      ...(kit.website_intelligence || {}),
-    }
-    kit.website_intelligence.auth_capture = {
-      enabled: false,
-      tier: 'enterprise',
-      test_user_email: '',
-      allowed_domains: [],
-      allowed_routes: [],
-      capture_schedule: 'manual',
-      session_ttl_minutes: 30,
-      pii_block_mode: 'strict',
-      ...(kit.website_intelligence.auth_capture || {}),
-    }
     kit.reviews = Array.isArray(kit.reviews) ? kit.reviews : []
     const hydratedForm = { ...brand, brand_kit: kit, compliance_rules: brand.compliance_rules || {} }
     setForm(hydratedForm)
@@ -453,47 +394,27 @@ export default function BrandKitPage() {
   useEffect(() => {
     if (!activeBrandId || !activeWorkspaceId) return
     let cancelled = false
-    const loadWebsiteIntel = async () => {
-      setWebsiteLoading(true)
+    const loadIntel = async () => {
       try {
-        const [status, opportunities, screenshots, refStatus, productRows, reviewRows] = await Promise.all([
-          brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
-          brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
-          brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId),
-          brandApi.referenceStatus(activeWorkspaceId, activeBrandId).catch(() => null),
+        const [productRows, reviewRows] = await Promise.all([
           brandApi.websiteProducts(activeWorkspaceId, activeBrandId, { limit: 120, state: 'all' }).catch(() => []),
           brandApi.websiteEntities(activeWorkspaceId, activeBrandId, { limit: 120, entity_type: 'review' }).catch(() => []),
         ])
         if (cancelled) return
-        setWebsiteStatus(status)
-        setWebsiteOps(opportunities || [])
-        setScreenshotStatus(screenshots || null)
-        setReferenceStatus(refStatus || null)
         setProducts(Array.isArray(productRows) ? productRows : [])
         setWebsiteReviews(Array.isArray(reviewRows) ? reviewRows : [])
       } catch {
         if (!cancelled) {
-          setWebsiteStatus(null)
-          setWebsiteOps([])
-          setScreenshotStatus(null)
-          setReferenceStatus(null)
           setProducts([])
           setWebsiteReviews([])
         }
-      } finally {
-        if (!cancelled) setWebsiteLoading(false)
       }
     }
-    loadWebsiteIntel()
+    loadIntel()
     return () => {
       cancelled = true
     }
   }, [activeBrandId, activeWorkspaceId])
-
-  useEffect(() => {
-    if (!activeBrandId || !activeWorkspaceId) return
-    loadProducts(productStateFilter)
-  }, [productStateFilter, activeBrandId, activeWorkspaceId])
 
   const set = (key, val) => setForm(f => ({ ...f, [key]: val }))
 
@@ -514,28 +435,11 @@ export default function BrandKitPage() {
     set('brand_colors', updated)
   }
 
-  const setCompliance = (key, val) => set('compliance_rules', { ...(form.compliance_rules || {}), [key]: val })
-
   const vs = () => ({ ...((form.brand_kit || {}).visual_system || {}) })
   const setVs = (patch) => {
     const kit = { ...(form.brand_kit || {}) }
     kit.visual_system = { ...vs(), ...patch }
     setForm((f) => ({ ...f, brand_kit: kit }))
-  }
-
-  const toggleArchetype = (id) => {
-    const cur = vs().allowed_archetypes || [...VISUAL_ARCHETYPES]
-    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]
-    if (next.length === 0) {
-      toast('Keep at least one layout archetype — your brand needs one to generate posts.', 'error')
-      return
-    }
-    setVs({ allowed_archetypes: next })
-  }
-
-  const applyCompliancePreset = (preset) => {
-    set('compliance_rules', { ...(form.compliance_rules || {}), ...COMPLIANCE_PRESETS[preset] })
-    toast(`${preset.charAt(0).toUpperCase() + preset.slice(1)} compliance preset applied`)
   }
 
   const persistBrandForm = async (nextForm, { notify = false } = {}) => {
@@ -590,17 +494,6 @@ export default function BrandKitPage() {
     }
   }, [form, activeBrandId, activeWorkspaceId, isAuthenticated])
 
-  const setWebsiteCfg = (patch) => {
-    const kit = { ...(form.brand_kit || {}) }
-    kit.website_intelligence = {
-      enabled: true,
-      default_sync_cadence: 'weekly',
-      ...(kit.website_intelligence || {}),
-      ...patch,
-    }
-    setForm((f) => ({ ...f, brand_kit: kit }))
-  }
-
   const isEcommerceBrand = useMemo(() => {
     const industry = String(form.industry || '').toLowerCase()
     const website = String(form.website || '').toLowerCase()
@@ -614,11 +507,11 @@ export default function BrandKitPage() {
     )
   }, [form.industry, form.website, products.length])
 
-  const loadProducts = async (state = productStateFilter) => {
+  const loadProducts = async () => {
     if (!activeWorkspaceId || !activeBrandId) return
     setProductsLoading(true)
     try {
-      const rows = await brandApi.websiteProducts(activeWorkspaceId, activeBrandId, { limit: 120, state })
+      const rows = await brandApi.websiteProducts(activeWorkspaceId, activeBrandId, { limit: 120, state: 'all' })
       setProducts(Array.isArray(rows) ? rows : [])
     } catch {
       setProducts([])
@@ -667,7 +560,7 @@ export default function BrandKitPage() {
       customer_image_url: '',
       source_url: '',
     })
-    toast('Review saved.')
+    toast('Customer proof saved.')
   }
 
   const removeReviewAt = (idx) => {
@@ -697,12 +590,12 @@ export default function BrandKitPage() {
     }
     const current = Array.isArray(form.brand_kit?.reviews) ? [...form.brand_kit.reviews] : []
     if (current.some((r) => String(r.quote || '').trim().toLowerCase() === payload.quote.trim().toLowerCase())) {
-      toast('Already saved this review.')
+      toast('Already saved this proof.')
       return
     }
     current.unshift(payload)
     set('brand_kit', { ...(form.brand_kit || {}), reviews: current.slice(0, 60) })
-    toast('Review imported.')
+    toast('Customer proof imported.')
   }
 
   const createManualProduct = async () => {
@@ -747,7 +640,7 @@ export default function BrandKitPage() {
         summary: '',
       })
       toast('Product saved.')
-      await loadProducts(productStateFilter)
+      await loadProducts()
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to add product', 'error')
     } finally {
@@ -761,7 +654,7 @@ export default function BrandKitPage() {
     try {
       await brandApi.deleteWebsiteProduct(activeWorkspaceId, activeBrandId, productId)
       toast('Product removed.')
-      await loadProducts(productStateFilter)
+      await loadProducts()
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Failed to remove product', 'error')
     } finally {
@@ -769,113 +662,18 @@ export default function BrandKitPage() {
     }
   }
 
-  const runWebsiteSync = async () => {
+  const refreshFromWebsite = async () => {
     if (!activeWorkspaceId || !activeBrandId) return
     setWebsiteSyncing(true)
     try {
-      const res = await brandApi.syncWebsite(activeWorkspaceId, activeBrandId, { force: true })
-      toast(`Website sync complete: ${res.entity_count || 0} entities, ${res.opportunity_count || 0} opportunities`)
-      const [status, opportunities] = await Promise.all([
-        brandApi.websiteStatus(activeWorkspaceId, activeBrandId),
-        brandApi.websiteOpportunities(activeWorkspaceId, activeBrandId, { limit: 20 }),
-      ])
-      setWebsiteStatus(status)
-      setWebsiteOps(opportunities || [])
-      await loadProducts(productStateFilter)
+      await brandApi.syncWebsite(activeWorkspaceId, activeBrandId, { force: true })
+      await loadProducts()
       await loadWebsiteReviews()
-      try {
-        const screenshots = await brandApi.screenshotAssetStatus(activeWorkspaceId, activeBrandId)
-        setScreenshotStatus(screenshots || null)
-      } catch {}
+      toast('Website refreshed.')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Website sync failed', 'error')
+      toast(err.response?.data?.detail || err.message || 'Refresh failed', 'error')
     } finally {
       setWebsiteSyncing(false)
-    }
-  }
-
-  const updateOpportunityStatus = async (id, status) => {
-    if (!activeWorkspaceId || !activeBrandId) return
-    try {
-      await brandApi.updateWebsiteOpportunity(activeWorkspaceId, activeBrandId, id, status)
-      setWebsiteOps((prev) => prev.map((op) => (op.id === id ? { ...op, status } : op)))
-    } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Failed to update opportunity', 'error')
-    }
-  }
-
-  const runReferenceSync = async () => {
-    if (!activeWorkspaceId || !activeBrandId) return
-    setReferenceSyncing(true)
-    try {
-      const res = await brandApi.syncReferences(activeWorkspaceId, activeBrandId, { force: true })
-      toast(`Reference sync: ${res.fetched_count || 0} sources, confidence ${Math.round((res.style_confidence || 0) * 100)}%`)
-      const st = await brandApi.referenceStatus(activeWorkspaceId, activeBrandId).catch(() => null)
-      setReferenceStatus(st || null)
-    } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Reference sync failed', 'error')
-    } finally {
-      setReferenceSyncing(false)
-    }
-  }
-
-  const authCaptureCfg = form.brand_kit?.website_intelligence?.auth_capture || {}
-  const setAuthCaptureCfg = (patch) => {
-    const kit = { ...(form.brand_kit || {}) }
-    const wi = {
-      enabled: true,
-      default_sync_cadence: 'weekly',
-      ...(kit.website_intelligence || {}),
-    }
-    wi.auth_capture = {
-      enabled: false,
-      tier: 'enterprise',
-      test_user_email: '',
-      allowed_domains: [],
-      allowed_routes: [],
-      capture_schedule: 'manual',
-      session_ttl_minutes: 30,
-      pii_block_mode: 'strict',
-      ...(wi.auth_capture || {}),
-      ...patch,
-    }
-    kit.website_intelligence = wi
-    setForm((f) => ({ ...f, brand_kit: kit }))
-  }
-
-  const saveAuthCaptureConfig = async () => {
-    if (!activeWorkspaceId || !activeBrandId) return
-    setAuthCaptureSaving(true)
-    try {
-      const payload = {
-        enabled: !!authCaptureCfg.enabled,
-        tier: authCaptureCfg.tier || 'enterprise',
-        test_user_email: authCaptureCfg.test_user_email || null,
-        allowed_domains: Array.isArray(authCaptureCfg.allowed_domains) ? authCaptureCfg.allowed_domains : [],
-        allowed_routes: Array.isArray(authCaptureCfg.allowed_routes) ? authCaptureCfg.allowed_routes : [],
-        capture_schedule: authCaptureCfg.capture_schedule || 'manual',
-        session_ttl_minutes: Number(authCaptureCfg.session_ttl_minutes || 30),
-        pii_block_mode: authCaptureCfg.pii_block_mode || 'strict',
-      }
-      await brandApi.configureAuthCapture(activeWorkspaceId, activeBrandId, payload)
-      toast('Auth capture rules saved.')
-    } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Failed to save auth capture config', 'error')
-    } finally {
-      setAuthCaptureSaving(false)
-    }
-  }
-
-  const runAuthCaptureNow = async () => {
-    if (!activeWorkspaceId || !activeBrandId) return
-    setAuthCaptureRunning(true)
-    try {
-      await brandApi.runAuthCapture(activeWorkspaceId, activeBrandId, { reason: 'manual QA capture' })
-      toast("Auth capture started — we'll let you know when it's done.")
-    } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Failed to queue auth capture', 'error')
-    } finally {
-      setAuthCaptureRunning(false)
     }
   }
 
@@ -959,9 +757,9 @@ export default function BrandKitPage() {
       useAppStore.setState((s) => ({
         brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, brand_photos: latestPhotos } : b)),
       }))
-      toast(uploaded === 1 ? 'Brand image uploaded.' : `${uploaded} brand images uploaded.`)
+      toast(uploaded === 1 ? 'Photo uploaded.' : `${uploaded} photos uploaded.`)
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Brand image upload failed', 'error')
+      toast(err.response?.data?.detail || err.message || 'Photo upload failed', 'error')
     } finally {
       setBrandImagesUploading(false)
     }
@@ -989,7 +787,7 @@ export default function BrandKitPage() {
       }))
       toast('Customer photo saved.')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Review photo upload failed', 'error')
+      toast(err.response?.data?.detail || err.message || 'Photo upload failed', 'error')
     } finally {
       setReviewPhotoUploading(false)
     }
@@ -1004,9 +802,9 @@ export default function BrandKitPage() {
       useAppStore.setState((s) => ({
         brands: s.brands.map((b) => (b.id === activeBrandId ? { ...b, brand_photos: latestPhotos } : b)),
       }))
-      toast('Brand image removed.')
+      toast('Photo removed.')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || 'Failed to remove brand image', 'error')
+      toast(err.response?.data?.detail || err.message || 'Failed to remove photo', 'error')
     }
   }
 
@@ -1018,7 +816,7 @@ export default function BrandKitPage() {
     return (
       <div className="p-6 lg:p-8 max-w-5xl mx-auto">
         <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
-        <p className="text-ink/40 text-sm mb-8">Your brand profile shapes every generated design and caption.</p>
+        <p className="text-ink/40 text-sm mb-8">Tell us about your business once. We'll handle the rest.</p>
         <div className="bg-surface border border-dashed border-fog rounded-2xl p-12 text-center">
           <h2 className="text-ink font-bold text-lg mb-2">No brand yet</h2>
           <p className="text-ink/40 text-sm mb-6 max-w-sm mx-auto">
@@ -1050,7 +848,7 @@ export default function BrandKitPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
-          <BrandKitModeAndScore brand={brand} onJumpToTab={(t) => setTab(t)} />
+          <BrandKitScore brand={brand} onJumpToTab={(t) => setTab(t)} />
           <button onClick={save} disabled={saving}
             className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-bold rounded-xl transition-colors flex-shrink-0">
             <Check size={14} />{saving ? 'Saving…' : 'Save changes'}
@@ -1108,10 +906,10 @@ export default function BrandKitPage() {
 
         <div className="space-y-4">
 
-          {/* ── BASICS ── */}
-          {tab === 'Basics' && (
+          {/* ── BUSINESS ── */}
+          {tab === 'Business' && (
             <div className={cardCls}>
-              <h3 className={`${sectionTitleCls} mb-5`}>Business basics</h3>
+              <h3 className={`${sectionTitleCls} mb-5`}>Tell us about your business</h3>
               <div className="grid grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className={`${labelCls} mb-2`}>Brand name</label>
@@ -1194,572 +992,13 @@ export default function BrandKitPage() {
                   </div>
                 ))}
               </div>
-              <div className="mt-6 rounded-xl border border-fog bg-mist/40 p-4 space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-wider text-ink/45">Website intelligence</p>
-                    <p className="text-xs text-ink/45 mt-1">
-                      Sync your website and queue new product opportunities for approval before generation.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={runWebsiteSync}
-                    disabled={websiteSyncing || websiteLoading || !form.website}
-                    className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
-                  >
-                    {websiteSyncing ? 'Syncing…' : 'Sync now'}
-                  </button>
-                </div>
-                <div className="grid sm:grid-cols-3 gap-3">
-                  <label className="space-y-1">
-                    <span className={labelCls}>Enabled</span>
-                    <select
-                      className={inpCls}
-                      value={(form.brand_kit?.website_intelligence?.enabled ?? true) ? 'yes' : 'no'}
-                      onChange={(e) => setWebsiteCfg({ enabled: e.target.value === 'yes' })}
-                    >
-                      <option value="yes">Yes</option>
-                      <option value="no">No</option>
-                    </select>
-                  </label>
-                  <label className="space-y-1">
-                    <span className={labelCls}>Default sync cadence</span>
-                    <select
-                      className={inpCls}
-                      value={form.brand_kit?.website_intelligence?.default_sync_cadence || 'weekly'}
-                      onChange={(e) => setWebsiteCfg({ default_sync_cadence: e.target.value })}
-                    >
-                      <option value="weekly">Weekly</option>
-                    </select>
-                  </label>
-                  <div className="space-y-1">
-                    <span className={labelCls}>Status</span>
-                    <div className="h-[46px] px-3 rounded-xl border border-fog bg-surface text-xs flex items-center text-ink/70">
-                      {websiteStatus?.last_status || (websiteLoading ? 'Loading…' : 'Not synced')}
-                    </div>
-                  </div>
-                </div>
-                <div className="grid sm:grid-cols-3 gap-3 text-xs">
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                    Entities: <span className="font-semibold text-ink">{websiteStatus?.active_entities ?? 0}</span>
-                  </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                    Pending approval: <span className="font-semibold text-ink">{websiteStatus?.pending_approval_count ?? 0}</span>
-                  </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                    Last crawl: <span className="font-semibold text-ink">{websiteStatus?.last_crawled_at ? new Date(websiteStatus.last_crawled_at).toLocaleString() : '—'}</span>
-                  </div>
-                </div>
-                <div className="grid sm:grid-cols-3 gap-3 text-xs">
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                    Sync health: <span className="font-semibold text-ink">{websiteStatus?.sync_health || 'unknown'}</span>
-                  </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                    Last latency: <span className="font-semibold text-ink">{websiteStatus?.last_sync_latency_ms ?? 0}ms</span>
-                  </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                    Recent errors: <span className="font-semibold text-ink">{websiteStatus?.recent_error_count ?? 0}</span>
-                  </div>
-                </div>
-                <div className="grid sm:grid-cols-3 gap-3 text-xs">
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                    Verified UI assets: <span className="font-semibold text-ink">{screenshotStatus?.verified_ui_asset_count ?? 0}</span>
-                  </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                    Public UI assets: <span className="font-semibold text-ink">{screenshotStatus?.public_ui_asset_count ?? 0}</span>
-                  </div>
-                  <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                    Synthetic fallback: <span className="font-semibold text-ink">{screenshotStatus?.synthetic_ui_visual_count ?? 0}</span>
-                  </div>
-                </div>
-                <div className="pt-2 border-t border-fog space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[11px] font-semibold text-ink/55">Reference research + style fingerprint</p>
-                    <button
-                      type="button"
-                      onClick={runReferenceSync}
-                      disabled={referenceSyncing || !form.website}
-                      className="px-3 py-1.5 rounded-lg border border-fog bg-surface text-[11px] font-semibold text-ink/75 disabled:opacity-50"
-                    >
-                      {referenceSyncing ? 'Syncing…' : 'Sync references'}
-                    </button>
-                  </div>
-                  <div className="grid sm:grid-cols-3 gap-3 text-xs">
-                    <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                      Last ref sync: <span className="font-semibold text-ink">{referenceStatus?.last_synced_at ? new Date(referenceStatus.last_synced_at).toLocaleString() : '—'}</span>
-                    </div>
-                    <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                      Ref sources: <span className="font-semibold text-ink">{referenceStatus?.source_count ?? 0}</span>
-                    </div>
-                    <div className="px-3 py-2 rounded-lg border border-fog bg-surface text-ink/70">
-                      Style confidence: <span className="font-semibold text-ink">{Math.round((referenceStatus?.style_confidence || 0) * 100)}%</span>
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[11px] font-semibold text-ink/55 mb-2">Pending opportunities</p>
-                  <div className="space-y-2 max-h-60 overflow-auto pr-1">
-                    {websiteOps.filter((op) => op.status === 'pending_approval').length === 0 && (
-                      <p className="text-xs text-ink/40">No pending opportunities. Run sync after updating your website/products.</p>
-                    )}
-                    {websiteOps
-                      .filter((op) => op.status === 'pending_approval')
-                      .map((op) => (
-                        <div key={op.id} className="rounded-lg border border-fog bg-surface p-3">
-                          <p className="text-xs font-semibold text-ink">{op.title}</p>
-                          <p className="text-[11px] text-ink/45 mt-1">{op.trigger_type}</p>
-                          <div className="flex items-center gap-2 mt-2">
-                            <button
-                              type="button"
-                              onClick={() => updateOpportunityStatus(op.id, 'approved')}
-                              className="px-2.5 py-1 rounded-md bg-brand-500 text-white text-[11px] font-semibold"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => updateOpportunityStatus(op.id, 'dismissed')}
-                              className="px-2.5 py-1 rounded-md border border-fog text-[11px] font-semibold text-ink/70"
-                            >
-                              Dismiss
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                </div>
-                <div className="pt-2 border-t border-fog space-y-3">
-                  <div>
-                    <p className="text-[11px] font-semibold text-ink/55 mb-1">Auth capture governance (opt-in)</p>
-                    <p className="text-[11px] text-ink/40">For login-gated SaaS screenshots. Use read-only test users and strict allowlists.</p>
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <span className={labelCls}>Enabled</span>
-                      <select className={inpCls} value={authCaptureCfg.enabled ? 'yes' : 'no'} onChange={(e) => setAuthCaptureCfg({ enabled: e.target.value === 'yes' })}>
-                        <option value="no">No</option>
-                        <option value="yes">Yes</option>
-                      </select>
-                    </label>
-                    <label className="space-y-1">
-                      <span className={labelCls}>Tier</span>
-                      <select className={inpCls} value={authCaptureCfg.tier || 'enterprise'} onChange={(e) => setAuthCaptureCfg({ tier: e.target.value })}>
-                        <option value="enterprise">enterprise</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    <label className="space-y-1">
-                      <span className={labelCls}>Test user email</span>
-                      <input className={inpCls} value={authCaptureCfg.test_user_email || ''} onChange={(e) => setAuthCaptureCfg({ test_user_email: e.target.value })} placeholder="qa-readonly@yourdomain.com" />
-                    </label>
-                    <label className="space-y-1">
-                      <span className={labelCls}>Session TTL (minutes)</span>
-                      <input className={inpCls} type="number" min={5} max={180} value={authCaptureCfg.session_ttl_minutes || 30} onChange={(e) => setAuthCaptureCfg({ session_ttl_minutes: e.target.value })} />
-                    </label>
-                  </div>
-                  <label className="space-y-1 block">
-                    <span className={labelCls}>Allowed domains (one per line)</span>
-                    <textarea className={taCls} rows={2} value={(authCaptureCfg.allowed_domains || []).join('\n')} onChange={(e) => setAuthCaptureCfg({ allowed_domains: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) })} />
-                  </label>
-                  <label className="space-y-1 block">
-                    <span className={labelCls}>Allowed routes (one per line)</span>
-                    <textarea className={taCls} rows={2} value={(authCaptureCfg.allowed_routes || []).join('\n')} onChange={(e) => setAuthCaptureCfg({ allowed_routes: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) })} />
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <button type="button" onClick={saveAuthCaptureConfig} disabled={authCaptureSaving} className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold disabled:opacity-60">
-                      {authCaptureSaving ? 'Saving…' : 'Save auth capture config'}
-                    </button>
-                    <button type="button" onClick={runAuthCaptureNow} disabled={authCaptureRunning} className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink/80 disabled:opacity-60">
-                      {authCaptureRunning ? 'Queueing…' : 'Run auth capture now'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {tab === 'Proof' && (
-            <div className={cardCls}>
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div>
-                  <h3 className={sectionTitleCls}>Products</h3>
-                  <p className="text-ink/40 text-xs mt-1">
-                    Synced from your website/store and reused for product-led content generation.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={runWebsiteSync}
-                  disabled={websiteSyncing || !form.website}
-                  className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
-                >
-                  {websiteSyncing ? 'Refreshing…' : 'Refresh products'}
-                </button>
-              </div>
-
-              <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
-                <p className="text-sm font-semibold text-ink">Add product manually</p>
-                <p className="text-xs text-ink/45 mt-1 mb-3">
-                  Add products directly when website sync misses items.
-                </p>
-                <div className="grid md:grid-cols-2 gap-3">
-                  <input
-                    className={inpCls}
-                    placeholder="Product name"
-                    value={manualProductForm.title}
-                    onChange={(e) => setManualProductForm((f) => ({ ...f, title: e.target.value }))}
-                  />
-                  <input
-                    className={inpCls}
-                    placeholder="Image URL"
-                    value={manualProductForm.image_url}
-                    onChange={(e) => setManualProductForm((f) => ({ ...f, image_url: e.target.value }))}
-                  />
-                  <input
-                    className={inpCls}
-                    placeholder="Product page URL (optional)"
-                    value={manualProductForm.source_url}
-                    onChange={(e) => setManualProductForm((f) => ({ ...f, source_url: e.target.value }))}
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      className={inpCls}
-                      placeholder="Price"
-                      value={manualProductForm.price}
-                      onChange={(e) => setManualProductForm((f) => ({ ...f, price: e.target.value }))}
-                    />
-                    <input
-                      className={inpCls}
-                      placeholder="Currency"
-                      value={manualProductForm.currency}
-                      onChange={(e) => setManualProductForm((f) => ({ ...f, currency: e.target.value }))}
-                    />
-                  </div>
-                  <input
-                    className={inpCls}
-                    placeholder="Type (e.g. Burger)"
-                    value={manualProductForm.product_type}
-                    onChange={(e) => setManualProductForm((f) => ({ ...f, product_type: e.target.value }))}
-                  />
-                  <input
-                    className={inpCls}
-                    placeholder="Tags (comma separated)"
-                    value={manualProductForm.tags}
-                    onChange={(e) => setManualProductForm((f) => ({ ...f, tags: e.target.value }))}
-                  />
-                </div>
-                <textarea
-                  className={clsx(taCls, 'mt-3')}
-                  rows={2}
-                  placeholder="Short summary (optional)"
-                  value={manualProductForm.summary}
-                  onChange={(e) => setManualProductForm((f) => ({ ...f, summary: e.target.value }))}
-                />
-                <div className="mt-3">
-                  <button
-                    type="button"
-                    onClick={createManualProduct}
-                    disabled={manualProductSaving}
-                    className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold disabled:opacity-60"
-                  >
-                    {manualProductSaving ? 'Adding…' : 'Add product'}
-                  </button>
-                </div>
-              </div>
-
-              {!isEcommerceBrand && products.length === 0 && (
-                <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
-                  <p className="text-sm font-semibold text-ink">No ecommerce signals yet</p>
-                  <p className="text-xs text-ink/45 mt-1">
-                    Set your industry to ecommerce/retail and ensure website sync is enabled. We will detect product entities and list them here.
-                  </p>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between gap-3 mb-4">
-                <div className="text-xs text-ink/50">
-                  Showing <span className="font-semibold text-ink">{products.length}</span> product{products.length === 1 ? '' : 's'}
-                </div>
-                <select
-                  className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs text-ink/70"
-                  value={productStateFilter}
-                  onChange={(e) => setProductStateFilter(e.target.value)}
-                >
-                  <option value="all">All updates</option>
-                  <option value="manual">Manual only</option>
-                  <option value="new">New only</option>
-                  <option value="updated">Updated only</option>
-                  <option value="unchanged">Unchanged</option>
-                </select>
-              </div>
-
-              {productsLoading ? (
-                <div className="py-12 text-center text-sm text-ink/45">Loading products…</div>
-              ) : products.length === 0 ? (
-                <div className="py-12 text-center text-sm text-ink/45">
-                  No products found yet. Run <span className="font-semibold text-ink/70">Refresh products</span> after updating your website.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {products.map((p) => {
-                    const statePill =
-                      p.sync_state === 'manual'
-                        ? 'bg-violet-500/10 text-violet-700 border-violet-500/20'
-                        : p.sync_state === 'new'
-                        ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20'
-                        : p.sync_state === 'updated'
-                          ? 'bg-blue-500/10 text-blue-700 border-blue-500/20'
-                          : 'bg-zinc-500/10 text-zinc-600 border-zinc-500/20'
-                    const availability = String(p.availability || '').toLowerCase()
-                    const inStock = availability.includes('in') || availability.includes('active')
-                    return (
-                      <div key={p.id} className="rounded-xl border border-fog bg-surface p-3">
-                        <div className="flex gap-3">
-                          <div className="w-16 h-16 rounded-lg border border-fog bg-mist/60 overflow-hidden flex-shrink-0">
-                            {p.image_url ? (
-                              <img src={p.image_url} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center text-[10px] text-ink/30">No image</div>
-                            )}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-semibold text-ink truncate">{p.title}</p>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statePill}`}>
-                                {p.sync_state}
-                              </span>
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${inStock ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' : 'bg-amber-500/10 text-amber-700 border-amber-500/20'}`}>
-                                {p.availability || 'availability unknown'}
-                              </span>
-                            </div>
-                            <p className="text-xs text-ink/45 mt-1">
-                              {p.summary || 'No summary available from source.'}
-                            </p>
-                            <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">
-                              {p.price && (
-                                <span className="text-ink/80 font-semibold">
-                                  {p.currency ? `${p.currency} ` : ''}{p.price}
-                                  {p.compare_at_price ? <span className="text-ink/35 ml-1 line-through">{p.compare_at_price}</span> : null}
-                                </span>
-                              )}
-                              {p.vendor ? <span className="text-ink/45">Vendor: {p.vendor}</span> : null}
-                              {p.product_type ? <span className="text-ink/45">Type: {p.product_type}</span> : null}
-                            </div>
-                            {p.source_url && (
-                              <a
-                                href={p.source_url}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="inline-block mt-2 text-[11px] font-semibold text-brand-600 hover:text-brand-700"
-                              >
-                                View product page
-                              </a>
-                            )}
-                            <div className="mt-2">
-                              <button
-                                type="button"
-                                onClick={() => removeManualProduct(p.id)}
-                                disabled={manualProductRemovingId === p.id}
-                                className="text-[11px] font-semibold text-red-600 hover:text-red-700 disabled:opacity-60"
-                              >
-                                {manualProductRemovingId === p.id ? 'Removing…' : 'Remove product'}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {tab === 'Proof' && (
-            <div className={cardCls}>
-              <div className="flex items-start justify-between gap-3 mb-4">
-                <div>
-                  <h3 className={sectionTitleCls}>Reviews</h3>
-                  <p className="text-ink/40 text-xs mt-1">
-                    Add proof from real customer feedback. AI uses this section to write stronger trust-led content.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={loadWebsiteReviews}
-                  disabled={reviewsLoading}
-                  className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
-                >
-                  {reviewsLoading ? 'Refreshing…' : 'Refresh reviews'}
-                </button>
-              </div>
-
-              <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
-                <p className="text-sm font-semibold text-ink">Add review manually</p>
-                <p className="text-xs text-ink/45 mt-1 mb-3">
-                  Add testimonials from calls, DMs, or client feedback. Include customer photo for stronger social proof.
-                </p>
-                <div className="grid md:grid-cols-2 gap-3">
-                  <input
-                    className={inpCls}
-                    placeholder="Customer name"
-                    value={manualReviewForm.customer_name}
-                    onChange={(e) => setManualReviewForm((f) => ({ ...f, customer_name: e.target.value }))}
-                  />
-                  <select
-                    className={inpCls}
-                    value={manualReviewForm.rating}
-                    onChange={(e) => setManualReviewForm((f) => ({ ...f, rating: e.target.value }))}
-                  >
-                    <option value="5">5 stars</option>
-                    <option value="4">4 stars</option>
-                    <option value="3">3 stars</option>
-                    <option value="2">2 stars</option>
-                    <option value="1">1 star</option>
-                  </select>
-                </div>
-                <textarea
-                  className={clsx(taCls, 'mt-3')}
-                  rows={3}
-                  placeholder="Customer quote"
-                  value={manualReviewForm.quote}
-                  onChange={(e) => setManualReviewForm((f) => ({ ...f, quote: e.target.value }))}
-                />
-                <div className="grid md:grid-cols-2 gap-3 mt-3">
-                  <input
-                    className={inpCls}
-                    placeholder="Customer image URL (optional)"
-                    value={manualReviewForm.customer_image_url}
-                    onChange={(e) => setManualReviewForm((f) => ({ ...f, customer_image_url: e.target.value }))}
-                  />
-                  <input
-                    className={inpCls}
-                    placeholder="Review source URL (optional)"
-                    value={manualReviewForm.source_url}
-                    onChange={(e) => setManualReviewForm((f) => ({ ...f, source_url: e.target.value }))}
-                  />
-                </div>
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    ref={reviewPhotoFileRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg,image/webp"
-                    className="sr-only"
-                    onChange={onReviewPhotoFile}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => reviewPhotoFileRef.current?.click()}
-                    disabled={reviewPhotoUploading}
-                    className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-60"
-                  >
-                    {reviewPhotoUploading ? 'Uploading…' : 'Upload customer photo'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={addManualReview}
-                    className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold"
-                  >
-                    Add review
-                  </button>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-fog bg-surface p-4 mb-4">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <p className="text-sm font-semibold text-ink">Import from website sync</p>
-                  <span className="text-xs text-ink/45">{websiteReviews.length} found</span>
-                </div>
-                {reviewsLoading ? (
-                  <div className="py-6 text-center text-sm text-ink/45">Loading reviews…</div>
-                ) : websiteReviews.length === 0 ? (
-                  <div className="text-xs text-ink/45">
-                    No website reviews found yet. Run website sync and refresh reviews.
-                  </div>
-                ) : (
-                  <div className="space-y-2 max-h-72 overflow-auto pr-1">
-                    {websiteReviews.map((r) => {
-                      const attrs = r.attributes || {}
-                      const rating = attrs.rating ? `${attrs.rating}/5` : null
-                      const reviewCount = attrs.review_count ? `${attrs.review_count} reviews` : null
-                      const quote = String(r.summary || '').trim() || String(r.title || '').trim()
-                      return (
-                        <div key={r.id} className="rounded-lg border border-fog bg-mist/40 p-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="text-xs font-semibold text-ink truncate">{r.title || 'Customer review'}</p>
-                            <button
-                              type="button"
-                              onClick={() => importWebsiteReview(r)}
-                              className="text-[11px] font-semibold text-brand-600 hover:text-brand-700"
-                            >
-                              Import
-                            </button>
-                          </div>
-                          {(rating || reviewCount) && (
-                            <p className="text-[11px] text-ink/45 mt-1">
-                              {[rating, reviewCount].filter(Boolean).join(' · ')}
-                            </p>
-                          )}
-                          {quote && <p className="text-xs text-ink/60 mt-1 line-clamp-3">{quote}</p>}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-xl border border-fog bg-surface p-4">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <p className="text-sm font-semibold text-ink">Saved in Brand Kit</p>
-                  <span className="text-xs text-ink/45">{Array.isArray(form.brand_kit?.reviews) ? form.brand_kit.reviews.length : 0} saved</span>
-                </div>
-                {!Array.isArray(form.brand_kit?.reviews) || form.brand_kit.reviews.length === 0 ? (
-                  <div className="text-xs text-ink/45">No reviews added yet.</div>
-                ) : (
-                  <div className="space-y-3">
-                    {form.brand_kit.reviews.map((rev, idx) => (
-                      <div key={rev.id || `${rev.quote}-${idx}`} className="rounded-lg border border-fog bg-mist/40 p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-3 min-w-0">
-                            {rev.customer_image_url ? (
-                              <img src={rev.customer_image_url} alt={rev.customer_name || 'customer'} className="w-10 h-10 rounded-full object-cover border border-fog flex-shrink-0" />
-                            ) : (
-                              <div className="w-10 h-10 rounded-full bg-slate-200 border border-fog flex-shrink-0" />
-                            )}
-                            <div className="min-w-0">
-                              <p className="text-xs font-semibold text-ink truncate">
-                                {rev.customer_name || 'Customer'} {rev.rating ? `· ${rev.rating}/5` : ''}
-                              </p>
-                              <p className="text-xs text-ink/65 mt-1">{rev.quote}</p>
-                              {rev.source_url ? (
-                                <a href={rev.source_url} target="_blank" rel="noreferrer" className="inline-block text-[11px] text-brand-600 hover:text-brand-700 mt-1">
-                                  Source
-                                </a>
-                              ) : null}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeReviewAt(idx)}
-                            className="text-[11px] font-semibold text-red-600 hover:text-red-700"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
             </div>
           )}
 
           {/* ── AUDIENCE ── */}
           {tab === 'Audience' && (
             <div className={cardCls}>
-              <h3 className={`${sectionTitleCls} mb-5`}>Target audience</h3>
+              <h3 className={`${sectionTitleCls} mb-5`}>Who buys from you</h3>
               <div className="mb-4">
                 <label className={`${labelCls} mb-2`}>Who are they?</label>
                 <ScoreBadge score={S.target_audience} />
@@ -1788,369 +1027,248 @@ export default function BrandKitPage() {
             </div>
           )}
 
-          {/* ── VISUAL (VBS) ── */}
-          {tab === 'Visual' && (
-            <div className={`${cardCls} space-y-5`}>
-              <div>
-                <h3 className={sectionTitleCls}>Visual brand system</h3>
-                <ScoreBadge score={S.visual_system} />
-                <p className="text-ink/40 text-xs mt-1 max-w-xl">
-                  Tokens drive generated backgrounds, logo placement, and Bannerbear accents. Set primary colours to
-                  match your real brand (not generic defaults).
-                </p>
-              </div>
-              <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
-                <div>
-                  <span className={labelCls}>Brand logo (on designs)</span>
-                  <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
-                    Raster images open a crop step; we save a {BRAND_KIT_LOGO_PX}×{BRAND_KIT_LOGO_PX} PNG for crisp compositing.
-                    SVG uploads skip cropping. Use a transparent background when possible. This logo is burned onto generated
-                    covers — it is not drawn inside the image model.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-4">
-                  <input
-                    ref={logoFileRef}
-                    type="file"
-                    accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
-                    className="sr-only"
-                    onChange={onBrandLogoFile}
-                  />
-                  {form.logo_url ? (
-                    <div className="flex items-center gap-3 rounded-lg border border-fog bg-surface p-2 pr-3">
-                      <img
-                        src={form.logo_url}
-                        alt="Brand logo preview"
-                        className="h-14 w-auto max-w-[200px] object-contain object-left"
-                      />
-                    </div>
-                  ) : (
-                    <div className="h-14 w-28 rounded-lg border border-dashed border-fog bg-surface flex items-center justify-center text-[11px] text-ink/35">
-                      No logo yet
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    disabled={logoUploading}
-                    onClick={() => logoFileRef.current?.click()}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-surface text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
-                  >
-                    <Upload size={16} />
-                    {logoUploading ? 'Uploading…' : form.logo_url ? 'Replace logo' : 'Upload logo'}
-                  </button>
-                </div>
-              </div>
-              <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
-                <div>
-                  <span className={labelCls}>Brand images (approved for AI use)</span>
-                  <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
-                    Upload product or brand photos you have rights to use. Generation can reference these as source images
-                    to keep designs aligned with your real brand.
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-4">
-                  <input
-                    ref={brandImagesFileRef}
-                    type="file"
-                    multiple
-                    accept="image/png,image/jpeg,image/jpg,image/webp"
-                    className="sr-only"
-                    onChange={onBrandImagesFiles}
-                  />
-                  <button
-                    type="button"
-                    disabled={brandImagesUploading}
-                    onClick={() => brandImagesFileRef.current?.click()}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-surface text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
-                  >
-                    <Upload size={16} />
-                    {brandImagesUploading ? 'Uploading…' : 'Upload brand images'}
-                  </button>
-                  <label className="inline-flex items-center gap-2 text-[11px] text-ink/55">
-                    <input
-                      type="checkbox"
-                      className="rounded border-fog text-brand-600 focus:ring-brand-500/40"
-                      checked={!!((form.brand_kit || {}).brand_images_rights_attested)}
-                      onChange={(e) =>
-                        set('brand_kit', {
-                          ...(form.brand_kit || {}),
-                          brand_images_rights_attested: e.target.checked,
-                        })
-                      }
-                    />
-                    I confirm I have rights to use these uploaded brand images.
-                  </label>
-                </div>
-                {(form.brand_photos || []).length > 0 ? (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {(form.brand_photos || []).map((url, idx) => (
-                      <div key={`${url}-${idx}`} className="relative rounded-lg overflow-hidden border border-fog bg-surface group">
-                        <img src={url} alt={`Brand asset ${idx + 1}`} className="w-full h-24 object-cover" />
-                        <button
-                          type="button"
-                          onClick={() => removeBrandImage(idx)}
-                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/55 text-white text-xs hidden group-hover:flex items-center justify-center"
-                          title="Remove image"
-                        >
-                          ×
+          {/* ── VOICE ── */}
+          {tab === 'Voice' && (
+            <div className="space-y-4">
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-5`}>How you sound</h3>
+                <div className="mb-5">
+                  <label className={`${labelCls} mb-2`}>Tone tags</label>
+                  <ScoreBadge score={S.tone_tags} />
+                  <div className="flex flex-wrap gap-2 mt-3">
+                    {TONE_TAGS.map(t => {
+                      const on = (form.tone_tags || []).includes(t.toLowerCase())
+                      return (
+                        <button key={t} onClick={() => toggleTone(t.toLowerCase())}
+                          className={`px-3 py-1.5 rounded-full border-2 text-xs font-semibold transition-all ${on ? 'bg-brand-500 border-brand-500 text-white' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
+                          {t}
                         </button>
-                      </div>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div className="mb-5">
+                  <label className={`${labelCls} mb-3`}>
+                    Personality: {(form.personality_score || 50) < 35 ? 'Serious & corporate' : (form.personality_score || 50) > 65 ? 'Casual & relaxed' : 'Balanced'}
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-ink/40">Serious</span>
+                    <input type="range" min="0" max="100" value={form.personality_score || 50}
+                      onChange={e => set('personality_score', Number(e.target.value))}
+                      className="flex-1 accent-brand-500" />
+                    <span className="text-xs text-ink/40">Casual</span>
+                  </div>
+                </div>
+                <div>
+                  <label className={`${labelCls} mb-2`}>Language style</label>
+                  <ScoreBadge score={S.language_style} />
+                  {!countryCode && (
+                    <p className="text-amber-400 text-xs mt-2 mb-3 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
+                      Set your country in Settings → Profile to see language options for your region.
+                    </p>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    {langOptions.map(([v,l]) => (
+                      <button key={v} onClick={() => set('language_style', v)}
+                        className={`py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${form.language_style === v ? 'border-brand-400 bg-brand-500/5 text-brand-600' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
+                        {l}
+                      </button>
                     ))}
                   </div>
-                ) : (
-                  <div className="text-[11px] text-ink/35">No brand images uploaded yet.</div>
-                )}
-              </div>
-              <div className="grid sm:grid-cols-3 gap-4">
-                <label className="space-y-1">
-                  <span className={labelCls}>Primary hex</span>
-                  <input
-                    className={inpCls}
-                    value={vs().primary_hex || ''}
-                    onChange={(e) => setVs({ primary_hex: e.target.value })}
-                    placeholder="#0033FF"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className={labelCls}>Secondary hex</span>
-                  <input
-                    className={inpCls}
-                    value={vs().secondary_hex || ''}
-                    onChange={(e) => setVs({ secondary_hex: e.target.value })}
-                    placeholder="#FF0066"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className={labelCls}>Accent hex</span>
-                  <input
-                    className={inpCls}
-                    value={vs().accent_hex || ''}
-                    onChange={(e) => setVs({ accent_hex: e.target.value })}
-                  />
-                </label>
-                <label className="space-y-1 sm:col-span-3">
-                  <span className={labelCls}>Neutral / background hex</span>
-                  <input
-                    className={inpCls}
-                    maxLength={7}
-                    value={vs().neutral_hex || ''}
-                    onChange={(e) => setVs({ neutral_hex: e.target.value })}
-                    placeholder="#f4f4f5"
-                  />
-                </label>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <label className="space-y-1">
-                  <span className={labelCls}>Heading font (slides)</span>
-                  <select
-                    className={inpCls}
-                    value={vs().heading_font || 'inter'}
-                    onChange={(e) => setVs({ heading_font: e.target.value })}
-                  >
-                    {FONTS.map((f) => (
-                      <option key={f.value} value={f.value}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className={labelCls}>Body font (slides)</span>
-                  <select
-                    className={inpCls}
-                    value={vs().body_font || 'inter'}
-                    onChange={(e) => setVs({ body_font: e.target.value })}
-                  >
-                    {FONTS.map((f) => (
-                      <option key={`b-${f.value}`} value={f.value}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <label className="space-y-1 block">
-                <span className={labelCls}>Forbidden hex colours (one per line)</span>
-                <textarea
-                  className={taCls}
-                  rows={2}
-                  value={(vs().forbidden_hexes || []).join('\n')}
-                  onChange={(e) =>
-                    setVs({
-                      forbidden_hexes: e.target.value
-                        .split('\n')
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  placeholder={'#00ff88\n#ff00ff'}
-                />
-              </label>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <label className="space-y-1 sm:col-span-2">
-                  <span className={labelCls}>People in generated images</span>
-                  <select
-                    className={inpCls}
-                    value={vs().image_people_style || 'real_people'}
-                    onChange={(e) => setVs({ image_people_style: e.target.value })}
-                  >
-                    <option value="real_people">Real people (photography)</option>
-                    <option value="illustration">Illustration / cartoon-style art</option>
-                    <option value="cartoon">Cartoon / comic illustration</option>
-                    <option value="mixed">Mix (vary by post)</option>
-                  </select>
-                  <p className="text-ink/35 text-[11px] mt-1.5">
-                    Controls how month generation and image prompts treat humans: photoreal, illustrated, or both across the month.
-                  </p>
-                </label>
-                <label className="space-y-1 sm:col-span-2">
-                  <span className={labelCls}>Human / market representation</span>
+                </div>
+                <div className="mt-5">
+                  <label className={`${labelCls} mb-2`}>Writing style</label>
                   <textarea
-                    className={taCls}
+                    value={form.brand_kit?.writing_style || ''}
+                    onChange={e => set('brand_kit', { ...(form.brand_kit || {}), writing_style: e.target.value })}
+                    rows={2}
+                    placeholder="Clear, practical, conversational, and conversion-focused."
+                    className={clsx(taCls, 'mt-2')}
+                  />
+                </div>
+                <div className="mt-5">
+                  <label className={`${labelCls} mb-2`}>Key messages</label>
+                  <textarea
+                    value={Array.isArray(form.brand_kit?.key_messages) ? form.brand_kit.key_messages.join('\n') : (form.brand_kit?.key_messages || '')}
+                    onChange={e => set('brand_kit', {
+                      ...(form.brand_kit || {}),
+                      key_messages: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean),
+                    })}
                     rows={3}
-                    value={vs().human_context || ''}
-                    onChange={(e) => setVs({ human_context: e.target.value.slice(0, 500) })}
-                    placeholder={
-                      countryCode === 'NG'
-                        ? 'Nigerian customers in Lagos, Black/African talent, local streetwear, natural hair, warm everyday settings...'
-                        : 'Local customers in your market, culturally accurate styling, everyday settings, representative people...'
-                    }
+                    placeholder={'Fast delivery\nAuthentic flavour\nReliable ordering experience'}
+                    className={clsx(taCls, 'mt-2')}
                   />
-                  <p className="text-ink/35 text-[11px] mt-1.5">
-                    Used only when humans appear, so generated images match your market instead of defaulting to unrelated stock-photo people.
-                  </p>
-                </label>
-                <label className="space-y-1 sm:col-span-2">
-                  <span className={labelCls}>Default visual type for templates</span>
-                  <select
-                    className={inpCls}
-                    value={vs().default_visual_type || 'auto'}
-                    onChange={(e) => setVs({ default_visual_type: e.target.value })}
-                  >
-                    <option value="auto">Auto (recommended)</option>
-                    <option value="real_people">Real people</option>
-                    <option value="illustration">Illustration</option>
-                    <option value="abstract">Abstract graphic</option>
-                    <option value="product">Product-led</option>
-                  </select>
-                  <p className="text-ink/35 text-[11px] mt-1.5">
-                    Templates and preview design generation start from this mode, then adapt to each template category.
-                  </p>
-                </label>
-                <label className="space-y-1 sm:col-span-2">
-                  <span className={labelCls}>Campaign art style profile</span>
-                  <select
-                    className={inpCls}
-                    value={vs().campaign_art_style_profile || 'balanced_social_ad'}
-                    onChange={(e) => setVs({ campaign_art_style_profile: e.target.value })}
-                  >
-                    {CAMPAIGN_ART_STYLE_PROFILES.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-ink/35 text-[11px] mt-1.5">
-                    Enforces a monthly design language so generated posts look like one campaign system instead of random styles.
-                  </p>
-                </label>
-                <label className="space-y-1">
-                  <span className={labelCls}>Logo placement (raster)</span>
-                  <select
-                    className={inpCls}
-                    value={vs().logo_placement || 'bottom_right'}
-                    onChange={(e) => setVs({ logo_placement: e.target.value })}
-                  >
-                    <option value="bottom_right">Bottom right</option>
-                    <option value="bottom_left">Bottom left</option>
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className={labelCls}>Logo min width (px)</span>
+                </div>
+                <div className="mt-5">
+                  <label className={`${labelCls} mb-2`}>Value proposition</label>
+                  <textarea
+                    value={form.brand_kit?.value_proposition || ''}
+                    onChange={e => set('brand_kit', { ...(form.brand_kit || {}), value_proposition: e.target.value })}
+                    rows={2}
+                    placeholder="Why customers should choose you over alternatives."
+                    className={clsx(taCls, 'mt-2')}
+                  />
+                </div>
+                <div className="mt-5">
+                  <label className={`${labelCls} mb-2`}>CTA style</label>
                   <input
-                    type="number"
-                    min={48}
-                    className={inpCls}
-                    value={vs().logo_min_width_px ?? 80}
-                    onChange={(e) => setVs({ logo_min_width_px: parseInt(e.target.value, 10) || 80 })}
+                    value={form.brand_kit?.cta_style || ''}
+                    onChange={e => set('brand_kit', { ...(form.brand_kit || {}), cta_style: e.target.value })}
+                    placeholder="Direct, warm, action-oriented"
+                    className={clsx(inpCls, 'mt-2')}
                   />
-                </label>
-              </div>
-              <div>
-                <span className={labelCls}>Allowed layout archetypes</span>
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {VISUAL_ARCHETYPES.map((id) => (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => toggleArchetype(id)}
-                      className={clsx(
-                        'text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors',
-                        (vs().allowed_archetypes || []).includes(id)
-                          ? 'border-brand-500 bg-brand-500/10 text-brand-700'
-                          : 'border-fog text-ink/40 hover:border-ink/20'
-                      )}
-                    >
-                      {id.replace(/_/g, ' ')}
-                    </button>
-                  ))}
                 </div>
               </div>
-              <label className="space-y-1 block">
-                <span className={labelCls}>Never show (one motif per line)</span>
-                <textarea
-                  className={taCls}
-                  rows={3}
-                  value={(vs().never_show_motifs || []).join('\n')}
-                  onChange={(e) =>
-                    setVs({
-                      never_show_motifs: e.target.value
-                        .split('\n')
-                        .map((s) => s.trim())
-                        .filter(Boolean),
-                    })
-                  }
-                  placeholder={'floating stock tickers\ngeneric shield + checkmark icon'}
-                />
-              </label>
-              <label className="space-y-1 block">
-                <span className={labelCls}>Reference URLs (style only, max 10)</span>
-                <textarea
-                  className={taCls}
-                  rows={2}
-                  value={(vs().reference_urls || []).join('\n')}
-                  onChange={(e) =>
-                    setVs({
-                      reference_urls: e.target.value
-                        .split('\n')
-                        .map((s) => s.trim())
-                        .filter(Boolean)
-                        .slice(0, 10),
-                    })
-                  }
-                  placeholder="https://…"
-                />
-              </label>
-              <label className="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!!vs().reference_rights_attested}
-                  onChange={(e) => setVs({ reference_rights_attested: e.target.checked })}
-                  className="mt-1"
-                />
-                <span className="text-ink/60 text-xs">
-                  I confirm I have rights to use the reference URLs for style guidance (not to copy third-party
-                  trademarks).
-                </span>
-              </label>
+
+              <div className={cardCls}>
+                <h3 className={`${sectionTitleCls} mb-5`}>What we should never say</h3>
+                <div className="mb-5">
+                  <label className={`${labelCls} mb-2`}>Words we should never use</label>
+                  <ScoreBadge score={S.words_to_avoid} />
+                  <div className="flex flex-wrap gap-2 mt-3 mb-3 min-h-[36px]">
+                    {(form.words_to_avoid || []).map(w => (
+                      <span key={w} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-xs font-semibold">
+                        {w}
+                        <button onClick={() => set('words_to_avoid', (form.words_to_avoid || []).filter(x => x !== w))}
+                          className="text-red-500 hover:text-red-300"><X size={11} /></button>
+                      </span>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <input value={newWord} onChange={e => setNewWord(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addWord())}
+                      placeholder="Type a word and press Enter…" className={`${inpCls} flex-1`} />
+                    <button onClick={addWord}
+                      className="px-4 py-3 bg-brand-500 hover:bg-brand-600 text-white text-sm font-bold rounded-xl transition-colors">Add</button>
+                  </div>
+                </div>
+                <div>
+                  <label className={`${labelCls} mb-2`}>Brand guidelines</label>
+                  <ScoreBadge score={S.guidelines} />
+                  <textarea value={form.guidelines || ''} onChange={e => set('guidelines', e.target.value)} rows={5}
+                    placeholder="Always use inclusive language. Never make direct price comparisons. Lead with value. Use active voice…"
+                    className={clsx(taCls, 'mt-2')} />
+                </div>
+              </div>
             </div>
           )}
 
-          {tab === 'Visual' && (
+          {/* ── VISUALS ── */}
+          {tab === 'Visuals' && (
             <div className="space-y-4">
+              <div className={`${cardCls} space-y-5`}>
+                <div>
+                  <h3 className={sectionTitleCls}>Logo & photos</h3>
+                  <p className="text-ink/40 text-xs mt-1 max-w-xl">
+                    Upload your logo and any photos we can use in posts. We resize and place them automatically on every generated design.
+                  </p>
+                </div>
+                <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
+                  <div>
+                    <span className={labelCls}>Brand logo</span>
+                    <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
+                      Use a transparent background when possible. Raster images open a quick crop step; we save a {BRAND_KIT_LOGO_PX}×{BRAND_KIT_LOGO_PX} PNG. SVG uploads skip cropping.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <input
+                      ref={logoFileRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"
+                      className="sr-only"
+                      onChange={onBrandLogoFile}
+                    />
+                    {form.logo_url ? (
+                      <div className="flex items-center gap-3 rounded-lg border border-fog bg-surface p-2 pr-3">
+                        <img
+                          src={form.logo_url}
+                          alt="Brand logo preview"
+                          className="h-14 w-auto max-w-[200px] object-contain object-left"
+                        />
+                      </div>
+                    ) : (
+                      <div className="h-14 w-28 rounded-lg border border-dashed border-fog bg-surface flex items-center justify-center text-[11px] text-ink/35">
+                        No logo yet
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      disabled={logoUploading}
+                      onClick={() => logoFileRef.current?.click()}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-surface text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                    >
+                      <Upload size={16} />
+                      {logoUploading ? 'Uploading…' : form.logo_url ? 'Replace logo' : 'Upload logo'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
+                  <div>
+                    <span className={labelCls}>Photos we can use in posts</span>
+                    <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
+                      Upload product or brand photos you have rights to use. Generation can place these directly into post designs.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-4">
+                    <input
+                      ref={brandImagesFileRef}
+                      type="file"
+                      multiple
+                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                      className="sr-only"
+                      onChange={onBrandImagesFiles}
+                    />
+                    <button
+                      type="button"
+                      disabled={brandImagesUploading}
+                      onClick={() => brandImagesFileRef.current?.click()}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-fog bg-surface text-sm font-semibold text-ink hover:border-brand-400 hover:bg-brand-500/5 disabled:opacity-60 transition-colors"
+                    >
+                      <Upload size={16} />
+                      {brandImagesUploading ? 'Uploading…' : 'Upload photos'}
+                    </button>
+                    <label className="inline-flex items-center gap-2 text-[11px] text-ink/55">
+                      <input
+                        type="checkbox"
+                        className="rounded border-fog text-brand-600 focus:ring-brand-500/40"
+                        checked={!!((form.brand_kit || {}).brand_images_rights_attested)}
+                        onChange={(e) =>
+                          set('brand_kit', {
+                            ...(form.brand_kit || {}),
+                            brand_images_rights_attested: e.target.checked,
+                          })
+                        }
+                      />
+                      I confirm I have rights to use these photos.
+                    </label>
+                  </div>
+                  {(form.brand_photos || []).length > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {(form.brand_photos || []).map((url, idx) => (
+                        <div key={`${url}-${idx}`} className="relative rounded-lg overflow-hidden border border-fog bg-surface group">
+                          <img src={url} alt={`Photo ${idx + 1}`} className="w-full h-24 object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => removeBrandImage(idx)}
+                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/55 text-white text-xs hidden group-hover:flex items-center justify-center"
+                            title="Remove photo"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-ink/35">No photos uploaded yet.</div>
+                  )}
+                </div>
+              </div>
+
               <div className={cardCls}>
                 <h3 className={`${sectionTitleCls} mb-2`}>Brand colors</h3>
                 <ScoreBadge score={S.brand_colors} />
+                <p className="text-ink/40 text-xs mt-1 mb-4">Pick the colours we should use in your posts.</p>
                 <div className="flex gap-4 flex-wrap items-end mb-4 mt-3">
                   {(form.brand_colors || []).map((c, i) => (
                     <ColorSwatch key={i} color={c}
@@ -2186,8 +1304,9 @@ export default function BrandKitPage() {
               </div>
 
               <div className={cardCls}>
-                <h3 className={`${sectionTitleCls} mb-2`}>Design style</h3>
+                <h3 className={`${sectionTitleCls} mb-2`}>Design look</h3>
                 <ScoreBadge score={S.design_style} />
+                <p className="text-ink/40 text-xs mt-1 mb-3">How should your posts feel overall?</p>
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   {['bold','minimal','warm','premium'].map(style => (
                     <button key={style} onClick={() => set('design_style', style)}
@@ -2197,205 +1316,387 @@ export default function BrandKitPage() {
                   ))}
                 </div>
               </div>
-            </div>
-          )}
 
-          {/* ── VOICE ── */}
-          {tab === 'Messaging' && (
-            <div className={cardCls}>
-              <h3 className={`${sectionTitleCls} mb-5`}>Brand voice & tone</h3>
-              <div className="mb-5">
-                <label className={`${labelCls} mb-2`}>Tone tags</label>
-                <ScoreBadge score={S.tone_tags} />
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {TONE_TAGS.map(t => {
-                    const on = (form.tone_tags || []).includes(t.toLowerCase())
-                    return (
-                      <button key={t} onClick={() => toggleTone(t.toLowerCase())}
-                        className={`px-3 py-1.5 rounded-full border-2 text-xs font-semibold transition-all ${on ? 'bg-brand-500 border-brand-500 text-white' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
-                        {t}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-              <div className="mb-5">
-                <label className={`${labelCls} mb-3`}>
-                  Personality: {(form.personality_score || 50) < 35 ? 'Serious & corporate' : (form.personality_score || 50) > 65 ? 'Casual & relaxed' : 'Balanced'}
-                </label>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-ink/40">Serious</span>
-                  <input type="range" min="0" max="100" value={form.personality_score || 50}
-                    onChange={e => set('personality_score', Number(e.target.value))}
-                    className="flex-1 accent-brand-500" />
-                  <span className="text-xs text-ink/40">Casual</span>
-                </div>
-              </div>
-              <div>
-                <label className={`${labelCls} mb-2`}>Language style</label>
-                <ScoreBadge score={S.language_style} />
-                {!countryCode && (
-                  <p className="text-amber-400 text-xs mt-2 mb-3 bg-amber-400/10 border border-amber-400/20 rounded-lg px-3 py-2">
-                    Set your country in Settings → Profile to see language options for your region.
+              <div className={`${cardCls} space-y-5`}>
+                <div>
+                  <h3 className={sectionTitleCls}>People in your posts</h3>
+                  <p className="text-ink/40 text-xs mt-1 max-w-xl">
+                    How should generated images show people, and which kind of people fit your market?
                   </p>
-                )}
-                <div className="grid grid-cols-2 gap-2 mt-2">
-                  {langOptions.map(([v,l]) => (
-                    <button key={v} onClick={() => set('language_style', v)}
-                      className={`py-2.5 rounded-xl text-sm font-semibold border-2 transition-all ${form.language_style === v ? 'border-brand-400 bg-brand-500/5 text-brand-600' : 'border-fog text-ink/50 hover:border-brand-300 hover:text-ink'}`}>
-                      {l}
-                    </button>
-                  ))}
                 </div>
-              </div>
-              <div className="mt-5">
-                <label className={`${labelCls} mb-2`}>Writing style</label>
-                <ScoreBadge score={S.writing_style} />
-                <textarea
-                  value={form.brand_kit?.writing_style || ''}
-                  onChange={e => set('brand_kit', { ...(form.brand_kit || {}), writing_style: e.target.value })}
-                  rows={2}
-                  placeholder="Clear, practical, conversational, and conversion-focused."
-                  className={clsx(taCls, 'mt-2')}
-                />
-              </div>
-              <div className="mt-5">
-                <label className={`${labelCls} mb-2`}>Key messages</label>
-                <ScoreBadge score={S.key_messages} />
-                <textarea
-                  value={Array.isArray(form.brand_kit?.key_messages) ? form.brand_kit.key_messages.join('\n') : (form.brand_kit?.key_messages || '')}
-                  onChange={e => set('brand_kit', {
-                    ...(form.brand_kit || {}),
-                    key_messages: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean),
-                  })}
-                  rows={3}
-                  placeholder={'Fast delivery\nAuthentic flavour\nReliable ordering experience'}
-                  className={clsx(taCls, 'mt-2')}
-                />
-              </div>
-              <div className="mt-5">
-                <label className={`${labelCls} mb-2`}>Value proposition</label>
-                <ScoreBadge score={S.value_proposition} />
-                <textarea
-                  value={form.brand_kit?.value_proposition || ''}
-                  onChange={e => set('brand_kit', { ...(form.brand_kit || {}), value_proposition: e.target.value })}
-                  rows={2}
-                  placeholder="Why customers should choose you over alternatives."
-                  className={clsx(taCls, 'mt-2')}
-                />
-              </div>
-              <div className="mt-5">
-                <label className={`${labelCls} mb-2`}>CTA style</label>
-                <ScoreBadge score={S.cta_style} />
-                <input
-                  value={form.brand_kit?.cta_style || ''}
-                  onChange={e => set('brand_kit', { ...(form.brand_kit || {}), cta_style: e.target.value })}
-                  placeholder="Direct, warm, action-oriented"
-                  className={clsx(inpCls, 'mt-2')}
-                />
+                <label className="space-y-1 block">
+                  <span className={labelCls}>People style</span>
+                  <select
+                    className={inpCls}
+                    value={vs().image_people_style || 'real_people'}
+                    onChange={(e) => setVs({ image_people_style: e.target.value })}
+                  >
+                    <option value="real_people">Real people (photography)</option>
+                    <option value="illustration">Illustration / cartoon-style art</option>
+                    <option value="cartoon">Cartoon / comic illustration</option>
+                    <option value="mixed">Mix (vary by post)</option>
+                  </select>
+                </label>
+                <label className="space-y-1 block">
+                  <span className={labelCls}>Who they are</span>
+                  <textarea
+                    className={taCls}
+                    rows={3}
+                    value={vs().human_context || ''}
+                    onChange={(e) => setVs({ human_context: e.target.value.slice(0, 500) })}
+                    placeholder={
+                      countryCode === 'NG'
+                        ? 'Nigerian customers in Lagos, Black/African talent, local streetwear, natural hair, warm everyday settings...'
+                        : 'Local customers in your market, culturally accurate styling, everyday settings, representative people...'
+                    }
+                  />
+                  <p className="text-ink/35 text-[11px] mt-1.5">
+                    Used only when humans appear, so generated images match your market instead of defaulting to unrelated stock-photo people.
+                  </p>
+                </label>
               </div>
             </div>
           )}
 
-          {/* ── COMPLIANCE ── */}
-          {tab === 'Rules' && (
+          {/* ── PRODUCTS & PROOF ── */}
+          {tab === 'Products & Proof' && (
             <div className="space-y-4">
               <div className={cardCls}>
-                <h3 className={`${sectionTitleCls} mb-1`}>Compliance presets</h3>
-                <p className="text-ink/40 text-xs mb-5">Apply a preset to add industry-specific rules to all generated content.</p>
-                <div className="grid grid-cols-3 gap-2 mb-2">
-                  {Object.entries({
-                    finance: 'Finance & Investment',
-                    health: 'Health & Wellness',
-                    alcohol: 'Alcohol & Spirits',
-                    crypto: 'Crypto & Web3',
-                    real_estate: 'Real Estate',
-                  }).map(([key, label]) => (
-                    <button key={key} onClick={() => applyCompliancePreset(key)}
-                      className="py-2.5 px-3 rounded-xl border border-fog text-ink/60 text-xs font-semibold hover:border-brand-300 hover:text-brand-600 transition-all text-left">
-                      {label}
-                    </button>
-                  ))}
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h3 className={sectionTitleCls}>Products</h3>
+                    <p className="text-ink/40 text-xs mt-1">
+                      What you sell. We use these for product-led posts.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={refreshFromWebsite}
+                    disabled={websiteSyncing || !form.website}
+                    className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                  >
+                    {websiteSyncing ? 'Refreshing…' : 'Refresh from website'}
+                  </button>
                 </div>
+
+                <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
+                  <p className="text-sm font-semibold text-ink">Add a product</p>
+                  <p className="text-xs text-ink/45 mt-1 mb-3">
+                    Add what you sell directly. We pull these into product-led posts.
+                  </p>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <input
+                      className={inpCls}
+                      placeholder="Product name"
+                      value={manualProductForm.title}
+                      onChange={(e) => setManualProductForm((f) => ({ ...f, title: e.target.value }))}
+                    />
+                    <input
+                      className={inpCls}
+                      placeholder="Image URL"
+                      value={manualProductForm.image_url}
+                      onChange={(e) => setManualProductForm((f) => ({ ...f, image_url: e.target.value }))}
+                    />
+                    <input
+                      className={inpCls}
+                      placeholder="Product page URL (optional)"
+                      value={manualProductForm.source_url}
+                      onChange={(e) => setManualProductForm((f) => ({ ...f, source_url: e.target.value }))}
+                    />
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        className={inpCls}
+                        placeholder="Price"
+                        value={manualProductForm.price}
+                        onChange={(e) => setManualProductForm((f) => ({ ...f, price: e.target.value }))}
+                      />
+                      <input
+                        className={inpCls}
+                        placeholder="Currency"
+                        value={manualProductForm.currency}
+                        onChange={(e) => setManualProductForm((f) => ({ ...f, currency: e.target.value }))}
+                      />
+                    </div>
+                    <input
+                      className={inpCls}
+                      placeholder="Type (e.g. Burger)"
+                      value={manualProductForm.product_type}
+                      onChange={(e) => setManualProductForm((f) => ({ ...f, product_type: e.target.value }))}
+                    />
+                    <input
+                      className={inpCls}
+                      placeholder="Tags (comma separated)"
+                      value={manualProductForm.tags}
+                      onChange={(e) => setManualProductForm((f) => ({ ...f, tags: e.target.value }))}
+                    />
+                  </div>
+                  <textarea
+                    className={clsx(taCls, 'mt-3')}
+                    rows={2}
+                    placeholder="Short summary (optional)"
+                    value={manualProductForm.summary}
+                    onChange={(e) => setManualProductForm((f) => ({ ...f, summary: e.target.value }))}
+                  />
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={createManualProduct}
+                      disabled={manualProductSaving}
+                      className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold disabled:opacity-60"
+                    >
+                      {manualProductSaving ? 'Adding…' : 'Add product'}
+                    </button>
+                  </div>
+                </div>
+
+                {!isEcommerceBrand && products.length === 0 && (
+                  <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
+                    <p className="text-sm font-semibold text-ink">No products yet</p>
+                    <p className="text-xs text-ink/45 mt-1">
+                      Add your first product above, or add your website on the Business tab and we'll find them automatically.
+                    </p>
+                  </div>
+                )}
+
+                <div className="text-xs text-ink/50 mb-3">
+                  <span className="font-semibold text-ink">{products.length}</span> product{products.length === 1 ? '' : 's'}
+                </div>
+
+                {productsLoading ? (
+                  <div className="py-12 text-center text-sm text-ink/45">Loading products…</div>
+                ) : products.length === 0 ? null : (
+                  <div className="space-y-3">
+                    {products.map((p) => {
+                      const availability = String(p.availability || '').toLowerCase()
+                      const inStock = availability.includes('in') || availability.includes('active')
+                      return (
+                        <div key={p.id} className="rounded-xl border border-fog bg-surface p-3">
+                          <div className="flex gap-3">
+                            <div className="w-16 h-16 rounded-lg border border-fog bg-mist/60 overflow-hidden flex-shrink-0">
+                              {p.image_url ? (
+                                <img src={p.image_url} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center text-[10px] text-ink/30">No image</div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <p className="text-sm font-semibold text-ink truncate">{p.title}</p>
+                                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${inStock ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' : 'bg-amber-500/10 text-amber-700 border-amber-500/20'}`}>
+                                  {p.availability || 'availability unknown'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-ink/45 mt-1">
+                                {p.summary || 'No summary available.'}
+                              </p>
+                              <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">
+                                {p.price && (
+                                  <span className="text-ink/80 font-semibold">
+                                    {p.currency ? `${p.currency} ` : ''}{p.price}
+                                    {p.compare_at_price ? <span className="text-ink/35 ml-1 line-through">{p.compare_at_price}</span> : null}
+                                  </span>
+                                )}
+                                {p.vendor ? <span className="text-ink/45">Vendor: {p.vendor}</span> : null}
+                                {p.product_type ? <span className="text-ink/45">Type: {p.product_type}</span> : null}
+                              </div>
+                              {p.source_url && (
+                                <a
+                                  href={p.source_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-block mt-2 text-[11px] font-semibold text-brand-600 hover:text-brand-700"
+                                >
+                                  View product page
+                                </a>
+                              )}
+                              <div className="mt-2">
+                                <button
+                                  type="button"
+                                  onClick={() => removeManualProduct(p.id)}
+                                  disabled={manualProductRemovingId === p.id}
+                                  className="text-[11px] font-semibold text-red-600 hover:text-red-700 disabled:opacity-60"
+                                >
+                                  {manualProductRemovingId === p.id ? 'Removing…' : 'Remove'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className={cardCls}>
-                <h3 className={`${sectionTitleCls} mb-1`}>Active compliance rules</h3>
-                <p className="text-ink/40 text-xs mb-5">These rules will be applied to all generated content for this brand.</p>
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <div>
+                    <h3 className={sectionTitleCls}>Customer proof</h3>
+                    <p className="text-ink/40 text-xs mt-1">
+                      Quotes, reviews, or testimonials we can use to build trust in your posts.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadWebsiteReviews}
+                    disabled={reviewsLoading}
+                    className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                  >
+                    {reviewsLoading ? 'Refreshing…' : 'Refresh'}
+                  </button>
+                </div>
 
-                {[
-                  ['disclaimer', 'Include disclaimer on every post', 'Adds "This is not financial/legal/medical advice" where appropriate'],
-                  ['no_guarantees', 'No guarantees or promises', 'Avoids language like "guaranteed results" or "100% success"'],
-                  ['not_financial_advice', 'Not financial advice notice', 'Appends "Not financial advice  to  DYOR" on investment-related posts'],
-                  ['no_medical_claims', 'No medical/health claims', 'Avoids unverified health or cure claims'],
-                  ['age_gate', 'Age-restricted content flag', 'Marks content as 18+ where required'],
-                  ['responsible_messaging', 'Responsible messaging', 'Adds responsible use messaging for regulated products'],
-                  ['no_minors', 'No appeal to minors', 'Avoids imagery or language that targets under-18s'],
-                  ['high_risk_warning', 'High-risk product warning', 'Includes risk warnings for volatile/speculative content'],
-                  ['fair_housing', 'Fair housing compliance', 'Avoids discriminatory housing language'],
-                  ['licensed_disclosure', 'Licensed professional disclosure', 'States relevant professional licence where needed'],
-                  ['requires_disclosure', 'Sponsored content disclosure', 'Adds #ad or #sponsored tags on paid/partner content'],
-                ].map(([key, label, desc]) => (
-                  <div key={key} className="flex items-start gap-3 py-3.5 border-b border-fog last:border-0">
-                    <button onClick={() => setCompliance(key, !(form.compliance_rules || {})[key])}
-                      className={`mt-0.5 w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition-all ${(form.compliance_rules || {})[key] ? 'bg-brand-500 border-brand-500' : 'border-fog hover:border-brand-300'}`}>
-                      {(form.compliance_rules || {})[key] && <Check size={11} className="text-white" />}
+                <div className="rounded-xl border border-fog bg-mist/40 p-4 mb-4">
+                  <p className="text-sm font-semibold text-ink">Add a quote</p>
+                  <p className="text-xs text-ink/45 mt-1 mb-3">
+                    Paste a real customer quote — from a call, a DM, an email, or a review.
+                  </p>
+                  <div className="grid md:grid-cols-2 gap-3">
+                    <input
+                      className={inpCls}
+                      placeholder="Customer name"
+                      value={manualReviewForm.customer_name}
+                      onChange={(e) => setManualReviewForm((f) => ({ ...f, customer_name: e.target.value }))}
+                    />
+                    <select
+                      className={inpCls}
+                      value={manualReviewForm.rating}
+                      onChange={(e) => setManualReviewForm((f) => ({ ...f, rating: e.target.value }))}
+                    >
+                      <option value="5">5 stars</option>
+                      <option value="4">4 stars</option>
+                      <option value="3">3 stars</option>
+                      <option value="2">2 stars</option>
+                      <option value="1">1 star</option>
+                    </select>
+                  </div>
+                  <textarea
+                    className={clsx(taCls, 'mt-3')}
+                    rows={3}
+                    placeholder="What did they say?"
+                    value={manualReviewForm.quote}
+                    onChange={(e) => setManualReviewForm((f) => ({ ...f, quote: e.target.value }))}
+                  />
+                  <div className="grid md:grid-cols-2 gap-3 mt-3">
+                    <input
+                      className={inpCls}
+                      placeholder="Customer photo URL (optional)"
+                      value={manualReviewForm.customer_image_url}
+                      onChange={(e) => setManualReviewForm((f) => ({ ...f, customer_image_url: e.target.value }))}
+                    />
+                    <input
+                      className={inpCls}
+                      placeholder="Source link (optional)"
+                      value={manualReviewForm.source_url}
+                      onChange={(e) => setManualReviewForm((f) => ({ ...f, source_url: e.target.value }))}
+                    />
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      ref={reviewPhotoFileRef}
+                      type="file"
+                      accept="image/png,image/jpeg,image/jpg,image/webp"
+                      className="sr-only"
+                      onChange={onReviewPhotoFile}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => reviewPhotoFileRef.current?.click()}
+                      disabled={reviewPhotoUploading}
+                      className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-60"
+                    >
+                      {reviewPhotoUploading ? 'Uploading…' : 'Upload customer photo'}
                     </button>
-                    <div>
-                      <p className="text-ink text-sm font-semibold">{label}</p>
-                      <p className="text-ink/40 text-xs mt-0.5">{desc}</p>
+                    <button
+                      type="button"
+                      onClick={addManualReview}
+                      className="px-3 py-2 rounded-lg bg-brand-500 text-white text-xs font-semibold"
+                    >
+                      Save quote
+                    </button>
+                  </div>
+                </div>
+
+                {websiteReviews.length > 0 && (
+                  <div className="rounded-xl border border-fog bg-surface p-4 mb-4">
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <p className="text-sm font-semibold text-ink">From your website</p>
+                      <span className="text-xs text-ink/45">{websiteReviews.length} found</span>
+                    </div>
+                    <div className="space-y-2 max-h-72 overflow-auto pr-1">
+                      {websiteReviews.map((r) => {
+                        const attrs = r.attributes || {}
+                        const rating = attrs.rating ? `${attrs.rating}/5` : null
+                        const reviewCount = attrs.review_count ? `${attrs.review_count} reviews` : null
+                        const quote = String(r.summary || '').trim() || String(r.title || '').trim()
+                        return (
+                          <div key={r.id} className="rounded-lg border border-fog bg-mist/40 p-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="text-xs font-semibold text-ink truncate">{r.title || 'Customer review'}</p>
+                              <button
+                                type="button"
+                                onClick={() => importWebsiteReview(r)}
+                                className="text-[11px] font-semibold text-brand-600 hover:text-brand-700"
+                              >
+                                Import
+                              </button>
+                            </div>
+                            {(rating || reviewCount) && (
+                              <p className="text-[11px] text-ink/45 mt-1">
+                                {[rating, reviewCount].filter(Boolean).join(' · ')}
+                              </p>
+                            )}
+                            {quote && <p className="text-xs text-ink/60 mt-1 line-clamp-3">{quote}</p>}
+                          </div>
+                        )
+                      })}
                     </div>
                   </div>
-                ))}
+                )}
 
-                <div className="mt-5">
-                  <label className={`${labelCls} mb-2`}>Regulatory body / jurisdiction</label>
-                  <input value={(form.compliance_rules || {}).regulatory_body || ''}
-                    onChange={e => setCompliance('regulatory_body', e.target.value)}
-                    placeholder="e.g. FCA, SEC, NAFDAC, CAC" className={inpCls} />
-                  <p className="text-ink/40 text-xs mt-1.5">Referenced in generated content where disclosures are required.</p>
+                <div className="rounded-xl border border-fog bg-surface p-4">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <p className="text-sm font-semibold text-ink">Saved quotes</p>
+                    <span className="text-xs text-ink/45">{Array.isArray(form.brand_kit?.reviews) ? form.brand_kit.reviews.length : 0} saved</span>
+                  </div>
+                  {!Array.isArray(form.brand_kit?.reviews) || form.brand_kit.reviews.length === 0 ? (
+                    <div className="text-xs text-ink/45">No customer proof saved yet.</div>
+                  ) : (
+                    <div className="space-y-3">
+                      {form.brand_kit.reviews.map((rev, idx) => (
+                        <div key={rev.id || `${rev.quote}-${idx}`} className="rounded-lg border border-fog bg-mist/40 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3 min-w-0">
+                              {rev.customer_image_url ? (
+                                <img src={rev.customer_image_url} alt={rev.customer_name || 'customer'} className="w-10 h-10 rounded-full object-cover border border-fog flex-shrink-0" />
+                              ) : (
+                                <div className="w-10 h-10 rounded-full bg-slate-200 border border-fog flex-shrink-0" />
+                              )}
+                              <div className="min-w-0">
+                                <p className="text-xs font-semibold text-ink truncate">
+                                  {rev.customer_name || 'Customer'} {rev.rating ? `· ${rev.rating}/5` : ''}
+                                </p>
+                                <p className="text-xs text-ink/65 mt-1">{rev.quote}</p>
+                                {rev.source_url ? (
+                                  <a href={rev.source_url} target="_blank" rel="noreferrer" className="inline-block text-[11px] text-brand-600 hover:text-brand-700 mt-1">
+                                    Source
+                                  </a>
+                                ) : null}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeReviewAt(idx)}
+                              className="text-[11px] font-semibold text-red-600 hover:text-red-700"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-
-                <div className="mt-4">
-                  <label className={`${labelCls} mb-2`}>Custom disclaimer text</label>
-                  <textarea value={(form.compliance_rules || {}).custom_disclaimer || ''}
-                    onChange={e => setCompliance('custom_disclaimer', e.target.value)} rows={2}
-                    placeholder="e.g. 'Past performance is not indicative of future results.'" className={taCls} />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── RULES ── */}
-          {tab === 'Rules' && (
-            <div className={cardCls}>
-              <h3 className={`${sectionTitleCls} mb-5`}>Brand rules</h3>
-              <div className="mb-5">
-                <label className={`${labelCls} mb-2`}>Words to never use</label>
-                <ScoreBadge score={S.words_to_avoid} />
-                <div className="flex flex-wrap gap-2 mt-3 mb-3 min-h-[36px]">
-                  {(form.words_to_avoid || []).map(w => (
-                    <span key={w} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg text-xs font-semibold">
-                      {w}
-                      <button onClick={() => set('words_to_avoid', (form.words_to_avoid || []).filter(x => x !== w))}
-                        className="text-red-500 hover:text-red-300"><X size={11} /></button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <input value={newWord} onChange={e => setNewWord(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addWord())}
-                    placeholder="Type a word and press Enter…" className={`${inpCls} flex-1`} />
-                  <button onClick={addWord}
-                    className="px-4 py-3 bg-brand-500 hover:bg-brand-600 text-white text-sm font-bold rounded-xl transition-colors">Add</button>
-                </div>
-              </div>
-              <div>
-                <label className={`${labelCls} mb-2`}>Brand guidelines</label>
-                <ScoreBadge score={S.guidelines} />
-                <textarea value={form.guidelines || ''} onChange={e => set('guidelines', e.target.value)} rows={5}
-                  placeholder="Always use inclusive language. Never make direct price comparisons. Lead with value. Use active voice…"
-                  className={clsx(taCls, 'mt-2')} />
               </div>
             </div>
           )}
