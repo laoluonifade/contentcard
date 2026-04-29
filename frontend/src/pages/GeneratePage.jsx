@@ -433,7 +433,7 @@ export default function GeneratePage() {
                 <div className="h-full bg-ink/30 rounded-full transition-all duration-700" style={{ width: `${progressPct()}%` }} />
               </div>
               <p className="text-center text-ink/30 text-xs">
-                Captions and images can take a few minutes. We will send you to the calendar when every post has finished visuals. No manual refresh needed.
+                Captions and images can take a few minutes. We will send you to the calendar when every post has finished visuals — no manual refresh needed.
               </p>
               {showSlowGenerationHint && (
                 <div className="rounded-xl border border-fog bg-mist px-3 py-2 text-center">

@@ -59,7 +59,7 @@ export default function VerifyEmailPage() {
         const expired = /expired|invalid|already\s+used/i.test(`${msg} ${detail || ''}`)
         setError(
           expired
-            ? 'This verification link is no longer valid. It may have expired or already been used.'
+            ? 'This verification link is no longer valid — it may have expired or already been used.'
             : msg
         )
         setState('error')

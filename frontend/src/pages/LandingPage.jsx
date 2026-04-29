@@ -104,7 +104,7 @@ export default function LandingPage() {
   const [openFaqIdx, setOpenFaqIdx] = useState(0)
   const metrics = [
     ['2,000', 'free generations included with every workspace'],
-    ['3', 'platforms (Instagram, X, and Facebook) published from one calendar'],
+    ['3', 'platforms — Instagram, X, and Facebook — published from one calendar'],
     ['<10 min', 'from sign-up to your first scheduled post'],
   ]
   const discoverExamples = [
@@ -148,7 +148,7 @@ export default function LandingPage() {
   const faqs = [
     {
       q: 'How quickly can I start creating with ContentCard?',
-      a: 'Most teams ship their first scheduled post in under 10 minutes. Add your brand basics (name, voice, colours) and start generating right away.',
+      a: 'Most teams ship their first scheduled post in under 10 minutes. Add your brand basics — name, voice, colours — and start generating right away.',
     },
     {
       q: 'Which social platforms does ContentCard support?',
@@ -156,7 +156,7 @@ export default function LandingPage() {
     },
     {
       q: 'Can I keep every post on-brand?',
-      a: 'Yes. ContentCard reads your brand kit (voice, visual rules, banned words) and applies it to every caption and visual we generate.',
+      a: 'Yes. ContentCard reads your brand kit — voice, visual rules, banned words — and applies it to every caption and visual we generate.',
     },
     {
       q: 'Do I need a designer or a large team to use it?',
@@ -182,7 +182,7 @@ export default function LandingPage() {
                 Ship a month of on-brand posts before lunch.
               </h1>
               <p className="mt-5 text-lg text-ink/65 leading-relaxed max-w-[34ch]">
-                Generate, design, and schedule for Instagram, X, and Facebook from one dashboard. 2,000 free generations to get going. No credit card.
+                Generate, design, and schedule for Instagram, X, and Facebook from one dashboard. 2,000 free generations to get going — no credit card.
               </p>
               <div className="mt-7 flex flex-col sm:flex-row gap-3 max-w-[520px]">
                 <input
@@ -215,7 +215,7 @@ export default function LandingPage() {
           <SectionHeader
             eyebrow="Examples"
             title="See what real brands ship with ContentCard"
-            subtitle="Campaign-ready posts generated, designed, and scheduled in minutes, not days."
+            subtitle="Campaign-ready posts generated, designed, and scheduled in minutes — not days."
           />
           <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {discoverExamples.map((item, idx) => (

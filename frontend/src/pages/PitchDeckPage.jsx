@@ -101,7 +101,7 @@ export default function PitchDeckPage() {
   return (
     <MarketingLayout>
       <Seo
-        title="Investor Pitch Deck | ContentCard, Raising $500k"
+        title="Investor Pitch Deck | ContentCard — Raising $500k"
         description="ContentCard is raising $500,000 to become the default social content infrastructure for African and emerging market brands. View our pitch deck."
         path="/pitch-deck"
       />
@@ -293,7 +293,7 @@ export default function PitchDeckPage() {
       {/* Print footer */}
       <div className="hidden print:block print:mt-8 print:pt-6 print:border-t print:border-gray-200 print:text-center">
         <p className="text-xs text-gray-400">ContentCard · Voyatech Limited · hellovoya@gmail.com · contentcard.co</p>
-        <p className="text-xs text-gray-400 mt-1">Confidential. Prepared for accredited investors only. Not a public offering.</p>
+        <p className="text-xs text-gray-400 mt-1">Confidential — prepared for accredited investors only. Not a public offering.</p>
       </div>
 
       {/* Print styles injected via style tag */}

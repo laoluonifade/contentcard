@@ -73,7 +73,7 @@ export default function AdminMemesPage() {
       if (!url) throw new Error('Upload failed')
       const isGif = file.type === 'image/gif' || /\.gif($|\?)/i.test(url)
       setForm((f) => ({ ...f, media_url: url, media_type: isGif ? 'gif' : 'image' }))
-      toast('Uploaded. Add a title and save.')
+      toast('Uploaded — add title and save.')
     } catch (err) {
       toast(err.response?.data?.detail || err.message || 'Upload failed', 'error')
     } finally {

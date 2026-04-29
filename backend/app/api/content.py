@@ -1492,10 +1492,10 @@ async def generate_month(
     if body.month < 1 or body.month > 12:
         raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
     if body.year < 2024 or body.year > 2030:
-        raise HTTPException(status_code=400, detail="That year doesn't look right. Double-check it.")
+        raise HTTPException(status_code=400, detail="That year doesn't look right — double-check it.")
     _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
+        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
 
@@ -1616,10 +1616,10 @@ async def generate_month_v2(
     if body.month < 1 or body.month > 12:
         raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
     if body.year < 2024 or body.year > 2032:
-        raise HTTPException(status_code=400, detail="That year doesn't look right. Double-check it.")
+        raise HTTPException(status_code=400, detail="That year doesn't look right — double-check it.")
     _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
+        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
     monthly_post_cap: int | None = None
@@ -1741,9 +1741,9 @@ async def caption_from_photo(
     db: AsyncSession = Depends(get_db),
 ):
     if not body.description or not body.description.strip():
-        raise HTTPException(status_code=400, detail="Add a description. That's how the AI knows what to write about.")
+        raise HTTPException(status_code=400, detail="Add a description — that's how the AI knows what to write about.")
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
+        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
     results = {}
@@ -1761,7 +1761,7 @@ async def caption_from_photo(
             logger.error(f"Photo caption error for {platform.value}: {e}")
             errors[platform.value] = "Generation failed. Please try again."
     if not results:
-        raise HTTPException(status_code=502, detail="Generation didn't go through for any of the platforms. Try again in a moment. It's usually a passing hiccup.")
+        raise HTTPException(status_code=502, detail="Generation didn't go through for any of the platforms. Try again in a moment — it's usually a passing hiccup.")
     return {"results": results, "errors": errors}
 
 

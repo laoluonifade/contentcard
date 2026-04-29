@@ -301,7 +301,7 @@ export default function DashboardPage() {
             {loading ? 'Loading…' :
              !activeBrandId ? 'Set up your brand to get started.' :
              stats.total > 0 ? `${stats.total} posts generated for ${now.toLocaleString('default', { month: 'long' })}` :
-             `Nothing scheduled for ${now.toLocaleString('default', { month: 'long' })} yet. Generate your first month to get started.`}
+             `Nothing scheduled for ${now.toLocaleString('default', { month: 'long' })} yet — generate your first month to get started.`}
           </p>
         </div>
         <button onClick={() => navigate('/dashboard/calendar')}
@@ -598,8 +598,8 @@ export default function DashboardPage() {
                 title="Nothing scheduled here"
                 body={
                   tabsEnabled
-                    ? `No posts lined up for ${timeframe === 'today' ? 'today' : timeframe === 'week' ? 'this week' : 'this month'} yet. Open the calendar to plan some.`
-                    : "No posts queued for the next 7 days. Open the calendar to plan some."
+                    ? `No posts lined up for ${timeframe === 'today' ? 'today' : timeframe === 'week' ? 'this week' : 'this month'} yet — open the calendar to plan some.`
+                    : "No posts queued for the next 7 days — open the calendar to plan some."
                 }
                 cta={{ label: 'Open calendar', onClick: () => navigate('/dashboard/calendar') }}
                 eventName="empty_state.cta_clicked"
@@ -673,7 +673,7 @@ export default function DashboardPage() {
         {!planIncludesTrendingTopics(activeWorkspace?.plan) ? (
           <EmptyState
             icon={TrendingUp}
-            title="See what's trending. Growth and Pro only."
+            title="See what's trending — on Growth + Pro"
             body="Upgrade to see what's catching fire in your industry and spin up posts on it in seconds."
             cta={{ label: 'View plans', onClick: () => navigate('/dashboard/billing') }}
             eventName="empty_state.cta_clicked"
@@ -687,7 +687,7 @@ export default function DashboardPage() {
           <EmptyState
             icon={TrendingUp}
             title="No trends loaded yet"
-            body="Pull the latest signals matched to your industry. It only takes a few seconds."
+            body="Pull the latest signals matched to your industry — it only takes a few seconds."
             cta={{ label: refreshing ? 'Fetching trends…' : 'Fetch trending topics', onClick: handleRefreshTrends }}
             eventName="empty_state.cta_clicked"
             eventProps={{ surface: 'trends_empty' }}
