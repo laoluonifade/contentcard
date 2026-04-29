@@ -123,7 +123,7 @@ export default function AnalyticsPage() {
         <EmptyState
           icon={BarChart3}
           title="Pick a brand to see how it's doing"
-          body="Choose one from the sidebar — analytics here is per-brand."
+          body="Choose one from the sidebar. Analytics here is per-brand."
         />
       )}
 
@@ -179,7 +179,7 @@ export default function AnalyticsPage() {
               <EmptyState
                 compact
                 icon={Users}
-                title="See how you stack up — opt in to track competitors"
+                title="See how you stack up. Opt in to track competitors."
                 body={competitors?.note || "Add up to 5 public handles per platform and we'll start tracking how you compare."}
                 cta={{ label: 'Add handles — coming soon', onClick: () => track('analytics.competitors.add_clicked', {}) }}
                 eventName="empty_state.cta_clicked"

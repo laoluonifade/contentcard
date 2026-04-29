@@ -1317,7 +1317,7 @@ async def retry_dead_letter_post(
     _, member = await _get_brand_member(post.brand_id, current_user.id, db)
     _require_editor(member)
     if post.status != SocialPostStatus.FAILED:
-        raise HTTPException(status_code=400, detail="Only failed posts can be retried — this one isn't in the failed state.")
+        raise HTTPException(status_code=400, detail="Only failed posts can be retried. This one isn't in the failed state.")
     post.status = SocialPostStatus.QUEUED
     post.status_reason = "queued for retry from dead-letter"
     post.updated_at = _now()

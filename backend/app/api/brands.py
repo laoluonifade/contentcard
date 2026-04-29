@@ -137,9 +137,9 @@ def _canonical_taxonomy(industry: str | None, sub_industry: str | None) -> tuple
     ind_raw = str(industry or "").strip()
     sub_raw = str(sub_industry or "").strip()
     if not ind_raw:
-        raise HTTPException(status_code=400, detail="Pick an industry — that's how we match the right voice and templates.")
+        raise HTTPException(status_code=400, detail="Pick an industry. That's how we match the right voice and templates.")
     if not sub_raw:
-        raise HTTPException(status_code=400, detail="Pick a sub-industry too — it makes generated content much more on-brand.")
+        raise HTTPException(status_code=400, detail="Pick a sub-industry too. It makes generated content much more on-brand.")
 
     ind_map = {k.lower(): k for k in INDUSTRY_TAXONOMY.keys()}
     ind_key = ind_map.get(ind_raw.lower())

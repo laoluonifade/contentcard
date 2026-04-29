@@ -11,6 +11,7 @@ import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/Br
 import BrandHealthScore from '../components/brand/BrandHealthScore'
 import { useFeatureFlag } from '../lib/featureFlags'
 import LogoCropModal from '../components/brand/LogoCropModal'
+import PosterLockupDefaults from '../components/brand/PosterLockupDefaults'
 import { BRAND_KIT_LOGO_PX } from '../lib/contentcardLogoDownload'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 import { getMissingFields } from '../utils/brandReadiness'
@@ -1355,6 +1356,8 @@ export default function BrandKitPage() {
                   </p>
                 </label>
               </div>
+
+              <PosterLockupDefaults />
             </div>
           )}
 

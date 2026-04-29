@@ -94,7 +94,7 @@ export default function DashboardLayout() {
       await createWorkspace({ name })
       setNewWsOpen(false)
       setNewWsName('')
-      toast('Workspace created — add brands under Brand Kit for this client.', 'success')
+      toast('Workspace created. Add brands under Brand Kit for this client.', 'success')
     } catch (err) {
       const msg = err.response?.data?.detail || err.message || 'Could not create workspace'
       toast(typeof msg === 'string' ? msg : 'Could not create workspace', 'error')

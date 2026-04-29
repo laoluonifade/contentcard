@@ -158,7 +158,7 @@ export default function GuestOnboarding({ initialProfile, onDone, onDismiss }) {
                 className={`text-[11px] mt-1.5 ${websiteShowError ? 'text-red-600 dark:text-red-300' : 'text-ink/55'}`}
               >
                 {websiteShowError
-                  ? 'Enter a valid web address — for example, acmecoffee.com.'
+                  ? 'Enter a valid web address, for example: acmecoffee.com.'
                   : "We'll personalize the calendar with copy and tone tuned for your brand."}
               </p>
             </div>
