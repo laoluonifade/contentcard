@@ -11,7 +11,7 @@ export default function TryContentCardPill({
   className = '',
   label = 'Try ContentCard',
   size = 'md',
-  to = '/',
+  to = '/signup',
 }) {
   const sizeCls =
     size === 'sm'
