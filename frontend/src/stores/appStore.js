@@ -51,6 +51,11 @@ const useAppStore = create(
       activeWorkspace: null,
       brands: [],
       activeBrandId: null,
+      // Flips to true once the backend has confirmed the current workspace's
+      // brands list (success or failure). Pages should hold their loaded UI
+      // until this is true, so persisted activeBrandId doesn't flash an
+      // empty state before the real fetch resolves.
+      brandsLoaded: false,
       contentByMonth: {},
       generatingMonth: false,
       generationStartedAt: null,
@@ -64,17 +69,24 @@ const useAppStore = create(
 
       // ── Workspaces ──────────────────────────────────────────────
       fetchWorkspaces: async () => {
-        const workspaces = await workspaceApi.list()
-        const savedId = get().activeWorkspaceId
-        const active = workspaces.find(w => w.id === savedId) || workspaces[0] || null
-        set({ workspaces, activeWorkspaceId: active?.id || null, activeWorkspace: active })
-        if (active?.id) {
-          await get().fetchBrands(active.id)
-          await get().fetchTrends().catch(() => {})
-        } else {
-          set({ trends: [] })
+        try {
+          const workspaces = await workspaceApi.list()
+          const savedId = get().activeWorkspaceId
+          const active = workspaces.find(w => w.id === savedId) || workspaces[0] || null
+          set({ workspaces, activeWorkspaceId: active?.id || null, activeWorkspace: active })
+          if (active?.id) {
+            await get().fetchBrands(active.id)
+            await get().fetchTrends().catch(() => {})
+          } else {
+            set({ trends: [], brandsLoaded: true })
+          }
+          return workspaces
+        } catch (err) {
+          // Unblock pages waiting on brandsLoaded so they don't spin forever
+          // when the workspaces fetch itself fails (network, 401, etc.).
+          set({ brandsLoaded: true })
+          throw err
         }
-        return workspaces
       },
 
       setActiveWorkspace: async (id) => {
@@ -84,11 +96,14 @@ const useAppStore = create(
           activeWorkspace: ws,
           brands: [],
           activeBrandId: null,
+          brandsLoaded: false,
           trends: planIncludesTrendingTopics(workspacePlanTier(ws)) ? get().trends : [],
         })
         if (id) {
           await get().fetchBrands(id)
           await get().fetchTrends().catch(() => {})
+        } else {
+          set({ brandsLoaded: true })
         }
       },
 
@@ -116,12 +131,20 @@ const useAppStore = create(
       // ── Brands ──────────────────────────────────────────────────
       fetchBrands: async (workspaceId) => {
         const wsId = workspaceId || get().activeWorkspaceId
-        if (!wsId) return []
-        const brands = await brandApi.list(wsId)
-        const savedBrandId = get().activeBrandId
-        const activeBrandId = brands.find(b => b.id === savedBrandId)?.id || brands[0]?.id || null
-        set({ brands, activeBrandId })
-        return brands
+        if (!wsId) {
+          set({ brandsLoaded: true })
+          return []
+        }
+        try {
+          const brands = await brandApi.list(wsId)
+          const savedBrandId = get().activeBrandId
+          const activeBrandId = brands.find(b => b.id === savedBrandId)?.id || brands[0]?.id || null
+          set({ brands, activeBrandId, brandsLoaded: true })
+          return brands
+        } catch (err) {
+          set({ brandsLoaded: true })
+          throw err
+        }
       },
 
       setActiveBrand: (id) => set({ activeBrandId: id }),
