@@ -94,16 +94,6 @@ const useAuthStore = create(
         set({ user: null, token: null, isAuthenticated: false, authResolved: true })
       },
 
-      verifyEmail: async (token) => {
-        // POSTs the token from the verification email link.
-        // On success, refresh the local user so the verified flag flips
-        // immediately without a re-fetch.
-        await authApi.verifyEmail({ token })
-        set((s) => ({
-          user: s.user ? { ...s.user, email_verified: true } : s.user,
-        }))
-      },
-
       deleteAccount: async (password) => {
         set({ isLoading: true, error: null })
         try {

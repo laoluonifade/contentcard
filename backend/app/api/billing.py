@@ -32,8 +32,11 @@ from app.services.billing_service import (
     is_nigeria_user,
 )
 from app.services.billing_entitlements import (
+    billing_anchor_workspace,
     checkout_target_workspace,
-    effective_plan,
+    effective_plan_for_owner,
+    owned_workspaces,
+    total_free_generations_used_by_owner,
 )
 from app.schemas.billing import (
     CheckoutRequest, CheckoutResponse, SubscriptionOut, CardOut,
@@ -106,24 +109,26 @@ async def get_subscription(
     db: AsyncSession = Depends(get_db),
 ):
     ws = await _require_owner(workspace_id, current_user.id, db)
-    # Per-workspace billing — subscription, card, and free-gen counter all
-    # live on the workspace row itself, not aggregated across the user.
-    effective = effective_plan(ws)
+    owner_id = current_user.id
+    effective = await effective_plan_for_owner(db, owner_id)
+    anchor = await billing_anchor_workspace(db, owner_id) or ws
+    owned_list = await owned_workspaces(db, owner_id)
+    shared = len(owned_list) > 1
 
     # One-time backfill: subscriptions activated before the inline-checkout fix
     # may have a subscription_id without card_last4. Pull the authorization from
     # Paystack the next time the owner loads this page so the saved card surfaces.
     if (
-        ws.payment_provider == "paystack"
-        and not ws.card_last4
-        and (ws.subscription_id or ws.customer_id)
+        anchor.payment_provider == "paystack"
+        and not anchor.card_last4
+        and (anchor.subscription_id or anchor.customer_id)
     ):
         fallback_auth = await fetch_paystack_authorization(
-            subscription_code=ws.subscription_id,
-            customer_code=ws.customer_id,
+            subscription_code=anchor.subscription_id,
+            customer_code=anchor.customer_id,
         )
         if fallback_auth:
-            _save_card_from_authorization(ws, fallback_auth)
+            _save_card_from_authorization(anchor, fallback_auth)
             await db.commit()
 
     # Provider for display follows the user's current country, not the stored workspace
@@ -133,16 +138,14 @@ async def get_subscription(
     return SubscriptionOut(
         plan=effective,
         provider="paystack" if nigeria else "stripe",
-        trial_ends_at=ws.trial_ends_at,
-        is_active=ws.is_active,
-        subscription_id=ws.subscription_id,
-        free_generations_used=int(ws.free_generations_used or 0),
-        card=_build_card(ws),
-        next_payment_date=ws.next_payment_date,
-        billing_workspace_id=ws.id,
-        # Plans no longer cascade across an owner's workspaces — each one bills
-        # itself, so this flag is always false going forward.
-        subscription_covers_owned_workspaces=False,
+        trial_ends_at=anchor.trial_ends_at,
+        is_active=anchor.is_active,
+        subscription_id=anchor.subscription_id,
+        free_generations_used=await total_free_generations_used_by_owner(db, owner_id),
+        card=_build_card(anchor),
+        next_payment_date=anchor.next_payment_date,
+        billing_workspace_id=anchor.id,
+        subscription_covers_owned_workspaces=shared and effective in ("starter", "smb", "pro"),
         stripe_publishable_key=settings.STRIPE_PUBLISHABLE_KEY if not nigeria else None,
     )
 
@@ -335,8 +338,8 @@ async def card_save_init(
     """
     workspace_id = str(body.get("workspace_id") or "")
     ws = await _require_owner(workspace_id, current_user.id, db)
-    # Per-workspace billing: card-save targets this workspace directly.
-    target_ws = ws
+    anchor = await billing_anchor_workspace(db, current_user.id)
+    target_ws = anchor or ws
     nigeria = is_nigeria_user(current_user.country_code)
 
     if nigeria:
@@ -413,10 +416,10 @@ async def card_save_complete(
     """
     workspace_id = str(body.get("workspace_id") or "")
     provider = str(body.get("provider") or "")
-    # Per-workspace billing: complete the card save against the workspace named
-    # in the request, not a global "anchor" workspace for the user.
-    ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
-    anchor = ws_r.scalar_one_or_none()
+    anchor = await billing_anchor_workspace(db, current_user.id)
+    if not anchor or anchor.id != workspace_id:
+        ws_r = await db.execute(select(Workspace).where(Workspace.id == workspace_id))
+        anchor = ws_r.scalar_one_or_none()
     if not anchor:
         raise HTTPException(status_code=404, detail="We couldn't find that workspace. It may have been removed.")
 
@@ -513,7 +516,11 @@ async def remove_card(
     The current paid period is preserved — the user keeps their plan until
     next_payment_date, then it downgrades to trial.
     """
-    ws = await _require_owner(workspace_id, current_user.id, db)
+    await _require_owner(workspace_id, current_user.id, db)
+    anchor = await billing_anchor_workspace(db, current_user.id)
+    if not anchor:
+        raise HTTPException(status_code=404, detail="We couldn't find that workspace. It may have been removed.")
+    ws = anchor
 
     period_still_active = bool(
         ws.next_payment_date
@@ -560,7 +567,11 @@ async def cancel_subscription(
     db: AsyncSession = Depends(get_db),
 ):
     """Cancel subscription at period end, keep card on file for easy re-subscribe."""
-    ws = await _require_owner(workspace_id, current_user.id, db)
+    await _require_owner(workspace_id, current_user.id, db)
+    anchor = await billing_anchor_workspace(db, current_user.id)
+    if not anchor:
+        raise HTTPException(status_code=404, detail="We couldn't find that workspace. It may have been removed.")
+    ws = anchor
     if ws.plan not in ("starter", "smb", "pro"):
         raise HTTPException(status_code=400, detail="There's no active subscription to cancel.")
 
@@ -1194,8 +1205,8 @@ async def _handle_subscription_disable(data: dict, db: AsyncSession) -> None:
 
     if period_still_active:
         # User cancelled but already paid through this period — keep their plan
-        # active until next_payment_date. effective_plan() downgrades them
-        # when the period ends.
+        # active until next_payment_date. effective_plan_for_owner downgrades
+        # them when the period ends.
         ws.subscription_id = None
         await db.commit()
         logger.info(
