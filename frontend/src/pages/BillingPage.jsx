@@ -233,7 +233,7 @@ export default function BillingPage() {
   useEffect(() => {
     fetchSubscription().catch(() => {})
     if (searchParams.get('success')) {
-      toast("Payment confirmed — your plan's active. Enjoy.")
+      toast("Payment confirmed. Your plan's active. Enjoy.")
       fetchSubscription().catch(() => {})
     }
   }, [])
@@ -248,9 +248,9 @@ export default function BillingPage() {
     try {
       await cancelSubscription()
       setShowCancelModal(false)
-      toast('Subscription cancelled. Your card stays saved — come back whenever.')
+      toast('Subscription cancelled. Your card stays saved. Come back whenever.')
     } catch (err) {
-      toast(err.response?.data?.detail || "Cancel didn't go through. Try again — your subscription is still active.", 'error')
+      toast(err.response?.data?.detail || "Cancel didn't go through. Your subscription is still active. Try again in a moment.", 'error')
     } finally {
       setCancelling(false)
     }

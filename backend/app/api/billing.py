@@ -427,7 +427,7 @@ async def card_save_complete(
         result = await verify_paystack_transaction(reference)
         data = result.get("data", {})
         if data.get("status") != "success":
-            raise HTTPException(status_code=402, detail="Paystack hasn't confirmed your payment yet. Hold on a minute and refresh — if it still doesn't go through, contact support.")
+            raise HTTPException(status_code=402, detail="Paystack hasn't confirmed your payment yet. Hold on a minute and refresh. If it still doesn't go through, contact support.")
 
         auth = data.get("authorization") or {}
         if auth.get("last4"):

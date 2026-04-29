@@ -249,7 +249,7 @@ export default function SignupPage() {
                 <input autoFocus value={form.workspace_name}
                   onChange={e => setForm(f => ({ ...f, workspace_name: e.target.value }))}
                   placeholder="Acme Inc." className="input" required />
-                <p className="text-[11px] text-ink/40 mt-1">This becomes your workspace name — you can change it later.</p>
+                <p className="text-[11px] text-ink/40 mt-1">This becomes your workspace name. You can change it later.</p>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
