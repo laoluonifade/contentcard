@@ -8,7 +8,7 @@ from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember
 from app.services.billing_service import plan_includes_trending_topics
-from app.services.billing_entitlements import effective_plan_for_owner
+from app.services.billing_entitlements import effective_plan
 from datetime import datetime, timezone, timedelta
 import logging
 
@@ -35,8 +35,8 @@ async def _workspace_for_member(db: AsyncSession, user_id: str, workspace_id: st
 async def _require_trending_topics_plan(db: AsyncSession, user_id: str, workspace_id: str) -> Workspace:
     ws = await _workspace_for_member(db, user_id, workspace_id)
     if not ws:
-        raise HTTPException(status_code=403, detail="Not a member of this workspace")
-    effective = await effective_plan_for_owner(db, ws.owner_id)
+        raise HTTPException(status_code=403, detail="You're not part of this workspace. Ask the owner to invite you.")
+    effective = effective_plan(ws)
     if not plan_includes_trending_topics(effective):
         raise HTTPException(
             status_code=403,
@@ -178,7 +178,7 @@ async def generate_post_from_trend(
 
     ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
     ws = ws_r.scalar_one_or_none()
-    eff = await effective_plan_for_owner(db, ws.owner_id) if ws else "trial"
+    eff = effective_plan(ws) if ws else "trial"
     if not ws or not plan_includes_trending_topics(eff):
         raise HTTPException(
             status_code=403,
