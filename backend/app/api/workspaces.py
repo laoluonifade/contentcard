@@ -7,7 +7,7 @@ from app.models.user import User
 from app.core.dependencies import get_current_user
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceOut, WorkspaceMemberOut, RoleUpdateRequest
 from app.core.config import settings
-from app.services.billing_entitlements import effective_plan_for_owner
+from app.services.billing_entitlements import effective_plan
 from datetime import datetime, timedelta, timezone
 import re
 
@@ -43,12 +43,11 @@ async def list_workspaces(
         .where(WorkspaceMember.user_id == current_user.id)
     )
     rows = list(result.scalars().all())
-    owner_eff = await effective_plan_for_owner(db, current_user.id)
+    # Per-workspace plan — every workspace bills itself.
     out: list[WorkspaceOut] = []
     for w in rows:
-        eff = owner_eff if w.owner_id == current_user.id else (w.plan or "trial")
         wo = WorkspaceOut.model_validate(w)
-        out.append(wo.model_copy(update={"effective_plan": eff}))
+        out.append(wo.model_copy(update={"effective_plan": effective_plan(w)}))
     return out
 
 
@@ -90,9 +89,8 @@ async def create_workspace(
     db.add(WorkspaceMember(workspace_id=ws.id, user_id=current_user.id, role=WorkspaceRole.OWNER))
     await db.commit()
     await db.refresh(ws)
-    eff = await effective_plan_for_owner(db, current_user.id)
     wo = WorkspaceOut.model_validate(ws)
-    return wo.model_copy(update={"effective_plan": eff})
+    return wo.model_copy(update={"effective_plan": effective_plan(ws)})
 
 
 @router.get("/{workspace_id}", response_model=WorkspaceOut)
@@ -114,13 +112,8 @@ async def get_workspace(
     ws = result.scalar_one_or_none()
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
-    eff = (
-        await effective_plan_for_owner(db, current_user.id)
-        if ws.owner_id == current_user.id
-        else (ws.plan or "trial")
-    )
     wo = WorkspaceOut.model_validate(ws)
-    return wo.model_copy(update={"effective_plan": eff})
+    return wo.model_copy(update={"effective_plan": effective_plan(ws)})
 
 
 @router.put("/{workspace_id}", response_model=WorkspaceOut)
@@ -154,13 +147,8 @@ async def update_workspace(
     ws.name = new_name
     await db.commit()
     await db.refresh(ws)
-    eff = (
-        await effective_plan_for_owner(db, current_user.id)
-        if ws.owner_id == current_user.id
-        else (ws.plan or "trial")
-    )
     wo = WorkspaceOut.model_validate(ws)
-    return wo.model_copy(update={"effective_plan": eff})
+    return wo.model_copy(update={"effective_plan": effective_plan(ws)})
 
 
 @router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberOut])

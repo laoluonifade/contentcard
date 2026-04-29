@@ -31,8 +31,29 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.services.geo_service import get_country_from_ip, get_payment_provider
-from app.services.email_service import send_password_reset, send_welcome
+from app.services.email_service import (
+    send_password_reset,
+    send_welcome,
+    send_email_verification,
+)
 from app.core.config import settings
+
+
+# ── Email verification helpers ─────────────────────────────────────────────
+
+EMAIL_VERIFICATION_TOKEN_TTL = timedelta(hours=24)
+
+
+def _new_email_verification_token() -> tuple[str, datetime]:
+    """Random URL-safe token + an expiry 24h out."""
+    return secrets.token_urlsafe(32), datetime.now(timezone.utc) + EMAIL_VERIFICATION_TOKEN_TTL
+
+
+def _build_verify_url(token: str, email: str) -> str:
+    """The link we email out — VerifyEmailPage reads `token` and `email` from
+    query string."""
+    base = (settings.FRONTEND_URL or "").rstrip("/")
+    return f"{base}/verify-email?token={token}&email={email}"
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -81,6 +102,7 @@ async def _serialize_user_out(db: AsyncSession, user: User) -> UserOut:
         "onboarding_completed": await _user_onboarding_completed(db, user),
         "agency_mode": bool(user.agency_mode),
         "auth_provider": user.auth_provider or "password",
+        "email_verified": bool(getattr(user, "email_verified", True)),
     }
     return UserOut.model_validate(payload)
 
@@ -104,13 +126,17 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     country_code = (body.country_code or detected_country or "").upper() or None
     payment_provider = get_payment_provider(country_code)
 
-    # Create user
+    # Create user — unverified by default; the verification email goes out below.
+    verification_token, verification_expires = _new_email_verification_token()
     user = User(
         full_name=body.full_name,
         email=body.email,
         phone=body.phone,
         hashed_password=hash_password(body.password),
         country_code=country_code,
+        email_verified=False,
+        email_verification_token=verification_token,
+        email_verification_token_expires=verification_expires,
     )
     db.add(user)
     await db.flush()  # get user.id
@@ -143,10 +169,17 @@ async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depen
     await db.commit()
     await db.refresh(user)
 
-    # Send welcome email (fire-and-forget — never block the signup response)
+    # Fire-and-forget emails so signup never blocks on SMTP latency.
     import asyncio
     asyncio.create_task(
         send_welcome(user.email, user.full_name, settings.FRONTEND_URL + "/dashboard")
+    )
+    asyncio.create_task(
+        send_email_verification(
+            user.email,
+            _build_verify_url(verification_token, user.email),
+            user.full_name,
+        )
     )
 
     token = create_access_token(user.id)
@@ -382,6 +415,88 @@ async def change_password(
         raise HTTPException(status_code=400, detail="Your current password isn't right. Double-check and try again.")
     current_user.hashed_password = hash_password(body.new_password)
     await db.commit()
+
+
+# ── Email verification ─────────────────────────────────────────────────────
+
+@router.post("/verify-email", status_code=200)
+async def verify_email(body: dict, db: AsyncSession = Depends(get_db)):
+    """
+    Accept the token the user clicked from their inbox and mark their email as
+    verified. Idempotent — verifying an already-verified token returns 200 so
+    a double-click on the email link doesn't show a confusing error.
+    """
+    token = str(body.get("token") or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=422,
+            detail="We couldn't read the verification link. Open the most recent email and try the link again.",
+        )
+
+    user = (
+        await db.execute(select(User).where(User.email_verification_token == token))
+    ).scalar_one_or_none()
+
+    if not user:
+        # If the token is gone but a user with this token already verified, we
+        # can't tell — return a generic friendly error.
+        raise HTTPException(
+            status_code=400,
+            detail="This verification link no longer works. It may have expired or already been used. Request a fresh one and we'll email it over.",
+        )
+
+    if (
+        user.email_verification_token_expires is None
+        or datetime.now(timezone.utc) > user.email_verification_token_expires
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="This verification link has expired. Request a new one and we'll email it over.",
+        )
+
+    user.email_verified = True
+    user.email_verification_token = None
+    user.email_verification_token_expires = None
+    await db.commit()
+    return {"verified": True}
+
+
+@router.post("/resend-verification", status_code=204)
+async def resend_verification(body: dict, db: AsyncSession = Depends(get_db)):
+    """
+    Generate a fresh verification token and email it.
+
+    Always returns 204 — even if the email isn't on file — so an attacker
+    can't enumerate registered accounts. We only persist + send when a real
+    unverified user exists.
+    """
+    email = str(body.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=422, detail="Add the email you signed up with so we can re-send the link.")
+
+    user = (
+        await db.execute(select(User).where(User.email == email, User.is_active == True))
+    ).scalar_one_or_none()
+
+    # No-op if the user doesn't exist or is already verified — silent success
+    # protects against email enumeration and stops noise for users who simply
+    # forgot they'd already verified.
+    if user and not user.email_verified:
+        token, expires = _new_email_verification_token()
+        user.email_verification_token = token
+        user.email_verification_token_expires = expires
+        await db.commit()
+
+        import asyncio
+        asyncio.create_task(
+            send_email_verification(
+                user.email,
+                _build_verify_url(token, user.email),
+                user.full_name,
+            )
+        )
+
+    return None
 
 
 def _shopify_state_secret() -> str:
