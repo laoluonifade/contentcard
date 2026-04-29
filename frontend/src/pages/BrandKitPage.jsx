@@ -63,20 +63,17 @@ const ALLOWED_FONT_IDS = new Set(FONTS.map((f) => f.value))
 function mergeVisualSystem(kit, brandColors, brandFont) {
   const cur = (kit && kit.visual_system) || {}
   const bf = (brandFont || 'inter').toLowerCase()
-  const hf = ALLOWED_FONT_IDS.has((cur.heading_font || '').toLowerCase())
-    ? (cur.heading_font || '').toLowerCase()
-    : bf
-  const bod = ALLOWED_FONT_IDS.has((cur.body_font || '').toLowerCase())
-    ? (cur.body_font || '').toLowerCase()
-    : bf
+  const palette = Array.isArray(brandColors)
+    ? brandColors.map((c) => normalizeHex(String(c || ''))).filter(Boolean)
+    : []
   const def = {
     version: 1,
-    primary_hex: cur.primary_hex || brandColors[0] || '#6366f1',
-    secondary_hex: cur.secondary_hex || brandColors[1] || brandColors[0] || '#6366f1',
-    accent_hex: cur.accent_hex || brandColors[2] || brandColors[1] || '#6366f1',
+    primary_hex: palette[0] || cur.primary_hex || '#6366f1',
+    secondary_hex: palette[1] || palette[0] || cur.secondary_hex || cur.primary_hex || '#6366f1',
+    accent_hex: palette[2] || palette[1] || palette[0] || cur.accent_hex || cur.secondary_hex || '#6366f1',
     neutral_hex: cur.neutral_hex || '#f4f4f5',
-    heading_font: hf,
-    body_font: bod,
+    heading_font: ALLOWED_FONT_IDS.has(bf) ? bf : 'inter',
+    body_font: ALLOWED_FONT_IDS.has(bf) ? bf : 'inter',
     logo_placement: cur.logo_placement || 'bottom_right',
     logo_min_width_px: cur.logo_min_width_px ?? 80,
     allowed_archetypes: Array.isArray(cur.allowed_archetypes) && cur.allowed_archetypes.length
@@ -241,12 +238,6 @@ function computeScores(form) {
     },
     visual_system: () => {
       const vs = (form.brand_kit || {}).visual_system || {}
-      for (const k of ['primary_hex', 'secondary_hex', 'accent_hex']) {
-        const v = vs[k]
-        if (v != null && String(v).trim() !== '' && !normalizeHex(String(v))) {
-          return s('poor', `Invalid ${k.replace(/_/g, ' ')}: use #RRGGBB (e.g. #0A1B2C).`)
-        }
-      }
       if (vs.neutral_hex != null && String(vs.neutral_hex).trim() !== '' && !normalizeHex(String(vs.neutral_hex))) {
         return s('poor', 'Invalid neutral hex: use #RRGGBB or leave blank for default.')
       }
@@ -538,16 +529,25 @@ export default function BrandKitPage() {
     toast(`${preset.charAt(0).toUpperCase() + preset.slice(1)} compliance preset applied`)
   }
 
+  const withDerivedVisualSystem = (value) => {
+    const next = { ...(value || {}) }
+    const kit = { ...(next.brand_kit || {}) }
+    kit.visual_system = mergeVisualSystem(kit, next.brand_colors || [], next.brand_font)
+    next.brand_kit = kit
+    return next
+  }
+
   const persistBrandForm = async (nextForm, { notify = false } = {}) => {
     if (!activeBrandId || !activeWorkspaceId || !isAuthenticated) return false
+    const payload = withDerivedVisualSystem(nextForm)
     setSaving(true)
     setSaveState('saving')
     try {
-      await updateBrand(activeBrandId, nextForm)
-      lastSavedSnapshotRef.current = snapshotForm(nextForm)
+      await updateBrand(activeBrandId, payload)
+      lastSavedSnapshotRef.current = snapshotForm(payload)
       setSaveState('saved')
       if (notify) {
-        const missing = getMissingFields(nextForm)
+        const missing = getMissingFields(payload)
         toast(
           missing.length
             ? `Saved. ${missing.length} required ${missing.length === 1 ? 'field is' : 'fields are'} still missing before AI generation is unlocked.`
@@ -1795,8 +1795,8 @@ export default function BrandKitPage() {
                 <h3 className={sectionTitleCls}>Visual brand system</h3>
                 <ScoreBadge score={S.visual_system} />
                 <p className="text-ink/40 text-xs mt-1 max-w-xl">
-                  Tokens drive generated backgrounds, logo placement, and Bannerbear accents. Set primary colours to
-                  match your real brand (not generic defaults).
+                  Brand colors and Brand font below are the source of truth. These advanced controls only handle logo,
+                  image, background, and generation guardrails.
                 </p>
               </div>
               <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
@@ -1901,34 +1901,15 @@ export default function BrandKitPage() {
                   <div className="text-[11px] text-ink/35">No brand images uploaded yet.</div>
                 )}
               </div>
-              <div className="grid sm:grid-cols-3 gap-4">
-                <label className="space-y-1">
-                  <span className={labelCls}>Primary hex</span>
-                  <input
-                    className={inpCls}
-                    value={vs().primary_hex || ''}
-                    onChange={(e) => setVs({ primary_hex: e.target.value })}
-                    placeholder="#0033FF"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className={labelCls}>Secondary hex</span>
-                  <input
-                    className={inpCls}
-                    value={vs().secondary_hex || ''}
-                    onChange={(e) => setVs({ secondary_hex: e.target.value })}
-                    placeholder="#FF0066"
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className={labelCls}>Accent hex</span>
-                  <input
-                    className={inpCls}
-                    value={vs().accent_hex || ''}
-                    onChange={(e) => setVs({ accent_hex: e.target.value })}
-                  />
-                </label>
-                <label className="space-y-1 sm:col-span-3">
+              <div className="rounded-xl border border-fog bg-mist/35 p-4">
+                <p className="text-xs font-semibold text-ink/70">Palette and typography are derived automatically.</p>
+                <p className="text-[11px] text-ink/40 mt-1">
+                  Add/edit Brand colors and Brand font below; ContentCard maps them into primary, secondary, accent,
+                  heading, and body tokens for generation.
+                </p>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <label className="space-y-1 sm:col-span-2">
                   <span className={labelCls}>Neutral / background hex</span>
                   <input
                     className={inpCls}
@@ -1937,36 +1918,6 @@ export default function BrandKitPage() {
                     onChange={(e) => setVs({ neutral_hex: e.target.value })}
                     placeholder="#f4f4f5"
                   />
-                </label>
-              </div>
-              <div className="grid sm:grid-cols-2 gap-4">
-                <label className="space-y-1">
-                  <span className={labelCls}>Heading font (slides)</span>
-                  <select
-                    className={inpCls}
-                    value={vs().heading_font || 'inter'}
-                    onChange={(e) => setVs({ heading_font: e.target.value })}
-                  >
-                    {FONTS.map((f) => (
-                      <option key={f.value} value={f.value}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="space-y-1">
-                  <span className={labelCls}>Body font (slides)</span>
-                  <select
-                    className={inpCls}
-                    value={vs().body_font || 'inter'}
-                    onChange={(e) => setVs({ body_font: e.target.value })}
-                  >
-                    {FONTS.map((f) => (
-                      <option key={`b-${f.value}`} value={f.value}>
-                        {f.label}
-                      </option>
-                    ))}
-                  </select>
                 </label>
               </div>
               <label className="space-y-1 block">

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo, Component } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, RotateCcw, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
@@ -39,6 +39,44 @@ const VISUAL_PENDING_SESSION_PREFIX = 'contentcard.calendar.visualPending'
 function visualPendingSessionKey(userId, brandId, month, year) {
   if (!userId || !brandId || !month || !year) return ''
   return `${VISUAL_PENDING_SESSION_PREFIX}:${userId}:${brandId}:${year}-${month}`
+}
+
+function hashtagToken(value) {
+  const parts = String(value || '').match(/[A-Za-z0-9]+/g) || []
+  return parts.map((part) => part.slice(0, 24)).join('').slice(0, 48)
+}
+
+function fallbackPostHashtags(post, brand) {
+  const seeds = [
+    brand?.name,
+    post?.content_type,
+    post?.content_idea || post?.topic,
+    brand?.industry,
+  ]
+  const seen = new Set()
+  return seeds
+    .map(hashtagToken)
+    .filter((tag) => {
+      const key = tag.toLowerCase()
+      if (!tag || seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .slice(0, post?.platform === 'twitter' ? 2 : 5)
+}
+
+function fallbackPostCaption(post, brand) {
+  const brandName = String(brand?.name || 'the brand').trim()
+  const topic = String(post?.content_idea || post?.topic || post?.content_type || 'New content').trim()
+  const cta = String(post?.cta || 'Take the next step').trim()
+  const platform = String(post?.platform || 'instagram').toLowerCase()
+  if (platform === 'twitter') {
+    return `${topic}. ${cta}`
+  }
+  if (platform === 'linkedin') {
+    return `${topic}\n\nA clear, ready-to-share update from ${brandName} built around the value customers should notice first.\n\n${cta}`
+  }
+  return `${topic}\n\nA fresh ${brandName} post built to make the message clear, useful, and easy to act on.\n\n${cta}`
 }
 
 const PLATFORM_LOGO = {
@@ -848,9 +886,6 @@ export default function CalendarPage() {
   const [slideIdx, setSlideIdx] = useState(0)
   const [editCaption, setEditCaption]   = useState('')
   const [editHashtags, setEditHashtags] = useState([])
-  const [saving, setSaving]   = useState(false)
-  const [regen, setRegen]     = useState(false)
-  const [regenVis, setRegenVis] = useState(false)
   const [filterPlat, setFilterPlat] = useState('all')
   const [showGenPanel, setShowGenPanel] = useState(false)
   const [showPlanModal, setShowPlanModal] = useState(false)
@@ -1088,11 +1123,15 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (modal) {
-      setEditCaption((modal.caption || modal.description || '').trim())
-      setEditHashtags(Array.isArray(modal.hashtags) ? modal.hashtags : [])
+      const caption = (modal.caption || modal.description || '').trim() || fallbackPostCaption(modal, activeBrand)
+      const hashtags = Array.isArray(modal.hashtags) && modal.hashtags.length
+        ? modal.hashtags
+        : fallbackPostHashtags(modal, activeBrand)
+      setEditCaption(caption)
+      setEditHashtags(hashtags)
       setSlideIdx(0)
     }
-  }, [modal?.id, modal?.caption, modal?.description, modal?.hashtags])
+  }, [activeBrand, modal?.id, modal?.caption, modal?.description, modal?.hashtags])
 
   // Lock body scroll when modal is open so background page doesn't scroll
   useEffect(() => {
@@ -1131,44 +1170,6 @@ export default function CalendarPage() {
     toast('All slides downloaded')
   }
 
-  const saveEdits = async () => {
-    setSaving(true)
-    try {
-      const updated = await contentApi.update(modal.id,{caption:editCaption,hashtags:editHashtags})
-      setPosts(ps=>ps.map(p=>p.id===updated.id?updated:p))
-      setModal(updated); toast('Saved')
-    } catch { toast('Save failed','error') }
-    finally { setSaving(false) }
-  }
-
-  const regenPost = async () => {
-    setRegen(true)
-    try {
-      const updated = await contentApi.regenerate(modal.id,{})
-      setPosts(ps=>ps.map(p=>p.id===updated.id?updated:p))
-      setModal(updated); toast('Post regenerated')
-    } catch { toast('Regeneration failed','error') }
-    finally { setRegen(false) }
-  }
-
-  const regenVisual = async (mode, newArc) => {
-    if (!modal) return
-    setRegenVis(true)
-    try {
-      const updated = await contentApi.regenerateVisual(modal.id, {
-        mode,
-        new_archetype: mode === 'new_archetype' ? newArc : null,
-      })
-      setPosts((ps) => ps.map((p) => (p.id === updated.id ? updated : p)))
-      setModal(updated)
-      toast('Visuals regenerated')
-    } catch (e) {
-      toast(e.response?.data?.detail || 'Visual regen failed', 'error')
-    } finally {
-      setRegenVis(false)
-    }
-  }
-
   const markPostedManually = async () => {
     if (!modal?.id || !activeBrandId || !modal?.platform) return
     setMarkingPosted(true)
@@ -1184,19 +1185,6 @@ export default function CalendarPage() {
       toast(e?.response?.data?.detail || e.message || 'Could not save manual post status', 'error')
     } finally {
       setMarkingPosted(false)
-    }
-  }
-
-  const deletePost = async () => {
-    if (!confirm("Remove this post from the calendar? The images stay in your Directory — only this scheduled slot goes away.")) return
-    try {
-      await contentApi.bulkRemoveFromCalendar({ content_ids: [modal.id] })
-      setModal(null)
-      const items = await fetchMonthContent(month, year)
-      setPosts(items)
-      toast('Removed from calendar')
-    } catch {
-      toast('Remove failed', 'error')
     }
   }
 
@@ -2645,8 +2633,8 @@ export default function CalendarPage() {
                   {/* Caption */}
                   <div>
                     <label className="label">Caption</label>
-                    <textarea value={editCaption} onChange={e=>setEditCaption(e.target.value)} rows={7}
-                      className="input resize-none leading-relaxed"/>
+                    <textarea value={editCaption} readOnly rows={7}
+                      className="input resize-none leading-relaxed bg-mist/40"/>
                   </div>
 
                   {/* Hashtags */}
@@ -2657,7 +2645,6 @@ export default function CalendarPage() {
                         editHashtags.map((h,i)=>(
                           <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-surface border border-fog text-ink/60 text-xs rounded-lg">
                             #{h}
-                            <button onClick={()=>setEditHashtags(hs=>hs.filter((_,j)=>j!==i))} className="hover:text-ink ml-0.5 text-sm leading-none">×</button>
                           </span>
                         ))
                       ) : (
@@ -2666,54 +2653,6 @@ export default function CalendarPage() {
                     </div>
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex gap-2 flex-wrap pt-1">
-                    <button
-                      type="button"
-                      onClick={() => navigate(`/dashboard/calendar/editor/${encodeURIComponent(modal.id)}`)}
-                      className="btn-secondary text-xs px-3 py-2"
-                    >
-                      Mini full-page editor
-                    </button>
-                    <button onClick={saveEdits} disabled={saving}
-                      className="btn-primary text-xs px-4 py-2">
-                      <Check size={12}/>{saving?'Saving…':'Save changes'}
-                    </button>
-                    <button onClick={regenPost} disabled={regen}
-                      className="btn-secondary text-xs px-4 py-2">
-                      <RotateCcw size={12}/>{regen?'Regenerating…':'Redraft'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => regenVisual('same_archetype', null)}
-                      disabled={regenVis}
-                      className="btn-secondary text-xs px-3 py-2"
-                      title="New background + slides using the same layout archetype"
-                    >
-                      {regenVis ? '…' : 'Refresh visual'}
-                    </button>
-                    <select
-                      disabled={regenVis}
-                      defaultValue=""
-                      onChange={(e) => {
-                        const v = e.target.value
-                        e.target.value = ''
-                        if (v) regenVisual('new_archetype', v)
-                      }}
-                      className="text-xs border border-fog rounded-lg px-2 py-2 bg-surface text-ink/70"
-                    >
-                      <option value="">New layout…</option>
-                      {['photo_hero', 'portrait_story', 'pattern_headline', 'flat_edu', 'pov_comic'].map((a) => (
-                        <option key={a} value={a}>
-                          {a.replace(/_/g, ' ')}
-                        </option>
-                      ))}
-                    </select>
-                    <button onClick={deletePost}
-                      className="btn-danger text-xs px-3 py-2 ml-auto">
-                      <Trash2 size={12}/> Remove from calendar
-                    </button>
-                  </div>
                 </div>
               </div>
             </div>
