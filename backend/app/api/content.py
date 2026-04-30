@@ -1319,9 +1319,9 @@ async def _render_with_quality_gate(
             if bb_urls:
                 item.image_urls = bb_urls
         else:
-            # Bannerbear disabled — the raw AI image is the final visual.
-            # Mirror it into image_urls so downstream slide consumers still see one frame.
-            item.image_urls = [item.image_url] if item.image_url else None
+            # Bannerbear disabled — the raw AI frames are the final visual set.
+            # For carousels, generate_post_image returns N frames (one per slide).
+            item.image_urls = list(bg_urls) if bg_urls else None
 
         last_logo_ok = await _apply_brand_logo_to_visuals(item, render_post, brand_dict)
         rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])

@@ -673,19 +673,30 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         )
         cta_text = str(post.get("cta") or "").strip()
         type_directive_bits = [
-            "TYPOGRAPHY (you are the only text renderer — render copy crisply, ad-grade, perfectly legible, no garbled letters)."
+            "TYPOGRAPHY MANDATE (you are the ONLY text renderer in the pipeline; this is critical):",
+            (
+                "Render every letter sharp, fully formed, kerned, anti-aliased, and unambiguously readable as English alphabet. "
+                "Each character must be a real Latin glyph — never a partial, doubled, mirrored, or alien shape. "
+                "Words must be spelled exactly as given; do not extend, abbreviate, or duplicate them. "
+                "If you cannot render a word legibly at the planned size, choose a larger size and shorter line, never garbled letters."
+            ),
         ]
         if headline:
             type_directive_bits.append(
-                f"Headline (render verbatim, max one or two lines, dominant hierarchy): \"{headline[:120]}\"."
+                f"Headline (render VERBATIM — exact spelling, exact word order, no additions): \"{headline[:120]}\". "
+                "Lay it out on at most two lines, dominant hierarchy, generous breathing room around it."
             )
         if cta_text:
             type_directive_bits.append(
-                f"CTA chip / button (render verbatim, smaller than headline, high contrast): \"{cta_text[:60]}\"."
+                f"CTA pill / button (render VERBATIM): \"{cta_text[:60]}\". "
+                "Smaller than the headline, high contrast against its background, rounded-rectangle pill or rectangular chip — one element only."
             )
         type_directive_bits.append(
-            "Use a clean modern sans-serif. Place text inside the safe margin; never clip letterforms at the canvas edge. "
-            "Do not invent additional sentences, prices, or hashtags beyond what is given here."
+            "Use a single clean modern geometric sans-serif (think Inter / Söhne / Aktiv Grotesk feel) for both headline and CTA. "
+            "Keep all text inside an 8–10% safe margin from every canvas edge — never clip letterforms at the edge. "
+            "Do NOT invent additional sentences, taglines, prices, percentages, hashtags, URLs, or social handles beyond what is given here. "
+            "Do NOT render placeholder lorem-ipsum, fake logo wordmarks, or repeated decorative letter strings. "
+            "If anything beyond the strings above appears as text, that is a render failure."
         )
         negative = " ".join(type_directive_bits) + " " + negative
     ref_urls = (brand.get("visual_system") or {}).get("reference_urls") or []
@@ -1590,6 +1601,17 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
     n = max(1, min(10, settings.IMAGE_COUNT))
     if settings.AI_IMAGE_VARIANT_MIN_MODE:
         n = 1
+    # When Bannerbear compositing is off the AI is the only frame producer,
+    # so a carousel post must request N frames from the image API itself.
+    # Bannerbear was the layer that previously expanded a single hero into
+    # multiple templated slides.
+    if not settings.BANNERBEAR_ENABLED and str(post.get("format") or "").lower() == "carousel":
+        try:
+            requested_slides = int(post.get("slide_count") or 0)
+        except (TypeError, ValueError):
+            requested_slides = 0
+        if requested_slides > 0:
+            n = max(n, min(10, requested_slides))
     model = settings.IMAGE_MODEL
 
     # ── Product-edit path ────────────────────────────────────────────────────
