@@ -1314,9 +1314,14 @@ async def _render_with_quality_gate(
             item.visual_strategy_used    = render_post["visual_strategy_used"]
             item.composition_description = render_post.get("composition_description")
 
-        bb_urls = await generate_post_images(render_post, brand_dict, background_image_url=item.image_url or None)
-        if bb_urls:
-            item.image_urls = bb_urls
+        if settings.BANNERBEAR_ENABLED:
+            bb_urls = await generate_post_images(render_post, brand_dict, background_image_url=item.image_url or None)
+            if bb_urls:
+                item.image_urls = bb_urls
+        else:
+            # Bannerbear disabled — the raw AI frames are the final visual set.
+            # For carousels, generate_post_image returns N frames (one per slide).
+            item.image_urls = list(bg_urls) if bg_urls else None
 
         last_logo_ok = await _apply_brand_logo_to_visuals(item, render_post, brand_dict)
         rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
@@ -1357,10 +1362,14 @@ async def _render_with_quality_gate(
         # product image directly as final background.
         fallback_bg = None
         item.image_url = None
-        bb_urls = await generate_post_images(fallback_post, brand_dict, background_image_url=fallback_bg)
-        if bb_urls:
-            item.image_urls = bb_urls
-            item.image_url = bb_urls[0]
+        if settings.BANNERBEAR_ENABLED:
+            bb_urls = await generate_post_images(fallback_post, brand_dict, background_image_url=fallback_bg)
+            if bb_urls:
+                item.image_urls = bb_urls
+                item.image_url = bb_urls[0]
+        # When Bannerbear is disabled there is no template fallback; the prior
+        # AI retries already exhausted what we can deliver. Continue so the
+        # caller can return a hard-block.
         last_logo_ok = await _apply_brand_logo_to_visuals(item, fallback_post, brand_dict)
         rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
         last_lint, fallback_qg = await _score_rendered_visual_set(

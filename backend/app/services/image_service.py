@@ -651,6 +651,54 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     extra_never = ab.get("negative_motifs") or []
     if extra_never:
         negative += " Avoid specifically: " + "; ".join(str(x) for x in extra_never[:10] if x) + "."
+
+    # ── Bannerbear-off mode ──────────────────────────────────────────────────
+    # When Bannerbear compositing is disabled, the AI is the only renderer in
+    # the pipeline — it MUST draw the headline and CTA itself. Strip the no-
+    # text negatives that would otherwise prevent that, and append a positive
+    # typography directive with the exact strings to render.
+    if not settings.BANNERBEAR_ENABLED:
+        for phrase in (
+            "No text, no words, no letters, no watermarks, ",
+            "no typography, no captions, ",
+            "no typography, no captions,",
+            " still no readable text in-image.",
+        ):
+            negative = negative.replace(phrase, "")
+        ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+        headline = (
+            str(ma.get("hook") or post.get("topic") or content_idea or "").strip()
+            if not ai_image_prompt
+            else str(post.get("topic") or content_idea or "").strip()
+        )
+        cta_text = str(post.get("cta") or "").strip()
+        type_directive_bits = [
+            "TYPOGRAPHY MANDATE (you are the ONLY text renderer in the pipeline; this is critical):",
+            (
+                "Render every letter sharp, fully formed, kerned, anti-aliased, and unambiguously readable as English alphabet. "
+                "Each character must be a real Latin glyph — never a partial, doubled, mirrored, or alien shape. "
+                "Words must be spelled exactly as given; do not extend, abbreviate, or duplicate them. "
+                "If you cannot render a word legibly at the planned size, choose a larger size and shorter line, never garbled letters."
+            ),
+        ]
+        if headline:
+            type_directive_bits.append(
+                f"Headline (render VERBATIM — exact spelling, exact word order, no additions): \"{headline[:120]}\". "
+                "Lay it out on at most two lines, dominant hierarchy, generous breathing room around it."
+            )
+        if cta_text:
+            type_directive_bits.append(
+                f"CTA pill / button (render VERBATIM): \"{cta_text[:60]}\". "
+                "Smaller than the headline, high contrast against its background, rounded-rectangle pill or rectangular chip — one element only."
+            )
+        type_directive_bits.append(
+            "Use a single clean modern geometric sans-serif (think Inter / Söhne / Aktiv Grotesk feel) for both headline and CTA. "
+            "Keep all text inside an 8–10% safe margin from every canvas edge — never clip letterforms at the edge. "
+            "Do NOT invent additional sentences, taglines, prices, percentages, hashtags, URLs, or social handles beyond what is given here. "
+            "Do NOT render placeholder lorem-ipsum, fake logo wordmarks, or repeated decorative letter strings. "
+            "If anything beyond the strings above appears as text, that is a render failure."
+        )
+        negative = " ".join(type_directive_bits) + " " + negative
     ref_urls = (brand.get("visual_system") or {}).get("reference_urls") or []
     if ref_urls and (brand.get("visual_system") or {}).get("reference_rights_attested"):
         negative += (
@@ -797,7 +845,44 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     else:
         prompt = f"{prompt.strip()}{edge_guard}"
 
+    # When Bannerbear compositing is off, strip the no-text language sprinkled
+    # throughout the strategy_block / format_note / negatives so it does not
+    # contradict the positive typography directive that requires the AI to
+    # render the headline + CTA itself.
+    if not settings.BANNERBEAR_ENABLED:
+        prompt = _strip_no_text_phrases(prompt)
+
     return prompt.strip()
+
+
+_NO_TEXT_PHRASE_PATTERNS = [
+    re.compile(r"\bno text,?\s*", re.IGNORECASE),
+    re.compile(r"\bno words,?\s*", re.IGNORECASE),
+    re.compile(r"\bno letters,?\s*", re.IGNORECASE),
+    re.compile(r"\bno typography,?\s*", re.IGNORECASE),
+    re.compile(r"\bno captions,?\s*", re.IGNORECASE),
+    re.compile(r"\bno typography in the frame\.?", re.IGNORECASE),
+    re.compile(r"\bno typography, titles, or UI in the frame\.?", re.IGNORECASE),
+    re.compile(r"\bno words or lettering in the image\.?", re.IGNORECASE),
+    re.compile(r"\bno readable text in-image\.?", re.IGNORECASE),
+    re.compile(r"\bno letters?\s+in[- ]?the[- ]?image\.?", re.IGNORECASE),
+    re.compile(r"\bno readable packaging claims,?\s*", re.IGNORECASE),
+    re.compile(r"\bno subtitles,?\s*", re.IGNORECASE),
+    re.compile(r"render NO readable text,?\s*[^.]*\.", re.IGNORECASE),
+    re.compile(r"do NOT (?:render|draw) readable [^.]*\.", re.IGNORECASE),
+    re.compile(r"the headline and CTA are composited on top by the layout layer\.?", re.IGNORECASE),
+    re.compile(r"the layout layer adds all copy\.?", re.IGNORECASE),
+]
+
+
+def _strip_no_text_phrases(text: str) -> str:
+    out = text
+    for pat in _NO_TEXT_PHRASE_PATTERNS:
+        out = pat.sub("", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    out = re.sub(r"\s+,", ",", out)
+    out = re.sub(r",\s*,", ",", out)
+    return out.strip()
 
 
 def _is_svg_bytes(data: bytes, filename_hint: str = "") -> bool:
@@ -1516,6 +1601,17 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
     n = max(1, min(10, settings.IMAGE_COUNT))
     if settings.AI_IMAGE_VARIANT_MIN_MODE:
         n = 1
+    # When Bannerbear compositing is off the AI is the only frame producer,
+    # so a carousel post must request N frames from the image API itself.
+    # Bannerbear was the layer that previously expanded a single hero into
+    # multiple templated slides.
+    if not settings.BANNERBEAR_ENABLED and str(post.get("format") or "").lower() == "carousel":
+        try:
+            requested_slides = int(post.get("slide_count") or 0)
+        except (TypeError, ValueError):
+            requested_slides = 0
+        if requested_slides > 0:
+            n = max(n, min(10, requested_slides))
     model = settings.IMAGE_MODEL
 
     # ── Product-edit path ────────────────────────────────────────────────────
