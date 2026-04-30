@@ -106,14 +106,14 @@ export default function AIPage({ embedded = false }) {
       )}
 
       {!activeBrandId ? (
-        <EmptyState icon={Sparkles} title="Pick a brand to start refining" body="Choose one from the sidebar — every remix runs against your brand's voice and rules." />
+        <EmptyState icon={Sparkles} title="Pick a brand to start refining" body="Choose one from the sidebar. Every remix runs against your brand's voice and rules." />
       ) : loading ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           <Skeleton className="h-64" />
           <Skeleton className="h-64 lg:col-span-2" />
         </div>
       ) : posts.length === 0 ? (
-        <EmptyState icon={Layers} title="Nothing to refine yet" body="Generate a month from the calendar — once posts exist, this is where you remix them." />
+        <EmptyState icon={Layers} title="Nothing to refine yet" body="Generate a month from the calendar. Once posts exist, this is where you remix them." />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Post picker */}

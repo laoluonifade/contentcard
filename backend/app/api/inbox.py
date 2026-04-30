@@ -73,7 +73,7 @@ def _suggest_reply(text: str, sentiment: str) -> str:
     if sentiment == "positive":
         return "Thank you! 🙏 Means a lot — see you on the next post."
     if sentiment == "negative":
-        return "Sorry to hear that — mind sharing more details so we can fix it?"
+        return "Sorry to hear that. Mind sharing more details so we can fix it?"
     if sentiment == "spam":
         return ""
     return "Thanks for stopping by 👋 Anything we can help with?"

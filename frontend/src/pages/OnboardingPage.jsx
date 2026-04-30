@@ -358,8 +358,8 @@ export default function OnboardingPage() {
       navigate('/dashboard/brand-kit')
     } catch (err) {
       const detail = err.response?.data?.detail || err.message || "We couldn't read your website."
-      setQuickFillError(`${detail} No worries — you can fill in the rest manually below.`)
-      toast("Quick fill didn't finish. Fill in the rest below — it only takes a minute.", 'error')
+      setQuickFillError(`${detail} No worries. You can fill in the rest manually below.`)
+      toast("Quick fill didn't finish. Fill in the rest below. It only takes a minute.", 'error')
     } finally {
       setQuickFillRunning(false)
     }
@@ -372,7 +372,7 @@ export default function OnboardingPage() {
       return
     }
     if (tags.length >= MAX_TONE_TAGS) {
-      toast(`Pick up to ${MAX_TONE_TAGS} tones — strong voices come from focused choices.`, 'error')
+      toast(`Pick up to ${MAX_TONE_TAGS} tones. Strong voices come from focused choices.`, 'error')
       return
     }
     set('tone_tags', [...tags, t])
@@ -382,7 +382,7 @@ export default function OnboardingPage() {
     if (step === 1) {
       const errors = {}
       if (!form.name.trim()) errors.name = 'Add your brand name to continue.'
-      if (!form.industry) errors.industry = "Pick the industry that fits best — we'll match the right voice."
+      if (!form.industry) errors.industry = "Pick the industry that fits best. We'll match the right voice."
       if (!form.sub_industry) errors.sub_industry = 'Pick a sub-industry too. The more specific, the better.'
       if (!form.website_platform) errors.website_platform = 'Pick your website type so we know how to read your site.'
       if (Object.keys(errors).length) {
@@ -521,7 +521,7 @@ export default function OnboardingPage() {
                   {quickFillRunning && (
                     <p className="text-xs text-ink/65 mt-3 flex items-center gap-2" role="status" aria-live="polite">
                       <span className="inline-block h-3 w-3 rounded-full border-2 border-brand-400 border-t-transparent animate-spin" />
-                      {quickFillStatus || 'Working on it…'} This usually takes 1–3 minutes.
+                      {quickFillStatus || 'Working on it…'} This usually takes 1 to 3 minutes.
                     </p>
                   )}
                   {quickFillError && (

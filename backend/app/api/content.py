@@ -73,7 +73,7 @@ from app.services.billing_entitlements import (
     free_generations_used,
 )
 from datetime import date, timedelta
-from calendar import monthrange
+from calendar import month_name, monthrange
 import logging
 import re
 from pydantic import BaseModel, Field
@@ -1492,10 +1492,10 @@ async def generate_month(
     if body.month < 1 or body.month > 12:
         raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
     if body.year < 2024 or body.year > 2030:
-        raise HTTPException(status_code=400, detail="That year doesn't look right — double-check it.")
+        raise HTTPException(status_code=400, detail="That year doesn't look right. Double-check it.")
     _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
+        raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
 
@@ -1616,10 +1616,10 @@ async def generate_month_v2(
     if body.month < 1 or body.month > 12:
         raise HTTPException(status_code=400, detail="Pick a month between 1 and 12.")
     if body.year < 2024 or body.year > 2032:
-        raise HTTPException(status_code=400, detail="That year doesn't look right — double-check it.")
+        raise HTTPException(status_code=400, detail="That year doesn't look right. Double-check it.")
     _assert_generation_horizon(body.month, body.year)
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
+        raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
     monthly_post_cap: int | None = None
@@ -1741,9 +1741,9 @@ async def caption_from_photo(
     db: AsyncSession = Depends(get_db),
 ):
     if not body.description or not body.description.strip():
-        raise HTTPException(status_code=400, detail="Add a description — that's how the AI knows what to write about.")
+        raise HTTPException(status_code=400, detail="Add a description. That's how the AI knows what to write about.")
     if not body.platforms:
-        raise HTTPException(status_code=400, detail="Pick at least one platform — we generate per-platform.")
+        raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
     results = {}
@@ -1761,7 +1761,7 @@ async def caption_from_photo(
             logger.error(f"Photo caption error for {platform.value}: {e}")
             errors[platform.value] = "Generation failed. Please try again."
     if not results:
-        raise HTTPException(status_code=502, detail="Generation didn't go through for any of the platforms. Try again in a moment — it's usually a passing hiccup.")
+        raise HTTPException(status_code=502, detail="Generation didn't go through for any of the platforms. Try again in a moment. It's usually a passing hiccup.")
     return {"results": results, "errors": errors}
 
 
@@ -2641,91 +2641,6 @@ def _shift_posts_avoid_calendar_collisions(
     return out
 
 
-async def _existing_platform_dates_in_month(
-    db: AsyncSession, brand_id: str, month: int, year: int
-) -> set[tuple[str, str]]:
-    """(platform value, scheduled_date ISO) pairs already on the calendar for this month."""
-    last = monthrange(year, month)[1]
-    start = date(year, month, 1)
-    end = date(year, month, last)
-    r = await db.execute(
-        select(ContentItem.platform, ContentItem.scheduled_date).where(
-            ContentItem.brand_id == brand_id,
-            ContentItem.scheduled_date.isnot(None),
-            ContentItem.scheduled_date >= start,
-            ContentItem.scheduled_date <= end,
-        )
-    )
-    occupied: set[tuple[str, str]] = set()
-    for row in r.all():
-        platform, sd = row[0], row[1]
-        if sd is not None:
-            pv = platform.value if isinstance(platform, ContentPlatform) else str(platform)
-            occupied.add((str(pv).lower(), sd.isoformat()))
-    return occupied
-
-
-def _weekday_isos_in_month(year: int, month: int) -> list[str]:
-    last = monthrange(year, month)[1]
-    acc: list[str] = []
-    for day in range(1, last + 1):
-        d = date(year, month, day)
-        if d.weekday() < 5:
-            acc.append(d.isoformat())
-    return acc
-
-
-def _shift_posts_avoid_calendar_collisions(
-    posts: list[dict],
-    occupied: set[tuple[str, str]],
-    month: int,
-    year: int,
-) -> list[dict]:
-    """No two saved posts for the same brand may share (platform, scheduled_date).
-
-    Fills weekdays in-order when the model or a prior run already claimed a slot.
-    """
-    pool = _weekday_isos_in_month(year, month)
-    pool_set = set(pool)
-    working = set(occupied)
-    out: list[dict] = []
-    for raw in posts:
-        if not isinstance(raw, dict):
-            continue
-        post = dict(raw)
-        pv = str(post.get("platform", "instagram")).lower()
-        try:
-            dstr = date.fromisoformat(str(post.get("date", "")).strip()).isoformat()
-        except Exception:
-            dstr = ""
-        if dstr not in pool_set:
-            dstr = ""
-        if not dstr:
-            cand = next((c for c in pool if (pv, c) not in working), None)
-            if not cand:
-                logger.warning("Skipping post: no free weekday slot for platform %s", pv)
-                continue
-            post["date"] = cand
-            dstr = cand
-        key = (pv, dstr)
-        if key in working:
-            cand = next((c for c in pool if (pv, c) not in working), None)
-            if not cand:
-                logger.warning(
-                    "Skipping post: no free weekday left for %s in %s/%s (duplicate slot)",
-                    pv,
-                    month,
-                    year,
-                )
-                continue
-            post["date"] = cand
-            dstr = cand
-            key = (pv, dstr)
-        working.add(key)
-        out.append(post)
-    return out
-
-
 def _normalize_topic_signature(text: str | None) -> str:
     s = (text or "").lower().strip()
     s = re.sub(r"\s+", " ", s)
@@ -2734,6 +2649,370 @@ def _normalize_topic_signature(text: str | None) -> str:
 
 def _topic_slug(text: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", "", (text or "").lower())[:64]
+
+
+_GENERIC_CONTENT_LABELS = {
+    "announcement",
+    "behind the scenes",
+    "community",
+    "educational",
+    "event",
+    "founder story",
+    "industry insight",
+    "lifestyle",
+    "product spotlight",
+    "promotional",
+    "seasonal",
+    "testimonial",
+    "trending topic",
+    "content",
+    "offer",
+    "proof",
+    "education",
+    "story or culture",
+    "story_or_culture",
+    "community or engagement",
+    "community_or_engagement",
+    "comparison or benefit",
+    "comparison_or_benefit",
+    "objection handling",
+    "objection_handling",
+    "product or service spotlight",
+    "product_or_service_spotlight",
+    "seasonal or moment",
+    "seasonal_or_moment",
+}
+
+_CONTENT_FOCUS_BY_LABEL = {
+    "announcement": "launch announcement",
+    "behind the scenes": "creation process story",
+    "community": "community conversation",
+    "community or engagement": "community conversation",
+    "community_or_engagement": "community conversation",
+    "comparison or benefit": "benefit comparison",
+    "comparison_or_benefit": "benefit comparison",
+    "educational": "practical customer lesson",
+    "education": "practical customer lesson",
+    "event": "timely campaign moment",
+    "founder story": "founder point of view",
+    "industry insight": "industry insight",
+    "lifestyle": "customer use case",
+    "objection handling": "objection handling post",
+    "objection_handling": "objection handling post",
+    "offer": "conversion offer",
+    "product spotlight": "workflow spotlight",
+    "product or service spotlight": "product spotlight",
+    "product_or_service_spotlight": "product spotlight",
+    "promotional": "conversion offer",
+    "proof": "customer proof story",
+    "seasonal": "seasonal campaign angle",
+    "seasonal or moment": "seasonal campaign angle",
+    "seasonal_or_moment": "seasonal campaign angle",
+    "story or culture": "brand culture story",
+    "story_or_culture": "brand culture story",
+    "testimonial": "customer proof story",
+    "trending topic": "trend reaction",
+}
+
+_FAMILY_BY_CONTENT_LABEL = {
+    "announcement": "announcement",
+    "behind the scenes": "editorial_issue_card",
+    "community": "text_poster",
+    "community or engagement": "text_poster",
+    "community_or_engagement": "text_poster",
+    "comparison or benefit": "data_card",
+    "comparison_or_benefit": "data_card",
+    "educational": "text_poster",
+    "education": "text_poster",
+    "event": "announcement",
+    "founder story": "editorial_issue_card",
+    "industry insight": "data_card",
+    "lifestyle": "story_carousel",
+    "objection handling": "text_poster",
+    "objection_handling": "text_poster",
+    "offer": "offer_pill_campaign",
+    "product spotlight": "device_mockup_benefit",
+    "product or service spotlight": "device_mockup_benefit",
+    "product_or_service_spotlight": "device_mockup_benefit",
+    "promotional": "offer_pill_campaign",
+    "proof": "testimonial",
+    "seasonal": "seasonal_pattern_promo",
+    "seasonal or moment": "seasonal_pattern_promo",
+    "seasonal_or_moment": "seasonal_pattern_promo",
+    "story or culture": "editorial_issue_card",
+    "story_or_culture": "editorial_issue_card",
+    "testimonial": "testimonial",
+    "trending topic": "text_poster",
+}
+
+_FAMILY_ARCHETYPE = {
+    "announcement": "pattern_headline",
+    "data_card": "pattern_headline",
+    "device_mockup_benefit": "device_mockup_benefit",
+    "editorial_issue_card": "editorial_issue_card",
+    "edu": "flat_edu",
+    "offer_pill_campaign": "offer_pill_stack",
+    "seasonal_pattern_promo": "offer_pill_stack",
+    "story_carousel": "editorial_issue_card",
+    "testimonial": "quote_editorial_sheet",
+    "text_poster": "pattern_headline",
+}
+
+_FAMILY_SEQUENCE = (
+    "device_mockup_benefit",
+    "text_poster",
+    "editorial_issue_card",
+    "offer_pill_campaign",
+    "data_card",
+    "announcement",
+)
+
+
+def _label_key(value: str | None) -> str:
+    s = str(value or "").strip().lower().replace("_", " ")
+    return re.sub(r"\s+", " ", s)
+
+
+def _brand_display_name(brand: dict) -> str:
+    name = str((brand or {}).get("name") or "the brand").strip()
+    return name or "the brand"
+
+
+def _month_label(target_month: int) -> str:
+    if 1 <= int(target_month) <= 12:
+        return month_name[int(target_month)]
+    return "This month"
+
+
+def _calendar_content_label(post: dict) -> str:
+    return _label_key(post.get("content_type") or post.get("topic") or post.get("content_idea") or "content")
+
+
+def _is_generic_content_label(value: str | None) -> bool:
+    key = _label_key(value)
+    return bool(key and key in _GENERIC_CONTENT_LABELS)
+
+
+def _post_identity_reused(post: dict, prior_sigs: set[str], prior_slugs: set[str], seen_slugs: set[str] | None = None) -> bool:
+    candidates = [
+        post.get("content_idea"),
+        post.get("topic"),
+        post.get("caption"),
+        post.get("image_prompt"),
+        post.get("visual_direction"),
+    ]
+    for raw in candidates:
+        raw_s = str(raw or "")
+        sig = _normalize_topic_signature(raw_s)
+        slug = _topic_slug(raw_s)
+        if sig and len(sig) >= 5 and sig in prior_sigs:
+            return True
+        if slug and len(slug) >= 8 and (slug in prior_slugs or (seen_slugs and slug in seen_slugs)):
+            return True
+    return False
+
+
+def _month_specific_topic(post: dict, brand: dict, target_year: int, target_month: int, idx: int) -> str:
+    label = _calendar_content_label(post)
+    focus = _CONTENT_FOCUS_BY_LABEL.get(label) or label.replace("_", " ") or "content angle"
+    brand_name = _brand_display_name(brand)
+    month_part = _month_label(target_month)
+    topic = f"{brand_name} {month_part} {focus}".strip()
+    return re.sub(r"\s+", " ", topic)[:120] or f"{month_part} content angle {idx + 1}"
+
+
+def _resolve_post_family(post: dict, idx: int) -> str:
+    forced = str(post.get("force_template_family") or post.get("template_family") or "").strip().lower()
+    if forced:
+        return forced
+    label = _calendar_content_label(post)
+    return _FAMILY_BY_CONTENT_LABEL.get(label) or _FAMILY_SEQUENCE[idx % len(_FAMILY_SEQUENCE)]
+
+
+def _apply_calendar_design_defaults(
+    post: dict,
+    brand: dict,
+    target_year: int,
+    target_month: int,
+    idx: int,
+    *,
+    force_fresh_guard: bool,
+) -> dict:
+    out = dict(post)
+    family = _resolve_post_family(out, idx)
+    out["template_family"] = family
+    out["force_template_family"] = family
+
+    current_arch = str(out.get("visual_archetype") or "").strip().lower()
+    default_arch = _FAMILY_ARCHETYPE.get(family)
+    if default_arch and (not current_arch or current_arch == "photo_hero"):
+        out["visual_archetype"] = default_arch
+    if family in {"text_poster", "data_card", "announcement", "offer_pill_campaign", "device_mockup_benefit", "editorial_issue_card"}:
+        out["visual_type"] = "abstract" if family in {"text_poster", "data_card", "announcement", "offer_pill_campaign"} else "illustration"
+
+    if not force_fresh_guard and str(out.get("visual_direction") or "").strip():
+        return out
+
+    ym = f"{target_year}-{target_month:02d}"
+    topic = str(out.get("content_idea") or out.get("topic") or _month_specific_topic(out, brand, target_year, target_month, idx)).strip()
+    guard = (
+        f"Fresh {ym} creative direction for {topic}. Do not reuse prior month actors, outfits, "
+        "green sweater office scenes, phone-holding portraits, identical prop clusters, or the same photo hero layout. "
+        "Make this a platform-native social design with visible copy hierarchy, distinct composition, "
+        "brand-relevant proof, and a clear CTA. Prefer typography-led or structured poster layouts when the post is not product-photo specific."
+    )
+    if str(out.get("visual_direction") or "").strip():
+        out["visual_direction"] = str(out["visual_direction"]).rstrip() + "\n\n" + guard
+    else:
+        out["visual_direction"] = guard
+    if str(out.get("image_prompt") or "").strip():
+        out["image_prompt"] = str(out["image_prompt"]).rstrip() + "\n\n" + guard
+    elif force_fresh_guard:
+        out["image_prompt"] = guard
+    return out
+
+
+def _hashtag_token(value: str | None) -> str:
+    words = re.findall(r"[A-Za-z0-9]+", str(value or ""))
+    if not words:
+        return ""
+    return "".join(w[:24].title() for w in words)[:48]
+
+
+def _normalize_hashtags(raw: object, brand: dict, post: dict, platform: str) -> list[str]:
+    tags: list[str] = []
+    if isinstance(raw, list):
+        for item in raw:
+            token = _hashtag_token(str(item).lstrip("#"))
+            if token and token.lower() not in {t.lower() for t in tags}:
+                tags.append(token)
+    if not tags:
+        for seed in (
+            _brand_display_name(brand),
+            post.get("content_type"),
+            post.get("topic"),
+            (brand or {}).get("industry"),
+        ):
+            token = _hashtag_token(seed)
+            if token and token.lower() not in {t.lower() for t in tags}:
+                tags.append(token)
+    max_by_platform = {"twitter": 2, "x": 2, "linkedin": 4, "facebook": 4, "instagram": 7}
+    return tags[: max_by_platform.get(str(platform or "instagram").lower(), 5)]
+
+
+def _fallback_caption_for_post(post: dict, brand: dict, platform: str, target_month: int) -> str:
+    brand_name = _brand_display_name(brand)
+    topic = str(post.get("content_idea") or post.get("topic") or _month_specific_topic(post, brand, date.today().year, target_month, 0)).strip()
+    cta = str(post.get("cta") or _default_cta_from_brand(brand, post) or "Take the next step").strip()
+    platform_key = str(platform or "instagram").lower()
+    if platform_key in {"twitter", "x"}:
+        return f"{topic}. {brand_name} makes the next step easier. {cta}"
+    if platform_key == "linkedin":
+        return (
+            f"{topic}\n\n"
+            f"For teams and customers, the win is simple: clearer communication, faster decisions, and less content drag.\n\n"
+            f"{cta}"
+        )
+    if platform_key == "facebook":
+        return (
+            f"{topic}\n\n"
+            f"If this is useful for you or your team, keep {brand_name} close. {cta}"
+        )
+    return (
+        f"{topic}\n\n"
+        f"A sharper way to show what {brand_name} does, why it matters, and what to do next.\n\n"
+        f"{cta}"
+    )
+
+
+async def _repair_posts_for_calendar_save(
+    posts: list[dict],
+    brand: dict,
+    target_year: int,
+    target_month: int,
+    prior_sigs: set[str],
+    prior_slugs: set[str],
+) -> list[dict]:
+    repaired: list[dict] = []
+    seen_slugs: set[str] = set()
+    for idx, raw in enumerate(posts):
+        if not isinstance(raw, dict):
+            continue
+        post = dict(raw)
+        platform = str(post.get("platform") or "instagram").lower()
+        topic_text = str(post.get("content_idea") or post.get("topic") or "").strip()
+        content_label = _label_key(post.get("content_type"))
+        is_generic = (
+            not topic_text
+            or _is_generic_content_label(topic_text)
+            or (bool(content_label) and _label_key(topic_text) == content_label)
+        )
+        was_reused = _post_identity_reused(post, prior_sigs, prior_slugs, seen_slugs)
+        if is_generic or was_reused:
+            base_topic = _month_specific_topic(post, brand, target_year, target_month, idx)
+            unique_topic = base_topic
+            n = 2
+            while _topic_slug(unique_topic) in prior_slugs or _topic_slug(unique_topic) in seen_slugs:
+                unique_topic = f"{base_topic} angle {n}"
+                n += 1
+            post["topic"] = unique_topic
+            post["content_idea"] = unique_topic
+            if not str(post.get("description") or "").strip():
+                post["description"] = (
+                    f"{unique_topic} for {_brand_display_name(brand)}, shaped as a fresh "
+                    f"{_calendar_content_label(post)} post for {_month_label(target_month)}."
+                )
+
+        post = _apply_calendar_design_defaults(
+            post,
+            brand,
+            target_year,
+            target_month,
+            idx,
+            force_fresh_guard=(is_generic or was_reused or not str(post.get("visual_direction") or "").strip()),
+        )
+
+        caption = str(post.get("caption") or "").strip()
+        hashtags = _normalize_hashtags(post.get("hashtags"), brand, post, platform)
+        if not caption or not hashtags:
+            try:
+                result = await generate_single_caption(
+                    brand=brand,
+                    topic=str(post.get("content_idea") or post.get("topic") or _month_specific_topic(post, brand, target_year, target_month, idx)),
+                    platform=platform,
+                    description=str(post.get("description") or post.get("visual_direction") or ""),
+                    existing_caption=caption or None,
+                )
+                generated_caption = str(result.get("caption") or "").strip()
+                generated_tags = _normalize_hashtags(result.get("hashtags"), brand, post, platform)
+                if generated_caption:
+                    caption = generated_caption
+                if generated_tags:
+                    hashtags = generated_tags
+                generated_cta = str(result.get("cta") or "").strip()[:300]
+                if generated_cta and not str(post.get("cta") or "").strip():
+                    post["cta"] = generated_cta
+            except Exception as e:
+                logger.warning(
+                    "Caption repair failed for %s %s/%s post %s: %s",
+                    brand.get("name"),
+                    target_month,
+                    target_year,
+                    idx,
+                    e,
+                )
+        if not caption:
+            caption = _fallback_caption_for_post(post, brand, platform, target_month)
+        post["caption"] = caption
+        post["hashtags"] = hashtags or _normalize_hashtags([], brand, post, platform)
+        if not str(post.get("cta") or "").strip():
+            post["cta"] = _default_cta_from_brand(brand, post)[:300]
+
+        slug = _topic_slug(post.get("content_idea") or post.get("topic") or caption)
+        if slug:
+            seen_slugs.add(slug)
+        repaired.append(post)
+    return repaired
 
 
 async def _load_prior_cross_month_memory(
@@ -2755,6 +3034,8 @@ async def _load_prior_cross_month_memory(
             ContentItem.platform,
             ContentItem.topic,
             ContentItem.content_idea,
+            ContentItem.caption,
+            ContentItem.visual_direction,
             ContentItem.image_prompt,
         )
         .where(
@@ -2770,10 +3051,10 @@ async def _load_prior_cross_month_memory(
     slugs: set[str] = set()
     lines: list[str] = []
     for row in r.all():
-        sd, plat, topic, idea, ip = row[0], row[1], row[2], row[3], row[4]
+        sd, plat, topic, idea, caption, visual_direction, ip = row[0], row[1], row[2], row[3], row[4], row[5], row[6]
         pv = plat.value if isinstance(plat, ContentPlatform) else str(plat)
         pv = str(pv).lower()
-        for raw in (idea, topic):
+        for raw in (idea, topic, caption, visual_direction, ip):
             raw_s = str(raw or "")
             sig = _normalize_topic_signature(raw_s)
             if sig and len(sig) > 3:
@@ -2825,8 +3106,18 @@ def _differentiate_if_topic_reused(
     out = dict(post)
     if str(out.get("image_prompt") or "").strip():
         out["image_prompt"] = str(out["image_prompt"]).rstrip() + suffix
+    else:
+        out["image_prompt"] = (
+            f"Create a fresh social design for {idea or 'this post'} with a visibly different composition "
+            f"for {ym}.{suffix}"
+        )
     if str(out.get("visual_direction") or "").strip():
         out["visual_direction"] = str(out["visual_direction"]).rstrip() + suffix
+    else:
+        out["visual_direction"] = (
+            f"Fresh {ym} visual direction for {idea or 'this post'}; avoid prior month composition repeats."
+            + suffix
+        )
     return out
 
 
@@ -2970,10 +3261,14 @@ async def _do_generate_month(
                     year,
                 )
                 return
-            posts = [
-                _differentiate_if_topic_reused(p, prior_topic_sigs, prior_topic_slugs, year, month)
-                for p in posts
-            ]
+            posts = await _repair_posts_for_calendar_save(
+                posts,
+                brand_for_planner,
+                year,
+                month,
+                prior_topic_sigs,
+                prior_topic_slugs,
+            )
             saved_items = []
             for post in posts:
                 try:
