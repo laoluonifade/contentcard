@@ -736,8 +736,15 @@ _LIGHTING_PROSE = {
 _MEDIUM_PROSE = {
     "photo": "premium advertising photography (not stock, not template)",
     "illustration": "editorial illustration with deliberate brushwork",
-    "ui_mockup": "clean UI mockup screenshot — interface as the hero",
-    "text_graphic": "typography-led graphic — the words ARE the visual",
+    "ui_mockup": (
+        "clean abstract device or interface frame — blank/placeholder UI elements only "
+        "(blurred bars, generic chips, abstract glyphs); absolutely no readable words, "
+        "headlines, prices, percentages, or button labels rendered as pixels"
+    ),
+    "text_graphic": (
+        "typography-led graphic with bold abstract shapes; do NOT render readable words, "
+        "letterforms, prices, or hashtags — those are added in post-production via the layout layer"
+    ),
 }
 
 _CONTEXT_PROSE = {
@@ -747,6 +754,57 @@ _CONTEXT_PROSE = {
     "minimal": "minimal background, generous negative space",
     "environment": "real environment with authentic texture and props",
 }
+
+
+def align_with_archetype(
+    strategy: VisualStrategy | None,
+    art_brief: dict | None,
+) -> VisualStrategy | None:
+    """Reconcile strategy.medium with the archetype's render family.
+
+    The archetype (e.g. ``photo_hero``) is a stronger signal than the rotation-
+    driven ``medium`` slot. Without this guard, a ``photo_hero`` archetype paired
+    with a ``ui_mockup`` medium produces a dashboard mockup labelled as a photo
+    hero — the hard-constraint block tells the model to draw an interface and
+    the archetype guidance is ignored.
+    """
+    if strategy is None:
+        return None
+    if not isinstance(art_brief, dict):
+        return strategy
+    family = str(art_brief.get("photo_vs_illustration") or "").strip().lower()
+    archetype = str(art_brief.get("archetype_id") or "").strip().lower()
+    if archetype == "pattern_headline" and strategy.medium == "ui_mockup":
+        return VisualStrategy(
+            subject_type="abstract",
+            composition=strategy.composition,
+            medium="illustration",
+            lighting=strategy.lighting,
+            context=strategy.context,
+            pose_tag="none",
+            subject_dominance=strategy.subject_dominance,
+        )
+    if family == "photo" and strategy.medium in ("ui_mockup", "text_graphic"):
+        return VisualStrategy(
+            subject_type=strategy.subject_type if strategy.subject_type not in ("ui", "typography") else "product",
+            composition=strategy.composition,
+            medium="photo",
+            lighting=strategy.lighting,
+            context=strategy.context if strategy.context != "minimal" else "environment",
+            pose_tag=strategy.pose_tag,
+            subject_dominance=max(strategy.subject_dominance, 0.6),
+        )
+    if family == "illustration" and strategy.medium == "ui_mockup":
+        return VisualStrategy(
+            subject_type=strategy.subject_type,
+            composition=strategy.composition,
+            medium="illustration",
+            lighting=strategy.lighting,
+            context=strategy.context,
+            pose_tag=strategy.pose_tag,
+            subject_dominance=strategy.subject_dominance,
+        )
+    return strategy
 
 
 def render_strategy_constraints(strategy: VisualStrategy, content_type: str | None) -> str:
@@ -804,8 +862,16 @@ def render_strategy_constraints(strategy: VisualStrategy, content_type: str | No
 _STYLE_PROSE = {
     "photo": "Premium photography (campaign / editorial — not stock, not template).",
     "illustration": "Editorial illustration — deliberate brushwork, cohesive shape language.",
-    "ui_mockup": "Clean UI mockup — interface is the hero, real product screens.",
-    "text_graphic": "Typography-led graphic — the words ARE the visual.",
+    "ui_mockup": (
+        "Clean abstract device or app frame as the hero. Use only blank UI placeholders — "
+        "blurred bars, generic chips, neutral icons. Render NO readable text, headlines, "
+        "prices, percentages, or button labels inside the mockup; the layout layer adds all copy."
+    ),
+    "text_graphic": (
+        "Typography-led graphic built from bold abstract shapes and colour blocking. "
+        "Do NOT draw readable letters, words, prices, or hashtags as pixels — the headline "
+        "and CTA are composited on top by the layout layer."
+    ),
 }
 
 _DEPTH_PROSE = {

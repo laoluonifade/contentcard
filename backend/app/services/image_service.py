@@ -242,6 +242,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     # negative-prompt bundle even when the brand's free-form label drifts.
     from app.services import visual_strategy as _vs
     _strategy_obj = _vs.VisualStrategy.from_dict(post.get("visual_strategy") if isinstance(post.get("visual_strategy"), dict) else None)
+    _strategy_obj = _vs.align_with_archetype(_strategy_obj, ab)
     _ct_for_strategy = content_type_slot or content_type
     strategy_block = _vs.render_strategy_constraints(_strategy_obj, _ct_for_strategy) if _strategy_obj else ""
     # Content-type art direction (slot key wins over the free-form label).
@@ -1559,7 +1560,9 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
         edit_cache_key = hashlib.sha256(
             (
                 f"{_IMAGE_PROMPT_VERSION}|edit|{n}|{edit_prompt[:500]}|"
-                f"{product_url_sig}|{brand.get('id', '')}"
+                f"{product_url_sig}|{brand.get('id', '')}|"
+                f"{post.get('id', '')}|{post.get('date', '')}|"
+                f"{post.get('regenerate_token', '')}|{post.get('quality_gate_retry', '')}"
             ).encode("utf-8")
         ).hexdigest()
         cached = cache_get("openai_image", edit_cache_key)
@@ -1595,7 +1598,8 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
     cache_key = hashlib.sha256(
         (
             f"{_IMAGE_PROMPT_VERSION}|{model}|{n}|{prompt}|{post.get('platform','')}|{post.get('format','')}|"
-            f"{post.get('content_type','')}|{post.get('date','')}|{brand.get('id','')}|{brand.get('name','')}"
+            f"{post.get('content_type','')}|{post.get('date','')}|{brand.get('id','')}|{brand.get('name','')}|"
+            f"{post.get('id','')}|{post.get('regenerate_token','')}|{post.get('quality_gate_retry','')}"
         ).encode("utf-8")
     ).hexdigest()
     cached_urls = cache_get("openai_image", cache_key)
