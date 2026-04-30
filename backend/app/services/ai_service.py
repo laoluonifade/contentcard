@@ -447,6 +447,8 @@ _GENERIC_PHRASES = [
     "innovative solution", "cutting edge", "state of the art", "world class",
     "seamless experience", "robust platform", "synergy", "leverage",
     "paradigm shift", "thought leader", "disruptive", "ecosystem",
+    "a fresh post", "fresh contentcard post", "make the message clear",
+    "easy to act on", "explore our features", "take the next step",
 ]
 
 _FOCAL_KEYWORDS = [
@@ -4256,6 +4258,9 @@ Rules:
 - business-shape copy rule: {business_copy_bias}
 - custom brand note for {platform}: {custom_platform_style}
 - use concrete buyer language, product detail, offer detail, pain point, proof point, or use case; do not settle for generic motivation
+- if the topic is a generic slot label (Trending Topic, Product Spotlight, Educational, Promotional), infer a concrete publishable angle from the brand profile before writing
+- do not use the topic or content type as the entire first line unless you have rewritten it into a buyer-facing hook
+- never write filler like "A fresh post", "clear, useful, and easy to act on", "Explore our features", or "Take the next step"
 - no generic phrases, no forbidden words
 - keep it aligned to the structured campaign brief and playbook context above
 - for carousel-linked themes, let the caption support the slide story instead of repeating it
@@ -4281,6 +4286,9 @@ Rules:
 - custom brand note for {platform}: {custom_platform_style}
 - write like a conversion-aware social strategist for this exact business, not a generic content writer
 - use concrete product, audience, pain-point, proof, ritual, timing, use-case, or offer detail whenever available
+- if the topic is a generic slot label (Trending Topic, Product Spotlight, Educational, Promotional), infer a concrete publishable angle from the brand profile before writing
+- do not use the topic or content type as the entire first line unless you have rewritten it into a buyer-facing hook
+- never write filler like "A fresh post", "clear, useful, and easy to act on", "Explore our features", or "Take the next step"
 - ground the copy in the structured campaign brief and playbook context above
 - make it feel ready to publish, not like placeholder social copy
 - no hashtags inside the caption body; put them only in the hashtags array
@@ -4294,7 +4302,7 @@ Field "cta" is REQUIRED: one imperative line, max 12 words, ordering/booking, vi
             {"role": "user", "content": prompt},
         ],
         max_tokens=1000 if source_kind == "single_caption" else 800,
-        temperature=0.55,
+        temperature=0.62,
         json_mode=True,
         endpoint_name="caption_generation" if source_kind == "single_caption" else "photo_caption",
         high_quality_required=True,

@@ -50,6 +50,7 @@ from app.services.ai_service import (
     run_generation_prep_chat,
     run_brand_form_coach_chat,
     _default_cta_from_brand,
+    resolve_business_default_strategy,
 )
 from app.services.month_holiday_context import build_month_holiday_context
 from app.services.visual_tokens import (
@@ -2767,6 +2768,21 @@ _FAMILY_SEQUENCE = (
     "announcement",
 )
 
+_WEAK_CAPTION_PATTERNS = (
+    "a fresh ",
+    "post built to make the message clear",
+    "make the message clear, useful, and easy to act on",
+    "clear, ready-to-share update",
+    "sharper way to show what",
+    "explore our features",
+    "take the next step",
+    "new content",
+    "unlock your potential",
+    "level up",
+    "game changer",
+    "join the journey",
+)
+
 
 def _label_key(value: str | None) -> str:
     s = str(value or "").strip().lower().replace("_", " ")
@@ -2776,6 +2792,122 @@ def _label_key(value: str | None) -> str:
 def _brand_display_name(brand: dict) -> str:
     name = str((brand or {}).get("name") or "the brand").strip()
     return name or "the brand"
+
+
+def _brand_signal(brand: dict, *keys: str) -> str:
+    kit = (brand or {}).get("brand_kit") if isinstance((brand or {}).get("brand_kit"), dict) else {}
+    for key in keys:
+        value = (brand or {}).get(key)
+        if value in (None, "", [], {}):
+            value = kit.get(key)
+        if isinstance(value, list):
+            value = ", ".join(str(v).strip() for v in value if str(v).strip())
+        text = str(value or "").strip()
+        if text:
+            return re.sub(r"\s+", " ", text)
+    return ""
+
+
+def _business_strategy_for_brand(brand: dict) -> dict:
+    try:
+        strategy = resolve_business_default_strategy(brand or {})
+        return strategy if isinstance(strategy, dict) else {}
+    except Exception:
+        return {}
+
+
+def _brand_value_phrase(brand: dict) -> str:
+    raw = _brand_signal(
+        brand,
+        "value_proposition",
+        "description",
+        "mission_statement",
+        "tagline",
+        "key_messages",
+    )
+    if not raw:
+        return "helps customers get from idea to action faster"
+    cleaned = re.sub(r"\s+", " ", raw).strip(" .")
+    return " ".join(cleaned.split()[:26]).strip(" .,;")
+
+
+def _brand_audience_phrase(brand: dict) -> str:
+    audience = _brand_signal(brand, "target_audience", "audience_location", "audience_age_range")
+    if audience:
+        return audience[:120]
+    shape = str(_business_strategy_for_brand(brand).get("business_shape") or "")
+    if "software" in shape or "b2b" in shape:
+        return "busy teams"
+    if "restaurant" in shape or "hospitality" in shape or "local" in shape:
+        return "nearby customers"
+    return "the people who need this most"
+
+
+def _shape_specific_angle(brand: dict, label: str, month_part: str) -> str:
+    brand_name = _brand_display_name(brand)
+    strategy = _business_strategy_for_brand(brand)
+    shape = str(strategy.get("business_shape") or "").lower()
+    industry = _brand_signal(brand, "industry", "sub_industry").lower()
+    audience = _brand_audience_phrase(brand)
+    bag = f"{shape} {industry}"
+
+    is_food = any(k in bag for k in ("food", "restaurant", "cafe", "kitchen", "meal", "delivery", "hospitality"))
+    is_software = any(k in bag for k in ("software", "saas", "tech", "platform", "ai", "workflow"))
+    is_finance = any(k in bag for k in ("fintech", "finance", "bank", "payment", "money"))
+    is_service = any(k in bag for k in ("service", "consult", "agency", "professional", "legal"))
+
+    if is_food:
+        by_label = {
+            "product spotlight": f"{brand_name} signature pick for {month_part}",
+            "product or service spotlight": f"{brand_name} signature pick for {month_part}",
+            "product_or_service_spotlight": f"{brand_name} signature pick for {month_part}",
+            "promotional": f"{month_part} order-worthy offer from {brand_name}",
+            "offer": f"{month_part} order-worthy offer from {brand_name}",
+            "seasonal": f"{month_part} dining moment from {brand_name}",
+            "trending topic": f"What {month_part} customers are craving now",
+            "testimonial": f"Why customers keep coming back to {brand_name}",
+            "proof": f"Why customers keep coming back to {brand_name}",
+            "community": f"Tag the person you would share {brand_name} with",
+        }
+        return by_label.get(label, f"{brand_name} makes {month_part} meals easier to choose")
+
+    if is_software:
+        by_label = {
+            "product spotlight": f"{brand_name} workflow shortcut for {audience}",
+            "product or service spotlight": f"{brand_name} workflow shortcut for {audience}",
+            "product_or_service_spotlight": f"{brand_name} workflow shortcut for {audience}",
+            "educational": "How to ship consistent content without extra busywork",
+            "education": "How to ship consistent content without extra busywork",
+            "trending topic": "AI content workflows are moving from prompts to systems",
+            "promotional": f"Turn one brief into ready posts with {brand_name}",
+            "offer": f"Turn one brief into ready posts with {brand_name}",
+            "behind the scenes": f"How {brand_name} turns a brief into ready posts",
+            "founder story": f"Why {brand_name} is built for consistent publishing",
+            "industry insight": "The new content bottleneck is operational, not creative",
+        }
+        return by_label.get(label, f"{brand_name} helps {audience} publish with less drag")
+
+    if is_finance:
+        by_label = {
+            "trending topic": "People want money tools that feel clear and controlled",
+            "educational": "A simpler way to understand the next money move",
+            "product spotlight": f"{brand_name} feature that gives customers more control",
+            "proof": f"Why customers trust {brand_name} with the next step",
+            "promotional": f"Try the easier way to manage money with {brand_name}",
+        }
+        return by_label.get(label, f"{brand_name} makes the next money step clearer")
+
+    if is_service:
+        by_label = {
+            "educational": f"What {audience} should know before the next decision",
+            "industry insight": f"The mistake {audience} should avoid this month",
+            "proof": f"How {brand_name} earns trust before the first call",
+            "testimonial": f"Why clients choose {brand_name} for clarity",
+            "promotional": f"Book a focused conversation with {brand_name}",
+        }
+        return by_label.get(label, f"{brand_name} helps {audience} move with more confidence")
+
+    return f"{brand_name} {month_part} {(_CONTENT_FOCUS_BY_LABEL.get(label) or label or 'customer value')}"
 
 
 def _month_label(target_month: int) -> str:
@@ -2814,10 +2946,8 @@ def _post_identity_reused(post: dict, prior_sigs: set[str], prior_slugs: set[str
 
 def _month_specific_topic(post: dict, brand: dict, target_year: int, target_month: int, idx: int) -> str:
     label = _calendar_content_label(post)
-    focus = _CONTENT_FOCUS_BY_LABEL.get(label) or label.replace("_", " ") or "content angle"
-    brand_name = _brand_display_name(brand)
     month_part = _month_label(target_month)
-    topic = f"{brand_name} {month_part} {focus}".strip()
+    topic = _shape_specific_angle(brand, label, month_part)
     return re.sub(r"\s+", " ", topic)[:120] or f"{month_part} content angle {idx + 1}"
 
 
@@ -2900,27 +3030,97 @@ def _normalize_hashtags(raw: object, brand: dict, post: dict, platform: str) -> 
     return tags[: max_by_platform.get(str(platform or "instagram").lower(), 5)]
 
 
+def _caption_needs_repair(caption: str | None, post: dict, brand: dict, platform: str) -> bool:
+    text = re.sub(r"\s+", " ", str(caption or "")).strip()
+    if not text:
+        return True
+    low = text.lower()
+    label = _calendar_content_label(post)
+    topic = _label_key(post.get("content_idea") or post.get("topic") or "")
+    word_count = len(re.findall(r"[A-Za-z0-9']+", text))
+    min_words = 5 if str(platform or "").lower() in {"twitter", "x"} else 10
+    if word_count < min_words:
+        return True
+    if any(pattern in low for pattern in _WEAK_CAPTION_PATTERNS):
+        return True
+    if label and _label_key(text) == label:
+        return True
+    if topic and _label_key(text) == topic:
+        return True
+    first_line = _label_key(text.split("\n", 1)[0])
+    if first_line and first_line in _GENERIC_CONTENT_LABELS and word_count < 18:
+        return True
+    brand_name = _brand_display_name(brand).lower()
+    if brand_name not in {"the brand", "my brand"} and brand_name not in low and word_count < 18:
+        return True
+    return False
+
+
 def _fallback_caption_for_post(post: dict, brand: dict, platform: str, target_month: int) -> str:
     brand_name = _brand_display_name(brand)
     topic = str(post.get("content_idea") or post.get("topic") or _month_specific_topic(post, brand, date.today().year, target_month, 0)).strip()
     cta = str(post.get("cta") or _default_cta_from_brand(brand, post) or "Take the next step").strip()
+    if _label_key(cta) in {"take the next step", "explore our features", "learn more"}:
+        cta = _default_cta_from_brand(brand, post).strip()
     platform_key = str(platform or "instagram").lower()
+    label = _calendar_content_label(post)
+    value = _brand_value_phrase(brand)
+    audience = _brand_audience_phrase(brand)
+    strategy = _business_strategy_for_brand(brand)
+    objective = str(strategy.get("conversion_objective") or "").strip() or "turn attention into action"
+    shape = str(strategy.get("business_shape") or "").lower()
+    industry = _brand_signal(brand, "industry", "sub_industry").lower()
+    bag = f"{shape} {industry}"
+
+    if any(k in bag for k in ("food", "restaurant", "cafe", "kitchen", "meal", "delivery", "hospitality")):
+        if label in {"promotional", "offer", "seasonal", "seasonal or moment", "seasonal_or_moment"}:
+            hook = f"Your next order has a reason."
+            body = f"{brand_name} is making {topic.lower()} feel easy to act on, with a clear reason to order, visit, or share the craving today."
+        elif label in {"testimonial", "proof"}:
+            hook = f"Cravings are better with proof."
+            body = f"{topic} is about the moments customers come back for: flavour, convenience, and a meal worth telling someone about."
+        else:
+            hook = f"Save this for your next craving."
+            body = f"{topic} gives {audience} a simple reason to choose {brand_name}: {value}."
+    elif any(k in bag for k in ("software", "saas", "tech", "platform", "ai", "workflow")):
+        if label in {"trending topic", "industry insight"}:
+            hook = "The content problem is not ideas. It is execution."
+            body = f"{brand_name} helps {audience} move from scattered planning to ready-to-post content, so the work feels less like setup and more like momentum."
+        elif label in {"product spotlight", "product or service spotlight", "product_or_service_spotlight", "promotional", "offer"}:
+            hook = f"One brief should do more work."
+            body = f"{brand_name} turns brand context into platform-ready posts, visuals, captions, and a calendar your team can actually use."
+        else:
+            hook = f"{topic}"
+            body = f"For {audience}, {brand_name} {value}. The goal is simple: {objective}."
+    elif any(k in bag for k in ("fintech", "finance", "bank", "payment", "money")):
+        hook = f"Clearer money moves start here."
+        body = f"{topic} shows how {brand_name} helps {audience} move with more control, less guesswork, and a next step that feels easy to trust."
+    elif any(k in bag for k in ("service", "consult", "agency", "professional", "legal")):
+        hook = f"Clarity before the next decision."
+        body = f"{topic} helps {audience} see what matters, what to avoid, and why {brand_name} is worth speaking to before the next move."
+    else:
+        hook = f"{topic}"
+        body = f"{brand_name} {value}. This post gives {audience} a clear reason to pay attention and act."
+
     if platform_key in {"twitter", "x"}:
-        return f"{topic}. {brand_name} makes the next step easier. {cta}"
+        return f"{hook} {brand_name} helps make the next step clearer. {cta}"
     if platform_key == "linkedin":
         return (
-            f"{topic}\n\n"
-            f"For teams and customers, the win is simple: clearer communication, faster decisions, and less content drag.\n\n"
+            f"{hook}\n\n"
+            f"{body}\n\n"
+            f"The business win: {objective}.\n\n"
             f"{cta}"
         )
     if platform_key == "facebook":
         return (
-            f"{topic}\n\n"
-            f"If this is useful for you or your team, keep {brand_name} close. {cta}"
+            f"{hook}\n\n"
+            f"{body}\n\n"
+            f"If this sounds useful, keep {brand_name} close and share it with someone who should see it.\n\n"
+            f"{cta}"
         )
     return (
-        f"{topic}\n\n"
-        f"A sharper way to show what {brand_name} does, why it matters, and what to do next.\n\n"
+        f"{hook}\n\n"
+        f"{body}\n\n"
         f"{cta}"
     )
 
@@ -2974,18 +3174,19 @@ async def _repair_posts_for_calendar_save(
 
         caption = str(post.get("caption") or "").strip()
         hashtags = _normalize_hashtags(post.get("hashtags"), brand, post, platform)
-        if not caption or not hashtags:
+        caption_is_weak = _caption_needs_repair(caption, post, brand, platform)
+        if caption_is_weak or not hashtags:
             try:
                 result = await generate_single_caption(
                     brand=brand,
                     topic=str(post.get("content_idea") or post.get("topic") or _month_specific_topic(post, brand, target_year, target_month, idx)),
                     platform=platform,
                     description=str(post.get("description") or post.get("visual_direction") or ""),
-                    existing_caption=caption or None,
+                    existing_caption=None if caption_is_weak else (caption or None),
                 )
                 generated_caption = str(result.get("caption") or "").strip()
                 generated_tags = _normalize_hashtags(result.get("hashtags"), brand, post, platform)
-                if generated_caption:
+                if generated_caption and not _caption_needs_repair(generated_caption, post, brand, platform):
                     caption = generated_caption
                 if generated_tags:
                     hashtags = generated_tags
@@ -3001,7 +3202,7 @@ async def _repair_posts_for_calendar_save(
                     idx,
                     e,
                 )
-        if not caption:
+        if _caption_needs_repair(caption, post, brand, platform):
             caption = _fallback_caption_for_post(post, brand, platform, target_month)
         post["caption"] = caption
         post["hashtags"] = hashtags or _normalize_hashtags([], brand, post, platform)

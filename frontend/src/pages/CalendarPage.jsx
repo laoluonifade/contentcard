@@ -65,18 +65,89 @@ function fallbackPostHashtags(post, brand) {
     .slice(0, post?.platform === 'twitter' ? 2 : 5)
 }
 
+function brandField(brand, ...keys) {
+  const kit = brand?.brand_kit && typeof brand.brand_kit === 'object' ? brand.brand_kit : {}
+  for (const key of keys) {
+    const raw = brand?.[key] ?? kit?.[key]
+    const value = Array.isArray(raw) ? raw.filter(Boolean).join(', ') : raw
+    const text = String(value || '').replace(/\s+/g, ' ').trim()
+    if (text) return text
+  }
+  return ''
+}
+
+function brandBusinessShape(brand) {
+  const bag = [
+    brandField(brand, 'industry', 'sub_industry', 'business_model'),
+    brandField(brand, 'description', 'value_proposition'),
+  ].join(' ').toLowerCase()
+  if (/(food|restaurant|cafe|kitchen|meal|delivery|beverage|hospitality)/.test(bag)) return 'food'
+  if (/(saas|software|tech|platform|ai|app|workflow|productivity)/.test(bag)) return 'software'
+  if (/(fintech|finance|bank|payment|money|loan|insurance)/.test(bag)) return 'finance'
+  if (/(agency|consult|legal|professional|service|b2b)/.test(bag)) return 'service'
+  return 'general'
+}
+
+function brandValueLine(brand) {
+  const value = brandField(brand, 'value_proposition', 'description', 'tagline', 'key_messages')
+  if (!value) return 'helps customers move from interest to action faster'
+  return value.split(/\s+/).slice(0, 26).join(' ').replace(/[.,;:]+$/, '')
+}
+
+function brandAudienceLine(brand) {
+  return brandField(brand, 'target_audience', 'audience_location', 'audience_age_range') || 'the people who need this most'
+}
+
+function fallbackCtaForBrand(brand, post) {
+  const explicit = String(post?.cta || '').trim()
+  if (explicit && !/^(take the next step|explore our features|learn more)$/i.test(explicit)) return explicit
+  const shape = brandBusinessShape(brand)
+  const website = brandField(brand, 'website')
+  if (shape === 'food') return website ? 'Order from the link in bio.' : 'Order, visit, or send us a message today.'
+  if (shape === 'software') return website ? 'Try it from the link in bio.' : 'DM us to see how it works.'
+  if (shape === 'finance') return website ? 'Open the site and try it now.' : 'Send us a message to learn more.'
+  if (shape === 'service') return 'Book a focused conversation with us.'
+  return website ? 'Visit the link in bio to learn more.' : 'Save this post or send us a message.'
+}
+
 function fallbackPostCaption(post, brand) {
   const brandName = String(brand?.name || 'the brand').trim()
   const topic = String(post?.content_idea || post?.topic || post?.content_type || 'New content').trim()
-  const cta = String(post?.cta || 'Take the next step').trim()
+  const cta = fallbackCtaForBrand(brand, post)
   const platform = String(post?.platform || 'instagram').toLowerCase()
+  const contentType = String(post?.content_type || topic).toLowerCase()
+  const shape = brandBusinessShape(brand)
+  const value = brandValueLine(brand)
+  const audience = brandAudienceLine(brand)
+  let hook = topic
+  let body = `${brandName} ${value}. This gives ${audience} a clear reason to pay attention and act.`
+
+  if (shape === 'food') {
+    hook = /offer|promo|season/.test(contentType) ? 'Your next order has a reason.' : 'Save this for your next craving.'
+    body = `${topic} gives ${audience} a simple reason to choose ${brandName}: flavour, convenience, and a moment worth sharing.`
+  } else if (shape === 'software') {
+    hook = /trend|insight/.test(contentType)
+      ? 'The content problem is not ideas. It is execution.'
+      : 'One brief should do more work.'
+    body = `${brandName} helps ${audience} move from scattered planning to ready-to-post content, so the work feels less like setup and more like momentum.`
+  } else if (shape === 'finance') {
+    hook = 'Clearer money moves start here.'
+    body = `${topic} shows how ${brandName} helps ${audience} move with more control, less guesswork, and a next step that feels easy to trust.`
+  } else if (shape === 'service') {
+    hook = 'Clarity before the next decision.'
+    body = `${topic} helps ${audience} see what matters, what to avoid, and why ${brandName} is worth speaking to before the next move.`
+  }
+
   if (platform === 'twitter') {
-    return `${topic}. ${cta}`
+    return `${hook} ${brandName} makes the next step clearer. ${cta}`
   }
   if (platform === 'linkedin') {
-    return `${topic}\n\nA clear, ready-to-share update from ${brandName} built around the value customers should notice first.\n\n${cta}`
+    return `${hook}\n\n${body}\n\n${cta}`
   }
-  return `${topic}\n\nA fresh ${brandName} post built to make the message clear, useful, and easy to act on.\n\n${cta}`
+  if (platform === 'facebook') {
+    return `${hook}\n\n${body}\n\nIf this sounds useful, keep ${brandName} close and share it with someone who should see it.\n\n${cta}`
+  }
+  return `${hook}\n\n${body}\n\n${cta}`
 }
 
 const PLATFORM_LOGO = {
@@ -1123,7 +1194,7 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (modal) {
-      const caption = (modal.caption || modal.description || '').trim() || fallbackPostCaption(modal, activeBrand)
+      const caption = (modal.caption || '').trim() || fallbackPostCaption(modal, activeBrand)
       const hashtags = Array.isArray(modal.hashtags) && modal.hashtags.length
         ? modal.hashtags
         : fallbackPostHashtags(modal, activeBrand)
