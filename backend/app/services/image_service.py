@@ -651,6 +651,43 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     extra_never = ab.get("negative_motifs") or []
     if extra_never:
         negative += " Avoid specifically: " + "; ".join(str(x) for x in extra_never[:10] if x) + "."
+
+    # ── Bannerbear-off mode ──────────────────────────────────────────────────
+    # When Bannerbear compositing is disabled, the AI is the only renderer in
+    # the pipeline — it MUST draw the headline and CTA itself. Strip the no-
+    # text negatives that would otherwise prevent that, and append a positive
+    # typography directive with the exact strings to render.
+    if not settings.BANNERBEAR_ENABLED:
+        for phrase in (
+            "No text, no words, no letters, no watermarks, ",
+            "no typography, no captions, ",
+            "no typography, no captions,",
+            " still no readable text in-image.",
+        ):
+            negative = negative.replace(phrase, "")
+        ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+        headline = (
+            str(ma.get("hook") or post.get("topic") or content_idea or "").strip()
+            if not ai_image_prompt
+            else str(post.get("topic") or content_idea or "").strip()
+        )
+        cta_text = str(post.get("cta") or "").strip()
+        type_directive_bits = [
+            "TYPOGRAPHY (you are the only text renderer — render copy crisply, ad-grade, perfectly legible, no garbled letters)."
+        ]
+        if headline:
+            type_directive_bits.append(
+                f"Headline (render verbatim, max one or two lines, dominant hierarchy): \"{headline[:120]}\"."
+            )
+        if cta_text:
+            type_directive_bits.append(
+                f"CTA chip / button (render verbatim, smaller than headline, high contrast): \"{cta_text[:60]}\"."
+            )
+        type_directive_bits.append(
+            "Use a clean modern sans-serif. Place text inside the safe margin; never clip letterforms at the canvas edge. "
+            "Do not invent additional sentences, prices, or hashtags beyond what is given here."
+        )
+        negative = " ".join(type_directive_bits) + " " + negative
     ref_urls = (brand.get("visual_system") or {}).get("reference_urls") or []
     if ref_urls and (brand.get("visual_system") or {}).get("reference_rights_attested"):
         negative += (
@@ -797,7 +834,44 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     else:
         prompt = f"{prompt.strip()}{edge_guard}"
 
+    # When Bannerbear compositing is off, strip the no-text language sprinkled
+    # throughout the strategy_block / format_note / negatives so it does not
+    # contradict the positive typography directive that requires the AI to
+    # render the headline + CTA itself.
+    if not settings.BANNERBEAR_ENABLED:
+        prompt = _strip_no_text_phrases(prompt)
+
     return prompt.strip()
+
+
+_NO_TEXT_PHRASE_PATTERNS = [
+    re.compile(r"\bno text,?\s*", re.IGNORECASE),
+    re.compile(r"\bno words,?\s*", re.IGNORECASE),
+    re.compile(r"\bno letters,?\s*", re.IGNORECASE),
+    re.compile(r"\bno typography,?\s*", re.IGNORECASE),
+    re.compile(r"\bno captions,?\s*", re.IGNORECASE),
+    re.compile(r"\bno typography in the frame\.?", re.IGNORECASE),
+    re.compile(r"\bno typography, titles, or UI in the frame\.?", re.IGNORECASE),
+    re.compile(r"\bno words or lettering in the image\.?", re.IGNORECASE),
+    re.compile(r"\bno readable text in-image\.?", re.IGNORECASE),
+    re.compile(r"\bno letters?\s+in[- ]?the[- ]?image\.?", re.IGNORECASE),
+    re.compile(r"\bno readable packaging claims,?\s*", re.IGNORECASE),
+    re.compile(r"\bno subtitles,?\s*", re.IGNORECASE),
+    re.compile(r"render NO readable text,?\s*[^.]*\.", re.IGNORECASE),
+    re.compile(r"do NOT (?:render|draw) readable [^.]*\.", re.IGNORECASE),
+    re.compile(r"the headline and CTA are composited on top by the layout layer\.?", re.IGNORECASE),
+    re.compile(r"the layout layer adds all copy\.?", re.IGNORECASE),
+]
+
+
+def _strip_no_text_phrases(text: str) -> str:
+    out = text
+    for pat in _NO_TEXT_PHRASE_PATTERNS:
+        out = pat.sub("", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    out = re.sub(r"\s+,", ",", out)
+    out = re.sub(r",\s*,", ",", out)
+    return out.strip()
 
 
 def _is_svg_bytes(data: bytes, filename_hint: str = "") -> bool:
