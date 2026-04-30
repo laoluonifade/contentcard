@@ -32,7 +32,6 @@ function normalizeContentItem(item) {
     item?.caption ||
     item?.generated_caption ||
     item?.social_caption ||
-    item?.description ||
     ''
   ).trim()
 
