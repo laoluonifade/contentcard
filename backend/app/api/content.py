@@ -1,5 +1,6 @@
 import json
 import random
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, or_
@@ -2482,6 +2483,7 @@ async def _regenerate_visual_core(
 
     brand_dict = apply_visual_system_defaults(_brand_to_dict(brand))
     post = _content_item_to_post_dict(item)
+    post["regenerate_token"] = uuid.uuid4().hex
     if body.mode == "new_archetype" and body.new_archetype:
         na = body.new_archetype.strip().lower()
         if na not in ARCHETYPE_IDS:
@@ -3706,6 +3708,10 @@ async def _do_generate_month(
             try:
                 # Inject batch index so the variation engine can rotate hero/lifestyle/detail/angled
                 post_data["_batch_index"] = _batch_idx
+                # Stamp identity so the image cache key is post-unique. Without this,
+                # two posts that build the same prompt would share a cached image URL.
+                if not post_data.get("id"):
+                    post_data["id"] = str(item.id)
                 sab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else {}
                 lint, quality_gate, logo_ok = await _render_with_quality_gate(db, item, post_data, brand_dict, sab)
                 th = dict(item.theme) if isinstance(item.theme, dict) else {}
@@ -3855,6 +3861,8 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         if v in ("real_people", "illustration", "abstract", "product"):
             vt = v
     return {
+        "id": str(item.id) if item.id is not None else "",
+        "date": item.scheduled_date.isoformat() if item.scheduled_date else "",
         "topic": item.topic,
         "caption": item.caption or "",
         "cta": (item.cta or "").strip(),
