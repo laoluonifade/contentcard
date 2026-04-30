@@ -8,7 +8,7 @@ import { workspaceApi, templateApi, brandApi, contentApi } from '../api'
 import useAuthStore from '../stores/authStore'
 import BrandFormCoachPanel, { mergeBrandFormPatch } from '../components/brand/BrandFormCoachPanel'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
-import { clearGuestContext, readGuestContext, readQuickFillWebsite } from '../utils/authFlow'
+import { readQuickFillWebsite } from '../utils/authFlow'
 
 const TONES = [
   'Bold','Authentic','Energetic','Playful','Luxury','Minimal',
@@ -27,7 +27,6 @@ const WEBSITE_PLATFORMS = [
 ]
 
 export default function OnboardingPage() {
-  const guestContext = readGuestContext()
   const navigate = useNavigate()
   const { createBrand, setActiveWorkspace, activeWorkspaceId, fetchWorkspaces } = useAppStore()
   const { user, updateUser } = useAuthStore()
@@ -37,15 +36,13 @@ export default function OnboardingPage() {
   const [quickFillRunning, setQuickFillRunning] = useState(false)
   const [quickFillError, setQuickFillError] = useState('')
   const [stepErrors, setStepErrors] = useState({})
-  const [quickFillWebsite, setQuickFillWebsite] = useState(() => {
-    return guestContext?.website || readQuickFillWebsite()
-  })
+  const [quickFillWebsite, setQuickFillWebsite] = useState(() => readQuickFillWebsite())
   const [quickFillPlatform, setQuickFillPlatform] = useState('auto')
   const [quickFillStatus, setQuickFillStatus] = useState('')
 
   const [form, setForm] = useState({
-    name: guestContext?.brandName || '',
-    industry: guestContext?.industry || '',
+    name: '',
+    industry: '',
     sub_industry: '',
     description: '',
     target_audience: '',
@@ -356,7 +353,6 @@ export default function OnboardingPage() {
       } catch {
         /* ignore */
       }
-      clearGuestContext()
       updateUser({ onboarding_completed: true })
       toast("Quick fill done. Review your brand kit, then upload your logo to wrap up.", 'success')
       navigate('/dashboard/brand-kit')
@@ -418,7 +414,6 @@ export default function OnboardingPage() {
       })
       setTemplateSetupRunning(true)
       await templateApi.bootstrapDefaults({ brand_id: brand.id, force: false, generate_designs: false })
-      clearGuestContext()
       try {
         localStorage.removeItem('contentcard.signup.quickFillWebsite')
       } catch {

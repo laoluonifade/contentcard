@@ -119,7 +119,7 @@ function AdminRoute({ children }) {
 }
 
 function AuthOnlyDashRoute({ children }) {
-  return <RouteGate requireAuth redirectUnauthed="/dashboard/calendar">{children}</RouteGate>
+  return <RouteGate requireAuth redirectUnauthed="/login">{children}</RouteGate>
 }
 
 export default function App() {
@@ -156,23 +156,23 @@ export default function App() {
         <Route path="/shopify/complete-onboarding" element={<PrivateRoute><ShopifyOnboardingCompletionPage /></PrivateRoute>} />
         <Route path="/shopify/decision"      element={<PrivateRoute><ShopifyPostSignupDecisionPage /></PrivateRoute>} />
 
-        {/* Dashboard — app-first entry, with auth required only where needed */}
+        {/* Dashboard — auth required for every route. */}
         <Route path="/dashboard" element={<DashboardLayout />}>
           <Route index             element={<AuthOnlyDashRoute><DashboardPage /></AuthOnlyDashRoute>} />
           <Route path="generate"   element={<AuthOnlyDashRoute><GeneratePage /></AuthOnlyDashRoute>} />
-          <Route path="calendar"   element={<CalendarPage />} />
+          <Route path="calendar"   element={<AuthOnlyDashRoute><CalendarPage /></AuthOnlyDashRoute>} />
           <Route path="templates"  element={<AuthOnlyDashRoute><TemplatesPage /></AuthOnlyDashRoute>} />
-          <Route path="brand-kit"  element={<BrandKitPage />} />
-          <Route path="settings"   element={<SettingsPage />} />
+          <Route path="brand-kit"  element={<AuthOnlyDashRoute><BrandKitPage /></AuthOnlyDashRoute>} />
+          <Route path="settings"   element={<AuthOnlyDashRoute><SettingsPage /></AuthOnlyDashRoute>} />
           <Route path="billing"    element={<AuthOnlyDashRoute><BillingPage /></AuthOnlyDashRoute>} />
           <Route path="directory"  element={<AuthOnlyDashRoute><DirectoryPage /></AuthOnlyDashRoute>} />
           <Route path="memes"      element={<AuthOnlyDashRoute><MemesPage /></AuthOnlyDashRoute>} />
           <Route path="social"     element={<AuthOnlyDashRoute><SocialAutopilotPage /></AuthOnlyDashRoute>} />
           <Route path="calendar/editor/:contentId" element={<AuthOnlyDashRoute><DesignEditorPage /></AuthOnlyDashRoute>} />
-          <Route path="assistant"  element={<AIWorkspacePage />} />
-          <Route path="ai"         element={<AIWorkspacePage />} />
-          <Route path="inbox"      element={<InboxPage />} />
-          <Route path="analytics"  element={<AnalyticsPage />} />
+          <Route path="assistant"  element={<AuthOnlyDashRoute><AIWorkspacePage /></AuthOnlyDashRoute>} />
+          <Route path="ai"         element={<AuthOnlyDashRoute><AIWorkspacePage /></AuthOnlyDashRoute>} />
+          <Route path="inbox"      element={<AuthOnlyDashRoute><InboxPage /></AuthOnlyDashRoute>} />
+          <Route path="analytics"  element={<AuthOnlyDashRoute><AnalyticsPage /></AuthOnlyDashRoute>} />
         </Route>
 
         {/* Admin */}

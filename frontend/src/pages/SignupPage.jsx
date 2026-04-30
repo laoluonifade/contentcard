@@ -9,7 +9,7 @@ import useAppStore from '../stores/appStore'
 import AuthHeroCards from '../components/auth/AuthHeroCards'
 import Seo from '../components/seo/Seo'
 import { authApi } from '../api'
-import { getPostAuthPath, readGuestContext, readQuickFillWebsite } from '../utils/authFlow'
+import { getPostAuthPath, readQuickFillWebsite } from '../utils/authFlow'
 
 const SUPPORTED_ICONS = [
   { id: 'shopify', label: 'Shopify', custom: true },
@@ -59,7 +59,6 @@ export const COUNTRIES_LIST = [
 ]
 
 export default function SignupPage() {
-  const guestContext = readGuestContext()
   const [step, setStep]     = useState(1)
   const [form, setForm]     = useState({
     first_name: '',
@@ -68,10 +67,10 @@ export default function SignupPage() {
     password: '',
     phone: '',
     country_code: '',
-    workspace_name: guestContext?.brandName || '',
+    workspace_name: '',
   })
-  const [quickFillWebsite, setQuickFillWebsite] = useState(() => guestContext?.website || readQuickFillWebsite())
-  const [quickFillEnabled, setQuickFillEnabled] = useState(() => Boolean(guestContext?.website || readQuickFillWebsite()))
+  const [quickFillWebsite, setQuickFillWebsite] = useState(() => readQuickFillWebsite())
+  const [quickFillEnabled, setQuickFillEnabled] = useState(() => Boolean(readQuickFillWebsite()))
   const [showPw, setShowPw] = useState(false)
   const [shopDomain, setShopDomain] = useState('')
   const [shopDomainError, setShopDomainError] = useState('')

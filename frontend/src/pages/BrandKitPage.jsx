@@ -313,7 +313,7 @@ function BrandKitScore({ brand, onJumpToTab }) {
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function BrandKitPage() {
   const navigate = useNavigate()
-  const { activeBrandId, activeWorkspaceId, brands, updateBrand } = useAppStore()
+  const { activeBrandId, activeWorkspaceId, brands, updateBrand, brandsLoaded } = useAppStore()
   const { user } = useAuthStore()
   const brand = brands.find(b => b.id === activeBrandId)
   const countryCode = user?.country_code || ''
@@ -817,6 +817,19 @@ export default function BrandKitPage() {
   // Live scores: recomputed on every keystroke
   const { S, overall, overallLevel } = useBrandScores(form)
   const missingRequiredFields = getMissingFields(form)
+
+  if (!brandsLoaded) {
+    return (
+      <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+        <h1 className="text-2xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Brand Kit</h1>
+        <p className="text-ink/40 text-sm mb-8">Tell us about your business once. We'll handle the rest.</p>
+        <div className="bg-surface border border-fog rounded-2xl p-12 text-center">
+          <div className="mx-auto h-8 w-8 rounded-full border-2 border-brand-500 border-t-transparent animate-spin" />
+          <p className="mt-4 text-sm text-ink/55">Loading your brand kit…</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!brand) {
     return (
