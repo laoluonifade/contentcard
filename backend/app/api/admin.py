@@ -40,10 +40,10 @@ logger = logging.getLogger(__name__)
 # Estimate per post: ~1200 input tokens + 400 output tokens
 COST_PER_POST_USD = (1200 * 0.80 / 1_000_000) + (400 * 4.0 / 1_000_000)
 
-# OpenAI text (matches `TEXT_MODEL` in ai_service — gpt-5.5): list prices USD per 1M tokens (approx.)
+# OpenAI text (matches `TEXT_MODEL` in ai_service — gpt-5.5-pro): list prices USD per 1M tokens (approx.)
 # Heuristic: ~1200 input + 400 completion tokens per generated post (copy path).
-GPT4O_INPUT_USD_PER_M = 5.00
-GPT4O_OUTPUT_USD_PER_M = 30.00
+GPT4O_INPUT_USD_PER_M = 30.00
+GPT4O_OUTPUT_USD_PER_M = 180.00
 OPENAI_EST_INPUT_TOKENS_PER_POST = 1200
 OPENAI_EST_OUTPUT_TOKENS_PER_POST = 400
 COST_PER_POST_OPENAI_CHAT_USD = (
@@ -1283,7 +1283,7 @@ async def admin_stats(
         "estimated_openai_image_spend_usd": estimated_openai_image_spend_usd,
         "avg_openai_spend_per_workspace_usd": avg_openai_spend_per_workspace_usd,
         "posts_with_stored_image": posts_with_stored_image,
-        "openai_spend_model_note": "gpt-5.5 text (heuristic tokens/post) + flat est. per stored image",
+        "openai_spend_model_note": "gpt-5.5-pro text (heuristic tokens/post) + flat est. per stored image",
         "implied_mrr_kobo": implied_mrr_kobo,
         "implied_arr_kobo": implied_mrr_kobo * 12,
         "paying_workspace_count": paying_workspace_count,
