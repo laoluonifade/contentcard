@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, LayoutTemplate, Menu, X, Images, Plus, Smile, Share2, Sparkles } from 'lucide-react'
+import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, Menu, X, Images, Plus, Share2 } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
@@ -10,12 +10,9 @@ import { getMissingFields, isBrandReady } from '../../utils/brandReadiness'
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
-  { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'         },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
-  { to: '/dashboard/templates',  icon: LayoutTemplate,   label: 'Playbook'  },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand Kit'  },
   { to: '/dashboard/directory',  icon: Images,           label: 'Directory'  },
-  { to: '/dashboard/memes',      icon: Smile,            label: 'Memes'      },
   { to: '/dashboard/social',     icon: Share2,           label: 'Social'     },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'   },
   { to: '/dashboard/billing',    icon: CreditCard,       label: 'Billing'    },
@@ -23,7 +20,6 @@ const NAV = [
 
 const MOBILE_NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Home'      },
-  { to: '/dashboard/assistant',  icon: Sparkles,         label: 'AI'        },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'  },
   { to: '/dashboard/directory',  icon: Images,           label: 'Directory' },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand'     },
@@ -69,9 +65,7 @@ export default function DashboardLayout() {
   useEffect(() => {
     const protectedPaths = new Set([
       '/dashboard',
-      '/dashboard/assistant',
       '/dashboard/calendar',
-      '/dashboard/templates',
     ])
     if (!activeBrand || isBrandReady(activeBrand) || location.pathname === '/dashboard/brand-kit') return
     if (!protectedPaths.has(location.pathname)) return
