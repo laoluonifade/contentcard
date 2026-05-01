@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Check, Eye, EyeOff, Sun, Trash2, AlertTriangle, Bell, Mail } from 'lucide-react'
+import { Check, Eye, EyeOff, Sun, Trash2, AlertTriangle, Bell, Mail, Images, ArrowRight } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { authApi, workspaceApi, inviteApi } from '../api'
@@ -10,7 +10,7 @@ import { COUNTRIES_LIST } from './SignupPage'
 import { useTheme } from '../hooks/useTheme'
 import SettingsExtras from '../components/settings/SettingsExtras'
 
-const TABS = ['Profile', 'Company', 'Team', 'Social', 'Notifications', 'Appearance']
+const TABS = ['Profile', 'Company', 'Team', 'Directory', 'Social', 'Notifications', 'Appearance']
 
 /** Matches billing tiers; `plan` on a workspace row can lag behind pooled subscription. Prefer `effective_plan`. */
 const PLAN_LABELS = { trial: 'Trial', starter: 'Starter', smb: 'Growth', pro: 'Pro' }
@@ -503,6 +503,25 @@ export default function SettingsPage() {
                   </>
                 )}
               </div>
+            </div>
+          )}
+
+          {tab === 'Directory' && (
+            <div className="bg-surface border border-fog rounded-2xl p-6 max-w-2xl">
+              <div className="flex items-center gap-2 mb-1">
+                <Images size={14} className="text-ink/50" />
+                <h3 className="text-ink font-bold text-sm">Generated post directory</h3>
+              </div>
+              <p className="text-ink/40 text-xs mb-5">
+                Browse every post we&apos;ve generated for your brand — across calendars, regenerations, and platforms.
+              </p>
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard/directory')}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold transition-colors"
+              >
+                Open directory <ArrowRight size={14} />
+              </button>
             </div>
           )}
 

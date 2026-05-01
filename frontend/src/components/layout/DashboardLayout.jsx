@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
-import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, Menu, X, Images, Plus, Share2 } from 'lucide-react'
+import { LayoutDashboard, Calendar, Heart, Settings, LogOut, CreditCard, Menu, X, Images, Plus, Share2, Package } from 'lucide-react'
 import { LogoMark } from '../ui/Logo'
 import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
@@ -11,8 +11,8 @@ import { getMissingFields, isBrandReady } from '../../utils/brandReadiness'
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
+  { to: '/dashboard/products',   icon: Package,          label: 'Products'   },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand Kit'  },
-  { to: '/dashboard/directory',  icon: Images,           label: 'Directory'  },
   { to: '/dashboard/social',     icon: Share2,           label: 'Social'     },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'   },
   { to: '/dashboard/billing',    icon: CreditCard,       label: 'Billing'    },
@@ -21,7 +21,7 @@ const NAV = [
 const MOBILE_NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Home'      },
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'  },
-  { to: '/dashboard/directory',  icon: Images,           label: 'Directory' },
+  { to: '/dashboard/products',   icon: Package,          label: 'Products'  },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand'     },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'  },
 ]
