@@ -17,7 +17,245 @@ logger = logging.getLogger(__name__)
 # Bump this whenever image prompt logic or design system changes significantly.
 # It is included in the cache key so existing cached image URLs are invalidated
 # automatically on deploy without needing to flush any external store.
-_IMAGE_PROMPT_VERSION = "v6"
+_IMAGE_PROMPT_VERSION = "v7"
+
+# ── Art Direction Layer ──────────────────────────────────────────────────────
+# concept → art direction → constrained prompt → image
+#
+# A senior designer designs with: a clear visual concept, a layout system, a
+# point of view. Without this layer, the AI defaults to "generic Canva" — too
+# many shapes, weak hierarchy, no opinion.
+#
+# Each post locks ONE design style + ONE layout variant + ONE background
+# variant (deterministically picked from brand_id + post_id so the same post
+# is cache-stable but different posts on the calendar pick different concepts).
+# Carousel slides INHERIT the post's locks — every slide of one carousel
+# shares the same style/layout/background so the deck reads as one campaign.
+
+# Each design style is a fully scoped concept: rules, typography stance, what
+# is allowed, what is permanently banned. Mixing these is what produces the
+# confused "looks like AI" output. Picking exactly ONE per post is the unlock.
+_DESIGN_STYLES: dict[str, dict[str, str]] = {
+    "editorial_saas": {
+        "label": "Editorial SaaS",
+        "reference": "Stripe, Linear, Notion marketing visuals",
+        "summary": (
+            "Clean, premium, confident editorial SaaS design. "
+            "Typography is the hero. Almost no decorative shapes. "
+            "Generous whitespace. No icons. No fake UI."
+        ),
+        "core_rules": (
+            "- One clear focal point\n"
+            "- Maximum 1 decorative element (only if it earns its place)\n"
+            "- NO icons unless absolutely necessary\n"
+            "- NO fake UI, dashboards, or interface mockups\n"
+            "- NO gradients, NO drop shadows, NO random shapes\n"
+            "- NO charts, checkmarks, or stat badges"
+        ),
+        "typography": (
+            "Strong bold headline (one heavy display weight). "
+            "Body copy in regular weight. Two weights total. "
+            "Perfect spacing, clean alignment, high-contrast readability."
+        ),
+        "background": "Flat brand-neutral colour or a single soft tonal field. No texture, no gradient.",
+    },
+    "product_lifestyle": {
+        "label": "Product + Lifestyle",
+        "reference": "Apple campaign photography, Aesop catalogues, Glossier ad stills",
+        "summary": (
+            "Real photography is the design. Text sits as a confident overlay. "
+            "Minimal UI hints only when truly relevant. The image carries the story."
+        ),
+        "core_rules": (
+            "- One clear focal subject in the photograph\n"
+            "- Maximum 1 typographic block on top of the photo\n"
+            "- NO decorative shapes layered on the image\n"
+            "- NO fake UI or device mockups unless the post is literally about the product UI\n"
+            "- NO gradient overlays, NO heavy vignettes\n"
+            "- Photography must look like a real campaign shoot, not stock"
+        ),
+        "typography": (
+            "Headline overlaid on the photo in one weight, sized for clear read against the image. "
+            "Body copy small and quiet. No decorative type."
+        ),
+        "background": "Real photographic scene — natural light, believable environment, intentional composition.",
+    },
+    "bold_marketing": {
+        "label": "Bold Marketing",
+        "reference": "Nike billboards, Off-White lookbooks, MoMA posters",
+        "summary": (
+            "Oversized typographic gesture. High contrast. Aggressive editorial layout. "
+            "Headline IS the design. One accent colour does the heavy lifting."
+        ),
+        "core_rules": (
+            "- Headline takes 50-70% of the canvas — it IS the focal point\n"
+            "- Maximum 1 accent shape, large and intentional\n"
+            "- NO icons, NO UI, NO charts\n"
+            "- Solid colour blocks only — no gradients, no textures\n"
+            "- Aggressive cropping is encouraged when the layout calls for it"
+        ),
+        "typography": (
+            "Display weight headline, tracking tight, set on at most two lines. "
+            "Supporting copy small and clearly secondary. Two weights total."
+        ),
+        "background": "Solid brand colour block or stark neutral. No photography, no texture.",
+    },
+    "minimal_brutalist": {
+        "label": "Minimal Brutalist",
+        "reference": "IBM Plex annual reports, Bauhaus posters, Pentagram identity systems",
+        "summary": (
+            "Hard edges, exposed grid, technical precision. One heavy diagrammatic shape on neutral. "
+            "Monospace or precision-sans accents. Function over decoration."
+        ),
+        "core_rules": (
+            "- Visible grid alignment — every element snaps to a clear column\n"
+            "- Maximum 1 large geometric primitive (square, circle, line)\n"
+            "- NO icons, NO illustration, NO photography\n"
+            "- Two-colour palette maximum (one neutral + one accent)\n"
+            "- NO gradients, NO shadows, NO rounded blob shapes"
+        ),
+        "typography": (
+            "Display weight for the headline, regular for body. "
+            "Letterforms feel architectural. One typeface, two weights."
+        ),
+        "background": "Pure flat neutral (white, off-white, ink, or a single brand neutral). Visible whitespace as architecture.",
+    },
+    "soft_organic": {
+        "label": "Soft Organic",
+        "reference": "Aimé Leon Dore lookbooks, Frieze magazine spreads, Jacquemus campaigns",
+        "summary": (
+            "Soft palette, large rounded organic shapes, warm tactile texture. "
+            "Quiet confidence — never sugary or pastel-template."
+        ),
+        "core_rules": (
+            "- One large organic shape as the anchor (not multiple)\n"
+            "- Maximum 1 photographic element layered with the shape\n"
+            "- NO geometric icons, NO sharp UI cards\n"
+            "- Subtle paper or natural-fabric texture is allowed; no glossy gradient\n"
+            "- Soft shadow is allowed but must be barely perceptible"
+        ),
+        "typography": (
+            "Headline in a confident display weight (geometric or humanist sans). "
+            "Body copy in regular. Two weights, generous line-height."
+        ),
+        "background": "Warm tonal field with subtle paper or natural texture. No bright flat saturation.",
+    },
+}
+
+# Layout variant rotation — sub-rotation within each design style. Avoids
+# every post defaulting to "centered headline on a flat block".
+_LAYOUT_VARIANTS: tuple[tuple[str, str], ...] = (
+    (
+        "left_text_right_negative",
+        "Layout: headline + body + CTA stacked left-aligned on the LEFT third of the canvas. "
+        "Right two thirds are intentional negative space (or quiet hero subject). "
+        "Logo top-left, footer lockup bottom-left.",
+    ),
+    (
+        "right_text_left_subject",
+        "Layout: hero subject (photo, shape, or product) anchors the LEFT half of the canvas. "
+        "Headline + body + CTA stacked right-aligned on the right third. "
+        "Logo top-right, footer lockup bottom-right.",
+    ),
+    (
+        "centered_editorial",
+        "Layout: a single confident centred headline dominating the upper-mid canvas, "
+        "body copy directly under, CTA pill below body. Logo small, top-left. "
+        "Footer lockup centred along the bottom margin. Generous whitespace top and bottom.",
+    ),
+    (
+        "image_with_overlay",
+        "Layout: full-bleed hero (photograph or large shape) covers the canvas. "
+        "Headline + body + CTA overlay sits in a single quiet zone (typically lower-left third). "
+        "Logo top-left over the hero, footer lockup bottom-left.",
+    ),
+    (
+        "stacked_billboard",
+        "Layout: oversized headline takes 60-70% of the canvas vertical space, top-aligned. "
+        "Hero element or accent shape sits beneath the headline as a counterweight. "
+        "Body copy + CTA pill clustered bottom-left. Logo top-left.",
+    ),
+)
+
+
+def _pick_design_style_key(brand_id: str, post_id: str) -> str:
+    """Lock ONE design style per (brand_id, post_id). Carousel slides inherit
+    via post_id (slide_index NOT in seed) so a deck reads as one campaign."""
+    seed = f"{brand_id or ''}|{post_id or 'default'}".encode("utf-8")
+    h = int(hashlib.sha256(seed).hexdigest()[:8], 16)
+    keys = list(_DESIGN_STYLES.keys())
+    return keys[h % len(keys)]
+
+
+def _pick_layout_variant(brand_id: str, post_id: str) -> tuple[str, str]:
+    seed = f"{brand_id or ''}|{post_id or 'default'}|layout".encode("utf-8")
+    h = int(hashlib.sha256(seed).hexdigest()[:8], 16)
+    return _LAYOUT_VARIANTS[h % len(_LAYOUT_VARIANTS)]
+
+
+def _build_art_direction_block(brand: dict, post: dict) -> str:
+    """Master Art Direction block — the senior-designer concept layer.
+
+    Locks ONE design style + ONE layout variant per post. All slides of a
+    carousel share these locks (slide_index intentionally not in seed).
+    """
+    brand_id = str(brand.get("id") or "")
+    post_id = str(post.get("id") or post.get("topic") or "default")
+    style_key = _pick_design_style_key(brand_id, post_id)
+    style = _DESIGN_STYLES[style_key]
+    layout_key, layout_brief = _pick_layout_variant(brand_id, post_id)
+    return (
+        f"\n=== ART DIRECTION (lock every choice to this concept) ===\n"
+        f"Design style: {style['label']} — {style['summary']} "
+        f"Reference quality: {style['reference']}.\n"
+        f"Core rules:\n{style['core_rules']}\n"
+        f"Typography stance: {style['typography']}\n"
+        f"Background: {style['background']}\n"
+        f"{layout_brief}\n"
+        "Discipline: pick ONE design concept and execute it cleanly. "
+        "Do not mix this style with another. Do not add elements that don't belong "
+        "to this style's vocabulary. The output should look like a $10k brand-design "
+        "deliverable from a senior studio, not an AI template.\n"
+        "===========================================================\n"
+    )
+
+
+# Permanent app-badge / store-badge ban. Regardless of brand setting, the AI
+# is forbidden from drawing App Store / Google Play / Play Store badges, "Get
+# it on" pills, download buttons, or any iOS/Android trademark. Real assets
+# are composited later, never AI-rendered.
+_PERMANENT_APP_BADGE_BAN = (
+    "PERMANENT BAN — never include App Store badges, Google Play badges, "
+    "Play Store badges, \"Available on the App Store\" pills, \"Get it on Google Play\" "
+    "pills, Apple or Google trademark wordmarks, download buttons, install pills, "
+    "or any iOS/Android storefront install graphic. The AI must NEVER draw these. "
+    "If the post is genuinely about app installation, the user composites real "
+    "trademark-licensed badge assets afterwards — your job here is to leave the "
+    "composition clean. "
+)
+
+# Strict layout discipline — keeps designs from being "AI-template bland".
+# Caps decorative noise, locks hierarchy, dictates exact placement zones.
+_STRICT_LAYOUT_DISCIPLINE = (
+    "STRICT LAYOUT DISCIPLINE: "
+    "Maximum TWO decorative geometric shapes in the entire composition — never "
+    "scatter random circles, swooshes, sparkles, dots, or asterisks as filler. "
+    "Maximum TWO font weights total: one heavy display weight for the headline, "
+    "one regular weight for body / CTA. No third decorative weight, no italic flourish. "
+    "Hierarchy must be unambiguous — headline is largest and tightest, support copy "
+    "is clearly secondary in size and weight, CTA pill is small and high-contrast, "
+    "URL/lockup details are the smallest text on the canvas. No two elements should "
+    "compete for the eye — there is exactly ONE focal moment. "
+    "Layout zones (treat as a grid): logo lockup top-left or as configured, hero "
+    "subject in the dominant 60-70% area, headline anchored on a clear vertical edge "
+    "(left-aligned for editorial feel unless the design strongly justifies centred), "
+    "supporting copy directly under headline, CTA pill below copy with clear breathing "
+    "room, lockup details (website / phone if enabled) along the bottom edge. "
+    "Maintain consistent 8-10% safe margins on every edge — never push text to the "
+    "canvas border. "
+    "No clutter, no gradient blob backgrounds, no drop-shadow stacks, no AI-template "
+    "centred-stack-on-pastel-blob composition. "
+)
 
 IMAGES_API_URL      = "https://api.openai.com/v1/images/generations"
 IMAGES_EDIT_API_URL = "https://api.openai.com/v1/images/edits"
@@ -912,6 +1150,12 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         if qg_retry > 0:
             prompt += " Retry mode: cleaner composition, fewer objects, stronger focal hierarchy, campaign-grade realism."
 
+    # ── Art Direction Layer ──────────────────────────────────────────────────
+    # concept → art direction → constrained prompt → image
+    # Locks ONE design style + ONE layout variant per post. Carousel slides
+    # inherit (slide_index excluded from seed) so a deck reads as one campaign.
+    art_direction_block = _build_art_direction_block(brand, post)
+
     senior_designer_brief = (
         " SENIOR-DESIGNER CRAFT BAR (this is the bar to clear; do not ship below it): "
         "Every output should look like work from a Pentagram / Stripe / Linear / Apple-tier studio — "
@@ -931,7 +1175,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         "magazine-editorial composition. "
     )
     edge_guard = (
-        senior_designer_brief
+        art_direction_block
+        + senior_designer_brief
+        + _STRICT_LAYOUT_DISCIPLINE
+        + _PERMANENT_APP_BADGE_BAN
         + "Composition guard (always): treat the full square as intentional campaign art with roughly eight to ten percent "
         "clear breathing room between every important subject edge and the canvas border—never flush-bleed faces, food rims, "
         "or packaging to the frame line. If any people appear (including soft background talent), show complete heads with "
@@ -960,11 +1207,13 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
 
 
 _NO_TEXT_PHRASE_PATTERNS = [
-    re.compile(r"\bno text,?\s*", re.IGNORECASE),
-    re.compile(r"\bno words,?\s*", re.IGNORECASE),
-    re.compile(r"\bno letters,?\s*", re.IGNORECASE),
-    re.compile(r"\bno typography,?\s*", re.IGNORECASE),
-    re.compile(r"\bno captions,?\s*", re.IGNORECASE),
+    # \b at the END of "text" / "words" / etc. is critical — without it the
+    # regex eats "textures" into "ures" and "wordmark" into "mark".
+    re.compile(r"\bno text\b,?\s*", re.IGNORECASE),
+    re.compile(r"\bno words\b,?\s*", re.IGNORECASE),
+    re.compile(r"\bno letters\b,?\s*", re.IGNORECASE),
+    re.compile(r"\bno typography\b,?\s*", re.IGNORECASE),
+    re.compile(r"\bno captions\b,?\s*", re.IGNORECASE),
     re.compile(r"\bno typography in the frame\.?", re.IGNORECASE),
     re.compile(r"\bno typography, titles, or UI in the frame\.?", re.IGNORECASE),
     re.compile(r"\bno words or lettering in the image\.?", re.IGNORECASE),
@@ -1676,7 +1925,13 @@ async def _generate_with_product_edits(
 
 def _post_for_slide(base_post: dict, slide: dict, slide_number: int, total: int) -> dict:
     """Clone the post dict with slide-specific overrides so _build_image_prompt
-    produces a prompt focused on a single slide of the carousel."""
+    produces a prompt focused on a single slide of the carousel.
+
+    Critically, this includes a CAROUSEL SYSTEM LOCK header that ties every
+    slide to a shared visual system (palette, typography, spacing, logo
+    placement, geometric vocabulary) so the deck reads as one campaign, not
+    five disconnected posters.
+    """
     out = dict(base_post)
     headline = str(slide.get("headline") or "").strip()
     support = str(slide.get("support") or "").strip()
@@ -1697,13 +1952,22 @@ def _post_for_slide(base_post: dict, slide: dict, slide_number: int, total: int)
     if image_brief:
         out["topic"] = (headline[:80] or out.get("topic") or "")
         out["content_idea"] = headline[:80] or out.get("content_idea") or ""
-        # Drive the image_prompt directly via the image_prompt field so
-        # _build_image_prompt's "ai_image_prompt" branch picks it up.
-        out["image_prompt"] = (
-            f"Slide {slide_number} of {total} in a carousel telling one story. "
+
+        carousel_system_lock = (
+            f"CAROUSEL SYSTEM LOCK — this is slide {slide_number} of {total} in ONE "
+            "campaign. Every slide in this deck shares the SAME visual system: same "
+            "colour palette ratios, same typeface, same headline weight and tracking, "
+            "same logo lockup position, same edge margins, same minimal geometric "
+            "vocabulary. This slide must look like the same designer made all the "
+            "other slides — never introduce a new colour, a new font, a new shape "
+            "language, or a new compositional grid that the rest of the deck wouldn't "
+            "use. Variation between slides comes from the photography or hero subject, "
+            "not from the design system. "
             f"Slide role: {role or 'narrative beat'}. "
-            f"Visual brief for THIS slide only (different scene from other slides): {image_brief}"
+            f"Visual brief for THIS slide only (a distinct scene from the other slides): "
+            f"{image_brief}"
         )
+        out["image_prompt"] = carousel_system_lock
 
     # Force the cache key to differ per slide so each call gets its own image
     # rather than colliding on the cover-prompt hash.

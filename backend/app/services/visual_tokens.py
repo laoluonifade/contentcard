@@ -85,13 +85,19 @@ def infer_poster_lockup_defaults(brand: dict[str, Any]) -> dict[str, Any]:
     is_app = any(h in bag for h in _APP_BUSINESS_HINTS)
     website = str(brand.get("website") or "").strip()
 
+    # NOTE on store_badges: default is ALWAYS "never" regardless of business
+    # type. AI-rendered App Store / Google Play badges always come out as
+    # garbled fake-marks (Apple's mark is trademarked and the AI mangles
+    # the wordmark). Real badge assets get composited later when the user
+    # wants them; for now the AI is forbidden from drawing them.
+    _ = is_app  # retained for future per-brand hints; not used in defaults
     return {
         "version": 1,
         "logo_mode": _norm_lockup_mode(raw.get("logo_mode"), "always"),
         "website_mode": _norm_lockup_mode(raw.get("website_mode"), "when_relevant" if website else "never"),
         "phone_mode": _norm_lockup_mode(raw.get("phone_mode"), "when_relevant" if is_local else "never"),
         "address_mode": _norm_lockup_mode(raw.get("address_mode"), "when_relevant" if is_local else "never"),
-        "store_badges_mode": _norm_lockup_mode(raw.get("store_badges_mode"), "when_relevant" if is_app else "never"),
+        "store_badges_mode": _norm_lockup_mode(raw.get("store_badges_mode"), "never"),
         "contact_phone": str(raw.get("contact_phone") or "").strip(),
     }
 
@@ -254,39 +260,10 @@ def poster_lockup_mode_enabled(brand: dict[str, Any], field: str, post: dict[str
             )
         )
     if field == "store_badges":
-        # Strict — only when the post is an explicit app-promotion / install CTA.
-        # Mentions of "app interface" or "device mockup" in visual_direction must
-        # NOT trigger badges; many SaaS posts show a UI without promoting install.
-        if not is_app:
-            return False
-        cta_text = str((post or {}).get("cta") or "").lower()
-        explicit_install_cta = any(
-            phrase in cta_text
-            for phrase in (
-                "download",
-                "install",
-                "get the app",
-                "get app",
-                "available on",
-                "app store",
-                "play store",
-                "google play",
-            )
-        )
-        explicit_install_phrase = any(
-            phrase in bag
-            for phrase in (
-                "download our app",
-                "download the app",
-                "install our app",
-                "install the app",
-                "get our app",
-                "available on the app store",
-                "available on google play",
-                "available on play store",
-            )
-        )
-        return explicit_install_cta or explicit_install_phrase
+        # AI-rendered App Store / Google Play badges always look fake and
+        # the trademarked wordmarks come out garbled. Permanently OFF in
+        # AI prompt — real badge assets get composited later.
+        return False
     return False
 
 
