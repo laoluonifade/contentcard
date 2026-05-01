@@ -100,15 +100,29 @@ def _coerce_disabled_carousel_for_response(out: "ContentOut") -> "ContentOut":
     Trim them to a single image on read so the calendar UI doesn't render
     multi-slide previews. The underlying DB row is untouched — when
     carousels re-enable, the slide data comes back automatically.
+
+    Coerces aggressively — any row with format=carousel OR slide_count > 1
+    OR image_urls of length > 1 gets flattened. This catches rows that may
+    have ended up in a mixed state (e.g. format=single but slide_count=4)
+    from earlier bugs.
     """
     from app.services.ai_service import _CAROUSEL_ENABLED as _CAR_ENABLED
     if _CAR_ENABLED:
         return out
-    if str(getattr(out, "format", "") or "").lower() != "carousel":
+    is_carousel_format = str(getattr(out, "format", "") or "").lower() == "carousel"
+    has_multi_slide = int(getattr(out, "slide_count", 1) or 1) > 1
+    has_multi_urls = isinstance(out.image_urls, list) and len(out.image_urls) > 1
+    if not (is_carousel_format or has_multi_slide or has_multi_urls):
         return out
     try:
         out.format = "single"
+    except Exception:
+        pass
+    try:
         out.slide_count = 1
+    except Exception:
+        pass
+    try:
         if isinstance(out.image_urls, list) and out.image_urls:
             out.image_urls = out.image_urls[:1]
     except Exception:

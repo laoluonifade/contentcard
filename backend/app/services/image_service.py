@@ -428,36 +428,22 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         or ""
     ).strip()
     website_source_note = f"Website source context: {website_source_url}." if website_source_url else ""
-    # The AI integrates the brand's logo INTO the composition itself —
-    # no Cloudinary overlay, no Bannerbear stamp. We pass the brand's
-    # logo_url, visual-system tokens, and explicit instructions so the
-    # rendered mark visually matches the real logo (shape, colours, type
-    # weight) rather than inventing a stand-in.
-    zone_words = logo_safe_zone.replace("_", " ")
-    _real_logo_url = _resolve_logo_url(brand)
-    _vs_for_logo = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
-    _heading_font = str(_vs_for_logo.get("heading_font") or brand.get("brand_font") or "modern geometric sans-serif")
-    if has_brand_logo(brand):
-        logo_note = (
-            f"Brand logo placement (integrate INTO the design, not as an overlay): "
-            f"the brand's actual uploaded logo lives at {_real_logo_url}. "
-            f"Place a logo lockup in the {zone_words} area as a natural part of the composition "
-            "(small, around 8-12% of the shorter canvas edge — never dominant). "
-            f"Render \"{brand_name}\" as a clean wordmark using the brand's primary colour palette and "
-            f"the brand's heading typeface ({_heading_font}); it must visually match the brand's real "
-            "logo style — same colour, same weight, same overall feel — so a viewer who knows the brand "
-            "recognises it immediately. Do NOT invent ornate flourishes, fake trademark symbols, decorative "
-            "scripts, or a different colour scheme. If the brand's real logo includes a simple icon mark "
-            "(circle, square, monogram letter), you may include a matching simple accent shape next to "
-            "the wordmark — but never invent a complex pictorial mark."
-        )
-    else:
-        logo_note = (
-            f"Include a small, tasteful typographic signoff of the brand name ({brand_name}) in the {zone_words} area, "
-            f"set in {_heading_font} using the brand's primary colours, sized to be readable at thumbnail size "
-            "without dominating. No invented pictorial logos, watermarks, fake trademark symbols, or competing "
-            "brand-mark glyphs."
-        )
+    # NO brand identity in the rendered design. The AI is forbidden from
+    # rendering the brand name, brand logo, brand wordmark, brand monogram,
+    # tagline, website URL, or any brand-identification element. The user
+    # composites their real logo afterwards (or doesn't — the design speaks
+    # for itself through brand colours and typography). Removes a whole
+    # category of "fake AI wordmark" failures.
+    logo_note = (
+        f"BRAND IDENTITY POLICY: do NOT render the brand name \"{brand_name}\", any "
+        "wordmark, monogram, brand-mark glyph, fake corporate logo, made-up trademark "
+        "symbol, tagline, slogan, website URL, social handle, or any other brand-"
+        "identification text in the design. The brand identity is communicated through "
+        "the brand's colour palette and typographic style only — never as a written "
+        "name or stamped logo. Leave any corner that would have held a logo cleanly "
+        "empty (the user composites their real logo afterwards if they want one). "
+        "If you draw a fake brand name or wordmark, that is a render failure."
+    )
 
     brand_photos = brand.get("brand_photos") or []
     brand_photo_note = ""
