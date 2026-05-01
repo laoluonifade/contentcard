@@ -40,6 +40,8 @@ from app.schemas.content import (
     RegenerateMonthVisualsRequest,
     RegenerateMonthVisualsResponse,
     BulkDeleteContentRequest,
+    GenerateContentRequest,
+    GenerateContentResponse,
     RedistributeMonthDatesRequest,
     RedistributeMonthDatesResponse,
     BrandFormCoachRequest,
@@ -2567,6 +2569,84 @@ async def bulk_delete_content(
         except Exception as e:
             logger.warning("auto-redistribute on bulk-delete failed: %s", e)
     return {"deleted": deleted}
+
+
+@router.post("/generate-content", response_model=GenerateContentResponse)
+async def generate_content(
+    body: GenerateContentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """PRD §11.1 — single-shot image generation pipeline.
+
+    Flow (PRD §3):
+      1. Fetch the Brand Kit
+      2. Call Strategist (LLM) → structured creative direction JSON
+      3. Call Prompt Builder (deterministic) → plain text image prompt
+      4. Call OpenAI image model → image URL
+      5. Return image_url + strategy + prompt for client transparency
+
+    The Strategist NEVER receives the raw user_prompt as the image prompt —
+    it interprets brand + intent and emits a structured direction.
+    """
+    from app.services.strategist_service import call_strategist, pick_variation_axis
+    from app.services.prompt_builder_service import build_image_prompt as build_prompt_from_strategy
+    from app.services.image_service import generate_post_image
+
+    brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
+    brand_kit = _brand_to_dict(brand)
+
+    fmt = (body.format or "single").lower()
+    if fmt not in ("single", "quote", "gif"):
+        fmt = "single"
+    platform_value = body.platform.value if body.platform else "instagram"
+
+    # Variation axis seeded by brand_id + user_prompt hash so the same prompt
+    # produces a stable strategy on retries, but different prompts diverge.
+    variation_seed = f"{body.brand_id}|{body.user_prompt[:200]}"
+    import hashlib as _h
+    pseudo_post_id = _h.sha256(variation_seed.encode("utf-8")).hexdigest()[:16]
+    variation_axis = pick_variation_axis(body.brand_id, pseudo_post_id)
+
+    try:
+        strategy = await call_strategist(
+            brand_kit=brand_kit,
+            user_prompt=body.user_prompt or "",
+            platform=platform_value,
+            format=fmt,
+            variation_axis=variation_axis,
+        )
+    except Exception as e:
+        logger.error("Strategist failed in /generate-content: %s", e)
+        raise HTTPException(status_code=502, detail="Strategist call failed")
+
+    prompt_text = build_prompt_from_strategy(
+        strategy=strategy,
+        brand_kit=brand_kit,
+        platform=platform_value,
+    )
+
+    # Reuse the existing image-generation pipeline — pass the prebuilt
+    # prompt via image_prompt so generate_post_image's strategist call
+    # can fast-path back to it (the strategist cache short-circuits).
+    synthetic_post = {
+        "id": pseudo_post_id,
+        "platform": platform_value,
+        "format": fmt,
+        "topic": (body.user_prompt or "")[:120],
+        "content_idea": body.user_prompt or "",
+        "image_prompt": prompt_text,  # legacy fallback path uses this
+    }
+
+    urls = await generate_post_image(synthetic_post, brand_kit)
+    if not urls:
+        raise HTTPException(status_code=502, detail="Image generation failed")
+
+    return GenerateContentResponse(
+        image_url=str(urls[0]),
+        strategy=strategy,
+        prompt=prompt_text,
+    )
 
 
 @router.post("/redistribute-dates", response_model=RedistributeMonthDatesResponse)

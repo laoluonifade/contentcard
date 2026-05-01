@@ -120,6 +120,25 @@ class BulkDeleteContentRequest(BaseModel):
     content_ids: list[str]
 
 
+class GenerateContentRequest(BaseModel):
+    """PRD §11.1 — POST /generate-content body.
+
+    Single-shot image generation: backend fetches the Brand Kit, runs the
+    Strategist + Prompt Builder + Image pipeline, returns the image URL.
+    No carousel format here — single, quote, gif only.
+    """
+    brand_id: str
+    user_prompt: str = ""
+    platform: ContentPlatform = ContentPlatform.INSTAGRAM
+    format: str = "single"  # single | quote | gif
+
+
+class GenerateContentResponse(BaseModel):
+    image_url: str
+    strategy: dict  # strategist output (objective, scene, composition, etc.)
+    prompt: str     # final text prompt sent to gpt-image-1
+
+
 class RedistributeMonthDatesRequest(BaseModel):
     """Spread the remaining posts in a month evenly across its weekdays."""
 

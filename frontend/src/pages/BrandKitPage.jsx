@@ -1146,6 +1146,36 @@ export default function BrandKitPage() {
                     Upload your logo and any photos we can use in posts. We resize and place them automatically on every generated design.
                   </p>
                 </div>
+
+                <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
+                  <div>
+                    <span className={labelCls}>Render brand mark in design</span>
+                    <p className="text-ink/40 text-[11px] mt-1 max-w-xl">
+                      Controls whether the AI draws your brand wordmark into the design.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { value: 'none', label: 'None', desc: 'Pure design, no brand text' },
+                      { value: 'subtle', label: 'Subtle', desc: 'Small mark in a corner' },
+                      { value: 'prominent', label: 'Prominent', desc: 'Mark is part of the design' },
+                    ].map((opt) => {
+                      const current = (form.brand_kit?.logo_rendering || 'none').toLowerCase()
+                      const active = current === opt.value
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => set('brand_kit', { ...(form.brand_kit || {}), logo_rendering: opt.value })}
+                          className={`py-2.5 px-3 rounded-xl border-2 text-left transition-all ${active ? 'border-brand-400 bg-brand-500/5' : 'border-fog hover:border-brand-300'}`}
+                        >
+                          <span className={`block text-sm font-semibold ${active ? 'text-brand-600' : 'text-ink/70'}`}>{opt.label}</span>
+                          <span className="block text-[11px] text-ink/45 mt-0.5">{opt.desc}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
                 <div className="rounded-xl border border-fog bg-mist/40 p-4 space-y-3">
                   <div>
                     <span className={labelCls}>Brand logo</span>
