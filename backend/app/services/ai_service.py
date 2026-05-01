@@ -1164,6 +1164,11 @@ VISUAL_DIRECTION_DESIGN_TOKENS = (
 
 
 def _industry_quality_playbook_block(industry: str | None) -> str:
+    # Experiment: when the playbook layer is off, do not inject industry-
+    # curated benchmark text. The brand kit is the only source of truth.
+    from app.core.config import settings as _settings
+    if not _settings.CONTENT_PLAYBOOK_ENABLED:
+        return ""
     bag = str(industry or "").lower()
     if "fin" in bag or "bank" in bag or "payment" in bag or "remittance" in bag:
         return (
@@ -3108,6 +3113,13 @@ def _build_design_mix_schedule(
 def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, seed_key: str) -> list[dict]:
     if not posting_dates:
         return []
+    # Experiment: when CONTENT_PLAYBOOK_ENABLED is False, treat the brand as
+    # having no playbook so the planner falls through to the AI-driven path
+    # where OpenAI decides content_type/format/visual-direction from the brand
+    # kit alone.
+    from app.core.config import settings as _settings
+    if not _settings.CONTENT_PLAYBOOK_ENABLED:
+        return []
     if not playbook:
         return []
     content_types = [ct for ct in (playbook.get("content_types") or []) if isinstance(ct, dict)]
@@ -3286,8 +3298,65 @@ async def _generate_for_platform(
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
     rng = random.Random(seed)
-    if playbook_plan:
+    # Brand-kit-only experiment: when CONTENT_PLAYBOOK_ENABLED is False the
+    # planner does not pre-pick content_type/format. The model decides every
+    # field for every date from the brand kit.
+    playbook_disabled = not settings.CONTENT_PLAYBOOK_ENABLED
+    if playbook_disabled:
+        assignment_instructions = "\n".join(
+            f"• {d}: content_type=YOUR_CHOICE | template_family=YOUR_CHOICE | post_type=YOUR_CHOICE"
+            for d in posting_dates
+        )
+        assignment_header = (
+            "For each posting date below, you decide content_type, post_type, and template_family "
+            "from your reading of the BRAND CONTEXT (audience, voice, value props, content goals, "
+            "active campaigns). Diversify across the month — no two consecutive posts should share "
+            "the same content_type, post_type, or visual archetype:"
+        )
+        assignment_contract = (
+            "Treat the date list as a delivery schedule, not a content contract:\n"
+            "• Choose content_type per date based on the brand kit and what would best serve the "
+            "audience that day (weekday vs weekend cadence, recency of topics, campaign moments).\n"
+            "• Pick post_type (single / carousel / gif) based on whether the idea naturally needs "
+            "multi-step breakdown.\n"
+            "• Pick template_family from the allowed list at field 17 based on the post idea.\n"
+            "• Maximum diversity is the goal: never repeat the same content_type or template_family "
+            "back-to-back."
+        )
+        field_content_type_clause = (
+            "1. content_type: short string you choose for this post (e.g. educational, promotional, "
+            "social_proof, story, engagement, product_spotlight, behind_the_scenes, founder_story); "
+            "must vary across the month"
+        )
+        field_template_family_clause = (
+            "17. template_family: choose from promo, text_poster, data_card, testimonial, "
+            "announcement, illustration_editorial, edu, story_carousel, product_hero, "
+            "co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, "
+            "editorial_issue_card, or seasonal_pattern_promo — pick the one that best fits this post idea"
+        )
+        format_clause = (
+            "12. format: choose single, carousel, or gif based on whether the idea naturally needs "
+            "multi-step breakdown or motion"
+        )
+        visual_direction_assignment_clause = (
+            "If you draft a strong visual_direction for a post, follow it through; otherwise rewrite "
+            "before returning. There is no fixed assignment to honour."
+        )
+    elif playbook_plan:
         assignment_instructions = _playbook_assignment_text(playbook_plan)
+        assignment_header = "Assign one post to each date using this exact assignment map:"
+        assignment_contract = (
+            "Treat the assignment map as a creative contract, not a loose hint:\n"
+            "• Keep content_type exactly as assigned.\n"
+            "• Treat business_shape, pillar, cta_hint, and proof in the assignment map as commercial strategy instructions for copy, message_architecture, and visual_direction.\n"
+            "• Preserve each visual_direction's core scene idea and composition logic, expand it only with sharper brand-specific detail.\n"
+            "• If slot_key is present, stay recognisably within that slot's concept family instead of inventing a totally different frame.\n"
+            "• If a slot says carousel, build a truly carousel-native idea, not a single-post caption forced into slides."
+        )
+        field_content_type_clause = "1. content_type: exactly as assigned above"
+        field_template_family_clause = "17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, product_hero, co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, editorial_issue_card, or seasonal_pattern_promo."
+        format_clause = "12. format: must match post_type assignment (single->\"single\" or \"gif\", carousel->\"carousel\")"
+        visual_direction_assignment_clause = "If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning"
     else:
         content_types = [
             "Educational Tip", "Meme / Relatable Humour", "CTA / Promotion",
@@ -3302,6 +3371,16 @@ async def _generate_for_platform(
                 for d, t in zip(posting_dates, assigned_types)
             ]
         )
+        assignment_header = "Assign one post to each date using this exact assignment map:"
+        assignment_contract = (
+            "Treat the assignment map as a creative contract, not a loose hint:\n"
+            "• Keep content_type exactly as assigned.\n"
+            "• Preserve each visual_direction's core scene idea and composition logic, expand it only with sharper brand-specific detail."
+        )
+        field_content_type_clause = "1. content_type: exactly as assigned above"
+        field_template_family_clause = "17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, product_hero, co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, editorial_issue_card, or seasonal_pattern_promo."
+        format_clause = "12. format: must match post_type assignment (single->\"single\" or \"gif\", carousel->\"carousel\")"
+        visual_direction_assignment_clause = "If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning"
 
     platform_notes = {
         "instagram": "Instagram square 1:1",
@@ -3397,19 +3476,14 @@ Format preference: {format_mix}
 Business default strategy:
 {business_strategy_text}
 
-Assign one post to each date using this exact assignment map:
+{assignment_header}
 {assignment_instructions}
 
-Treat the assignment map as a creative contract, not a loose hint:
-• Keep content_type exactly as assigned.
-• Treat business_shape, pillar, cta_hint, and proof in the assignment map as commercial strategy instructions for copy, message_architecture, and visual_direction.
-• Preserve each visual_direction's core scene idea and composition logic, expand it only with sharper brand-specific detail.
-• If slot_key is present, stay recognisably within that slot's concept family instead of inventing a totally different frame.
-• If a slot says carousel, build a truly carousel-native idea, not a single-post caption forced into slides.
+{assignment_contract}
 
 For EACH post return ALL these fields:
 
-1. content_type: exactly as assigned above
+{field_content_type_clause}
 2. content_idea: punchy post title, max 8 words
 3. description: 2-3 sentences: what this post achieves, why this angle, who it speaks to
 4. caption: full ready-to-post caption, max {platform_caption_limit} words, platform-native, NO hashtags inside the caption body
@@ -3421,7 +3495,7 @@ For EACH post return ALL these fields:
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
 10. visual_type: {_visual_type_rule_for_style(ips)}
 11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story", "co_brand_lockup", "offer_pill_stack", "device_mockup_benefit", "editorial_issue_card", "quote_editorial_sheet", "merchant_launch_cutout", "sticker_collage", "product_grid_offer"; must align with content_type, template_family, visual_type, and campaign system
-12. format: must match post_type assignment (single->"single" or "gif", carousel->"carousel")
+{format_clause}
 13. slide_count: 1 for single or gif, 2-5 for carousel
 14. date: posting date in YYYY-MM-DD format exactly as listed above
 15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
@@ -3430,7 +3504,7 @@ For EACH post return ALL these fields:
     - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim.
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
-17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, product_hero, co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, editorial_issue_card, or seasonal_pattern_promo.
+{field_template_family_clause}
 18. layout_family: short string naming the overall campaign system, such as conversion_banner, offer_pill_system, co_brand_launch_system, issue_editorial_system, ui_benefit_system, or merchant_onboarding_announcement.
 19. component_pack: array of 3-6 specific reusable modules the final design should visibly use, such as partner_lockup, offer_pill, issue_chip, device_mockup, cutout_product_frame, stat_module, qa_body, seasonal_motif, utility_icon_set.
 20. slide_blueprint: array naming the role of each slide in order. For singles return ["cover"]. For carousels use roles like cover, insight, proof, qa, ui_proof, benefit_detail, quote, close, cta.
@@ -3465,7 +3539,7 @@ HARD RULES:
 • visual_direction must include the literal prefix Headline for layout: with quoted copy matching message_architecture.hook exactly; when message_architecture.support is non-empty, also include Subhead for layout: with quoted support matching exactly; when strategy_note or content goals exist in BRAND CONTEXT, include one strategy bridge sentence; field 7 and field 16 must never contradict each other
 • visual_direction should plan final logo lockup placement and breathing room for compositing after generation, not an in-model logo
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
-• If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning
+• {visual_direction_assignment_clause}
 • Ensure monthly composition variety: include at least one product/device hero, one lifestyle context scene, one abstract/graphic metaphor, and one trust-proof frame where batch size allows
 • Ensure monthly family variety: include multiple layout families across the batch, and never let photo-led hero cards dominate more than a third of posts
 • Realism QA for human photos: reject and rewrite prompts that would likely create uncanny outputs (waxy skin, duplicated faces, malformed hands, doll-like eyes, over-airbrushed complexion, impossible lighting reflections)
@@ -4146,6 +4220,9 @@ def _brand_campaign_brief_from_profile(brand: dict, topic: str | None = None, de
 
 
 def _caption_playbook_summary(brand: dict | None) -> str:
+    from app.core.config import settings as _settings
+    if not _settings.CONTENT_PLAYBOOK_ENABLED:
+        return "Brand-kit-only mode — no playbook constraints; choose voice and structure from the brand kit."
     playbook = _playbook_from_brand(brand)
     if not playbook:
         return "No playbook selected."

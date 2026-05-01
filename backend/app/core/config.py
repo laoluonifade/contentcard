@@ -71,6 +71,13 @@ class Settings(BaseSettings):
     AI_IMAGE_VARIANT_MIN_MODE: bool = True
     AI_HIGH_QUALITY_FINAL_ONLY: bool = True
 
+    # Experiment: when False, the brand's design playbook (industry-curated
+    # content_type rotation, visual-direction slots, template-depth gate)
+    # is bypassed entirely. The model decides content_type, format, and
+    # visual direction for every post from the brand kit alone. Flip back
+    # to True to restore the curated rotation.
+    CONTENT_PLAYBOOK_ENABLED: bool = False
+
     OPENAI_HIGH_QUALITY_MODEL: str = "gpt-5.5-pro"
     OPENAI_LOW_COST_MODEL: str = "gpt-4o-mini"
 

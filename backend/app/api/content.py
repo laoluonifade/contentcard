@@ -932,6 +932,11 @@ def _assert_template_depth_requirements(
 ) -> None:
     if not selected_template:
         return
+    # Experiment: when the playbook layer is disabled the template-depth gate
+    # is meaningless (there is no playbook to compare against). Skip the check
+    # so generation is never blocked on a missing playbook dimension.
+    if not settings.CONTENT_PLAYBOOK_ENABLED:
+        return
     spec = selected_template.design_spec if isinstance(selected_template.design_spec, dict) else {}
     content_type = str(spec.get("playbook_content_type") or "").strip().lower()
     if not content_type:
@@ -2021,7 +2026,11 @@ async def generation_prep_chat(
             .limit(8)
         )
     ).scalars().all()
+    # Experiment: when the playbook layer is disabled, send an empty templates
+    # list to the planner so the model decides everything from the brand kit.
     playbook_lines: list[str] = []
+    if not settings.CONTENT_PLAYBOOK_ENABLED:
+        templates = []
     for idx, t in enumerate(templates, start=1):
         spec = t.design_spec if isinstance(t.design_spec, dict) else {}
         ct = str(spec.get("playbook_content_type") or t.name or "general").strip()
@@ -2051,7 +2060,10 @@ async def generation_prep_chat(
                 f"{str(selected_slot.get('visual_direction') or '').strip()[:120]}"
             )
         playbook_lines.append(f"{idx}. {ct} ({direction_count} directions){preferred_text} | examples -> {sample_text}")
-    playbook_summary = "\n".join(playbook_lines) if playbook_lines else "No custom templates yet."
+    if not settings.CONTENT_PLAYBOOK_ENABLED:
+        playbook_summary = "Brand-kit-only mode — no playbook templates. Decide everything from BRAND CONTEXT."
+    else:
+        playbook_summary = "\n".join(playbook_lines) if playbook_lines else "No custom templates yet."
     product_rows = (
         await db.execute(
             select(WebsiteEntity)
