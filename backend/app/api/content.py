@@ -46,6 +46,7 @@ from app.schemas.content import (
 from app.schemas.creative_engine import GenerateMonthV2Request
 from app.services.ai_service import (
     generate_monthly_plan,
+    propose_monthly_schedule,
     generate_single_caption,
     generate_photo_caption,
     run_generation_prep_chat,
@@ -1750,6 +1751,52 @@ async def generate_month_v2(
     }
 
 
+class PlanMonthRequest(BaseModel):
+    brand_id: str
+    month: int = Field(..., ge=1, le=12)
+    year: int = Field(..., ge=2024, le=2032)
+    platform: str
+    posts_per_week: int = Field(3, ge=1, le=7)
+    format_mix: str = "mixed"
+
+
+@router.post("/plan-month")
+async def plan_month(
+    body: PlanMonthRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Plan-only endpoint: returns the AI's proposed schedule for the month
+    (date / content_type / post_type / format / content_idea / topic) without
+    generating captions, image_prompts, or images. The frontend renders this
+    in GenerationPlanModal so the user can review/edit before committing to
+    full design generation via /generate-month-v2 with custom_plan set.
+    """
+    _assert_generation_horizon(body.month, body.year)
+    brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+    missing = _validate_brand_readiness(brand)
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Your brand kit is incomplete. Fill in these fields before planning: {', '.join(missing)}",
+        )
+    brand_dict = _brand_to_dict(brand)
+    try:
+        plan = await propose_monthly_schedule(
+            brand=brand_dict,
+            month=body.month,
+            year=body.year,
+            platform=body.platform.lower(),
+            posts_per_week=max(1, min(7, body.posts_per_week)),
+            format_mix=body.format_mix,
+        )
+    except Exception as exc:
+        logger.error("plan_month failed for brand %s: %s", brand.id, exc)
+        raise HTTPException(status_code=502, detail="Plan generation failed. Try again shortly.")
+    return {"month": body.month, "year": body.year, "platform": body.platform.lower(), "plan": plan}
+
+
 @router.post("/generate-photo-caption")
 async def caption_from_photo(
     body: GeneratePhotoCaption,
@@ -3428,6 +3475,7 @@ async def _do_generate_month(
                     product_image_url = str(slot.get("product_image_url") or "").strip() or None
                     # Merge override template_id from slot (if any) or fall back to global
                     slot_template_id = str(slot.get("template_id") or "").strip() or template_id or None
+                    user_idea = str(slot.get("content_idea") or "").strip()
                     posts.append({
                         "date": raw_date,
                         "platform": platform_val,
@@ -3436,8 +3484,11 @@ async def _do_generate_month(
                         "visual_direction": visual_direction,
                         "product_image_url": product_image_url,
                         "template_id": slot_template_id,
-                        # Leave topic/caption/image_prompt blank — AI fills these later
-                        "topic": topic_override or content_type or "content",
+                        # AI's planned content_idea seeds the topic so captions/images
+                        # match what the preview promised. Falls back to topic_override
+                        # or content_type when the user cleared the field.
+                        "topic": user_idea or topic_override or content_type or "content",
+                        "content_idea": user_idea or topic_override or "",
                         "caption": None,
                     })
                 logger.info(

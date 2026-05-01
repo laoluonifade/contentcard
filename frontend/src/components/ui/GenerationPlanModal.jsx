@@ -11,8 +11,8 @@
  */
 
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react'
-import { X, Plus, Trash2, Upload, Image, ChevronDown } from 'lucide-react'
-import { brandApi, uploadApi } from '../../api'
+import { X, Plus, Trash2, Upload, Image, ChevronDown, Sparkles } from 'lucide-react'
+import { brandApi, contentApi, uploadApi } from '../../api'
 import { toast } from './Toast'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -57,6 +57,8 @@ function spreadDates(month, year, count) {
 }
 
 export function buildInitialPlan({ month, year, platform, postsPerWeek, templateId, templateName }) {
+  // Fallback rows used while the AI plan is loading or if the plan endpoint fails.
+  // The AI plan replaces these as soon as it returns.
   const weeklyCount = Number.isFinite(Number(postsPerWeek)) ? Number(postsPerWeek) : 3
   const count = Math.max(1, Math.round(weeklyCount * 4.3))
   const dates  = spreadDates(month, year, count)
@@ -67,10 +69,30 @@ export function buildInitialPlan({ month, year, platform, postsPerWeek, template
     platform,
     post_type:       POST_TYPES[i % POST_TYPES.length],
     content_type:    CONTENT_TYPES[i % CONTENT_TYPES.length],
+    content_idea:    '',
     product_image_url:  null,
     template_id:     templateId || null,
     template_name:   templateName || 'Auto',
   }))
+}
+
+/** Map an AI-proposed plan row from /content/plan-month into the modal's row shape. */
+function aiPlanToRows(aiPlan, { templateId, templateName, platform }) {
+  if (!Array.isArray(aiPlan)) return []
+  return aiPlan.map((row, i) => ({
+    _id:             `plan-ai-${Date.now()}-${i}`,
+    date:            String(row.date || ''),
+    platform:        String(row.platform || platform || 'instagram').toLowerCase(),
+    post_type:       (() => {
+      const pt = String(row.post_type || row.format || 'single').toLowerCase()
+      return POST_TYPES.includes(pt) ? pt : 'single'
+    })(),
+    content_type:    String(row.content_type || 'general'),
+    content_idea:    String(row.content_idea || row.topic || ''),
+    product_image_url: null,
+    template_id:     templateId || null,
+    template_name:   templateName || 'Auto',
+  })).filter(r => r.date)
 }
 
 /* ─── tiny image-picker popover ─────────────────────────────────────── */
@@ -185,20 +207,22 @@ function PlanRow({ row, idx, templates, brandPhotos, onUpdate, onDelete, workspa
         </div>
       </td>
 
-      {/* Content type */}
+      {/* Content type — free text with suggestions, since the AI now chooses freely */}
       <td className="px-2 py-2 w-40">
-        <div className="relative">
-          <select
-            value={row.content_type}
-            onChange={e => update('content_type', e.target.value)}
-            className="w-full text-xs border border-fog rounded-lg pl-2 pr-6 py-1.5 bg-surface text-ink appearance-none focus:outline-none focus:border-brand/60 truncate"
-          >
-            {CONTENT_TYPES.map(ct => (
-              <option key={ct} value={ct}>{ct}</option>
-            ))}
-          </select>
-          <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink/30 pointer-events-none" />
-        </div>
+        <input
+          type="text"
+          list={`ctlist-${row._id}`}
+          value={row.content_type}
+          onChange={e => update('content_type', e.target.value)}
+          placeholder="content type"
+          className="w-full text-xs border border-fog rounded-lg px-2 py-1.5 bg-surface text-ink focus:outline-none focus:border-brand/60 truncate"
+        />
+        <datalist id={`ctlist-${row._id}`}>
+          {CONTENT_TYPES.map(ct => <option key={ct} value={ct} />)}
+        </datalist>
+        {row.content_idea ? (
+          <p className="text-[10px] text-ink/35 mt-0.5 truncate" title={row.content_idea}>{row.content_idea}</p>
+        ) : null}
       </td>
 
       {/* Image */}
@@ -269,12 +293,52 @@ export default function GenerationPlanModal({
   const [rows, setRows] = useState(initialRows)
   const [brandPhotos, setBrandPhotos] = useState(() => Array.isArray(brand?.brand_photos) ? brand.brand_photos : [])
   const [confirming, setConfirming] = useState(false)
+  const [planLoading, setPlanLoading] = useState(true)
+  const [planError, setPlanError] = useState(null)
   const minDate = toIso(year, month, 1)
   const maxDate = toIso(year, month, new Date(year, month, 0).getDate())
 
+  // Fetch the AI's proposed plan on open. Replaces the modulo-rotated
+  // CONTENT_TYPES seed with what the model actually wants to publish for
+  // this brand. User edits below this still take precedence.
   useEffect(() => {
-    setRows(initialRows)
-  }, [initialRows])
+    let cancelled = false
+    if (!brand?.id) {
+      setPlanLoading(false)
+      return
+    }
+    setPlanLoading(true)
+    setPlanError(null)
+    contentApi
+      .planMonth({
+        brand_id: brand.id,
+        month,
+        year,
+        platform,
+        posts_per_week: postsPerWeek,
+        format_mix: 'mixed',
+      })
+      .then((res) => {
+        if (cancelled) return
+        const aiRows = aiPlanToRows(res?.plan, { templateId, templateName, platform })
+        if (aiRows.length > 0) {
+          setRows(aiRows)
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return
+        console.warn('plan-month fetch failed; using fallback seed', err)
+        setPlanError('Could not load AI plan; showing a default schedule. You can edit each row.')
+      })
+      .finally(() => {
+        if (!cancelled) setPlanLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [brand?.id, month, year, platform, postsPerWeek, templateId, templateName])
+
+  // Note: we no longer reseed from initialRows when month/postsPerWeek change,
+  // because the AI plan effect above is the source of truth. initialRows is
+  // only used as the first paint and as a fallback when planMonth fails.
 
   useEffect(() => {
     setBrandPhotos(Array.isArray(brand?.brand_photos) ? brand.brand_photos : [])
@@ -320,6 +384,7 @@ export default function GenerationPlanModal({
       platform:          r.platform,
       format:            r.post_type,
       content_type:      r.content_type,
+      content_idea:      r.content_idea || null,
       visual_direction:  null,
       product_image_url: r.product_image_url || null,
       template_id:       r.template_id || null,
@@ -341,9 +406,18 @@ export default function GenerationPlanModal({
             <h2 className="text-ink font-semibold text-base">
               Plan {MONTHS[month - 1]} {year} · {platform.charAt(0).toUpperCase() + platform.slice(1)}
             </h2>
-            <p className="text-ink/40 text-xs mt-0.5">
-              {rows.length} post{rows.length === 1 ? '' : 's'} planned · Edit dates, formats, content types, and images before generating
-            </p>
+            {planLoading ? (
+              <p className="text-brand-600 text-xs mt-0.5 flex items-center gap-1.5">
+                <Sparkles size={11} className="animate-pulse" />
+                AI is reading your brand kit and proposing a plan…
+              </p>
+            ) : planError ? (
+              <p className="text-amber-600 text-xs mt-0.5">{planError}</p>
+            ) : (
+              <p className="text-ink/40 text-xs mt-0.5">
+                {rows.length} post{rows.length === 1 ? '' : 's'} the AI wants to publish · Edit any row before generating
+              </p>
+            )}
           </div>
           <button onClick={onClose} className="text-ink/30 hover:text-ink p-1.5 -mr-1 transition-colors">
             <X size={18} />

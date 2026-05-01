@@ -4128,7 +4128,141 @@ async def _generate_for_platform(
     return validated or drafted
 
 
-# ── Monthly plan ───────────────────────────────────────────────────────────────
+# ── Monthly plan (preview) ─────────────────────────────────────────────────────
+
+async def propose_monthly_schedule(
+    brand: dict,
+    month: int,
+    year: int,
+    platform: str,
+    posts_per_week: int = 3,
+    format_mix: str = "mixed",
+    holiday_context: str | None = None,
+) -> list[dict]:
+    """
+    Lightweight plan proposer for the pre-generation review modal.
+
+    Returns one row per posting date with the AI's decision on
+    content_type / post_type / format / content_idea / topic. Skips caption,
+    image_prompt, message_architecture — those are deferred to the full
+    generate_monthly_plan call after the user reviews and confirms.
+    """
+    import calendar
+    import json as _json
+    month_name = calendar.month_name[month]
+    posting_dates = _get_posting_dates(year, month, posts_per_week)
+    if not posting_dates:
+        return []
+
+    fmt_pref = str(format_mix or "").strip().lower()
+    single_only = any(k in fmt_pref for k in ("single_only", "single", "no_carousel", "single-post"))
+
+    brand_name = brand.get("name", "the brand")
+    industry = brand.get("industry", "General")
+    target_audience = brand.get("target_audience", "")
+    tone = ", ".join(brand.get("tone_tags") or [])
+    key_messages = ", ".join(brand.get("key_messages") or [])
+    description = brand.get("description", "")
+    value_prop = (brand.get("brand_kit") or {}).get("value_proposition") or brand.get("value_proposition") or ""
+
+    brand_ctx = f"""Brand: {brand_name}
+Industry: {industry}
+Description: {description}
+Value proposition: {value_prop}
+Audience: {target_audience}
+Tone: {tone}
+Key messages: {key_messages}
+Holiday context: {holiday_context or 'none'}"""
+
+    schedule_lines = "\n".join(f"• {d}" for d in posting_dates)
+    fmt_note = (
+        "Use post_type=single for every date." if single_only
+        else "Use a healthy mix of single, carousel, and quote post_types based on what each idea actually needs — never one type for every post."
+    )
+
+    prompt = f"""Plan {len(posting_dates)} {platform} posts for {brand_name} in {month_name} {year}.
+
+{brand_ctx}
+
+Posting dates:
+{schedule_lines}
+
+For EACH date, return a planning row with these fields:
+- date: the YYYY-MM-DD date from the list above (one row per date, exact match, no extras)
+- content_type: short string YOU choose based on the brand kit (e.g. educational, promotional, behind_the_scenes, story, social_proof, product_spotlight, founder_story, industry_insight, trending_moment, lifestyle, engagement, seasonal, community). Vary across the month — never repeat back-to-back.
+- post_type: one of single / carousel / quote. {fmt_note}
+- format: same as post_type for now (single / carousel / quote)
+- content_idea: 6-12 word punchy post title that names a specific brand-relevant noun (product, audience pain, ritual, occasion, proof). No generic placeholders.
+- topic: same as content_idea
+
+Diversity is mandatory. No two consecutive posts may share the same content_type. No two posts in the month may share the same content_idea or hook noun. Skew the mix toward what the BRAND CONTEXT actually supports — if the brand is a restaurant, lean menu / occasion / behind-the-scenes; if it's SaaS, lean product walkthrough / proof / education.
+
+Return ONLY raw JSON: {{"plan": [{{"date": "...", "content_type": "...", "post_type": "...", "format": "...", "content_idea": "...", "topic": "..."}}, ...]}}"""
+
+    raw = await _openai_chat(
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        max_tokens=1500,
+        temperature=0.55,
+        json_mode=True,
+        endpoint_name="plan_month_preview",
+        high_quality_required=True,
+    )
+    parsed = _parse_json_safe(raw)
+    if not isinstance(parsed, dict):
+        return []
+    plan = parsed.get("plan")
+    if not isinstance(plan, list):
+        return []
+
+    expected_dates = {d for d in posting_dates}
+    seen_dates: set[str] = set()
+    cleaned: list[dict] = []
+    for row in plan:
+        if not isinstance(row, dict):
+            continue
+        d = str(row.get("date") or "").strip()
+        if not d or d not in expected_dates or d in seen_dates:
+            continue
+        seen_dates.add(d)
+        post_type = str(row.get("post_type") or "single").strip().lower()
+        if post_type not in ("single", "carousel", "quote"):
+            post_type = "single"
+        if single_only:
+            post_type = "single" if post_type != "quote" else "quote"
+        fmt = str(row.get("format") or post_type).strip().lower()
+        if fmt not in ("single", "carousel", "quote", "gif"):
+            fmt = post_type
+        content_type = str(row.get("content_type") or "general").strip().lower().replace(" ", "_")
+        content_idea = str(row.get("content_idea") or "").strip()[:120]
+        topic = str(row.get("topic") or content_idea or "").strip()[:120]
+        cleaned.append({
+            "date": d,
+            "platform": platform.lower(),
+            "content_type": content_type,
+            "post_type": post_type,
+            "format": fmt,
+            "content_idea": content_idea,
+            "topic": topic,
+        })
+    # Backfill any dates the AI dropped — the modal expects one row per date.
+    for d in posting_dates:
+        if d in seen_dates:
+            continue
+        cleaned.append({
+            "date": d,
+            "platform": platform.lower(),
+            "content_type": "general",
+            "post_type": "single",
+            "format": "single",
+            "content_idea": "",
+            "topic": "",
+        })
+    cleaned.sort(key=lambda r: r["date"])
+    return cleaned
+
 
 async def generate_monthly_plan(
     brand: dict,
