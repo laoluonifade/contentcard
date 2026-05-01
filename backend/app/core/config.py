@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # When True, logo upload also requests Cloudinary AI background removal (paid add-on). Local edge-based stripping always runs first.
     CLOUDINARY_LOGO_AI_BG_REMOVAL: bool = False
 
+    # When False, the Bannerbear text/logo compositing layer is skipped and
+    # the raw gpt-image-1 background is delivered directly. The model is
+    # then expected to render headline/CTA/offer typography itself.
+    BANNERBEAR_ENABLED: bool = False
     BANNERBEAR_API_KEY: str = ""
     BANNERBEAR_TEMPLATE_COVER: str = ""
     BANNERBEAR_TEMPLATE_CONTENT: str = ""
@@ -74,7 +78,7 @@ class Settings(BaseSettings):
     # to True to restore the curated rotation.
     CONTENT_PLAYBOOK_ENABLED: bool = False
 
-    OPENAI_HIGH_QUALITY_MODEL: str = "gpt-4o"
+    OPENAI_HIGH_QUALITY_MODEL: str = "gpt-5.5-pro"
     OPENAI_LOW_COST_MODEL: str = "gpt-4o-mini"
 
     AI_MAX_OUTPUT_TOKENS_DEFAULT: int = 2000
@@ -96,8 +100,8 @@ class Settings(BaseSettings):
     # Rough cost modelling for telemetry (USD / 1K tokens)
     AI_LOW_COST_MODEL_INPUT_PER_1K_USD: float = 0.00015
     AI_LOW_COST_MODEL_OUTPUT_PER_1K_USD: float = 0.0006
-    AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.005
-    AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.015
+    AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.030
+    AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.180
 
     SOCIAL_AUTOPILOT_GLOBAL_KILL_SWITCH: bool = False
     SOCIAL_AUTOPILOT_MIN_QUALITY_SCORE: float = 0.66

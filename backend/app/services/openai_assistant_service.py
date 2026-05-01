@@ -192,7 +192,7 @@ async def create_brand_assistant(brand) -> tuple[str, str]:
     assistant = await client.beta.assistants.create(
         name=f"ContentCard: {brand.name}",
         instructions=ASSISTANT_INSTRUCTIONS,
-        model="gpt-4o",
+        model=settings.OPENAI_HIGH_QUALITY_MODEL,
         tools=[{"type": "file_search"}],
         tool_resources={"file_search": {"vector_store_ids": [vs.id]}},
     )
