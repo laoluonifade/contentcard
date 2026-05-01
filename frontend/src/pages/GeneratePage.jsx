@@ -226,19 +226,6 @@ export default function GeneratePage() {
         </div>
       )}
 
-      {activeBrandId && usableTemplates.length === 0 && (
-        <div className="border border-brand-200 bg-brand-50 rounded-2xl p-5 mb-6">
-          <p className="text-brand-700 text-sm font-semibold mb-1">No custom playbook items yet</p>
-          <p className="text-brand-700/90 text-xs mb-3">
-            Generation will use your current brand playbook defaults for now. Add custom playbook items anytime to tailor
-            output to your exact content pattern.
-          </p>
-          <button onClick={() => navigate('/dashboard/templates')} className="btn-primary text-xs">
-            Customize playbook
-          </button>
-        </div>
-      )}
-
       <div className="grid lg:grid-cols-[1fr_240px] gap-6 items-start">
         <div className="space-y-3">
 

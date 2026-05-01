@@ -272,9 +272,6 @@ export const contentApi = {
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
   exportCalendar: (params)     => api.get('/content/export', { params, responseType: 'blob' }),
   directory:  (workspaceId)   => api.get('/content/directory', { params: { workspace_id: workspaceId } }).then(r => r.data),
-  memes:      ()              => api.get('/content/memes').then(r => r.data),
-  addMeme:    (data)          => api.post('/content/memes', data).then(r => r.data),
-  deleteMeme: (id)            => api.delete(`/content/memes/${id}`).then(r => r.data),
   get:        (id)             => api.get(`/content/${id}`).then(r => r.data),
   update:     (id, data)       => api.put(`/content/${id}`, data).then(r => r.data),
   regenerate: (id, data)       => api.post(`/content/${id}/regenerate`, data).then(r => r.data),
@@ -371,6 +368,9 @@ export const socialApi = {
 }
 
 // ─── Templates ──────────────────────────────────────────────────
+// User-facing /dashboard/templates page was removed (nav stripped) but
+// internal callers — calendar template-picker, dashboard panel, admin —
+// still hit these endpoints, so the wrappers stay.
 export const templateApi = {
   list:   (brandId) => api.get('/templates', { params: { brand_id: brandId } }).then(r => r.data),
   playbookCatalog: (brandId) => api.get('/templates/playbook-catalog', { params: { brand_id: brandId } }).then(r => r.data),
