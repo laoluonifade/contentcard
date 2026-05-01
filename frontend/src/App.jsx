@@ -28,6 +28,7 @@ import DashboardPage        from './pages/DashboardPage'
 import CalendarPage         from './pages/CalendarPage'
 import GeneratePage         from './pages/GeneratePage'
 import BrandKitPage         from './pages/BrandKitPage'
+import ProductsPage         from './pages/ProductsPage'
 import SettingsPage         from './pages/SettingsPage'
 import BillingPage          from './pages/BillingPage'
 import DirectoryPage        from './pages/DirectoryPage'
@@ -159,6 +160,7 @@ export default function App() {
           <Route path="generate"   element={<AuthOnlyDashRoute><GeneratePage /></AuthOnlyDashRoute>} />
           <Route path="calendar"   element={<AuthOnlyDashRoute><CalendarPage /></AuthOnlyDashRoute>} />
           <Route path="brand-kit"  element={<AuthOnlyDashRoute><BrandKitPage /></AuthOnlyDashRoute>} />
+          <Route path="products"   element={<AuthOnlyDashRoute><ProductsPage /></AuthOnlyDashRoute>} />
           <Route path="settings"   element={<AuthOnlyDashRoute><SettingsPage /></AuthOnlyDashRoute>} />
           <Route path="billing"    element={<AuthOnlyDashRoute><BillingPage /></AuthOnlyDashRoute>} />
           <Route path="directory"  element={<AuthOnlyDashRoute><DirectoryPage /></AuthOnlyDashRoute>} />
