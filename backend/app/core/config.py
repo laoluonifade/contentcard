@@ -62,7 +62,11 @@ class Settings(BaseSettings):
     # to True to restore the curated rotation.
     CONTENT_PLAYBOOK_ENABLED: bool = False
 
-    OPENAI_HIGH_QUALITY_MODEL: str = "gpt-5.5-pro"
+    # gpt-5.5-pro is reasoning-tier and requires OpenAI's Responses API
+    # (v1/responses), not v1/chat/completions which we use today. Plain
+    # gpt-5.5 is the chat-tier sibling and works with chat-completions.
+    # Switch back to -pro once we add a Responses API client.
+    OPENAI_HIGH_QUALITY_MODEL: str = "gpt-5.5"
     OPENAI_LOW_COST_MODEL: str = "gpt-4o-mini"
 
     AI_MAX_OUTPUT_TOKENS_DEFAULT: int = 2000
@@ -84,8 +88,8 @@ class Settings(BaseSettings):
     # Rough cost modelling for telemetry (USD / 1K tokens)
     AI_LOW_COST_MODEL_INPUT_PER_1K_USD: float = 0.00015
     AI_LOW_COST_MODEL_OUTPUT_PER_1K_USD: float = 0.0006
-    AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.030
-    AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.180
+    AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.005
+    AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.030
 
     SOCIAL_AUTOPILOT_GLOBAL_KILL_SWITCH: bool = False
     SOCIAL_AUTOPILOT_MIN_QUALITY_SCORE: float = 0.66
