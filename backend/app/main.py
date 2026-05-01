@@ -155,6 +155,56 @@ async def seed_memes(db):
     await db.commit()
 
 
+async def _sweep_stale_active_generations(db) -> None:
+    """Clear Brand.active_generation entries older than the TTL.
+
+    Brand.active_generation is set when a monthly-generation request is
+    accepted (via /generate-month or /generate-month-v2). It's cleared
+    inside _do_generate_month on completion. But Render SIGTERMs the
+    background task on deploy — the cleanup never runs and the slot
+    stays set, blocking any future generation request for that brand
+    via the 30-min idempotency check.
+
+    On every fresh container start we sweep entries older than
+    ACTIVE_GENERATION_TTL_MIN minutes. We also mark any pending posts
+    associated with that stale run as 'failed' so the user sees them
+    on the calendar with a clear status instead of indefinite loading.
+    """
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import select, update
+    from app.models.brand import Brand
+    from app.models.content import ContentItem
+    from app.api.content import ACTIVE_GENERATION_TTL_MIN
+
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=ACTIVE_GENERATION_TTL_MIN)
+    rows = await db.execute(
+        select(Brand.id, Brand.active_generation).where(Brand.active_generation.is_not(None))
+    )
+    cleared = 0
+    for brand_id, active in rows.all():
+        if not isinstance(active, dict):
+            await db.execute(update(Brand).where(Brand.id == brand_id).values(active_generation=None))
+            cleared += 1
+            continue
+        started_at = active.get("started_at")
+        try:
+            ts = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            ts = None
+        if ts is not None and ts > cutoff:
+            continue  # still fresh; let the live request handle it
+        # Stale or unparseable: clear the slot.
+        await db.execute(update(Brand).where(Brand.id == brand_id).values(active_generation=None))
+        cleared += 1
+    if cleared:
+        await db.commit()
+        logging.getLogger(__name__).info(
+            "Stale-generation sweeper: cleared %d stuck active_generation slots", cleared
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Create tables (use Alembic in production)
@@ -196,6 +246,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS sub_industry VARCHAR(120)",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS free_generations_used INTEGER DEFAULT 0",
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS brand_photos JSON",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS active_generation JSON",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS paystack_authorization_code VARCHAR(255)",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_last4 VARCHAR(10)",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_type VARCHAR(50)",
@@ -241,6 +292,16 @@ async def lifespan(app: FastAPI):
                 await conn.execute(__import__('sqlalchemy').text(stmt))
             except Exception:
                 pass
+
+    # Clear stale in-flight generation guards. Render SIGTERMs background
+    # tasks on deploy and they don't resume — without this, brand.active_generation
+    # stays set forever and the idempotency check blocks the user from re-triggering.
+    async with AsyncSessionLocal() as db:
+        await _run_startup_task(
+            "Stale-generation sweeper",
+            _sweep_stale_active_generations(db),
+            timeout_seconds=10.0,
+        )
 
     # Seed default trending topics
     async with AsyncSessionLocal() as db:
