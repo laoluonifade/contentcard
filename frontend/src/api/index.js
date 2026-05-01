@@ -262,6 +262,7 @@ export const brandApi = {
 export const contentApi = {
   generateMonth:       (data)          => api.post('/content/generate-month', data).then(r => r.data),
   generateMonthV2:     (data)          => api.post('/content/generate-month-v2', data).then(r => r.data),
+  planMonth:           (data)          => api.post('/content/plan-month', data).then(r => r.data),
   generationPrepChat:  (data)          => api.post('/content/generation-prep-chat', data).then(r => r.data),
   prepExecuteVisual:     (data)          => api.post('/content/prep-execute-visual', data).then(r => r.data),
   brandFormCoach:      (data)          => api.post('/content/brand-form-coach', data).then(r => r.data),
