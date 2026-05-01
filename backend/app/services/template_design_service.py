@@ -589,13 +589,18 @@ async def generate_template_preview(
     playbook: dict | None = None,
 ) -> tuple[list[str], bool, dict[str, Any]]:
     spec = build_template_design_spec(template, brand, playbook=playbook)
+    # Carousel format is disabled at the AI Brain layer (ai_service._CAROUSEL_ENABLED).
+    # Mirror that here so template-preview generations also stay single-image
+    # while the carousel design system is being rebuilt.
+    from app.services.ai_service import _CAROUSEL_ENABLED
+    _is_carousel = _CAROUSEL_ENABLED and str(spec.get("playbook_post_type") or "") == "carousel"
     post = {
         "topic": template.name,
         "content_idea": template.name,
         "description": template.description or "",
         "platform": (template.platforms or ["instagram"])[0],
-        "format": "carousel" if str(spec.get("playbook_post_type") or "") == "carousel" else "single",
-        "slide_count": 4 if str(spec.get("playbook_post_type") or "") == "carousel" else 1,
+        "format": "carousel" if _is_carousel else "single",
+        "slide_count": 4 if _is_carousel else 1,
         "visual_type": spec.get("visual_type") or "illustration",
         "visual_archetype": spec.get("visual_archetype") or "flat_edu",
         "visual_direction": spec["visual_direction"],
