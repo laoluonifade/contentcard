@@ -2170,8 +2170,31 @@ export default function CalendarPage() {
                 <p className="text-ink/40 text-xs mb-0.5 capitalize">
                   {modal.platform} · {fmtDate(modal.scheduled_date)}
                   {modal.content_type && <span className="ml-2 font-medium text-ink/50">{modal.content_type}</span>}
+                  {totalSlides > 1 && (
+                    <span className="ml-2 font-medium text-ink/40">
+                      Slide {slideIdx + 1}/{totalSlides}
+                      {(() => {
+                        const slide = Array.isArray(modal.slide_blueprint) ? modal.slide_blueprint[slideIdx] : null
+                        const role = slide && typeof slide === 'object' ? String(slide.role || '').trim() : ''
+                        return role ? <span className="ml-1 text-ink/30">· {role}</span> : null
+                      })()}
+                    </span>
+                  )}
                 </p>
-                <p className="text-ink font-semibold text-sm truncate">{modal.content_idea || modal.topic}</p>
+                {(() => {
+                  const slide = totalSlides > 1 && Array.isArray(modal.slide_blueprint) ? modal.slide_blueprint[slideIdx] : null
+                  const slideHeadline = slide && typeof slide === 'object' ? String(slide.headline || '').trim() : ''
+                  const slideBody = slide && typeof slide === 'object' ? String(slide.support || '').trim() : ''
+                  const headlineToShow = slideHeadline || modal.content_idea || modal.topic
+                  return (
+                    <>
+                      <p className="text-ink font-semibold text-sm truncate">{headlineToShow}</p>
+                      {slideBody && (
+                        <p className="text-ink/55 text-xs mt-0.5 line-clamp-2">{slideBody}</p>
+                      )}
+                    </>
+                  )
+                })()}
                 {modal.visual_archetype && (
                   <p className="text-ink/35 text-[10px] mt-1">Layout: {humanizeArchetype(modal.visual_archetype)}</p>
                 )}

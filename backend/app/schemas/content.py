@@ -254,7 +254,10 @@ class ContentOut(BaseModel):
         return None
 
     @computed_field
-    def slide_blueprint(self) -> list[str] | None:
+    def slide_blueprint(self) -> list[dict] | None:
+        """Per-slide narrative blueprint for carousels.
+        Each entry: {slide_number, role, headline, support, image_brief}.
+        Empty / None for non-carousel posts."""
         t = self.theme
         if isinstance(t, dict):
             cm = t.get("cc_meta")
