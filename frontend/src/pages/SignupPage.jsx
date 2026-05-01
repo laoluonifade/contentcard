@@ -224,7 +224,7 @@ export default function SignupPage() {
                 className="shopify-oauth-button w-full"
               >
                 <ShopifyIcon className="w-4 h-4" monochrome />
-                Continue with Shopify
+                Connect your shop
               </button>
               <p className="text-[11px] text-ink/40 mt-3 leading-relaxed">
                 We&apos;ll redirect you to Shopify to authorise read-only access to your products. No credit card required.
@@ -410,9 +410,9 @@ export default function SignupPage() {
               color: '#101820',
             }}
           >
-            Turn products
+            Stop guessing
             <br />
-            into posts.
+            what to post.
           </h2>
           <p className="text-ink/55 text-sm leading-relaxed">
             Connect your Shopify store and your products start showing up as scroll-stopping social posts.

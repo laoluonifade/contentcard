@@ -1,126 +1,185 @@
 import { useNavigate } from 'react-router-dom'
 import ShopifyIcon from '../components/ui/ShopifyIcon'
 
-// Posthearts-style one-pager: floating sticker decorations, lowercase brand
-// wordmark, oversized headline, single big CTA, tiny ToS/Privacy footer.
+// Landing page — Posthearts-style one-pager, ContentCard's positioning.
 //
-// Copy translation (Posthearts → ContentCard):
-//   "ea" wordmark         → "contentcard"
-//   "Create memories."    → "Turn products into posts."
-//   "Continue with Google" → "Continue with Shopify"
-//   "Posthearts"          → "ContentCard"
+// Hero shows a product → post transformation: a raw product card on the
+// left, a designed social post mockup on the right, with a subtle arrow
+// between them. That visual immediately communicates the value prop:
+// "your Shopify products become scroll-stopping social posts." No abstract
+// stickers, no random shapes — the graphic IS the product.
 
-// ── Decorative stickers ───────────────────────────────────────────────────
-// All inline SVG / styled divs so the page has zero asset dependencies.
-// Pinned to floating positions just above the headline.
+// ── Product → Post transformation graphic ───────────────────────────────
+// Two stacked cards: the left is a clean "product photo" mockup (the raw
+// state), the right is the same product reinterpreted as a designed
+// Instagram post (with brand colours, headline, price, CTA). They overlap
+// slightly so the eye reads them as a transformation.
 
-// Stickers reuse the ContentCard palette: brand teal #10A37F, ink #101820,
-// surface white, with one warm accent (coral #FF6584) for energy. Same
-// playful sticker-on-paper vibe, our colours.
-
-function StickerBrandCircle() {
+function RawProductCard() {
   return (
     <div
       className="absolute select-none pointer-events-none"
       style={{
-        top: '6%',
-        left: '10%',
-        transform: 'rotate(-12deg)',
+        top: '7%',
+        left: '12%',
+        transform: 'rotate(-6deg)',
+        width: 230,
       }}
     >
       <div
-        className="rounded-full flex items-center justify-center"
+        className="relative bg-white"
         style={{
-          width: 220,
-          height: 220,
-          background: '#10A37F',
-          boxShadow: '0 0 0 12px white, 0 24px 50px rgba(0,0,0,0.10)',
+          aspectRatio: '4 / 5',
+          borderRadius: 16,
+          padding: 18,
+          boxShadow: '0 24px 60px rgba(16, 24, 32, 0.10), 0 2px 6px rgba(16, 24, 32, 0.04)',
         }}
       >
-        <span
-          className="font-black text-center leading-none"
-          style={{
-            fontFamily: '"Bowlby One", "Arial Black", sans-serif',
-            fontSize: 48,
-            color: '#FFFFFF',
-            letterSpacing: 2,
-            transform: 'translateY(2px)',
-          }}
+        {/* Plain product silhouette — a soft beauty bottle shape */}
+        <div className="w-full h-full flex items-center justify-center" style={{ background: '#F4F1EC', borderRadius: 10 }}>
+          <svg viewBox="0 0 100 140" width="58%" aria-hidden="true">
+            <rect x="38" y="6" width="24" height="14" rx="3" fill="#D7CEBE" />
+            <rect x="30" y="22" width="40" height="100" rx="14" fill="#C8B49B" />
+            <rect x="34" y="62" width="32" height="22" rx="3" fill="#FFFFFF" />
+            <rect x="40" y="71" width="20" height="3" rx="1.5" fill="#C8B49B" />
+            <rect x="42" y="78" width="16" height="2" rx="1" fill="#C8B49B" />
+          </svg>
+        </div>
+        {/* Tag */}
+        <div
+          className="absolute -top-2 -left-2 text-[10px] font-bold uppercase tracking-widest text-ink/70 bg-white px-2 py-1 rounded"
+          style={{ letterSpacing: 1.5, boxShadow: '0 2px 6px rgba(16, 24, 32, 0.08)' }}
         >
-          VIBES
-        </span>
+          your product
+        </div>
       </div>
     </div>
   )
 }
 
-function StickerScriptSell() {
+function DesignedPostCard() {
   return (
     <div
       className="absolute select-none pointer-events-none"
       style={{
-        top: '8%',
-        left: '36%',
-        transform: 'rotate(-6deg)',
+        top: '5%',
+        right: '12%',
+        transform: 'rotate(4deg)',
+        width: 270,
       }}
     >
-      <span
-        className="font-black"
+      <div
+        className="relative"
         style={{
-          fontFamily: '"Caveat Brush", "Pacifico", cursive',
-          fontSize: 220,
-          color: '#10A37F',
-          textShadow: '8px 0 0 white, -8px 0 0 white, 0 8px 0 white, 0 -8px 0 white, 6px 6px 0 white, -6px -6px 0 white, 6px -6px 0 white, -6px 6px 0 white, 0 30px 50px rgba(0,0,0,0.10)',
-          lineHeight: 1,
-          display: 'inline-block',
+          aspectRatio: '4 / 5',
+          borderRadius: 16,
+          background: '#10A37F',
+          padding: 22,
+          color: '#FFFFFF',
+          boxShadow: '0 24px 60px rgba(16, 163, 127, 0.30), 0 2px 6px rgba(16, 163, 127, 0.20)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
         }}
       >
-        sell
-      </span>
+        {/* Brand wordmark + offer badge */}
+        <div className="flex items-start justify-between">
+          <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">contentcard</span>
+          <span
+            className="text-[10px] font-extrabold uppercase tracking-widest"
+            style={{
+              background: '#FFFFFF',
+              color: '#10A37F',
+              padding: '4px 8px',
+              borderRadius: 999,
+              letterSpacing: 1.2,
+            }}
+          >
+            20% off
+          </span>
+        </div>
+        {/* Headline */}
+        <div
+          className="font-extrabold leading-tight"
+          style={{
+            fontFamily: '"Inter", system-ui, sans-serif',
+            fontSize: 26,
+            letterSpacing: -0.5,
+          }}
+        >
+          Glow starts<br />here.
+        </div>
+        {/* Product image white card */}
+        <div
+          className="flex-1 flex items-center justify-center"
+          style={{ background: '#FFFFFF', borderRadius: 10, padding: 8, marginTop: 4 }}
+        >
+          <svg viewBox="0 0 100 140" width="50%" aria-hidden="true">
+            <rect x="38" y="6" width="24" height="14" rx="3" fill="#D7CEBE" />
+            <rect x="30" y="22" width="40" height="100" rx="14" fill="#C8B49B" />
+            <rect x="34" y="62" width="32" height="22" rx="3" fill="#FFFFFF" />
+            <rect x="40" y="71" width="20" height="3" rx="1.5" fill="#C8B49B" />
+            <rect x="42" y="78" width="16" height="2" rx="1" fill="#C8B49B" />
+          </svg>
+        </div>
+        {/* Price + CTA row */}
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <span
+            className="font-extrabold"
+            style={{ fontSize: 20, letterSpacing: -0.5 }}
+          >
+            ₦12,000
+          </span>
+          <span
+            className="text-[10px] font-bold inline-flex items-center gap-1"
+            style={{
+              background: '#FFFFFF',
+              color: '#10A37F',
+              padding: '6px 12px',
+              borderRadius: 999,
+            }}
+          >
+            Shop now →
+          </span>
+        </div>
+      </div>
+      <div
+        className="absolute -top-2 -right-2 text-[10px] font-bold uppercase tracking-widest bg-ink text-white px-2 py-1 rounded"
+        style={{ letterSpacing: 1.5, boxShadow: '0 2px 6px rgba(16, 24, 32, 0.18)' }}
+      >
+        the post
+      </div>
     </div>
   )
 }
 
-function StickerInkStarburst() {
+function TransformationArrow() {
+  // Subtle hand-drawn arrow between the two cards. Hidden on small screens
+  // because the two cards stack visually and don't need the connector.
   return (
     <div
-      className="absolute select-none pointer-events-none"
+      className="absolute hidden md:block select-none pointer-events-none"
       style={{
-        top: '4%',
-        right: '14%',
-        transform: 'rotate(8deg)',
+        top: '14%',
+        left: '50%',
+        transform: 'translateX(-50%)',
       }}
     >
-      <svg width="220" height="220" viewBox="0 0 100 100">
-        <polygon
-          points="50,2 58,32 88,28 65,50 88,72 58,68 50,98 42,68 12,72 35,50 12,28 42,32"
-          fill="#101820"
-          stroke="white"
-          strokeWidth="6"
-          strokeLinejoin="round"
+      <svg width="160" height="60" viewBox="0 0 160 60" fill="none">
+        <path
+          d="M 8 30 C 50 6, 110 54, 152 30"
+          stroke="#101820"
+          strokeWidth="3"
+          strokeLinecap="round"
+          fill="none"
         />
-      </svg>
-    </div>
-  )
-}
-
-function StickerCoralWedge() {
-  return (
-    <div
-      className="absolute select-none pointer-events-none"
-      style={{
-        top: '18%',
-        right: '4%',
-        transform: 'rotate(20deg)',
-      }}
-    >
-      <svg width="200" height="160" viewBox="0 0 200 160">
-        <polygon
-          points="10,80 180,10 190,150 30,140"
-          fill="#FF6584"
-          stroke="white"
-          strokeWidth="8"
+        <path
+          d="M 142 22 L 152 30 L 142 38"
+          stroke="#101820"
+          strokeWidth="3"
+          strokeLinecap="round"
           strokeLinejoin="round"
+          fill="none"
         />
       </svg>
     </div>
@@ -128,8 +187,6 @@ function StickerCoralWedge() {
 }
 
 // ── Brand wordmark ────────────────────────────────────────────────────────
-// Lowercase "contentcard" with a small green dot (mirrors the Posthearts "ea"
-// lowercase mark — playful, friendly, quietly distinct).
 
 function BrandWordmark() {
   return (
@@ -168,11 +225,10 @@ export default function LandingPage() {
         background: '#F7F4EE',
       }}
     >
-      {/* Decorative stickers, floating */}
-      <StickerBrandCircle />
-      <StickerScriptSell />
-      <StickerInkStarburst />
-      <StickerCoralWedge />
+      {/* Hero graphic: product → post transformation */}
+      <RawProductCard />
+      <TransformationArrow />
+      <DesignedPostCard />
 
       {/* Centered hero column */}
       <section className="relative z-10 flex flex-col items-center text-center px-6 pt-[36vh] pb-16">
@@ -181,23 +237,27 @@ export default function LandingPage() {
         <h1
           className="font-bold text-ink"
           style={{
-            fontFamily: '"Caveat Brush", "Pacifico", "Inter", sans-serif',
+            fontFamily: '"Inter", system-ui, sans-serif',
             fontSize: 'clamp(64px, 11vw, 160px)',
             lineHeight: 1.0,
-            letterSpacing: -1,
+            letterSpacing: -3,
             maxWidth: 900,
             color: '#101820',
           }}
         >
-          Turn products
+          Stop guessing
           <br />
-          into posts.
+          what to post.
         </h1>
+
+        <p className="mt-6 text-ink/60 text-base sm:text-lg max-w-md leading-relaxed">
+          Connect your Shopify store and your products start showing up as scroll-stopping social posts — every day.
+        </p>
 
         <button
           type="button"
           onClick={() => navigate('/signup')}
-          className="mt-12 inline-flex items-center justify-center gap-3 font-semibold transition-colors"
+          className="mt-10 inline-flex items-center justify-center gap-3 font-semibold transition-colors"
           style={{
             background: '#10A37F',
             color: '#FFFFFF',
@@ -214,7 +274,7 @@ export default function LandingPage() {
           onMouseLeave={(e) => (e.currentTarget.style.background = '#10A37F')}
         >
           <ShopifyIcon className="w-5 h-5" monochrome />
-          Continue with Shopify
+          Connect your shop
         </button>
       </section>
 

@@ -91,7 +91,7 @@ export default function LoginPage() {
               className="shopify-oauth-button w-full"
             >
               <ShopifyIcon className="w-4 h-4" monochrome />
-              Continue with Shopify
+              Connect your shop
             </button>
             <div className="mt-4 flex items-center gap-3">
               <div className="h-px flex-1 bg-fog" />
@@ -152,9 +152,9 @@ export default function LoginPage() {
               color: '#101820',
             }}
           >
-            Turn products
+            Stop guessing
             <br />
-            into posts.
+            what to post.
           </h2>
           <p className="text-ink/55 text-sm leading-relaxed">
             Your Shopify catalogue, on-brand and ready to post — every day.
