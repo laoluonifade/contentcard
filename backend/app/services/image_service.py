@@ -222,6 +222,92 @@ def _human_casting_note(brand: dict) -> str:
     )
 
 
+async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
+    """PRD §3 pipeline: Brand Kit + User Input → Strategist → Prompt Builder → text prompt.
+
+    Calls the Strategist (LLM) to convert the brand kit and the post's
+    user-facing intent into a structured creative direction JSON, then
+    the deterministic Prompt Builder turns that JSON into the final text
+    prompt for gpt-image-1.
+
+    Cache key for the strategist output is keyed on (brand_id, post.id,
+    user_prompt hash, platform, format, regenerate_token, qg_retry,
+    variation_axis) — same post → same strategy on retries; different
+    posts on the calendar → different strategies (variation engine).
+
+    Falls back to the legacy template prompt if the strategist call
+    fails entirely (PRD §12: missing BK → minimal fallback).
+    """
+    from app.services.strategist_service import call_strategist, pick_variation_axis
+    from app.services.prompt_builder_service import build_image_prompt as build_prompt_from_strategy
+
+    user_prompt = (
+        str(post.get("image_prompt") or "").strip()
+        or str(post.get("content_idea") or "").strip()
+        or str(post.get("topic") or "").strip()
+        or str(post.get("description") or "").strip()
+    )
+    platform = str(post.get("platform") or "instagram").lower()
+    fmt = str(post.get("format") or "single").lower()
+    brand_id = str(brand.get("id") or "")
+    post_id = str(post.get("id") or post.get("topic") or "default")
+
+    variation_axis = pick_variation_axis(brand_id, post_id)
+
+    # Strategist cache: re-renders of the same post reuse the same direction.
+    strategy_cache_key = hashlib.sha256(
+        (
+            f"strategy|{brand_id}|{post_id}|{platform}|{fmt}|"
+            f"{user_prompt[:300]}|{variation_axis}|"
+            f"{post.get('regenerate_token', '')}"
+        ).encode("utf-8")
+    ).hexdigest()
+    strategy = cache_get("strategist_output", strategy_cache_key)
+
+    if not isinstance(strategy, dict) or not strategy.get("scene"):
+        try:
+            strategy = await call_strategist(
+                brand_kit=brand,
+                user_prompt=user_prompt,
+                platform=platform,
+                format=fmt,
+                variation_axis=variation_axis,
+            )
+        except Exception as e:
+            logger.warning("Strategist call failed (%s); falling back to legacy prompt builder", e)
+            return _build_image_prompt(post, brand)
+        if isinstance(strategy, dict) and strategy.get("scene"):
+            cache_set("strategist_output", strategy_cache_key, strategy, ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
+
+    try:
+        prompt_text = build_prompt_from_strategy(
+            strategy=strategy,
+            brand_kit=brand,
+            platform=platform,
+        )
+    except Exception as e:
+        logger.warning("Prompt builder failed (%s); falling back to legacy prompt", e)
+        return _build_image_prompt(post, brand)
+
+    # Telemetry: record this generation's strategy + alignment signal (PRD §14).
+    try:
+        from app.services.success_metrics_service import record_image_generation
+        record_image_generation(
+            brand_id=brand_id,
+            post_id=post_id,
+            platform=platform,
+            format=fmt,
+            variation_axis=variation_axis,
+            strategy=strategy,
+            prompt=prompt_text,
+            image_url=None,  # url not known at prompt-build time
+            brand_kit=brand,
+        )
+    except Exception:
+        pass
+    return prompt_text
+
+
 def _build_image_prompt(post: dict, brand: dict) -> str:
     """
     Build a campaign-ready visual prompt for DALL-E.
@@ -1679,7 +1765,7 @@ async def _generate_carousel_frames(
 
     async def _one(slide_idx: int, slide: dict) -> str | None:
         slide_post = _post_for_slide(post, slide, slide_idx + 1, total)
-        slide_prompt = _build_image_prompt(slide_post, brand)
+        slide_prompt = await _build_brand_aware_prompt(slide_post, brand)
         return await _render_one_image(
             prompt=slide_prompt,
             model=model,
@@ -1837,7 +1923,9 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
 
     # ── Text-only path (standard generations) ────────────────────────────────
     # Also used as fallback when the edits path fails.
-    prompt = _build_image_prompt(post, brand)
+    # PRD §3 pipeline: Brand Kit + User Input → Strategist → Prompt Builder → Image.
+    # We route through the new strategist + deterministic prompt builder.
+    prompt = await _build_brand_aware_prompt(post, brand)
     cache_key = hashlib.sha256(
         (
             f"{_IMAGE_PROMPT_VERSION}|{model}|{n}|{prompt}|{post.get('platform','')}|{post.get('format','')}|"
