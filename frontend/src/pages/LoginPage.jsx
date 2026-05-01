@@ -26,7 +26,9 @@ export default function LoginPage() {
   const [showShopifyPrompt, setShowShopifyPrompt] = useState(false)
   const { login, isLoading } = useAuthStore()
   const navigate = useNavigate()
-  const shopifyEnabled = String(import.meta.env.VITE_SHOPIFY_AUTH_ENABLED || 'false') === 'true'
+  // ContentCard is e-commerce-first: Shopify is the primary login path.
+  // Email/password remains available below for grandfathered users.
+  const shopifyEnabled = true
 
   const isShopDomainValid = (value) =>
     String(value || '').trim().toLowerCase().endsWith('.myshopify.com')
@@ -137,38 +139,41 @@ export default function LoginPage() {
         </p>
       </div>
 
-      {/* Right: app preview */}
-      <div className="hidden lg:flex flex-1 bg-[#0F172A] items-center justify-center p-12 relative overflow-hidden">
-        {/* Background glow */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_60%_40%,rgba(16,163,127,0.15)_0%,transparent_70%)]" />
-        <div className="relative z-10 flex flex-col items-center gap-8">
-          <div className="text-center">
-            <p className="text-white/50 text-sm font-medium mb-1">ContentCard</p>
-            <h2 className="text-white text-2xl font-bold" style={{ letterSpacing: '-0.02em' }}>Your content studio</h2>
-            <p className="text-white/40 text-sm mt-2">On-brand posts generated in seconds.</p>
-          </div>
-          <div className="mb-3 w-full">
+      {/* Right: brand hero panel — matches landing page's cream + teal palette */}
+      <div className="hidden lg:flex flex-1 items-center justify-center p-12 relative overflow-hidden" style={{ background: '#F7F4EE' }}>
+        <div className="relative z-10 flex flex-col items-center gap-8 max-w-md text-center">
+          <h2
+            className="font-bold text-ink"
+            style={{
+              fontFamily: '"Caveat Brush", "Pacifico", "Inter", sans-serif',
+              fontSize: 'clamp(48px, 5vw, 80px)',
+              lineHeight: 1.0,
+              letterSpacing: -1,
+              color: '#101820',
+            }}
+          >
+            Turn products
+            <br />
+            into posts.
+          </h2>
+          <p className="text-ink/55 text-sm leading-relaxed">
+            Your Shopify catalogue, on-brand and ready to post — every day.
+          </p>
+          <div className="w-full">
             <AuthHeroCards />
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-center">
             {SUPPORTED_ICONS.map(({ id, label, Icon, custom }) => (
               <div
                 key={id}
-                className="h-8 px-2.5 rounded-full border border-white/15 bg-white/5 inline-flex items-center gap-1.5"
+                className="h-8 px-2.5 rounded-full border border-ink/10 bg-white inline-flex items-center gap-1.5"
                 title={label}
                 aria-label={label}
               >
-                {custom ? <ShopifyIcon className="h-4 w-4" /> : <Icon size={14} className="text-white/80" />}
-                <span className="text-[10px] font-medium text-white/60">{label}</span>
+                {custom ? <ShopifyIcon className="h-4 w-4" /> : <Icon size={14} className="text-ink/70" />}
+                <span className="text-[10px] font-medium text-ink/55">{label}</span>
               </div>
             ))}
-          </div>
-          <div className="flex items-center gap-6 text-white/25 text-xs">
-            <span>48 posts published</span>
-            <span>·</span>
-            <span>12.4k total reach</span>
-            <span>·</span>
-            <span>94% on-brand score</span>
           </div>
         </div>
       </div>

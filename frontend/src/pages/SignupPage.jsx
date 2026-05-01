@@ -196,7 +196,7 @@ export default function SignupPage() {
     <div className="min-h-screen flex">
       <Seo
         title="Start free | ContentCard"
-        description="Create your ContentCard account and start generating on-brand social content."
+        description="Connect your Shopify store and turn your products into scroll-stopping social posts in seconds."
         path="/signup"
         noindex
       />
@@ -206,22 +206,10 @@ export default function SignupPage() {
           <LogoFull size={32} />
         </div>
 
-        {/* Step indicator */}
-        <div className="flex items-center gap-3 mb-6">
-          {[1, 2].map((s, i) => (
-            <div key={s} className="flex items-center gap-3">
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                step > s ? 'bg-brand-500 text-white' : step === s ? 'bg-ink text-white' : 'bg-fog text-ink/40'
-              }`}>
-                {step > s ? <Check size={13} /> : s}
-              </div>
-              <span className={`text-xs font-semibold ${step === s ? 'text-ink' : 'text-ink/30'}`}>
-                {s === 1 ? 'Account details' : 'Confirm'}
-              </span>
-              {i === 0 && <div className={`h-px w-8 transition-all ${step > 1 ? 'bg-brand-300' : 'bg-fog'}`} />}
-            </div>
-          ))}
-        </div>
+        {/* Step indicator hidden — Shopify-only signup is a single step
+            (the email path is hidden but mounted; if a user toggled to it
+            via the legacy flow the indicator would show again, but that's
+            no longer reachable from the UI). */}
 
         {step === 1 && (
           <>
@@ -409,28 +397,39 @@ export default function SignupPage() {
         </p>
       </div>
 
-      {/* Right: app preview */}
-      <div className="hidden lg:flex flex-1 bg-[#0F172A] items-center justify-center p-12 relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_60%_40%,rgba(16,163,127,0.15)_0%,transparent_70%)]" />
-        <div className="relative z-10 flex flex-col items-center gap-8">
-          <div className="text-center">
-            <p className="text-white/50 text-sm font-medium mb-1">ContentCard</p>
-            <h2 className="text-white text-2xl font-bold" style={{ letterSpacing: '-0.02em' }}>Everything in one place</h2>
-            <p className="text-white/40 text-sm mt-2">Plan, generate, and publish: your entire content workflow.</p>
-          </div>
-          <div className="mb-3 w-full">
+      {/* Right: brand hero panel — matches landing page's cream + teal palette */}
+      <div className="hidden lg:flex flex-1 items-center justify-center p-12 relative overflow-hidden" style={{ background: '#F7F4EE' }}>
+        <div className="relative z-10 flex flex-col items-center gap-8 max-w-md text-center">
+          <h2
+            className="font-bold text-ink"
+            style={{
+              fontFamily: '"Caveat Brush", "Pacifico", "Inter", sans-serif',
+              fontSize: 'clamp(48px, 5vw, 80px)',
+              lineHeight: 1.0,
+              letterSpacing: -1,
+              color: '#101820',
+            }}
+          >
+            Turn products
+            <br />
+            into posts.
+          </h2>
+          <p className="text-ink/55 text-sm leading-relaxed">
+            Connect your Shopify store and your products start showing up as scroll-stopping social posts.
+          </p>
+          <div className="w-full">
             <AuthHeroCards />
           </div>
           <div className="flex items-center gap-2 flex-wrap justify-center">
             {SUPPORTED_ICONS.map(({ id, label, Icon, custom }) => (
               <div
                 key={id}
-                className="h-8 px-2.5 rounded-full border border-white/15 bg-white/5 inline-flex items-center gap-1.5"
+                className="h-8 px-2.5 rounded-full border border-ink/10 bg-white inline-flex items-center gap-1.5"
                 title={label}
                 aria-label={label}
               >
-                {custom ? <ShopifyIcon className="h-4 w-4" /> : <Icon size={14} className="text-white/80" />}
-                <span className="text-[10px] font-medium text-white/60">{label}</span>
+                {custom ? <ShopifyIcon className="h-4 w-4" /> : <Icon size={14} className="text-ink/70" />}
+                <span className="text-[10px] font-medium text-ink/55">{label}</span>
               </div>
             ))}
           </div>
