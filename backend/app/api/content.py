@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, or_
-from app.db.database import get_db
+from app.db.database import get_db, AsyncSessionLocal
 from app.core.config import settings
 from app.models.brand import Brand
 from app.models.content import ContentItem, ContentStatus, ContentPlatform, ContentFormat
@@ -74,7 +74,7 @@ from app.services.billing_entitlements import (
     effective_plan,
     free_generations_used,
 )
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from calendar import month_name, monthrange
 import logging
 import re
@@ -88,6 +88,12 @@ MAX_POSTS_PER_PLATFORM_PER_MONTH = 15
 MAX_PREP_VISUAL_BATCH = 15
 MAX_MONTH_REGEN_BATCH = 100
 MAX_GENERATION_MONTHS_AHEAD = 3
+# In-flight monthly generation guard. A run started this long ago is
+# treated as dead (Render SIGTERMs in-process bg tasks on deploy and
+# they don't resume). The startup sweeper clears these and the
+# idempotency check rejects new requests until the existing run either
+# finishes or expires.
+ACTIVE_GENERATION_TTL_MIN = 30
 TRIAL_FREE_GENERATIONS = 2000
 CARD_BONUS_FREE_GENERATIONS = 0
 PLAN_MONTHLY_POST_CAPS = {
@@ -283,6 +289,110 @@ async def _counts_by_platform_month(
         .group_by(ContentItem.platform)
     )
     return {row[0].value: int(row[1] or 0) for row in r.all()}
+
+
+def _is_active_generation_stale(active: dict | None) -> bool:
+    """Return True if the active_generation entry is older than the TTL or malformed.
+
+    Anything stale should be ignored by the idempotency check (and cleared
+    by the startup sweeper). Treats unparseable timestamps as stale to
+    avoid permanent locks if the column ever gets a bad value.
+    """
+    if not isinstance(active, dict):
+        return True
+    started_at = active.get("started_at")
+    if not started_at:
+        return True
+    try:
+        ts = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - ts > timedelta(minutes=ACTIVE_GENERATION_TTL_MIN)
+
+
+def _assert_no_active_generation(brand: Brand, month: int, year: int) -> None:
+    """Reject generation requests when an in-flight run is already covering the same month.
+
+    Same `(month, year)` within ACTIVE_GENERATION_TTL_MIN → 409 with the
+    run's started_at so the frontend can show "still generating, started
+    X min ago". Different month → allow (parallel generations on the same
+    brand for different months are fine; they don't race on the DB rows).
+    """
+    active = brand.active_generation if isinstance(brand.active_generation, dict) else None
+    if not active or _is_active_generation_stale(active):
+        return
+    if int(active.get("month") or 0) != month or int(active.get("year") or 0) != year:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "GENERATION_ALREADY_IN_PROGRESS",
+            "message": (
+                f"A generation for {month}/{year} is already running on this brand "
+                f"(started {active.get('started_at')}). Wait for it to finish or "
+                f"retry in {ACTIVE_GENERATION_TTL_MIN} minutes when stale entries are cleared."
+            ),
+            "active_run_id": active.get("run_id"),
+            "started_at": active.get("started_at"),
+            "month": active.get("month"),
+            "year": active.get("year"),
+        },
+    )
+
+
+async def _mark_generation_started(
+    db: AsyncSession,
+    brand_id: str,
+    *,
+    month: int,
+    year: int,
+    platforms: list[str],
+    user_id: str | None,
+) -> str:
+    """Stamp Brand.active_generation atomically, returning the run_id."""
+    import uuid
+    run_id = uuid.uuid4().hex
+    payload = {
+        "run_id": run_id,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "month": int(month),
+        "year": int(year),
+        "platforms": [str(p).lower() for p in platforms],
+        "user_id": str(user_id) if user_id else None,
+    }
+    await db.execute(
+        Brand.__table__.update().where(Brand.id == brand_id).values(active_generation=payload)
+    )
+    await db.commit()
+    return run_id
+
+
+async def _mark_generation_finished(brand_id: str, run_id: str | None = None) -> None:
+    """Clear Brand.active_generation. Called from the bg task on success or failure.
+
+    Opens its own session because the request session is long-closed by
+    the time _do_generate_month wraps up. Only clears the slot when run_id
+    matches — protects against a stale clear that races a new run started
+    after this one expired.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            r = await db.execute(select(Brand).where(Brand.id == brand_id))
+            brand = r.scalar_one_or_none()
+            if not brand:
+                return
+            current = brand.active_generation if isinstance(brand.active_generation, dict) else None
+            if current and run_id and current.get("run_id") and current.get("run_id") != run_id:
+                # A newer run replaced ours; leave its slot alone.
+                return
+            await db.execute(
+                Brand.__table__.update().where(Brand.id == brand_id).values(active_generation=None)
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning("Could not clear active_generation for brand %s: %s", brand_id, exc)
 
 
 def _assert_generation_horizon(month: int, year: int) -> None:
@@ -1482,6 +1592,7 @@ async def generate_month(
         raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+    _assert_no_active_generation(brand, body.month, body.year)
 
     monthly_post_cap: int | None = None
     current_month_total = 0
@@ -1561,6 +1672,14 @@ async def generate_month(
             db, brand.id, body.only_new_changes
         )
 
+    run_id = await _mark_generation_started(
+        db,
+        brand.id,
+        month=body.month,
+        year=body.year,
+        platforms=[p.value for p in body.platforms],
+        user_id=current_user.id,
+    )
     background_tasks.add_task(
         _do_generate_month,
         brand_id=brand.id,
@@ -1588,8 +1707,9 @@ async def generate_month(
         existing_counts=existing_snapshot,
         monthly_post_cap=monthly_post_cap,
         current_month_total=current_month_total,
+        active_run_id=run_id,
     )
-    return {"message": "Generation started", "month": body.month, "year": body.year}
+    return {"message": "Generation started", "month": body.month, "year": body.year, "run_id": run_id}
 
 
 @router.post("/generate-month-v2", status_code=202)
@@ -1608,6 +1728,7 @@ async def generate_month_v2(
         raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+    _assert_no_active_generation(brand, body.month, body.year)
     monthly_post_cap: int | None = None
     current_month_total = 0
     ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
@@ -1692,6 +1813,14 @@ async def generate_month_v2(
     generation_brief = "\n\n".join([x for x in [style_brief, template_context] if x and str(x).strip()]) or None
     campaign_brief_payload = body.campaign_brief.model_dump(exclude_none=True) if body.campaign_brief else None
 
+    run_id = await _mark_generation_started(
+        db,
+        brand.id,
+        month=body.month,
+        year=body.year,
+        platforms=platform_values,
+        user_id=current_user.id,
+    )
     background_tasks.add_task(
         _do_generate_month,
         brand_id=brand.id,
@@ -1718,6 +1847,7 @@ async def generate_month_v2(
         monthly_post_cap=monthly_post_cap,
         current_month_total=current_month_total,
         custom_plan=body.custom_plan or None,
+        active_run_id=run_id,
     )
     await db.commit()
     return {
@@ -1725,6 +1855,7 @@ async def generate_month_v2(
         "month": body.month,
         "year": body.year,
         "campaign_plan_id": campaign_plan.id,
+        "run_id": run_id,
     }
 
 
@@ -3347,6 +3478,7 @@ async def _do_generate_month(
     monthly_post_cap: int | None = None,
     current_month_total: int = 0,
     custom_plan: list[dict] | None = None,
+    active_run_id: str | None = None,
 ):
     from app.db.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
@@ -3703,10 +3835,12 @@ async def _do_generate_month(
         except json.JSONDecodeError as e:
             logger.error(f"AI returned invalid JSON for brand {brand_id}: {e}")
             await db.rollback()
+            await _mark_generation_finished(brand_id, active_run_id)
             return
         except Exception as e:
             logger.error(f"Text generation error for brand {brand_id}: {e}")
             await db.rollback()
+            await _mark_generation_finished(brand_id, active_run_id)
             return
 
         # ── Phase 1: render with quality gate + retry loop ──────────────────────────
@@ -3776,6 +3910,10 @@ async def _do_generate_month(
                     await db.commit()
             except Exception as e:
                 logger.warning(f"quality gate/render failed for post {item.id}: {e}")
+
+    # Generation finished cleanly (no early return inside the outer except
+    # blocks). Clear the in-flight guard so the user can re-trigger.
+    await _mark_generation_finished(brand_id, active_run_id)
 
 
 def _brand_to_dict(brand: Brand) -> dict:
