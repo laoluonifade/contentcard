@@ -1999,6 +1999,19 @@ def _validate_posts(
         hashtag_limit = _platform_hashtag_limit(post.get("platform"))
         post["hashtags"] = list(dict.fromkeys(normalized_hashtags))[:hashtag_limit]
 
+        # PRD §8.4 — verify caption uses the brand's chosen language style.
+        # Fire-and-forget metric; don't block the post on a miss.
+        try:
+            from app.services.success_metrics_service import validate_caption_language
+            validate_caption_language(
+                brand_id=str((brand or {}).get("id") or ""),
+                post_id=str(post.get("id") or post.get("topic") or ""),
+                caption=str(post.get("caption") or ""),
+                language_style=str((brand or {}).get("language_style") or "english"),
+            )
+        except Exception:
+            pass
+
         # AI-only mode: visual_type and visual_archetype are no longer enforced.
         # The AI describes its visual freely via visual_direction + image_prompt.
         # We pass through whatever it returned (or empty) without coercion.

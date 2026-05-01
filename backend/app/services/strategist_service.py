@@ -51,6 +51,35 @@ REQUIRED_STRATEGY_FIELDS: tuple[str, ...] = (
     "format",
 )
 
+# PRD §6.2 strict schema enums.
+ALLOWED_FORMATS: frozenset[str] = frozenset({"single", "quote", "gif"})
+ALLOWED_CONTENT_TYPES: frozenset[str] = frozenset({
+    "offer",
+    "product_or_service_spotlight",
+    "proof",
+    "testimonial",
+    "education",
+    "objection_handling",
+    "story_or_culture",
+    "announcement",
+    "comparison_or_benefit",
+    "seasonal_or_moment",
+    "community_or_engagement",
+    "meme",
+    "cta_promotion",
+    "behind_the_scenes",
+})
+
+# Content types where the scene SHOULD lead with people / culture / story
+# rather than a product, even if the brand has products. PRD §8.3.
+_NON_PRODUCT_CONTENT_TYPES: frozenset[str] = frozenset({
+    "testimonial",
+    "story_or_culture",
+    "community_or_engagement",
+    "announcement",
+    "proof",
+})
+
 
 # Variation Engine axes (PRD §10). Each generation must explicitly vary
 # along at least one of these so a calendar of posts doesn't feel like
@@ -205,13 +234,85 @@ def _build_brand_kit_summary(brand_kit: dict[str, Any]) -> str:
 
 
 def _validate_strategy(strategy: dict[str, Any]) -> tuple[bool, list[str]]:
-    """Validate strategy includes all required fields with non-empty values."""
+    """Validate strategy includes all required fields with non-empty values
+    AND that enumerated fields hold allowed values (PRD §6.2 strict schema)."""
     missing: list[str] = []
     for field in REQUIRED_STRATEGY_FIELDS:
         value = strategy.get(field)
         if not isinstance(value, str) or not value.strip():
             missing.append(field)
+
+    # Strict enum checks (PRD §6.2). Out-of-vocab values count as "missing"
+    # so the retry path triggers a corrective re-generation.
+    fmt = str(strategy.get("format") or "").strip().lower()
+    if fmt and fmt not in ALLOWED_FORMATS:
+        missing.append(f"format(invalid:{fmt})")
+    ct_raw = str(strategy.get("content_type") or "").strip().lower()
+    ct = ct_raw.replace(" ", "_").replace("-", "_")
+    # Allow content_type if it's in the canonical set OR is a slight variant
+    # we can normalise (e.g. "cta promotion" → "cta_promotion"). Always
+    # write the normalised value back so downstream consumers see the
+    # underscored form regardless of how the LLM wrote it.
+    if ct and ct in ALLOWED_CONTENT_TYPES:
+        strategy["content_type"] = ct  # canonical underscored form
+    elif ct:
+        normalised = next((c for c in ALLOWED_CONTENT_TYPES if c.replace("_", "") == ct.replace("_", "")), None)
+        if normalised:
+            strategy["content_type"] = normalised
+        else:
+            missing.append(f"content_type(invalid:{ct})")
+
     return (not missing), missing
+
+
+def _scene_features_a_product(strategy: dict[str, Any], products: list[dict[str, Any]]) -> bool:
+    """Heuristic: does the strategy.scene mention a product by name or type?"""
+    if not products:
+        return False
+    scene = str(strategy.get("scene") or "").lower()
+    if not scene:
+        return False
+    for p in products:
+        if not isinstance(p, dict):
+            continue
+        for key in ("name", "type"):
+            v = str(p.get(key) or "").strip().lower()
+            if not v or len(v) < 3:
+                continue
+            if v in scene:
+                return True
+    return False
+
+
+def _validate_product_handling(
+    strategy: dict[str, Any],
+    brand_kit: dict[str, Any],
+) -> tuple[bool, str]:
+    """PRD §8.3 — when products exist and content_type warrants product focus,
+    verify the strategy.scene actually mentions a product. Returns
+    (ok, missing_note). missing_note is empty when ok=True."""
+    products = brand_kit.get("products") if isinstance(brand_kit.get("products"), list) else []
+    if not products:
+        ext = brand_kit.get("brand_kit") if isinstance(brand_kit.get("brand_kit"), dict) else {}
+        products = ext.get("products") if isinstance(ext.get("products"), list) else []
+    if not products:
+        return (True, "")
+    ct = str(strategy.get("content_type") or "").strip().lower()
+    if ct in _NON_PRODUCT_CONTENT_TYPES:
+        return (True, "")
+    if _scene_features_a_product(strategy, products):
+        return (True, "")
+    # Build a corrective note for the retry pass
+    name_hint = next(
+        (str(p.get("name") or "").strip() for p in products if isinstance(p, dict) and p.get("name")),
+        "one of the brand's products",
+    )
+    return (False, (
+        "Your `scene` does not mention any of the brand's products. PRD §8.3 "
+        f"requires product-led visuals when products exist (this brand has {len(products)} listed). "
+        f"Re-generate with a scene that features '{name_hint}' or another listed product as the focal element. "
+        f"Allowed content types where product can be background: {', '.join(sorted(_NON_PRODUCT_CONTENT_TYPES))}."
+    ))
 
 
 async def call_strategist(
@@ -278,16 +379,23 @@ async def call_strategist(
 
     strategy = _parse_strategy_response(raw)
     ok, missing = _validate_strategy(strategy)
-    if ok:
+    product_ok, product_note = _validate_product_handling(strategy, brand_kit)
+    if ok and product_ok:
         return strategy
 
-    # Retry once with explicit nudge about missing fields
-    logger.warning("Strategist output missing fields %s — retrying", missing)
-    nudge = (
-        "Your previous response was missing or had empty values for these fields: "
-        f"{', '.join(missing)}. Return the JSON again with EVERY field populated "
-        "with specific, brand-grounded prose."
-    )
+    # Retry once with explicit nudge about missing fields and/or product gap.
+    nudge_parts: list[str] = []
+    if missing:
+        logger.warning("Strategist output missing fields %s — retrying", missing)
+        nudge_parts.append(
+            "Your previous response was missing or had empty values for these fields: "
+            f"{', '.join(missing)}. Return the JSON again with EVERY field populated "
+            "with specific, brand-grounded prose."
+        )
+    if not product_ok:
+        logger.warning("Strategist output failed product-handling validation — retrying")
+        nudge_parts.append(product_note)
+    nudge = " ".join(nudge_parts) or "Re-emit the strategy with full field coverage and brand-grounded specificity."
     retry_messages = messages + [
         {"role": "assistant", "content": json.dumps(strategy)},
         {"role": "user", "content": nudge},
@@ -302,8 +410,24 @@ async def call_strategist(
     )
     strategy_retry = _parse_strategy_response(raw_retry)
     ok2, missing2 = _validate_strategy(strategy_retry)
-    if ok2:
+    product_ok2, _ = _validate_product_handling(strategy_retry, brand_kit)
+    if ok2 and product_ok2:
         return strategy_retry
+
+    # Log the validation miss as a metric so ops can spot patterns over time.
+    if not product_ok2:
+        try:
+            logger.warning(
+                "metric_event %s",
+                json.dumps({
+                    "metric": "strategy_validation_miss",
+                    "kind": "product_handling",
+                    "brand_id": str(brand_kit.get("id") or ""),
+                    "content_type": strategy_retry.get("content_type") or strategy.get("content_type") or "",
+                }),
+            )
+        except Exception:
+            pass
 
     # Fall back: merge whatever we got, fill gaps with safe minimal strings
     # rather than failing the whole render (PRD §12: missing BK → minimal fallback).
@@ -314,6 +438,12 @@ async def call_strategist(
     for field in REQUIRED_STRATEGY_FIELDS:
         if not merged.get(field):
             merged[field] = _MINIMAL_FALLBACKS.get(field, "")
+    # Final enum normalisation — never let an out-of-vocab format/content_type
+    # leak past the strategist boundary.
+    if str(merged.get("format") or "").strip().lower() not in ALLOWED_FORMATS:
+        merged["format"] = "single"
+    if str(merged.get("content_type") or "").strip().lower() not in ALLOWED_CONTENT_TYPES:
+        merged["content_type"] = "story_or_culture"
     logger.error(
         "Strategist failed validation twice; using merged + fallback. Final missing: %s",
         [f for f in REQUIRED_STRATEGY_FIELDS if not merged.get(f)],

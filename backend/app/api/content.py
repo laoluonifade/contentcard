@@ -40,6 +40,7 @@ from app.schemas.content import (
     RegenerateMonthVisualsRequest,
     RegenerateMonthVisualsResponse,
     BulkDeleteContentRequest,
+    ContentFeedbackRequest,
     GenerateContentRequest,
     GenerateContentResponse,
     RedistributeMonthDatesRequest,
@@ -2642,11 +2643,76 @@ async def generate_content(
     if not urls:
         raise HTTPException(status_code=502, detail="Image generation failed")
 
+    # Persist as a draft ContentItem so the image shows up in the calendar
+    # and tracks like every other generated post (regenerate / approve /
+    # download / metrics). Without this the /generate-content output is
+    # ephemeral — generated, returned, then orphaned.
+    try:
+        platform_enum = ContentPlatform(platform_value)
+    except ValueError:
+        platform_enum = ContentPlatform.INSTAGRAM
+    headline_for_topic = str(strategy.get("text_on_image") or body.user_prompt or "Generated post")[:200]
+    item = ContentItem(
+        brand_id=body.brand_id,
+        topic=headline_for_topic[:500],
+        platform=platform_enum,
+        format=fmt,
+        status=ContentStatus.DRAFT,
+        content_idea=body.user_prompt or None,
+        description=str(strategy.get("scene") or "")[:1000] or None,
+        cta=None,
+        image_prompt=prompt_text,
+        image_prompt_explanation=str(strategy.get("objective") or "")[:500] or None,
+        visual_direction=str(strategy.get("visual_style") or "")[:500] or None,
+        image_url=str(urls[0]),
+        image_urls=list(urls)[:1] if urls else None,
+        slide_count=1,
+        scheduled_date=None,
+        generation_month=None,
+        generation_year=None,
+        theme={"cc_meta": {"strategy": strategy, "source": "generate_content_endpoint"}},
+        caption=None,
+        hashtags=[],
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+
     return GenerateContentResponse(
         image_url=str(urls[0]),
         strategy=strategy,
         prompt=prompt_text,
     )
+
+
+@router.post("/{content_id}/feedback", status_code=204)
+async def post_content_feedback(
+    content_id: str,
+    body: ContentFeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """PRD §14 — user-satisfaction signal (thumbs up/down on a generated post)."""
+    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
+    item = r.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=False)
+
+    rating = (body.rating or "").strip().lower()
+    if rating not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="rating must be 'up' or 'down'")
+
+    try:
+        from app.services.success_metrics_service import record_user_satisfaction
+        record_user_satisfaction(
+            brand_id=str(item.brand_id),
+            post_id=str(item.id),
+            rating=rating,
+            note=body.note,
+        )
+    except Exception:
+        pass
 
 
 @router.post("/redistribute-dates", response_model=RedistributeMonthDatesResponse)
