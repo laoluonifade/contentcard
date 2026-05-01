@@ -2221,30 +2221,30 @@ export default function CalendarPage() {
       {modal && (
         <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
           onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl max-h-[94vh] overflow-y-auto">
+          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[94vh] overflow-y-auto">
 
             {/* Modal header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-fog sticky top-0 bg-surface z-10">
-              <div>
+              <div className="min-w-0 flex-1 pr-3">
                 <p className="text-ink/40 text-xs mb-0.5 capitalize">
                   {modal.platform} · {fmtDate(modal.scheduled_date)}
                   {modal.content_type && <span className="ml-2 font-medium text-ink/50">{modal.content_type}</span>}
                 </p>
-                <p className="text-ink font-semibold text-sm truncate max-w-[380px]">{modal.content_idea || modal.topic}</p>
+                <p className="text-ink font-semibold text-sm truncate">{modal.content_idea || modal.topic}</p>
                 {modal.visual_archetype && (
                   <p className="text-ink/35 text-[10px] mt-1 font-mono">Layout: {modal.visual_archetype}</p>
                 )}
               </div>
-              <button onClick={()=>setModal(null)} className="text-ink/30 hover:text-ink p-1.5 transition-colors -mr-1">
+              <button onClick={()=>setModal(null)} className="text-ink/30 hover:text-ink p-1.5 transition-colors -mr-1 flex-shrink-0">
                 <X size={20}/>
               </button>
             </div>
 
             <div className="p-5">
-              <div className="grid sm:grid-cols-[auto_1fr] gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] gap-6">
 
                 {/* Left: image + actions */}
-                <div className="flex flex-col items-center gap-3">
+                <div className="flex flex-col items-center gap-3 md:w-[300px]">
                   <PostCard ref={cardRef} post={modal} brand={activeBrand} size={280} slideIndex={slideIdx}/>
 
                   {/* Slide navigation */}
