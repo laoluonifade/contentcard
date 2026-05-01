@@ -224,7 +224,7 @@ export default function SignupPage() {
                 className="shopify-oauth-button w-full"
               >
                 <ShopifyIcon className="w-4 h-4" monochrome />
-                Continue with Shopify
+                Connect your shop
               </button>
               <p className="text-[11px] text-ink/40 mt-3 leading-relaxed">
                 We&apos;ll redirect you to Shopify to authorise read-only access to your products. No credit card required.
