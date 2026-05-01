@@ -139,6 +139,12 @@ class GenerateContentResponse(BaseModel):
     prompt: str     # final text prompt sent to gpt-image-1
 
 
+class ContentFeedbackRequest(BaseModel):
+    """PRD §14 user satisfaction signal — thumbs up/down on a generated post."""
+    rating: str  # "up" | "down"
+    note: str | None = None  # optional free-text reason for downvote
+
+
 class RedistributeMonthDatesRequest(BaseModel):
     """Spread the remaining posts in a month evenly across its weekdays."""
 

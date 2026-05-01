@@ -2289,6 +2289,32 @@ export default function CalendarPage() {
                     Auto-publish is not available for every network. Copy your caption, save images above, then open a
                     composer to paste.
                   </p>
+                  <div className="flex items-center justify-center gap-2 w-full">
+                    <span className="text-ink/40 text-[11px]">How does this look?</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await contentApi.feedback(modal.id, { rating: 'up' })
+                          toast('Thanks!')
+                        } catch { /* fire-and-forget */ }
+                      }}
+                      className="px-2 py-1 rounded-lg border border-fog text-ink/60 hover:border-brand-300 hover:text-ink text-xs"
+                      aria-label="Thumbs up"
+                    >👍</button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const note = window.prompt('What was off about this design? (optional)') || ''
+                        try {
+                          await contentApi.feedback(modal.id, { rating: 'down', note })
+                          toast('Thanks — noted')
+                        } catch { /* fire-and-forget */ }
+                      }}
+                      className="px-2 py-1 rounded-lg border border-fog text-ink/60 hover:border-brand-300 hover:text-ink text-xs"
+                      aria-label="Thumbs down"
+                    >👎</button>
+                  </div>
                   <div className="flex flex-wrap gap-2 w-full justify-center">
                     <button
                       type="button"

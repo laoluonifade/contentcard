@@ -278,6 +278,7 @@ export const contentApi = {
   regenerate: (id, data)       => api.post(`/content/${id}/regenerate`, data).then(r => r.data),
   regenerateVisual: (id, data) => api.post(`/content/${id}/regenerate-visual`, data).then(r => r.data),
   approve:    (id)             => api.post(`/content/${id}/approve`).then(r => r.data),
+  feedback:   (id, data)       => api.post(`/content/${id}/feedback`, data).then(r => r.data),
   reject:     (id)             => api.post(`/content/${id}/reject`).then(r => r.data),
   delete:     (id)             => api.delete(`/content/${id}`).then(r => r.data),
 }

@@ -20,7 +20,6 @@ PRD §14 metrics:
 from __future__ import annotations
 
 import asyncio
-import collections
 import hashlib
 import json
 import logging
@@ -30,18 +29,37 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.services.ai_cost_service import cache_get, cache_set
 
 logger = logging.getLogger("contentcard.success_metrics")
 
-# In-process cache of the last N strategy embeddings per brand.
-# Keyed by brand_id → deque of (post_id, embedding_vector).
-# Bounded so it never grows unbounded; survives within a single process
-# lifetime — fine for similarity-trend signal, not for cross-deploy analysis.
-_RECENT_STRATEGY_EMBEDDINGS_PER_BRAND: dict[str, collections.deque] = {}
+# Persistent ring buffer of the last N strategy embeddings per brand.
+# Backed by the shared cache layer (Redis in prod, in-memory in dev) so
+# the buffer survives deploys and is shared across worker processes.
+# Keyed by brand_id → list of {post_id, embedding}.
 _RECENT_STRATEGIES_BUFFER = 8
+_SIMILARITY_TTL_SEC = 7 * 24 * 3600  # 1 week
 
 _EMBEDDING_MODEL = "text-embedding-3-small"
 _EMBEDDING_API_URL = "https://api.openai.com/v1/embeddings"
+
+
+def _similarity_history_key(brand_id: str) -> str:
+    safe = (brand_id or "default").replace(":", "_")
+    return f"recent_strategy_embeddings:{safe}"
+
+
+def _load_history(brand_id: str) -> list[dict[str, Any]]:
+    raw = cache_get("success_metrics", _similarity_history_key(brand_id))
+    if isinstance(raw, list):
+        return [item for item in raw if isinstance(item, dict)]
+    return []
+
+
+def _save_history(brand_id: str, history: list[dict[str, Any]]) -> None:
+    # Bound to last N entries
+    bounded = history[-_RECENT_STRATEGIES_BUFFER:]
+    cache_set("success_metrics", _similarity_history_key(brand_id), bounded, ttl_sec=_SIMILARITY_TTL_SEC)
 
 
 def _summarize_strategy(strategy: dict[str, Any]) -> dict[str, Any]:
@@ -111,6 +129,73 @@ def _check_brand_alignment(
     }
 
 
+# ── PRD §14 metrics aggregation (counters in cache) ────────────────────────
+#
+# Lightweight rolling counters in the shared cache. Not a full warehouse —
+# just enough for a "how is brand X doing this week" admin view. Each event
+# bumps a counter keyed on (brand_id, metric_name); reads aggregate the
+# brand's counters.
+
+_COUNTERS_TTL_SEC = 30 * 24 * 3600  # 30 days
+
+
+def _counter_key(brand_id: str, metric: str) -> str:
+    safe_brand = (brand_id or "default").replace(":", "_")
+    return f"counter:{safe_brand}:{metric}"
+
+
+def _bump_counter(brand_id: str, metric: str, amount: int = 1) -> None:
+    """Increment a per-brand metric counter in the shared cache."""
+    if not brand_id:
+        return
+    try:
+        key = _counter_key(brand_id, metric)
+        current = cache_get("success_metrics", key) or 0
+        try:
+            current = int(current)
+        except (TypeError, ValueError):
+            current = 0
+        cache_set("success_metrics", key, current + int(amount), ttl_sec=_COUNTERS_TTL_SEC)
+    except Exception:
+        pass
+
+
+def get_brand_metrics_summary(brand_id: str) -> dict[str, Any]:
+    """PRD §14 — read aggregated counters for one brand.
+
+    Returns a flat dict of counter name → value (or 0 when absent). Powers
+    the admin dashboard endpoint.
+    """
+    if not brand_id:
+        return {}
+    counters = (
+        "image_generations",
+        "image_used_without_edits",
+        "image_regenerated",
+        "satisfaction_up",
+        "satisfaction_down",
+        "alignment_color_referenced",
+        "alignment_audience_referenced",
+        "alignment_tone_referenced",
+        "language_style_miss",
+        "strategy_validation_miss",
+    )
+    out: dict[str, Any] = {}
+    for c in counters:
+        try:
+            v = cache_get("success_metrics", _counter_key(brand_id, c)) or 0
+            out[c] = int(v)
+        except Exception:
+            out[c] = 0
+    # Derived ratios
+    total = max(1, out.get("image_generations", 0))
+    out["pct_used_without_edits"] = round(100.0 * out.get("image_used_without_edits", 0) / total, 2)
+    out["pct_regenerated"] = round(100.0 * out.get("image_regenerated", 0) / total, 2)
+    sat_total = max(1, out.get("satisfaction_up", 0) + out.get("satisfaction_down", 0))
+    out["satisfaction_score_pct"] = round(100.0 * out.get("satisfaction_up", 0) / sat_total, 2)
+    return out
+
+
 def record_image_generation(
     *,
     brand_id: str,
@@ -150,6 +235,14 @@ def record_image_generation(
     except Exception:
         # Telemetry is best-effort — never fail a render because logging blew up.
         logger.warning("Failed to emit success-metric event for post %s", post_id)
+    # Bump aggregate counters for the dashboard
+    _bump_counter(brand_id, "image_generations")
+    if alignment.get("color_referenced"):
+        _bump_counter(brand_id, "alignment_color_referenced")
+    if alignment.get("audience_referenced"):
+        _bump_counter(brand_id, "alignment_audience_referenced")
+    if alignment.get("tone_referenced"):
+        _bump_counter(brand_id, "alignment_tone_referenced")
 
 
 def record_image_used_without_edits(brand_id: str, post_id: str) -> None:
@@ -165,6 +258,40 @@ def record_image_used_without_edits(brand_id: str, post_id: str) -> None:
         )
     except Exception:
         pass
+    _bump_counter(brand_id, "image_used_without_edits")
+
+
+def record_user_satisfaction(
+    brand_id: str,
+    post_id: str,
+    rating: str,
+    note: str | None = None,
+) -> None:
+    """PRD §14 — explicit user-satisfaction signal (thumbs up/down).
+
+    rating: "up" | "down"
+    note:   optional free-text reason for downvote
+    """
+    rating_clean = (rating or "").strip().lower()
+    if rating_clean not in ("up", "down"):
+        rating_clean = "unknown"
+    try:
+        logger.info(
+            "metric_event %s",
+            json.dumps({
+                "metric": "user_satisfaction",
+                "brand_id": brand_id,
+                "post_id": post_id,
+                "rating": rating_clean,
+                "note": (note or "")[:500],
+            }),
+        )
+    except Exception:
+        pass
+    if rating_clean == "up":
+        _bump_counter(brand_id, "satisfaction_up")
+    elif rating_clean == "down":
+        _bump_counter(brand_id, "satisfaction_down")
 
 
 def record_image_regenerated(brand_id: str, post_id: str, reason: str | None = None) -> None:
@@ -181,6 +308,69 @@ def record_image_regenerated(brand_id: str, post_id: str, reason: str | None = N
         )
     except Exception:
         pass
+    _bump_counter(brand_id, "image_regenerated")
+
+
+# ── PRD §8.4 language enforcement validation ───────────────────────────────
+
+_PIDGIN_MARKERS: tuple[str, ...] = (
+    "abeg", "wahala", "shele", "no wahala", "make i", "you sef",
+    "we go", "dey", "wetin", "sabi", "chop", "naija", "small small",
+    "for here", "abi", "shey", "no be", "as e dey", "e go",
+)
+
+_NIGERIAN_ENGLISH_MARKERS: tuple[str, ...] = (
+    "naija", "lagos", "abuja", "ibadan", "port harcourt", "naira", "₦",
+    "small chops", "okada", "danfo", "oga", "madam", "boss",
+    "let's go!", "no stress", "tight", "guguru",
+)
+
+
+def validate_caption_language(
+    *,
+    brand_id: str,
+    post_id: str,
+    caption: str,
+    language_style: str | None,
+) -> bool:
+    """PRD §8.4 — when language_style is non-english, verify the caption
+    actually contains marker words for that style. Logs misses; returns
+    True if the caption matches expectations or no validation needed.
+    """
+    style = (language_style or "english").strip().lower()
+    if style in ("english", "en", ""):
+        return True
+    text = (caption or "").lower()
+    if not text.strip():
+        return True
+
+    if style == "pidgin":
+        markers = _PIDGIN_MARKERS
+    elif style == "nigerian_english" or style == "nigerian english":
+        markers = _NIGERIAN_ENGLISH_MARKERS
+    elif style == "mix":
+        markers = _PIDGIN_MARKERS + _NIGERIAN_ENGLISH_MARKERS
+    else:
+        # Unknown style — best effort, treat as ok
+        return True
+
+    matched = any(m in text for m in markers)
+    if not matched:
+        try:
+            logger.warning(
+                "metric_event %s",
+                json.dumps({
+                    "metric": "language_style_miss",
+                    "brand_id": brand_id,
+                    "post_id": post_id,
+                    "language_style": style,
+                    "caption_excerpt": text[:120],
+                }),
+            )
+        except Exception:
+            pass
+        _bump_counter(brand_id, "language_style_miss")
+    return matched
 
 
 # ── PRD §14.c — Variation similarity score ─────────────────────────────────
@@ -267,21 +457,21 @@ async def record_strategy_similarity(
     if not embedding:
         return None
 
-    history = _RECENT_STRATEGY_EMBEDDINGS_PER_BRAND.setdefault(
-        brand_id or "default", collections.deque(maxlen=_RECENT_STRATEGIES_BUFFER)
-    )
-
+    history = _load_history(brand_id)
     max_sim = 0.0
     most_similar_post_id: str | None = None
-    for prior_post_id, prior_vec in history:
-        if prior_post_id == post_id:
+    for entry in history:
+        prior_post_id = entry.get("post_id")
+        prior_vec = entry.get("embedding")
+        if prior_post_id == post_id or not isinstance(prior_vec, list):
             continue
         sim = _cosine(embedding, prior_vec)
         if sim > max_sim:
             max_sim = sim
             most_similar_post_id = prior_post_id
 
-    history.append((post_id, embedding))
+    history.append({"post_id": post_id, "embedding": embedding})
+    _save_history(brand_id, history)
 
     try:
         logger.info(

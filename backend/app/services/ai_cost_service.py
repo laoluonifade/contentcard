@@ -48,6 +48,8 @@ def _endpoint_limit(endpoint_name: str, default_value: int) -> int:
         "caption_generation": settings.AI_CAPTION_MAX_OUTPUT_TOKENS,
         "photo_caption": settings.AI_CAPTION_MAX_OUTPUT_TOKENS,
         "trends_generation": settings.AI_TRENDS_MAX_OUTPUT_TOKENS,
+        "strategist": settings.AI_STRATEGIST_MAX_OUTPUT_TOKENS,
+        "strategist_retry": settings.AI_STRATEGIST_MAX_OUTPUT_TOKENS,
     }
     return int(mapping.get(endpoint_name, default_value))
 

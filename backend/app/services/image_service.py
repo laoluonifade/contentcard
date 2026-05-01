@@ -266,8 +266,14 @@ async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
     qg_retry_count = int(post.get("quality_gate_retry") or 0) if str(post.get("quality_gate_retry") or "").isdigit() else 0
     variation_axis = pick_variation_axis(brand_id, post_id, retry=qg_retry_count)
 
-    # Strategist cache: re-renders of the same post reuse the same direction.
-    # The retry count is in the cache key so each retry gets a fresh strategy.
+    # ── Two-layer strategist cache ────────────────────────────────────────
+    # PRD §13.a — per-post cache: re-renders of the SAME post always reuse
+    # the same direction (cheap retry / preview).
+    # PRD §13.b — cross-post prompt-similarity cache: two posts with the
+    # same brand + similar user_prompt + same platform/format/axis can
+    # share strategy across the calendar within a short TTL. Saves money
+    # and reduces variance in user-pasted prompts. Per-post key is checked
+    # first (full fidelity for retries); prompt key is fallback.
     strategy_cache_key = hashlib.sha256(
         (
             f"strategy|{brand_id}|{post_id}|{platform}|{fmt}|"
@@ -275,7 +281,21 @@ async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
             f"{post.get('regenerate_token', '')}"
         ).encode("utf-8")
     ).hexdigest()
+    prompt_similarity_key = hashlib.sha256(
+        (
+            f"prompt_sim|{brand_id}|{platform}|{fmt}|{variation_axis}|"
+            f"{user_prompt[:200].strip().lower()}"
+        ).encode("utf-8")
+    ).hexdigest()
+
     strategy = cache_get("strategist_output", strategy_cache_key)
+    if not isinstance(strategy, dict) or not strategy.get("scene"):
+        # Only consult prompt-similarity cache when there's NO retry pressure
+        # (qg_retry_count == 0). Retries explicitly want a fresh direction.
+        if qg_retry_count == 0:
+            similar = cache_get("strategist_prompt_sim", prompt_similarity_key)
+            if isinstance(similar, dict) and similar.get("scene"):
+                strategy = similar
 
     if not isinstance(strategy, dict) or not strategy.get("scene"):
         try:
@@ -291,6 +311,11 @@ async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
             return _build_image_prompt(post, brand)
         if isinstance(strategy, dict) and strategy.get("scene"):
             cache_set("strategist_output", strategy_cache_key, strategy, ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
+            # Cross-post prompt-similarity cache uses a SHORTER TTL — we
+            # want similar requests within the same session to share work,
+            # but we don't want every brand to ship the identical strategy
+            # forever for the same prompt.
+            cache_set("strategist_prompt_sim", prompt_similarity_key, strategy, ttl_sec=3600)
 
     try:
         prompt_text = build_prompt_from_strategy(

@@ -390,6 +390,23 @@ def _playbook_tree_payload(rows: list[DesignPlaybookIndustry]) -> list[dict]:
     return out
 
 
+@router.get("/metrics/{brand_id}")
+async def admin_brand_metrics(
+    brand_id: str,
+    _: User = Depends(require_admin),
+):
+    """PRD §14 — aggregated success-metrics summary for one brand.
+
+    Returns counters (image generations, used-without-edits, regenerated,
+    satisfaction up/down, alignment hits, language-style misses) plus
+    derived ratios (% used without edits, satisfaction score).
+    Counters are stored in the shared cache with a 30-day TTL.
+    """
+    from app.services.success_metrics_service import get_brand_metrics_summary
+    summary = get_brand_metrics_summary(brand_id)
+    return {"brand_id": brand_id, "summary": summary}
+
+
 @router.get("/design-playbook")
 async def admin_design_playbook(
     _: User = Depends(require_admin),
