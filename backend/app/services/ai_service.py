@@ -3591,6 +3591,15 @@ For EACH post return ALL these fields:
     - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim. The caption's first sentence must NOT match the hook verbatim either — they sit next to each other and reading the same line twice is a fail. The caption opener should advance the idea (add specifics, set context, drop a stat) rather than restate the hook.
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
+15. slide_blueprint: REQUIRED ONLY when format=carousel. Array of exactly slide_count entries, each describing ONE slide. Every slide must advance the story — NEVER repeat the same headline or restage the same scene. Use the standard carousel storytelling arc: hook -> problem/tension -> insight or proof -> how/what -> close/CTA (compress or expand to fit slide_count). Each entry has the shape:
+    {
+      "slide_number": 1-based index,
+      "role": one short label (hook / problem / insight / proof / how / story / contrast / cta) — your choice per slide,
+      "headline": 2-8 words, the on-image headline for THIS slide ONLY. MUST differ from every other slide's headline. The slide-1 headline can match message_architecture.hook; slide-2+ headlines must be fresh.
+      "support": 8-25 words, on-image body copy for THIS slide. Pushes the story forward — never restates the headline.
+      "image_brief": 2-3 sentences describing the visual for THIS slide. Each slide's visual MUST be a different scene, not a re-render of the cover with a new colour. Vary subject, angle, props, palette per slide while staying on brand. Reference brand colors, imagery_style, lighting_style.
+    }
+    Set slide_blueprint to [] for non-carousel formats.
 
 HARD RULES:
 • Every post MUST have a non-empty "cta" string (see field 5), unique per post.
@@ -3606,6 +3615,7 @@ HARD RULES:
 • NEVER produce generic AI-sounding captions.
 • If format is "single", "gif", or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next".
 • Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely with genuine role variation.
+• When format=carousel: slide_blueprint is REQUIRED with slide_count distinct entries. Every slide tells a different beat of the story (e.g. hook, problem, insight, proof, CTA). Every slide MUST have a different headline AND a different image scene. Re-rendering the cover slide with a colour swap on slides 2-N is the most common carousel failure — do not do it. The reader must be able to swipe through and read a coherent narrative, not the same poster four times.
 • Use "gif" for selected high-energy moments (product reveal, testimonial proof pulse, quick before/after) when motion would improve scroll-stopping impact, without requiring full video.
 • topic must equal content_idea exactly.
 • CRITICAL: each date in the schedule above must appear exactly once in your JSON for this platform — never return two posts with the same "date" value.

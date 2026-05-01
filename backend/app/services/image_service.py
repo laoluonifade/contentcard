@@ -1569,6 +1569,138 @@ async def _generate_with_product_edits(
         return []
 
 
+def _post_for_slide(base_post: dict, slide: dict, slide_number: int, total: int) -> dict:
+    """Clone the post dict with slide-specific overrides so _build_image_prompt
+    produces a prompt focused on a single slide of the carousel."""
+    out = dict(base_post)
+    headline = str(slide.get("headline") or "").strip()
+    support = str(slide.get("support") or "").strip()
+    image_brief = str(slide.get("image_brief") or "").strip()
+    role = str(slide.get("role") or "").strip()
+
+    # Override message_architecture so the TYPOGRAPHY MANDATE block injects
+    # this slide's headline + support, not the post-level cover text.
+    base_ma = dict(base_post.get("message_architecture") or {})
+    if headline:
+        base_ma["hook"] = headline[:120]
+    if support:
+        base_ma["support"] = support[:240]
+    out["message_architecture"] = base_ma
+
+    # Topic / content_idea drive the visual prompt body. Override so each
+    # slide's image_brief is what the model sees, not the cover idea repeated.
+    if image_brief:
+        out["topic"] = (headline[:80] or out.get("topic") or "")
+        out["content_idea"] = headline[:80] or out.get("content_idea") or ""
+        # Drive the image_prompt directly via the image_prompt field so
+        # _build_image_prompt's "ai_image_prompt" branch picks it up.
+        out["image_prompt"] = (
+            f"Slide {slide_number} of {total} in a carousel telling one story. "
+            f"Slide role: {role or 'narrative beat'}. "
+            f"Visual brief for THIS slide only (different scene from other slides): {image_brief}"
+        )
+
+    # Force the cache key to differ per slide so each call gets its own image
+    # rather than colliding on the cover-prompt hash.
+    out["_slide_index"] = slide_number
+    return out
+
+
+async def _render_one_image(
+    *, prompt: str, model: str, topic: str, slide_idx: int, brand_id: str, post_id: str,
+) -> str | None:
+    """Issue ONE image-generation request and return the Cloudinary URL.
+
+    Used by the carousel per-slide loop. Caches per-slide so re-tries of the
+    same slide reuse the previous render.
+    """
+    cache_key = hashlib.sha256(
+        (
+            f"{_IMAGE_PROMPT_VERSION}|slide|{model}|{prompt}|"
+            f"{brand_id}|{post_id}|{slide_idx}"
+        ).encode("utf-8")
+    ).hexdigest()
+    cached = cache_get("openai_image", cache_key)
+    if isinstance(cached, list) and cached:
+        return str(cached[0])
+
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            payload: dict = {
+                "model": model,
+                "prompt": prompt,
+                "n": 1,
+                "size": "1024x1024",
+            }
+            if model == "gpt-image-1":
+                payload["quality"] = "high"
+            else:
+                payload["quality"] = "hd"
+                payload["response_format"] = "url"
+            resp = await client.post(
+                IMAGES_API_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            items = resp.json().get("data", [])
+            if not items:
+                return None
+            item = items[0]
+            if "b64_json" in item and item["b64_json"]:
+                image_bytes = base64.b64decode(item["b64_json"])
+            elif "url" in item and item["url"]:
+                img_resp = await client.get(item["url"])
+                if img_resp.status_code != 200:
+                    return None
+                image_bytes = img_resp.content
+            else:
+                return None
+            permanent_url = await _upload_to_cloudinary(image_bytes, f"{topic}-slide{slide_idx}", slide_idx)
+            if permanent_url:
+                cache_set("openai_image", cache_key, [permanent_url], ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
+            return permanent_url
+    except Exception as e:
+        logger.warning("Carousel slide %d render failed for '%s': %s", slide_idx, topic, e)
+        return None
+
+
+async def _generate_carousel_frames(
+    *, post: dict, brand: dict, blueprint: list[dict], model: str, topic: str,
+) -> list[str]:
+    """Render N distinct frames in parallel — one per slide_blueprint entry.
+
+    Each frame uses a slide-specific prompt built from the per-slide
+    headline / support / image_brief. asyncio.gather runs them concurrently
+    so the user does not wait N×latency.
+    """
+    import asyncio as _asyncio
+    total = len(blueprint)
+
+    async def _one(slide_idx: int, slide: dict) -> str | None:
+        slide_post = _post_for_slide(post, slide, slide_idx + 1, total)
+        slide_prompt = _build_image_prompt(slide_post, brand)
+        return await _render_one_image(
+            prompt=slide_prompt,
+            model=model,
+            topic=topic,
+            slide_idx=slide_idx + 1,
+            brand_id=str(brand.get("id") or ""),
+            post_id=str(post.get("id") or ""),
+        )
+
+    results = await _asyncio.gather(*[_one(i, s) for i, s in enumerate(blueprint)])
+    urls = [u for u in results if u]
+    logger.info(
+        "Carousel: rendered %d/%d slides for '%s' via per-slide path",
+        len(urls), total, topic,
+    )
+    return urls
+
+
 async def generate_post_image(post: dict, brand: dict) -> list[str]:
     """
     Generate background image(s) for a post using settings.IMAGE_MODEL.
@@ -1683,6 +1815,23 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
             logger.warning(
                 "No product PNG prepared for '%s'; falling back to text-only generation", topic
             )
+
+    # ── Carousel per-slide path ──────────────────────────────────────────────
+    # When format=carousel AND the AI returned a slide_blueprint with N
+    # entries, build N distinct prompts (one per slide) and request them
+    # in parallel. The legacy n=N-on-one-prompt path produced N near-
+    # duplicate frames showing the same headline on every slide.
+    raw_blueprint = post.get("slide_blueprint")
+    blueprint = raw_blueprint if isinstance(raw_blueprint, list) else []
+    blueprint = [b for b in blueprint if isinstance(b, dict)]
+    if str(post.get("format") or "").lower() == "carousel" and len(blueprint) >= 2:
+        slides_to_render = blueprint[:max(1, min(10, n))]
+        per_slide_urls = await _generate_carousel_frames(
+            post=post, brand=brand, blueprint=slides_to_render, model=model, topic=topic,
+        )
+        if per_slide_urls:
+            return per_slide_urls
+        logger.warning("Carousel per-slide path returned no urls for '%s'; falling back to single-prompt path", topic)
 
     # ── Text-only path (standard generations) ────────────────────────────────
     # Also used as fallback when the edits path fails.
