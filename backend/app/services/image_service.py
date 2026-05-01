@@ -405,20 +405,28 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         or ""
     ).strip()
     website_source_note = f"Website source context: {website_source_url}." if website_source_url else ""
-    # Text-only image APIs cannot receive the real logo file; asking for "the logo" makes models hallucinate marks.
-    # The true logo is composited in post via burn_logo_into_image_url — only reserve calm space here.
+    # No post-render logo overlay (Bannerbear gone, Cloudinary stamp removed).
+    # The AI is the only renderer, so it must integrate brand identity into
+    # the design itself. We instruct it to render a clean typographic
+    # signoff (brand name in brand colors) rather than attempting to
+    # hallucinate a photorealistic logo mark — that path produces broken
+    # invented logos.
     zone_words = logo_safe_zone.replace("_", " ")
     if has_brand_logo(brand):
         logo_note = (
-            f"Do not draw any logo, wordmark, trademark, favicon, or watermarks for {brand_name} or any other brand. "
-            f"Keep the {zone_words} corner visually calmer (open negative space, simpler background) so the real brand mark "
-            "can be added in post-production only. Never invent a fake logo or stylised brand symbol. "
-            "Generic interface glyphs, arrows, chips, feature icons, and abstract badges are allowed when the campaign layout needs them."
+            f"Integrate {brand_name}'s brand identity naturally INTO the design — render the brand name "
+            f"as a clean, tasteful typographic signoff in the {zone_words} area, sized small enough not to "
+            "dominate the composition but large enough to read at thumbnail size. "
+            "Use the brand's primary colors and design style for the signoff. "
+            "Do NOT attempt to recreate a complex pictorial logo or hallucinate a fake brand mark — "
+            "use the wordmark only (the brand name set in clean type). A simple geometric accent shape "
+            "(circle, square, monogram letter) next to the wordmark is fine when it suits the composition."
         )
     else:
         logo_note = (
-            "Do not draw logos, wordmarks, trademarks, or watermarks; leave corners uncluttered. "
-            "Generic interface glyphs, arrows, chips, feature icons, and abstract badges are allowed when the campaign layout needs them."
+            f"Include a small typographic signoff of the brand name ({brand_name}) in the {zone_words} area, "
+            "sized to be readable at thumbnail size without dominating. Use the brand's primary colors. "
+            "No invented pictorial logos, watermarks, or fake trademark symbols."
         )
     brand_photos = brand.get("brand_photos") or []
     brand_photo_note = ""
@@ -606,7 +614,10 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         )
 
     # Hard negative constraints — appended to every prompt regardless of input
-    _no_fake_logo = "No company logos, wordmarks, trademark symbols, invented brand marks, or watermarks. "
+    # No fake / invented OTHER-brand logos. The brand's OWN wordmark IS allowed
+    # (it's now part of the design, not a Cloudinary overlay) — the logo_note
+    # above covers that.
+    _no_fake_logo = "No invented or third-party company logos, no fake trademark symbols, no watermarks. "
     if vt == "abstract":
         negative = (
             _no_fake_logo
