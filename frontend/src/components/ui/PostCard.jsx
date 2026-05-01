@@ -1,19 +1,20 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle, useState } from 'react'
+import { postHasStructuredLayout, renderPostToCanvas } from '../../lib/postLayoutEngine'
 
-// AI-only renderer. The brand kit drives the prompt; gpt-image-1 designs and
-// renders the entire post (including any text in-image). The frontend only
-// displays the resulting URL — no canvas template engine, no text overlay,
-// no layout-family branching, no hardcoded design templates.
+// Hybrid renderer:
+//   1. If post.theme.cc_meta has a structured strategist output (Phase A),
+//      we render through the LayoutEngine (Phase B): AI image as background,
+//      headline/price/CTA/etc. drawn on top via canvas component drawers.
+//   2. Otherwise (legacy posts, no strategy), display the AI image plainly.
 //
-// If the image URL hasn't arrived yet, show a clean loading skeleton.
+// The structured path is what makes posts look like actual e-commerce
+// creatives — Spotlight / Offer Card / Social Proof / Lifestyle Overlay —
+// instead of just an AI photo.
 
 const EXPORT_OUT = 1080
 const EXPORT_INSET_FRAC = 0.035
 
 // ── Image URL resolver ────────────────────────────────────────────────────
-// Carousels are disabled at the API boundary so post.image_urls is normally
-// length 1 or absent. This still gracefully handles slideIndex > 0 in case
-// any caller asks for a slide that doesn't exist.
 
 function resolvePostImageUrl(post, slideIndex = 0) {
   if (!post) return null
@@ -86,22 +87,59 @@ async function downloadUrl(url, filename) {
   setTimeout(() => URL.revokeObjectURL(href), 5000)
 }
 
+async function downloadCanvas(canvas, filename) {
+  if (!canvas) return
+  await new Promise((resolve) => {
+    canvas.toBlob((blob) => {
+      if (!blob) return resolve()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = filename
+      a.rel = 'noopener'
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(href), 5000)
+      resolve()
+    }, 'image/png', 0.95)
+  })
+}
+
 // ── PostCard component ─────────────────────────────────────────────────────
 
-const PostCard = forwardRef(function PostCard({ post, size = 400, slideIndex = 0, className = '' }, ref) {
+const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIndex = 0, className = '' }, ref) {
+  const canvasRef = useRef(null)
   const [imgError, setImgError] = useState(false)
+  const [rendering, setRendering] = useState(false)
 
   const imageUrl = resolvePostImageUrl(post, slideIndex)
+  const useStructured = postHasStructuredLayout(post)
 
   useEffect(() => {
     setImgError(false)
   }, [imageUrl])
 
+  // When structured strategy exists, render through the LayoutEngine.
+  useEffect(() => {
+    if (!useStructured) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    setRendering(true)
+    renderPostToCanvas(canvas, post, brand, imageUrl)
+      .catch(() => { /* fall through to <img> via imgError */ })
+      .finally(() => setRendering(false))
+  }, [useStructured, post, brand, imageUrl])
+
   useImperativeHandle(ref, () => ({
     async download(filename) {
+      const fname = filename || 'post.png'
+      // If we rendered via canvas, save the composited canvas — that's what
+      // the user is actually seeing on screen.
+      if (useStructured && canvasRef.current) {
+        return downloadCanvas(canvasRef.current, fname)
+      }
       const url = resolvePostImageUrl(post, slideIndex)
       if (!url) return
-      await downloadUrl(url, filename || 'post.png')
+      await downloadUrl(url, fname)
     },
     async downloadAll() {
       const count = Math.max(1, post?.slide_count || 1)
@@ -109,6 +147,9 @@ const PostCard = forwardRef(function PostCard({ post, size = 400, slideIndex = 0
       const urls = Array.from({ length: count }, (_, i) => resolvePostImageUrl(post, i)).filter(Boolean)
       if (urls.length === 0) return
       if (urls.length === 1) {
+        if (useStructured && canvasRef.current) {
+          return downloadCanvas(canvasRef.current, `${base}.png`)
+        }
         await downloadUrl(urls[0], `${base}.png`)
         return
       }
@@ -132,17 +173,32 @@ const PostCard = forwardRef(function PostCard({ post, size = 400, slideIndex = 0
       a.click()
     },
     getSlideCount() { return Math.max(1, post?.slide_count || 1) },
-    toDataURL() { return resolvePostImageUrl(post, slideIndex) },
+    toDataURL() {
+      if (useStructured && canvasRef.current) {
+        return canvasRef.current.toDataURL('image/png')
+      }
+      return resolvePostImageUrl(post, slideIndex)
+    },
   }))
 
-  const showImage = !!imageUrl && !imgError
+  const showPlainImage = !useStructured && !!imageUrl && !imgError
 
   return (
     <div
       className={`relative overflow-hidden ${className}`}
       style={{ width: size, height: size, borderRadius: 12, backgroundColor: '#0a0a0a' }}
     >
-      {showImage && (
+      {useStructured && (
+        <canvas
+          ref={canvasRef}
+          style={{
+            position: 'absolute', inset: 0,
+            width: '100%', height: '100%',
+            display: 'block',
+          }}
+        />
+      )}
+      {showPlainImage && (
         <img
           src={imageUrl}
           alt={post?.topic || 'Post'}
@@ -155,11 +211,11 @@ const PostCard = forwardRef(function PostCard({ post, size = 400, slideIndex = 0
           }}
         />
       )}
-      {!showImage && (
+      {(!useStructured && (!imageUrl || imgError)) || (useStructured && rendering) ? (
         <div className="absolute inset-0 flex items-center justify-center" style={{ background: 'linear-gradient(135deg,#1a1a1a,#0a0a0a)' }}>
           <div className="w-7 h-7 border-2 border-white/25 border-t-white/80 rounded-full animate-spin" />
         </div>
-      )}
+      ) : null}
     </div>
   )
 })
