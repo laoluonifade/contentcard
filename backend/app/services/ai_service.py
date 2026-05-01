@@ -3454,7 +3454,7 @@ async def _generate_for_platform(
     topics_hint: str,
     posting_dates: list[str],
     words_to_avoid: list[str],
-    assistant_id: str | None = None,
+    vector_store_id: str | None = None,
     brand_dict: dict | None = None,
     planner_addon: str = "",
 ) -> list[dict]:
@@ -3635,8 +3635,9 @@ Return a JSON object with a single key "posts" containing the array:
         try:
             raw = None
 
-            if assistant_id and attempt == 0:
-                # Attempt 1: OpenAI Assistants API with Vector Store + inline context
+            if vector_store_id and attempt == 0:
+                # Attempt 1: OpenAI Responses API with file_search bound to the
+                # brand's vector store (replaces the deprecated Assistants API)
                 brief_with_context = (
                     f"=== BRAND CONTEXT (primary reference) ===\n"
                     f"{brand_ctx}\n\n"
@@ -3644,11 +3645,11 @@ Return a JSON object with a single key "posts" containing the array:
                     f"{creative_brief}"
                 )
                 try:
-                    from app.services.openai_assistant_service import generate_with_assistant
-                    raw = await generate_with_assistant(assistant_id, brief_with_context)
-                    logger.info(f"Assistant responded (attempt {attempt + 1}), first 200: {raw[:200]}")
+                    from app.services.openai_assistant_service import generate_with_brand_memory
+                    raw = await generate_with_brand_memory(vector_store_id, brief_with_context)
+                    logger.info(f"Brand-memory responded (attempt {attempt + 1}), first 200: {raw[:200]}")
                 except Exception as e:
-                    logger.warning(f"Assistant failed: {e}; using chat completions")
+                    logger.warning(f"Brand-memory failed: {e}; using chat completions")
                     raw = None
 
             if raw is None:
@@ -4022,7 +4023,7 @@ async def _generate_for_platform(
     topics_hint: str,
     posting_dates: list[str],
     words_to_avoid: list[str],
-    assistant_id: str | None = None,
+    vector_store_id: str | None = None,
     brand_dict: dict | None = None,
     planner_addon: str = "",
     campaign_brief: dict | None = None,
@@ -4081,7 +4082,7 @@ async def _generate_for_platform(
         topics_hint=topics_hint,
         posting_dates=posting_dates,
         words_to_avoid=words_to_avoid,
-        assistant_id=assistant_id,
+        vector_store_id=vector_store_id,
         brand_dict=brand_dict,
         planner_addon="\n\n".join([x for x in staged_addons if x and str(x).strip()]),
     )
@@ -4242,7 +4243,10 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
     posting_dates = _get_posting_dates(year, month, posts_per_week)
     logger.info(f"Generating {len(posting_dates)} posts for {len(platforms)} platform(s) in {month_name} {year}")
 
-    assistant_id = brand.get("openai_assistant_id")
+    # Vector store ID drives the Responses API brand-memory path.
+    # The legacy openai_assistant_id field is no longer used (Assistants
+    # API was EOL'd by OpenAI Aug 2026).
+    vector_store_id = brand.get("openai_vector_store_id")
 
     addon_parts = [x.strip() for x in (holiday_context, generation_brief) if x and str(x).strip()]
     planner_addon = "\n\n".join(addon_parts)
@@ -4255,7 +4259,7 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
                 month_name, year, platform,
                 format_mix, topics_hint, posting_dates,
                 words_to_avoid=words_to_avoid,
-                assistant_id=assistant_id,
+                vector_store_id=vector_store_id,
                 brand_dict=brand,
                 planner_addon=planner_addon,
                 campaign_brief=campaign_brief,
