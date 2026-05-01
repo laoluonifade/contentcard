@@ -225,15 +225,24 @@ def _human_casting_note(brand: dict) -> str:
 async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
     """PRD §3 pipeline: Brand Kit + User Input → Strategist → Prompt Builder → text prompt.
 
-    Calls the Strategist (LLM) to convert the brand kit and the post's
-    user-facing intent into a structured creative direction JSON, then
-    the deterministic Prompt Builder turns that JSON into the final text
-    prompt for gpt-image-1.
+    Internal canonical input assembly (PRD §6.1):
+        user_prompt = post.image_prompt OR content_idea OR topic OR description
+        platform    = post.platform
+        format      = post.format
+        brand_kit   = brand
+    The Strategist receives this canonical shape regardless of which
+    upstream code path constructed the post (month-generation, prep-execute,
+    /generate-content endpoint, regenerate-visual). PRD §6.1 satisfied
+    internally — different upstream callers all converge here.
 
-    Cache key for the strategist output is keyed on (brand_id, post.id,
-    user_prompt hash, platform, format, regenerate_token, qg_retry,
-    variation_axis) — same post → same strategy on retries; different
-    posts on the calendar → different strategies (variation engine).
+    Cache key (PRD §13.a / §13.b):
+        (brand_id, post.id, user_prompt[:300], platform, format,
+         variation_axis, qg_retry_count, regenerate_token)
+    - Re-renders of the SAME post always hit cache (cheap retry / preview).
+    - Different posts on the calendar always miss (variation engine ensures
+      they get different directions; PRD §10).
+    - Quality-gate retries advance variation_axis + qg_retry_count, naturally
+      busting the cache so the next attempt gets a fresh direction (PRD §12.c).
 
     Falls back to the legacy template prompt if the strategist call
     fails entirely (PRD §12: missing BK → minimal fallback).
@@ -252,13 +261,17 @@ async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
     brand_id = str(brand.get("id") or "")
     post_id = str(post.get("id") or post.get("topic") or "default")
 
-    variation_axis = pick_variation_axis(brand_id, post_id)
+    # PRD §12.c: on a quality-gate retry, advance the variation axis so
+    # the next attempt explicitly varies on a different dimension.
+    qg_retry_count = int(post.get("quality_gate_retry") or 0) if str(post.get("quality_gate_retry") or "").isdigit() else 0
+    variation_axis = pick_variation_axis(brand_id, post_id, retry=qg_retry_count)
 
     # Strategist cache: re-renders of the same post reuse the same direction.
+    # The retry count is in the cache key so each retry gets a fresh strategy.
     strategy_cache_key = hashlib.sha256(
         (
             f"strategy|{brand_id}|{post_id}|{platform}|{fmt}|"
-            f"{user_prompt[:300]}|{variation_axis}|"
+            f"{user_prompt[:300]}|{variation_axis}|qg{qg_retry_count}|"
             f"{post.get('regenerate_token', '')}"
         ).encode("utf-8")
     ).hexdigest()
@@ -291,7 +304,10 @@ async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
 
     # Telemetry: record this generation's strategy + alignment signal (PRD §14).
     try:
-        from app.services.success_metrics_service import record_image_generation
+        from app.services.success_metrics_service import (
+            record_image_generation,
+            record_strategy_similarity_fire_and_forget,
+        )
         record_image_generation(
             brand_id=brand_id,
             post_id=post_id,
@@ -302,6 +318,13 @@ async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
             prompt=prompt_text,
             image_url=None,  # url not known at prompt-build time
             brand_kit=brand,
+        )
+        # PRD §14.c — fire the similarity score in background; we don't want
+        # to add embedding latency to every render's hot path.
+        record_strategy_similarity_fire_and_forget(
+            brand_id=brand_id,
+            post_id=post_id,
+            strategy=strategy,
         )
     except Exception:
         pass

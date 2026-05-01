@@ -1187,6 +1187,19 @@ async def manual_confirm_social_post(
 
     await db.commit()
     await db.refresh(post)
+
+    # PRD §14.a — quality signal: image used without further edits.
+    # Best-effort telemetry; never fail the request on metric errors.
+    if body.content_item_id:
+        try:
+            from app.services.success_metrics_service import record_image_used_without_edits
+            record_image_used_without_edits(
+                brand_id=body.brand_id,
+                post_id=body.content_item_id,
+            )
+        except Exception:
+            pass
+
     return SocialPostOut.model_validate(post)
 
 
