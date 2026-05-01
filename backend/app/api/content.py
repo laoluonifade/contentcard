@@ -57,9 +57,7 @@ from app.services.ai_service import (
 )
 from app.services.month_holiday_context import build_month_holiday_context
 from app.services.visual_tokens import (
-    apply_poster_lockup_defaults,
     apply_visual_system_defaults,
-    poster_lockup_mode_enabled,
 )
 from app.services.art_brief_service import build_art_brief
 from app.services.visual_lint_service import lint_final_image
@@ -4111,7 +4109,7 @@ def _brand_to_dict(brand: Brand) -> dict:
     # brand_motifs, mission_statement, value_proposition, key_messages, etc.)
     # Individual column values above take priority over kit values.
     merged = {**kit, **base}
-    return apply_poster_lockup_defaults(apply_visual_system_defaults(merged))
+    return apply_visual_system_defaults(merged)
 
 
 def _content_item_to_post_dict(item: ContentItem) -> dict:
