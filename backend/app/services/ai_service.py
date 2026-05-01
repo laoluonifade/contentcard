@@ -3541,11 +3541,29 @@ When writing captions:
 • Use specific buyer language, proof, product detail, use-case detail, or offer detail, not generic motivational filler"""
 
 
+    # Pull the holiday block out of planner_addon so it lands at the top of
+    # the brief as a priority constraint (instead of buried inside USER /
+    # STRATEGIST ADD-ONS where the model treats it as side context).
+    _addon_text = planner_addon.strip()
+    _holiday_priority_block = ""
+    _holiday_marker = "=== PUBLIC HOLIDAYS"
+    if _holiday_marker in _addon_text:
+        _h_idx = _addon_text.find(_holiday_marker)
+        _next = _addon_text.find("===", _h_idx + len(_holiday_marker))
+        if _next == -1:
+            _holiday_priority_block = _addon_text[_h_idx:].strip()
+            _addon_text = _addon_text[:_h_idx].strip()
+        else:
+            _holiday_priority_block = _addon_text[_h_idx:_next].strip()
+            _addon_text = (_addon_text[:_h_idx].rstrip() + "\n\n" + _addon_text[_next:].lstrip()).strip()
+
     creative_brief = f"""Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
 
 Platform: {platform} ({platform_format})
 Format preference: {format_mix}
 {topics_hint}
+
+{_holiday_priority_block}
 
 Business default strategy:
 {business_strategy_text}
@@ -3602,6 +3620,7 @@ For EACH post return ALL these fields:
     Set slide_blueprint to [] for non-carousel formats.
 
 HARD RULES:
+• If a "PUBLIC HOLIDAYS & OBSERVANCES THIS MONTH (PRIORITY)" section appears above, holidays OVERRIDE every other content_type / scheduling decision for the dates listed. Any posting date matching a holiday MUST be a holiday-themed post (or a tasteful cultural acknowledgement when the brand industry calls for restraint). Do NOT skip a holiday in favour of a generic content_type for that date. The on-image headline + visual must reflect the holiday, not bury it in the corner.
 • Every post MUST have a non-empty "cta" string (see field 5), unique per post.
 • Each post must feel distinctly different; vary tone, angle, format, visual treatment, and rhythm.
 • ZERO duplicate hooks, content_ideas, or caption openers across the month. Two posts that anchor on the same brand pillar must approach it from different angles (different verb, different audience segment, different proof type, different time-of-day, different rhetorical move). Reusing the same noun phrase in two hooks is a fail.
@@ -3636,8 +3655,8 @@ Return a JSON object with a single key "posts" containing the array:
             "- Do not return carousel format in this run.\n"
         )
 
-    if planner_addon.strip():
-        creative_brief += f"\n\n=== USER / STRATEGIST ADD-ONS ===\n{planner_addon.strip()}\n"
+    if _addon_text:
+        creative_brief += f"\n\n=== USER / STRATEGIST ADD-ONS ===\n{_addon_text}\n"
 
     max_attempts = 2 if settings.AI_COST_OPTIMIZATION_ENABLED else 3
     last_error = None
