@@ -10,7 +10,6 @@ from collections import deque
 import httpx
 from app.core.config import settings
 from app.services.ai_cost_service import cache_get, cache_set, telemetry_record, CallTelemetry, estimate_cost_usd
-from app.services.visual_tokens import poster_lockup_mode_enabled, apply_poster_lockup_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -644,16 +643,15 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     ).strip()
     website_source_note = f"Website source context: {website_source_url}." if website_source_url else ""
     # The AI integrates the brand's logo INTO the composition itself —
-    # no Cloudinary overlay, no Bannerbear stamp. To avoid a generic AI
-    # wordmark that doesn't match the brand's actual mark, we pass the
-    # brand's logo_url, visual-system tokens, and explicit instructions
-    # to render a mark that visually matches the real logo (shape, colours,
-    # type weight) rather than inventing a stand-in.
+    # no Cloudinary overlay, no Bannerbear stamp. We pass the brand's
+    # logo_url, visual-system tokens, and explicit instructions so the
+    # rendered mark visually matches the real logo (shape, colours, type
+    # weight) rather than inventing a stand-in.
     zone_words = logo_safe_zone.replace("_", " ")
     _real_logo_url = _resolve_logo_url(brand)
     _vs_for_logo = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
     _heading_font = str(_vs_for_logo.get("heading_font") or brand.get("brand_font") or "modern geometric sans-serif")
-    if has_brand_logo(brand) and poster_lockup_mode_enabled(brand, "logo", post):
+    if has_brand_logo(brand):
         logo_note = (
             f"Brand logo placement (integrate INTO the design, not as an overlay): "
             f"the brand's actual uploaded logo lives at {_real_logo_url}. "
@@ -667,78 +665,12 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             "(circle, square, monogram letter), you may include a matching simple accent shape next to "
             "the wordmark — but never invent a complex pictorial mark."
         )
-    elif has_brand_logo(brand):
-        logo_note = (
-            f"The brand's logo lives at {_real_logo_url} but logo display is OFF for this post — "
-            f"do NOT render the brand name \"{brand_name}\", any wordmark, monogram, or brand mark "
-            "anywhere in the design. Keep the composition logo-free."
-        )
     else:
         logo_note = (
             f"Include a small, tasteful typographic signoff of the brand name ({brand_name}) in the {zone_words} area, "
             f"set in {_heading_font} using the brand's primary colours, sized to be readable at thumbnail size "
             "without dominating. No invented pictorial logos, watermarks, fake trademark symbols, or competing "
             "brand-mark glyphs."
-        )
-    # ── Poster-lockup details (website / phone / address / app badges) ──────
-    # The AI is the only renderer now (no Bannerbear, no Cloudinary overlay
-    # except the logo), so when the brand kit's poster-lockup modes allow
-    # showing website/phone/address/badges we have to instruct the model
-    # to render them inside the design as a clean footer strip — the way
-    # the philantify reference post puts "www.philantify.org" + "hello@..."
-    # along the bottom edge.
-    _lockup_cfg = apply_poster_lockup_defaults(dict(brand)).get("poster_lockup") or {}
-    _website = str(brand.get("website") or "").strip()
-    _phone = str(_lockup_cfg.get("contact_phone") or "").strip()
-    _address = str(brand.get("location") or "").strip()
-    _lockup_lines: list[str] = []
-    _lockup_forbid: list[str] = []
-
-    _website_on = bool(_website) and poster_lockup_mode_enabled(brand, "website", post)
-    if _website_on:
-        _lockup_lines.append(f"website URL \"{_website}\"")
-    elif _website:
-        _lockup_forbid.append("website URLs / domain strings")
-
-    _phone_on = bool(_phone) and poster_lockup_mode_enabled(brand, "phone", post)
-    if _phone_on:
-        _lockup_lines.append(f"contact phone \"{_phone}\"")
-    else:
-        _lockup_forbid.append("phone numbers")
-
-    _address_on = bool(_address) and poster_lockup_mode_enabled(brand, "address", post)
-    if _address_on:
-        _lockup_lines.append(f"address \"{_address}\"")
-    else:
-        _lockup_forbid.append("street addresses / store locations")
-
-    _badges_on = poster_lockup_mode_enabled(brand, "store_badges", post)
-    if _badges_on:
-        _lockup_lines.append("App Store + Google Play badge silhouettes (geometric shape only, no real store wordmarks)")
-    else:
-        _lockup_forbid.append(
-            "App Store / Google Play / Play Store badges, download buttons, "
-            "\"Available on\" pills, or any iOS/Android install call-to-action graphics"
-        )
-
-    if _lockup_lines:
-        poster_lockup_note = (
-            "Lockup details (render INSIDE the design as a clean, small footer strip — typeset, "
-            "not pasted): " + "; ".join(_lockup_lines) + ". "
-            "Set them in a single horizontal line along the bottom edge in the brand's primary colour palette. "
-            "Render the strings VERBATIM (sharp letterforms, exact spelling), small enough to read at thumbnail size "
-            "but tasteful — never let them dominate the composition. They should feel like a subtle brand sign-off, "
-            "the way an ad campaign card runs the website + handle along the bottom."
-        )
-    else:
-        poster_lockup_note = ""
-
-    if _lockup_forbid:
-        poster_lockup_note += (
-            " HARD FORBID — this design must NOT contain: "
-            + "; ".join(_lockup_forbid) + ". "
-            "These elements are explicitly disabled for this brand or this post. Do not invent them, "
-            "do not add them \"to be helpful\", do not include them in any footer, corner, sticker, or background detail."
         )
 
     brand_photos = brand.get("brand_photos") or []
@@ -1090,7 +1022,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"Brand context: {brand_name} ({industry}). "
             f"Color palette: {color_str}. Tone: {tone_str}. "
             f"{audience_note} {cultural_note} {casting_note} {motif_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {poster_lockup_note} {carousel_richness_note} {structured_module_note}\n"
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} {structured_module_note}\n"
             f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
             f"{cam_line} "
             f"{lighting}. {format_note} "
@@ -1133,7 +1065,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
             f"{audience_note} {cultural_note} {casting_note} {motif_note} {imagery_note} {msg_note} "
-            f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {poster_lockup_note} {carousel_richness_note} {structured_module_note} "
+            f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} {structured_module_note} "
             f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
             "Creative standard: emulate high-performing social campaign craft with clear module hierarchy (headline/offer/proof/cta), "
             "bold but disciplined color blocking, and storytelling props that support the claim. "
@@ -1671,7 +1603,7 @@ async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | Non
     """
     vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
     logo_url = _resolve_logo_url(brand)
-    if not image_url or not logo_url or not poster_lockup_mode_enabled(brand, "logo", post):
+    if not image_url or not logo_url:
         return None
     ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
     # Lockup consistency: prefer brand-level visual_system placement over per-post variation.
@@ -1708,8 +1640,6 @@ async def _burn_logo_with_cached_bytes(
 ) -> str | None:
     if not image_url or not logo_bytes:
         return None
-    if not poster_lockup_mode_enabled(brand, "logo", post):
-        return None
     vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
     ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
     placement = str(vs.get("logo_placement") or ab.get("logo_placement") or "bottom_right")
@@ -1737,8 +1667,6 @@ async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: d
     if not urls:
         return [], True
     if not has_brand_logo(brand):
-        return urls, True
-    if not poster_lockup_mode_enabled(brand, "logo", post):
         return urls, True
     out: list[str] = []
     all_applied = True

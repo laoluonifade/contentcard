@@ -8,7 +8,6 @@ from collections import Counter
 import httpx
 from app.core.config import settings
 from app.services.art_brief_service import ARCHETYPE_IDS, infer_default_archetype
-from app.services.visual_tokens import poster_lockup_prompt_block
 from app.services.ai_cost_service import (
     build_fingerprint,
     cache_get,
@@ -1825,7 +1824,6 @@ def _enforce_family_mix_requirements(valid: list[dict], brand: dict | None) -> l
 def _visual_system_prompt_block(brand: dict) -> str:
     _raw = brand.get("visual_system")
     vs = _raw if isinstance(_raw, dict) else {}
-    lockup_note = poster_lockup_prompt_block(brand)
     country_names = {
         "NG": "Nigeria",
         "GH": "Ghana",
@@ -1868,8 +1866,7 @@ def _visual_system_prompt_block(brand: dict) -> str:
     if not vs:
         return (
             "Visual tokens: derive from brand colours; vary visual_archetype across the month. "
-            f"{casting_line} "
-            f"{lockup_note}"
+            f"{casting_line}"
         )
     arch = vs.get("allowed_archetypes") or []
     motifs = vs.get("never_show_motifs") or []
@@ -1888,8 +1885,7 @@ def _visual_system_prompt_block(brand: dict) -> str:
         "Visual storytelling standard: each post must carry one narrative beat in-frame (hook, context, proof, and CTA/action cue), not isolated decoration. "
         "Use playful graphic accents only when they reinforce the core message module. "
         f"Choose logo_safe_zone where the final composited brand mark should sit; keep that quadrant visually calm in the generated art — the raster model must not draw the logo. "
-        f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}. "
-        f"{lockup_note}"
+        f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
     )
 
 

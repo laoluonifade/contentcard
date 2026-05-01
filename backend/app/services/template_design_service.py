@@ -5,7 +5,6 @@ from typing import Any
 from app.models.brand import Brand
 from app.models.template import ContentTemplate, TemplateCategory, TemplateRecurrence
 from app.services.image_service import finalize_rendered_urls_with_logo, generate_post_image
-from app.services.visual_tokens import apply_poster_lockup_defaults
 
 
 def infer_business_type(brand: Brand) -> str:
@@ -418,7 +417,7 @@ def _pick_playbook_direction(template: ContentTemplate, playbook: dict | None) -
 
 def _brand_to_prompt_dict(brand: Brand) -> dict[str, Any]:
     kit = brand.brand_kit or {}
-    return apply_poster_lockup_defaults({
+    return {
         **kit,
         "name": brand.name,
         "industry": brand.industry,
@@ -432,7 +431,7 @@ def _brand_to_prompt_dict(brand: Brand) -> dict[str, Any]:
         "brand_font": brand.brand_font,
         "design_style": brand.design_style or "bold",
         "logo_url": brand.logo_url,
-    })
+    }
 
 
 def build_template_design_spec(

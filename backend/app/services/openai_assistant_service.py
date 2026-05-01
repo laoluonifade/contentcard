@@ -128,14 +128,7 @@ def _build_brand_kit_document(brand) -> str:
   • Logo placement (raster): {_fmt((kit.get('visual_system') or {}).get('logo_placement'))}
   • Allowed layout archetypes: {_lst((kit.get('visual_system') or {}).get('allowed_archetypes'))}
   • Never show motifs: {_lst((kit.get('visual_system') or {}).get('never_show_motifs'))}
-  • Forbidden hexes: {_lst((kit.get('visual_system') or {}).get('forbidden_hexes'))}
-• **Poster lockup preferences**:
-  • Logo mode: {_fmt((kit.get('poster_lockup') or {}).get('logo_mode'))}
-  • Website mode: {_fmt((kit.get('poster_lockup') or {}).get('website_mode'))}
-  • Phone mode: {_fmt((kit.get('poster_lockup') or {}).get('phone_mode'))}
-  • Address mode: {_fmt((kit.get('poster_lockup') or {}).get('address_mode'))}
-  • Store badges mode: {_fmt((kit.get('poster_lockup') or {}).get('store_badges_mode'))}
-  • Contact phone: {_fmt((kit.get('poster_lockup') or {}).get('contact_phone'))}""",
+  • Forbidden hexes: {_lst((kit.get('visual_system') or {}).get('forbidden_hexes'))}""",
 
         f"""## 5. Messaging Framework
 • **Value Pillars**: {_lst(kit.get('value_pillars'))}
