@@ -10,7 +10,7 @@ from collections import deque
 import httpx
 from app.core.config import settings
 from app.services.ai_cost_service import cache_get, cache_set, telemetry_record, CallTelemetry, estimate_cost_usd
-from app.services.visual_tokens import poster_lockup_mode_enabled
+from app.services.visual_tokens import poster_lockup_mode_enabled, apply_poster_lockup_defaults
 
 logger = logging.getLogger(__name__)
 
@@ -420,6 +420,38 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             "Do not draw logos, wordmarks, trademarks, or watermarks; leave corners uncluttered. "
             "Generic interface glyphs, arrows, chips, feature icons, and abstract badges are allowed when the campaign layout needs them."
         )
+    # ── Poster-lockup details (website / phone / address / app badges) ──────
+    # The AI is the only renderer now (no Bannerbear, no Cloudinary overlay
+    # except the logo), so when the brand kit's poster-lockup modes allow
+    # showing website/phone/address/badges we have to instruct the model
+    # to render them inside the design as a clean footer strip — the way
+    # the philantify reference post puts "www.philantify.org" + "hello@..."
+    # along the bottom edge.
+    _lockup_cfg = apply_poster_lockup_defaults(dict(brand)).get("poster_lockup") or {}
+    _website = str(brand.get("website") or "").strip()
+    _phone = str(_lockup_cfg.get("contact_phone") or "").strip()
+    _address = str(brand.get("location") or "").strip()
+    _lockup_lines: list[str] = []
+    if _website and poster_lockup_mode_enabled(brand, "website", post):
+        _lockup_lines.append(f"website URL \"{_website}\"")
+    if _phone and poster_lockup_mode_enabled(brand, "phone", post):
+        _lockup_lines.append(f"contact phone \"{_phone}\"")
+    if _address and poster_lockup_mode_enabled(brand, "address", post):
+        _lockup_lines.append(f"address \"{_address}\"")
+    if poster_lockup_mode_enabled(brand, "store_badges", post):
+        _lockup_lines.append("App Store + Google Play badge silhouettes (geometric shape only, no real store wordmarks)")
+    if _lockup_lines:
+        poster_lockup_note = (
+            "Lockup details (render INSIDE the design as a clean, small footer strip — typeset, "
+            "not pasted): " + "; ".join(_lockup_lines) + ". "
+            "Set them in a single horizontal line along the bottom edge in the brand's primary colour palette. "
+            "Render the strings VERBATIM (sharp letterforms, exact spelling), small enough to read at thumbnail size "
+            "but tasteful — never let them dominate the composition. They should feel like a subtle brand sign-off, "
+            "the way an ad campaign card runs the website + handle along the bottom."
+        )
+    else:
+        poster_lockup_note = ""
+
     brand_photos = brand.get("brand_photos") or []
     brand_photo_note = ""
     if isinstance(brand_photos, list) and brand_photos:
@@ -766,7 +798,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"Brand context: {brand_name} ({industry}). "
             f"Color palette: {color_str}. Tone: {tone_str}. "
             f"{audience_note} {cultural_note} {casting_note} {motif_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} {structured_module_note}\n"
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {poster_lockup_note} {carousel_richness_note} {structured_module_note}\n"
             f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
             f"{cam_line} "
             f"{lighting}. {format_note} "
@@ -809,7 +841,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
             f"Mood: {tone_str}. Color palette: {color_str}. "
             f"{audience_note} {cultural_note} {casting_note} {motif_note} {imagery_note} {msg_note} "
-            f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} {structured_module_note} "
+            f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {poster_lockup_note} {carousel_richness_note} {structured_module_note} "
             f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
             "Creative standard: emulate high-performing social campaign craft with clear module hierarchy (headline/offer/proof/cta), "
             "bold but disciplined color blocking, and storytelling props that support the claim. "
