@@ -40,6 +40,8 @@ from app.schemas.content import (
     RegenerateMonthVisualsRequest,
     RegenerateMonthVisualsResponse,
     BulkDeleteContentRequest,
+    RedistributeMonthDatesRequest,
+    RedistributeMonthDatesResponse,
     BrandFormCoachRequest,
     BrandFormCoachResponse,
 )
@@ -67,9 +69,10 @@ from app.services.image_service import (
     generate_post_image,
     has_brand_logo,
 )
-# Bannerbear was removed (AI generates the full visual). Cloudinary logo
-# overlay (burn_logo_into_image_url) was also removed — the AI now renders
-# the brand wordmark in-design via the logo_note in _build_image_prompt.
+# Bannerbear was removed (AI generates the full visual). Cloudinary post-render
+# logo overlay is also disabled — the AI integrates the brand's logo INTO the
+# composition itself. The image-prompt builder passes the brand's logo_url and
+# visual-system tokens so the AI can render a logo consistent with the brand.
 from app.services.billing_entitlements import (
     effective_plan,
     free_generations_used,
@@ -1344,22 +1347,15 @@ async def _brand_product_grounding_pool(db: AsyncSession, brand_id: str, limit: 
 
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
     """
-    No-op since the post-render logo overlay was removed.
+    No-op — the AI integrates the brand logo INTO the composition itself.
 
-    The earlier flow stamped the brand logo onto every rendered frame via
-    Cloudinary (``burn_logo_into_image_url``). That left a floating circular
-    badge on every post that did not match the AI-generated design aesthetic
-    (visible as the green "C" lozenge in the bottom-right of every carousel
-    slide on contentcard.co). Removed per the user's "We shouldn't layover
-    logo either bannerbear again" direction.
+    The image-prompt builder (image_service._build_image_prompt) passes the
+    brand's logo_url, visual-system tokens, and brand-mark guidance so the AI
+    designs the logo into the artwork rather than having Cloudinary stamp it on
+    top after render.
 
-    The AI is now responsible for integrating brand identity into the
-    composition itself. The image-prompt builder (``image_service._build_image_prompt``)
-    instructs the model to render the brand name as a clean typographic
-    signoff using brand colors — see the ``logo_note`` block.
-
-    Returns True unconditionally so the quality-gate retry loop never
-    blocks delivery on a missing overlay (there is no overlay to miss).
+    Returns True so the quality-gate retry loop never blocks delivery on a
+    "missing overlay" — there is no overlay to miss.
     """
     return True
 
@@ -2513,16 +2509,50 @@ async def bulk_delete_content(
     if not ids:
         raise HTTPException(status_code=400, detail="Pick at least one post first.")
     deleted = 0
+    affected_buckets: set[tuple[str, str, int, int]] = set()  # (brand_id, platform, year, month)
     for cid in ids[:100]:
         r = await db.execute(select(ContentItem).where(ContentItem.id == cid))
         item = r.scalar_one_or_none()
         if not item:
             continue
         await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=True)
+        if item.scheduled_date is not None:
+            pv = item.platform.value if isinstance(item.platform, ContentPlatform) else str(item.platform)
+            affected_buckets.add((item.brand_id, str(pv).lower(), item.scheduled_date.year, item.scheduled_date.month))
         await db.delete(item)
         deleted += 1
     await db.commit()
+    for brand_id, plat, yr, mo in affected_buckets:
+        try:
+            await _redistribute_month_dates(
+                db=db, brand_id=brand_id, month=mo, year=yr, platform=plat
+            )
+        except Exception as e:
+            logger.warning("auto-redistribute on bulk-delete failed: %s", e)
     return {"deleted": deleted}
+
+
+@router.post("/redistribute-dates", response_model=RedistributeMonthDatesResponse)
+async def redistribute_dates(
+    body: RedistributeMonthDatesRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Spread the remaining posts evenly across the month's weekdays.
+
+    Useful when the user has deleted several posts and the calendar looks gappy.
+    Keeps relative order intact, skips published posts and past-date posts.
+    """
+    await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
+    plat_value = body.platform.value if body.platform else None
+    result = await _redistribute_month_dates(
+        db=db,
+        brand_id=body.brand_id,
+        month=body.month,
+        year=body.year,
+        platform=plat_value,
+    )
+    return RedistributeMonthDatesResponse(**result)
 
 
 # ── Param routes AFTER literal routes ──────────────────────────────
@@ -2686,8 +2716,123 @@ async def delete_content(
     if not item:
         raise HTTPException(status_code=404, detail="Content not found")
     await _get_brand_and_check_access(item.brand_id, current_user.id, db)
+    affected_buckets: set[tuple[str, int, int]] = set()
+    if item.scheduled_date is not None:
+        pv = item.platform.value if isinstance(item.platform, ContentPlatform) else str(item.platform)
+        affected_buckets.add((str(pv).lower(), item.scheduled_date.year, item.scheduled_date.month))
     await db.delete(item)
     await db.commit()
+    # After a delete, the surviving posts can leave a gap in the calendar — quietly
+    # rebalance the remaining unpublished posts in (platform, month) so dates stay
+    # evenly spread without the user having to drag every card.
+    for plat, yr, mo in affected_buckets:
+        try:
+            await _redistribute_month_dates(
+                db=db, brand_id=item.brand_id, month=mo, year=yr, platform=plat
+            )
+        except Exception as e:
+            logger.warning("auto-redistribute on delete failed: %s", e)
+
+
+async def _redistribute_month_dates(
+    db: AsyncSession,
+    brand_id: str,
+    month: int,
+    year: int,
+    platform: str | None = None,
+) -> dict:
+    """Spread unpublished posts in (brand, platform?, month) evenly across that month's weekdays.
+
+    - Keeps the relative order intact (sorted by current scheduled_date, then created_at).
+    - Skips posts whose status is "published".
+    - Skips posts whose scheduled_date is in the past (today or earlier).
+    - Per-platform: redistributes one platform at a time; pass platform=None to do every
+      platform that has posts in the month.
+
+    Returns {"updated": int, "skipped_published": int, "schedule": [{id, platform, scheduled_date}]}.
+    """
+    last = monthrange(year, month)[1]
+    start = date(year, month, 1)
+    end = date(year, month, last)
+    today = date.today()
+
+    q = select(ContentItem).where(
+        ContentItem.brand_id == brand_id,
+        ContentItem.scheduled_date.isnot(None),
+        ContentItem.scheduled_date >= start,
+        ContentItem.scheduled_date <= end,
+    )
+    if platform:
+        try:
+            plat_enum = ContentPlatform(platform)
+            q = q.where(ContentItem.platform == plat_enum)
+        except ValueError:
+            return {"updated": 0, "skipped_published": 0, "schedule": []}
+
+    r = await db.execute(q)
+    items = list(r.scalars().all())
+
+    by_platform: dict[str, list[ContentItem]] = {}
+    skipped_published = 0
+    for it in items:
+        if str(getattr(it, "status", "") or "").lower() == "published":
+            skipped_published += 1
+            continue
+        if it.scheduled_date and it.scheduled_date <= today:
+            # Don't touch past or today — user may already be planning around them.
+            continue
+        pv = it.platform.value if isinstance(it.platform, ContentPlatform) else str(it.platform)
+        by_platform.setdefault(str(pv).lower(), []).append(it)
+
+    weekdays = _weekday_isos_in_month(year, month)
+    weekdays_future = [w for w in weekdays if date.fromisoformat(w) > today]
+
+    updated = 0
+    schedule: list[dict] = []
+    for pv, group in by_platform.items():
+        group.sort(key=lambda i: (i.scheduled_date or end, i.created_at or datetime.min))
+        n = len(group)
+        if n == 0:
+            continue
+        pool = weekdays_future or weekdays
+        if not pool:
+            continue
+        if n == 1:
+            picks = [pool[len(pool) // 2]]
+        else:
+            step = (len(pool) - 1) / (n - 1)
+            picks = [pool[min(len(pool) - 1, int(round(i * step)))] for i in range(n)]
+            # De-dupe while preserving order; if collisions, push to nearest free slot
+            seen: set[str] = set()
+            free = [w for w in pool if w not in picks]
+            cleaned: list[str] = []
+            for p in picks:
+                if p in seen:
+                    fallback = next((f for f in free if f not in seen), None)
+                    if fallback:
+                        cleaned.append(fallback)
+                        seen.add(fallback)
+                    else:
+                        cleaned.append(p)
+                else:
+                    cleaned.append(p)
+                    seen.add(p)
+            picks = cleaned
+
+        for it, iso in zip(group, picks):
+            new_date = date.fromisoformat(iso)
+            if it.scheduled_date != new_date:
+                it.scheduled_date = new_date
+                updated += 1
+            schedule.append({
+                "id": it.id,
+                "platform": pv,
+                "scheduled_date": new_date.isoformat(),
+            })
+
+    if updated:
+        await db.commit()
+    return {"updated": updated, "skipped_published": skipped_published, "schedule": schedule}
 
 
 async def _existing_platform_dates_in_month(

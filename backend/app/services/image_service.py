@@ -405,28 +405,42 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         or ""
     ).strip()
     website_source_note = f"Website source context: {website_source_url}." if website_source_url else ""
-    # No post-render logo overlay (Bannerbear gone, Cloudinary stamp removed).
-    # The AI is the only renderer, so it must integrate brand identity into
-    # the design itself. We instruct it to render a clean typographic
-    # signoff (brand name in brand colors) rather than attempting to
-    # hallucinate a photorealistic logo mark — that path produces broken
-    # invented logos.
+    # The AI integrates the brand's logo INTO the composition itself —
+    # no Cloudinary overlay, no Bannerbear stamp. To avoid a generic AI
+    # wordmark that doesn't match the brand's actual mark, we pass the
+    # brand's logo_url, visual-system tokens, and explicit instructions
+    # to render a mark that visually matches the real logo (shape, colours,
+    # type weight) rather than inventing a stand-in.
     zone_words = logo_safe_zone.replace("_", " ")
-    if has_brand_logo(brand):
+    _real_logo_url = _resolve_logo_url(brand)
+    _vs_for_logo = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
+    _heading_font = str(_vs_for_logo.get("heading_font") or brand.get("brand_font") or "modern geometric sans-serif")
+    if has_brand_logo(brand) and poster_lockup_mode_enabled(brand, "logo", post):
         logo_note = (
-            f"Integrate {brand_name}'s brand identity naturally INTO the design — render the brand name "
-            f"as a clean, tasteful typographic signoff in the {zone_words} area, sized small enough not to "
-            "dominate the composition but large enough to read at thumbnail size. "
-            "Use the brand's primary colors and design style for the signoff. "
-            "Do NOT attempt to recreate a complex pictorial logo or hallucinate a fake brand mark — "
-            "use the wordmark only (the brand name set in clean type). A simple geometric accent shape "
-            "(circle, square, monogram letter) next to the wordmark is fine when it suits the composition."
+            f"Brand logo placement (integrate INTO the design, not as an overlay): "
+            f"the brand's actual uploaded logo lives at {_real_logo_url}. "
+            f"Place a logo lockup in the {zone_words} area as a natural part of the composition "
+            "(small, around 8-12% of the shorter canvas edge — never dominant). "
+            f"Render \"{brand_name}\" as a clean wordmark using the brand's primary colour palette and "
+            f"the brand's heading typeface ({_heading_font}); it must visually match the brand's real "
+            "logo style — same colour, same weight, same overall feel — so a viewer who knows the brand "
+            "recognises it immediately. Do NOT invent ornate flourishes, fake trademark symbols, decorative "
+            "scripts, or a different colour scheme. If the brand's real logo includes a simple icon mark "
+            "(circle, square, monogram letter), you may include a matching simple accent shape next to "
+            "the wordmark — but never invent a complex pictorial mark."
+        )
+    elif has_brand_logo(brand):
+        logo_note = (
+            f"The brand's logo lives at {_real_logo_url} but logo display is OFF for this post — "
+            f"do NOT render the brand name \"{brand_name}\", any wordmark, monogram, or brand mark "
+            "anywhere in the design. Keep the composition logo-free."
         )
     else:
         logo_note = (
-            f"Include a small typographic signoff of the brand name ({brand_name}) in the {zone_words} area, "
-            "sized to be readable at thumbnail size without dominating. Use the brand's primary colors. "
-            "No invented pictorial logos, watermarks, or fake trademark symbols."
+            f"Include a small, tasteful typographic signoff of the brand name ({brand_name}) in the {zone_words} area, "
+            f"set in {_heading_font} using the brand's primary colours, sized to be readable at thumbnail size "
+            "without dominating. No invented pictorial logos, watermarks, fake trademark symbols, or competing "
+            "brand-mark glyphs."
         )
     # ── Poster-lockup details (website / phone / address / app badges) ──────
     # The AI is the only renderer now (no Bannerbear, no Cloudinary overlay
@@ -440,14 +454,35 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     _phone = str(_lockup_cfg.get("contact_phone") or "").strip()
     _address = str(brand.get("location") or "").strip()
     _lockup_lines: list[str] = []
-    if _website and poster_lockup_mode_enabled(brand, "website", post):
+    _lockup_forbid: list[str] = []
+
+    _website_on = bool(_website) and poster_lockup_mode_enabled(brand, "website", post)
+    if _website_on:
         _lockup_lines.append(f"website URL \"{_website}\"")
-    if _phone and poster_lockup_mode_enabled(brand, "phone", post):
+    elif _website:
+        _lockup_forbid.append("website URLs / domain strings")
+
+    _phone_on = bool(_phone) and poster_lockup_mode_enabled(brand, "phone", post)
+    if _phone_on:
         _lockup_lines.append(f"contact phone \"{_phone}\"")
-    if _address and poster_lockup_mode_enabled(brand, "address", post):
+    else:
+        _lockup_forbid.append("phone numbers")
+
+    _address_on = bool(_address) and poster_lockup_mode_enabled(brand, "address", post)
+    if _address_on:
         _lockup_lines.append(f"address \"{_address}\"")
-    if poster_lockup_mode_enabled(brand, "store_badges", post):
+    else:
+        _lockup_forbid.append("street addresses / store locations")
+
+    _badges_on = poster_lockup_mode_enabled(brand, "store_badges", post)
+    if _badges_on:
         _lockup_lines.append("App Store + Google Play badge silhouettes (geometric shape only, no real store wordmarks)")
+    else:
+        _lockup_forbid.append(
+            "App Store / Google Play / Play Store badges, download buttons, "
+            "\"Available on\" pills, or any iOS/Android install call-to-action graphics"
+        )
+
     if _lockup_lines:
         poster_lockup_note = (
             "Lockup details (render INSIDE the design as a clean, small footer strip — typeset, "
@@ -459,6 +494,14 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         )
     else:
         poster_lockup_note = ""
+
+    if _lockup_forbid:
+        poster_lockup_note += (
+            " HARD FORBID — this design must NOT contain: "
+            + "; ".join(_lockup_forbid) + ". "
+            "These elements are explicitly disabled for this brand or this post. Do not invent them, "
+            "do not add them \"to be helpful\", do not include them in any footer, corner, sticker, or background detail."
+        )
 
     brand_photos = brand.get("brand_photos") or []
     brand_photo_note = ""
@@ -869,8 +912,27 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         if qg_retry > 0:
             prompt += " Retry mode: cleaner composition, fewer objects, stronger focal hierarchy, campaign-grade realism."
 
+    senior_designer_brief = (
+        " SENIOR-DESIGNER CRAFT BAR (this is the bar to clear; do not ship below it): "
+        "Every output should look like work from a Pentagram / Stripe / Linear / Apple-tier studio — "
+        "not a stock template, not a quick AI placeholder. "
+        "Composition: deliberate asymmetry or strong grid, ONE clear focal moment, supporting elements that earn their place — "
+        "no clutter, no decorative noise, no \"filling space\" with random shapes. "
+        "Typography hierarchy: ONE dominant headline (largest, tightest tracking), ONE supporting line at most, ONE CTA chip — "
+        "in that order of size and weight. Letterforms must be sharp, properly kerned, and optically aligned. "
+        "Colour: a restrained palette of two to three brand colours plus one neutral, used with intent — not a rainbow. "
+        "Negative space is a feature, not a gap to fill — leave breathing room around the hero. "
+        "Light, materials, and texture should feel real and considered (subtle gradients, paper grain, photographic depth) — "
+        "never plasticky vector cliché. "
+        "Avoid every \"AI poster\" tell: no centre-stacked rainbow gradient blob with a smiling stock person holding a phone, "
+        "no symmetrical decoration around a hovering quote, no abstract swooshes, no random sparkle accents, "
+        "no fake UI cards floating mid-air, no oversized emojis substituting for art direction. "
+        "If a layout choice is generic enough to appear in a free Canva template, reject it and choose a more confident, "
+        "magazine-editorial composition. "
+    )
     edge_guard = (
-        " Composition guard (always): treat the full square as intentional campaign art with roughly eight to ten percent "
+        senior_designer_brief
+        + "Composition guard (always): treat the full square as intentional campaign art with roughly eight to ten percent "
         "clear breathing room between every important subject edge and the canvas border—never flush-bleed faces, food rims, "
         "or packaging to the frame line. If any people appear (including soft background talent), show complete heads with "
         "visible forehead-to-chin clearance and generous headroom; never crop through foreheads, eyes, mouths, or necks at "

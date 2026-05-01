@@ -1044,9 +1044,32 @@ export default function CalendarPage() {
       setSelectMode(false)
       const items = await fetchMonthContent(month, year)
       setPosts(items)
-      toast('Posts deleted')
+      toast('Posts deleted — calendar rebalanced')
     } catch {
       toast('Delete failed', 'error')
+    }
+  }
+
+  const rebalanceMonth = async () => {
+    if (!activeBrandId) return
+    if (!posts.length) {
+      toast('No posts to rebalance', 'info')
+      return
+    }
+    try {
+      const platform = filterPlat === 'all' ? null : filterPlat
+      const result = await contentApi.redistributeDates({
+        brand_id: activeBrandId,
+        month,
+        year,
+        platform,
+      })
+      const items = await fetchMonthContent(month, year)
+      setPosts(items)
+      const n = result?.updated || 0
+      toast(n ? `Rebalanced ${n} post${n === 1 ? '' : 's'}` : 'Calendar already balanced')
+    } catch (e) {
+      toast(e.response?.data?.detail || 'Rebalance failed', 'error')
     }
   }
 
@@ -1701,6 +1724,14 @@ export default function CalendarPage() {
               className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
             >
               Regenerate visuals ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
+            </button>
+            <button
+              type="button"
+              onClick={rebalanceMonth}
+              title="Spread the month's remaining posts evenly across weekdays"
+              className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
+            >
+              Rebalance dates ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
             </button>
           </div>
         </details>
