@@ -267,6 +267,7 @@ export const contentApi = {
   brandFormCoach:      (data)          => api.post('/content/brand-form-coach', data).then(r => r.data),
   bulkRemoveFromCalendar: (data)      => api.post('/content/bulk-remove-from-calendar', data).then(r => r.data),
   bulkDelete:            (data)       => api.post('/content/bulk-delete', data).then(r => r.data),
+  redistributeDates:     (data)       => api.post('/content/redistribute-dates', data).then(r => r.data),
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),

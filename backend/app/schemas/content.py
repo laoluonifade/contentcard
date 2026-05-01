@@ -120,6 +120,21 @@ class BulkDeleteContentRequest(BaseModel):
     content_ids: list[str]
 
 
+class RedistributeMonthDatesRequest(BaseModel):
+    """Spread the remaining posts in a month evenly across its weekdays."""
+
+    brand_id: str
+    month: int
+    year: int
+    platform: ContentPlatform | None = None  # None = all platforms in the month
+
+
+class RedistributeMonthDatesResponse(BaseModel):
+    updated: int
+    skipped_published: int
+    schedule: list[dict]  # [{id, platform, scheduled_date}]
+
+
 class GeneratePhotoCaption(BaseModel):
     brand_id: str
     description: str

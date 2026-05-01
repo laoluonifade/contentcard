@@ -42,17 +42,14 @@ _LOCAL_BUSINESS_HINTS = (
     "church",
 )
 _APP_BUSINESS_HINTS = (
-    "app",
     "mobile app",
+    "ios app",
+    "android app",
     "play store",
     "app store",
-    "fintech",
-    "delivery",
-    "marketplace",
-    "saas",
-    "software",
-    "wallet",
-    "utility",
+    "download our app",
+    "available on the app store",
+    "available on google play",
 )
 
 
@@ -88,13 +85,19 @@ def infer_poster_lockup_defaults(brand: dict[str, Any]) -> dict[str, Any]:
     is_app = any(h in bag for h in _APP_BUSINESS_HINTS)
     website = str(brand.get("website") or "").strip()
 
+    # NOTE on store_badges: default is ALWAYS "never" regardless of business
+    # type. AI-rendered App Store / Google Play badges always come out as
+    # garbled fake-marks (Apple's mark is trademarked and the AI mangles
+    # the wordmark). Real badge assets get composited later when the user
+    # wants them; for now the AI is forbidden from drawing them.
+    _ = is_app  # retained for future per-brand hints; not used in defaults
     return {
         "version": 1,
         "logo_mode": _norm_lockup_mode(raw.get("logo_mode"), "always"),
         "website_mode": _norm_lockup_mode(raw.get("website_mode"), "when_relevant" if website else "never"),
         "phone_mode": _norm_lockup_mode(raw.get("phone_mode"), "when_relevant" if is_local else "never"),
         "address_mode": _norm_lockup_mode(raw.get("address_mode"), "when_relevant" if is_local else "never"),
-        "store_badges_mode": _norm_lockup_mode(raw.get("store_badges_mode"), "when_relevant" if is_app else "never"),
+        "store_badges_mode": _norm_lockup_mode(raw.get("store_badges_mode"), "never"),
         "contact_phone": str(raw.get("contact_phone") or "").strip(),
     }
 
@@ -159,6 +162,16 @@ def poster_lockup_mode_enabled(brand: dict[str, Any], field: str, post: dict[str
     is_local = bool(str(brand.get("location") or "").strip()) or any(h in brand_bag for h in _LOCAL_BUSINESS_HINTS)
     is_app = any(h in brand_bag for h in _APP_BUSINESS_HINTS)
 
+    # Strict gates for "show when relevant" — a user who picked "show when relevant"
+    # expects these elements to appear RARELY, only when the post itself is
+    # explicitly about visiting / calling / installing / coming to a location.
+    # Generic words in visual_direction (e.g. "product", "launch", "device mockup")
+    # are NOT enough; the trigger must come from the CTA or the explicit content idea.
+    cta_text = str((post or {}).get("cta") or "").lower()
+    idea_text = str((post or {}).get("content_idea") or "").lower()
+    descr_text = str((post or {}).get("description") or "").lower()
+    primary_intent = f"{cta_text} {idea_text} {descr_text}"
+
     if field == "logo":
         return any(
             token in bag
@@ -176,51 +189,81 @@ def poster_lockup_mode_enabled(brand: dict[str, Any], field: str, post: dict[str
             )
         )
     if field == "website":
-        return bool(str(brand.get("website") or "").strip()) and any(
-            token in bag
-            for token in (
-                "shop",
-                "order",
-                "book",
-                "visit",
-                "website",
-                "site",
-                "launch",
-                "promo",
-                "offer",
-                "signup",
-                "demo",
-                "merchant",
-                "product",
-                "cta_pill",
+        if not str(brand.get("website") or "").strip():
+            return False
+        return any(
+            phrase in primary_intent
+            for phrase in (
+                "visit our website",
+                "visit our site",
+                "visit us at",
+                "shop online",
+                "shop now",
+                "buy online",
+                "order online",
+                "order on our",
+                "book online",
+                "sign up at",
+                "register at",
+                "learn more at",
+                "available at our",
+                "find us online",
+                "head to our website",
+                "head to our site",
+                ".com",
+                ".co",
+                ".io",
+                ".ng",
+                ".org",
             )
         )
     if field == "phone":
-        return bool(str(cfg.get("contact_phone") or "").strip()) and is_local and any(
-            token in bag
-            for token in ("call", "book", "reserve", "visit", "branch", "delivery", "store", "location", "order")
-        )
-    if field == "address":
-        return bool(str(brand.get("location") or "").strip()) and is_local and any(
-            token in bag
-            for token in ("visit", "branch", "location", "store", "pickup", "delivery", "reserve", "book")
-        )
-    if field == "store_badges":
-        return is_app and any(
-            token in bag
-            for token in (
-                "app",
-                "download",
-                "install",
-                "signup",
-                "device_mockup",
-                "onboarding",
-                "wallet",
-                "utility",
-                "marketplace",
-                "delivery",
+        if not (str(cfg.get("contact_phone") or "").strip() and is_local):
+            return False
+        return any(
+            phrase in primary_intent
+            for phrase in (
+                "call us",
+                "call now",
+                "give us a call",
+                "phone us",
+                "ring us",
+                "reserve by phone",
+                "book by phone",
+                "speak to our team",
+                "talk to us",
             )
         )
+    if field == "address":
+        if not (str(brand.get("location") or "").strip() and is_local):
+            return False
+        return any(
+            phrase in primary_intent
+            for phrase in (
+                "visit our store",
+                "visit our shop",
+                "visit our branch",
+                "visit our location",
+                "come to our",
+                "come visit",
+                "find us at",
+                "we're located",
+                "we are located",
+                "our address",
+                "stop by",
+                "swing by",
+                "pop in",
+                "in-store",
+                "in store",
+                "pickup at",
+                "pick up at",
+            )
+        )
+    if field == "store_badges":
+        # AI-rendered App Store / Google Play badges always look fake and
+        # the trademarked wordmarks come out garbled. Permanently OFF in
+        # AI prompt — real badge assets get composited later.
+        return False
     return False
 
 
