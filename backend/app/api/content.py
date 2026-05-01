@@ -89,6 +89,31 @@ MAX_POSTS_PER_PLATFORM_PER_MONTH = 15
 MAX_PREP_VISUAL_BATCH = 15
 MAX_MONTH_REGEN_BATCH = 100
 MAX_GENERATION_MONTHS_AHEAD = 3
+
+
+def _coerce_disabled_carousel_for_response(out: "ContentOut") -> "ContentOut":
+    """Coerce any legacy carousel rows to look single at the API boundary.
+
+    Carousel format is disabled in ai_service._CAROUSEL_ENABLED while the
+    carousel design system is being rebuilt. New posts can no longer be
+    carousels, but rows generated before the disable are still in the DB.
+    Trim them to a single image on read so the calendar UI doesn't render
+    multi-slide previews. The underlying DB row is untouched — when
+    carousels re-enable, the slide data comes back automatically.
+    """
+    from app.services.ai_service import _CAROUSEL_ENABLED as _CAR_ENABLED
+    if _CAR_ENABLED:
+        return out
+    if str(getattr(out, "format", "") or "").lower() != "carousel":
+        return out
+    try:
+        out.format = "single"
+        out.slide_count = 1
+        if isinstance(out.image_urls, list) and out.image_urls:
+            out.image_urls = out.image_urls[:1]
+    except Exception:
+        pass
+    return out
 # In-flight monthly generation guard. A run started this long ago is
 # treated as dead (Render SIGTERMs in-process bg tasks on deploy and
 # they don't resume). The startup sweeper clears these and the
@@ -1969,7 +1994,7 @@ async def list_directory(
         .order_by(ContentItem.created_at.desc())
     )
     rows = [c for c in result.scalars().all() if _item_ready_for_user(c)]
-    return [ContentOut.model_validate(c) for c in rows]
+    return [_coerce_disabled_carousel_for_response(ContentOut.model_validate(c)) for c in rows]
 
 
 @router.get("/memes")
@@ -2107,7 +2132,7 @@ async def list_content(
     rows = list(result.scalars().all())
     if month and year and not include_pending:
         rows = [c for c in rows if _item_ready_for_user(c)]
-    return [ContentOut.model_validate(c) for c in rows]
+    return [_coerce_disabled_carousel_for_response(ContentOut.model_validate(c)) for c in rows]
 
 
 @router.post("/generation-prep-chat", response_model=GenerationPrepChatResponse)
@@ -2566,7 +2591,7 @@ async def get_content_item(
     if not item:
         raise HTTPException(status_code=404, detail="Content not found")
     await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=False)
-    return ContentOut.model_validate(item)
+    return _coerce_disabled_carousel_for_response(ContentOut.model_validate(item))
 
 
 @router.put("/{content_id}", response_model=ContentOut)
@@ -2593,7 +2618,7 @@ async def update_content(
 
     await db.commit()
     await db.refresh(item)
-    return ContentOut.model_validate(item)
+    return _coerce_disabled_carousel_for_response(ContentOut.model_validate(item))
 
 
 @router.post("/{content_id}/regenerate", response_model=ContentOut)
@@ -2629,7 +2654,7 @@ async def regenerate_caption(
 
     await db.commit()
     await db.refresh(item)
-    return ContentOut.model_validate(item)
+    return _coerce_disabled_carousel_for_response(ContentOut.model_validate(item))
 
 
 async def _regenerate_visual_core(
@@ -2695,7 +2720,7 @@ async def regenerate_visual(
 
     try:
         await _regenerate_visual_core(db, item, brand, body)
-        return ContentOut.model_validate(item)
+        return _coerce_disabled_carousel_for_response(ContentOut.model_validate(item))
     except HTTPException:
         raise
     except Exception as e:
