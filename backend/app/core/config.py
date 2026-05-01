@@ -62,11 +62,13 @@ class Settings(BaseSettings):
     # to True to restore the curated rotation.
     CONTENT_PLAYBOOK_ENABLED: bool = False
 
-    # gpt-5.5-pro is reasoning-tier and requires OpenAI's Responses API
-    # (v1/responses), not v1/chat/completions which we use today. Plain
-    # gpt-5.5 is the chat-tier sibling and works with chat-completions.
-    # Switch back to -pro once we add a Responses API client.
-    OPENAI_HIGH_QUALITY_MODEL: str = "gpt-5.5"
+    # Model tier confirmed available on the user's OpenAI account (per the
+    # Assistants screen dropdown): gpt-4.1, gpt-4.1-mini, gpt-4.1-nano,
+    # gpt-4o, gpt-4o-mini, o1, o3-mini. gpt-5.5 / gpt-5.5-pro are NOT on
+    # this tier — earlier attempts to use them returned 404 from OpenAI.
+    # gpt-4.1 is the strongest chat-completions model on this tier and
+    # matches the architecture spec ("Brain → GPT-4.1").
+    OPENAI_HIGH_QUALITY_MODEL: str = "gpt-4.1"
     OPENAI_LOW_COST_MODEL: str = "gpt-4o-mini"
 
     AI_MAX_OUTPUT_TOKENS_DEFAULT: int = 2000
@@ -88,8 +90,9 @@ class Settings(BaseSettings):
     # Rough cost modelling for telemetry (USD / 1K tokens)
     AI_LOW_COST_MODEL_INPUT_PER_1K_USD: float = 0.00015
     AI_LOW_COST_MODEL_OUTPUT_PER_1K_USD: float = 0.0006
-    AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.005
-    AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.030
+    # gpt-4.1 list price (per OpenAI): $2.00/1M input, $8.00/1M output.
+    AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.002
+    AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.008
 
     SOCIAL_AUTOPILOT_GLOBAL_KILL_SWITCH: bool = False
     SOCIAL_AUTOPILOT_MIN_QUALITY_SCORE: float = 0.66
