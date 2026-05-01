@@ -64,12 +64,12 @@ from app.services.visual_lint_service import lint_final_image
 from app.services.quality_gate_service import score_visual_quality
 from app.services.image_service import (
     create_loop_gif_from_image_url,
-    burn_logo_into_image_url,
-    finalize_rendered_urls_with_logo,
     generate_post_image,
     has_brand_logo,
 )
-# Bannerbear was removed — the AI generates the full visual; Cloudinary stamps the logo.
+# Bannerbear was removed (AI generates the full visual). Cloudinary logo
+# overlay (burn_logo_into_image_url) was also removed — the AI now renders
+# the brand wordmark in-design via the logo_note in _build_image_prompt.
 from app.services.billing_entitlements import (
     effective_plan,
     free_generations_used,
@@ -1234,43 +1234,23 @@ async def _brand_product_grounding_pool(db: AsyncSession, brand_id: str, limit: 
 
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
     """
-    Burn logo onto final cover (Bannerbear) or raster-only hero.
+    No-op since the post-render logo overlay was removed.
 
-    Returns True when images are deliverable (with or without logo).
-    Logo compositing failure is non-fatal: images are kept and delivered
-    without the logo rather than being wiped and blocking delivery forever.
+    The earlier flow stamped the brand logo onto every rendered frame via
+    Cloudinary (``burn_logo_into_image_url``). That left a floating circular
+    badge on every post that did not match the AI-generated design aesthetic
+    (visible as the green "C" lozenge in the bottom-right of every carousel
+    slide on contentcard.co). Removed per the user's "We shouldn't layover
+    logo either bannerbear again" direction.
+
+    The AI is now responsible for integrating brand identity into the
+    composition itself. The image-prompt builder (``image_service._build_image_prompt``)
+    instructs the model to render the brand name as a clean typographic
+    signoff using brand colors — see the ``logo_note`` block.
+
+    Returns True unconditionally so the quality-gate retry loop never
+    blocks delivery on a missing overlay (there is no overlay to miss).
     """
-    logo_required = has_brand_logo(brand_dict) and poster_lockup_mode_enabled(brand_dict, "logo", post_data)
-    try:
-        if item.image_urls:
-            finalized, all_applied = await finalize_rendered_urls_with_logo(item.image_urls, brand_dict, post_data)
-            # Keep whatever images we got (with or without logo on each frame).
-            if finalized:
-                item.image_urls = finalized
-                item.image_url = finalized[0]
-            if logo_required and not all_applied:
-                logger.warning(
-                    "_apply_brand_logo_to_visuals: logo composite failed for one or more "
-                    "frames on item %s — delivering without logo overlay", item.id
-                )
-                # Return False so the caller knows logo wasn't fully applied,
-                # but images are kept — content is still deliverable.
-                return False
-        elif item.image_url:
-            nu = await burn_logo_into_image_url(item.image_url, brand_dict, post_data)
-            if nu:
-                item.image_url = nu
-            elif logo_required:
-                logger.warning(
-                    "_apply_brand_logo_to_visuals: logo burn failed for item %s "
-                    "— delivering raster image without logo overlay", item.id
-                )
-                # Do NOT wipe item.image_url — keep the generated image.
-                return False
-    except Exception as e:
-        logger.warning("_apply_brand_logo_to_visuals failed for %s: %s", item.id, e)
-        # Do NOT wipe images on exception — they are still deliverable without the logo.
-        return False if logo_required else True
     return True
 
 
