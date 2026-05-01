@@ -1771,6 +1771,8 @@ async def _generate_with_product_edits(
     prompt: str,
     topic: str,
     n: int = 1,
+    *,
+    upload_uid: str | None = None,
 ) -> list[str]:
     """
     Call gpt-image-1 /edits endpoint with an actual product PNG and a
@@ -1811,7 +1813,10 @@ async def _generate_with_product_edits(
             else:
                 continue
 
-            permanent_url = await _upload_to_cloudinary(image_bytes, f"{topic}-edit", idx)
+            _edit_unique = f"{idx}-{(upload_uid or uuid.uuid4().hex)[:20]}-{uuid.uuid4().hex[:8]}"
+            permanent_url = await _upload_to_cloudinary(
+                image_bytes, f"{topic}-edit", idx, public_suffix=_edit_unique
+            )
             if permanent_url:
                 urls.append(permanent_url)
 
@@ -1956,7 +1961,15 @@ async def _render_one_image(
                 image_bytes = img_resp.content
             else:
                 return None
-            permanent_url = await _upload_to_cloudinary(image_bytes, f"{topic}-slide{slide_idx}", slide_idx)
+            # Unique per-(post, slide) suffix so Cloudinary cannot return a
+            # previously-uploaded slide from a different post that happened to
+            # share the same topic + slide_idx.
+            _post_id_for_upload = str(post_id or "").replace("-", "")[:12]
+            _brand_id_for_upload = str(brand_id or "").replace("-", "")[:8]
+            _slide_unique = f"{slide_idx}-{_post_id_for_upload}-{_brand_id_for_upload}-{uuid.uuid4().hex[:8]}"
+            permanent_url = await _upload_to_cloudinary(
+                image_bytes, f"{topic}-slide{slide_idx}", slide_idx, public_suffix=_slide_unique
+            )
             if permanent_url:
                 cache_set("openai_image", cache_key, [permanent_url], ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
             return permanent_url
@@ -2099,7 +2112,12 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                 break
 
         if product_png:
-            edit_urls = await _generate_with_product_edits(product_png, edit_prompt, topic, n)
+            _post_id_for_edits = str(post.get("id") or "").replace("-", "")[:12]
+            _brand_id_for_edits = str(brand.get("id") or "").replace("-", "")[:8]
+            _edits_uid = f"{_post_id_for_edits}-{_brand_id_for_edits}"
+            edit_urls = await _generate_with_product_edits(
+                product_png, edit_prompt, topic, n, upload_uid=_edits_uid,
+            )
             if edit_urls:
                 cache_set("openai_image", edit_cache_key, edit_urls,
                           ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
@@ -2202,7 +2220,18 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                     logger.warning(f"Image {idx} had neither b64_json nor url; skipping")
                     continue
 
-                permanent_url = await _upload_to_cloudinary(image_bytes, topic, idx)
+                # Append a unique per-(post, idx) suffix to the public_id so
+                # Cloudinary cannot return a previously-uploaded image when two
+                # posts share a similar topic. Without this, public_id is just
+                # safe_topic[:40] + idx, and `overwrite=False` causes Cloudinary
+                # to return the prior URL on collision instead of saving new bytes.
+                _post_id_for_upload = str(post.get("id") or "").replace("-", "")[:12]
+                _brand_id_for_upload = str(brand.get("id") or "").replace("-", "")[:8]
+                _retry_for_upload = str(post.get("quality_gate_retry") or "0")
+                _unique_suffix = f"{idx}-{_post_id_for_upload}-{_brand_id_for_upload}-r{_retry_for_upload}-{uuid.uuid4().hex[:8]}"
+                permanent_url = await _upload_to_cloudinary(
+                    image_bytes, topic, idx, public_suffix=_unique_suffix
+                )
                 if permanent_url:
                     urls.append(permanent_url)
                     logger.info(f"Image {idx} stored at Cloudinary: {permanent_url}")
