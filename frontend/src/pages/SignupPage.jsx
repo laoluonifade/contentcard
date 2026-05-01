@@ -79,7 +79,9 @@ export default function SignupPage() {
   const { signup, isLoading } = useAuthStore()
   const { fetchWorkspaces } = useAppStore()
   const navigate = useNavigate()
-  const shopifyEnabled = String(import.meta.env.VITE_SHOPIFY_AUTH_ENABLED || 'false') === 'true'
+  // ContentCard is e-commerce-first: signup only via Shopify. Existing
+  // email/Google users can still sign in via the login page.
+  const shopifyEnabled = true
 
   const isShopDomainValid = (value) =>
     String(value || '').trim().toLowerCase().endsWith('.myshopify.com')
@@ -224,25 +226,30 @@ export default function SignupPage() {
         {step === 1 && (
           <>
             <h1 className="text-3xl font-bold text-ink mb-1" style={{ letterSpacing: '-0.02em' }}>Create your account</h1>
-            <p className="text-ink/70 mb-6 text-sm font-medium">Start free · No credit card required.</p>
-            {shopifyEnabled && (
-              <div className="mb-5">
-                <button
-                  type="button"
-                  onClick={handleShopifyClick}
-                  className="shopify-oauth-button w-full"
-                >
-                  <ShopifyIcon className="w-4 h-4" monochrome />
-                  Continue with Shopify
-                </button>
-                <div className="mt-4 flex items-center gap-3">
-                  <div className="h-px flex-1 bg-fog" />
-                  <span className="text-xs uppercase tracking-wide text-ink/40 font-semibold">or</span>
-                  <div className="h-px flex-1 bg-fog" />
-                </div>
-              </div>
-            )}
-            <form onSubmit={nextStep} className="space-y-4">
+            <p className="text-ink/70 mb-6 text-sm font-medium">
+              ContentCard is built for Shopify stores. Connect your store to get started — your products and brand details are imported automatically.
+            </p>
+            <div className="mb-6">
+              <button
+                type="button"
+                onClick={handleShopifyClick}
+                className="shopify-oauth-button w-full"
+              >
+                <ShopifyIcon className="w-4 h-4" monochrome />
+                Continue with Shopify
+              </button>
+              <p className="text-[11px] text-ink/40 mt-3 leading-relaxed">
+                We&apos;ll redirect you to Shopify to authorise read-only access to your products. No credit card required.
+              </p>
+              <p className="text-[12px] text-ink/55 mt-4">
+                Already have an account?{' '}
+                <a href="/login" className="text-brand-600 font-semibold hover:underline">Sign in</a>
+              </p>
+            </div>
+            {/* Email signup is hidden — Shopify is the only signup path. The
+                form below is kept mounted but invisible so existing handlers
+                / refs / strength calculations keep working without throwing. */}
+            <form onSubmit={nextStep} className="space-y-4 hidden" aria-hidden="true">
               <div>
                 <label className="label">Brand / workspace name</label>
                 <input autoFocus value={form.workspace_name}
