@@ -259,12 +259,26 @@ def _quality_failure_tags(quality_gate: dict | None) -> list[str]:
 async def _counts_by_platform_month(
     brand_id: str, month: int, year: int, db: AsyncSession
 ) -> dict[str, int]:
+    """Count posts the USER sees on their calendar for the given month/year.
+
+    Filters by ContentItem.scheduled_date so the cap matches what's visible
+    in the calendar UI. Previously this counted by generation_month/year
+    (the run that produced the post) which counted posts that had since
+    been shifted to other months for collision avoidance — leaving users
+    with 5 visible posts but the cap saying they had 19.
+    """
+    start = date(year, month, 1)
+    if month == 12:
+        end = date(year + 1, 1, 1)
+    else:
+        end = date(year, month + 1, 1)
     r = await db.execute(
         select(ContentItem.platform, func.count(ContentItem.id))
         .where(
             ContentItem.brand_id == brand_id,
-            ContentItem.generation_month == month,
-            ContentItem.generation_year == year,
+            ContentItem.scheduled_date.is_not(None),
+            ContentItem.scheduled_date >= start,
+            ContentItem.scheduled_date < end,
         )
         .group_by(ContentItem.platform)
     )
@@ -1527,12 +1541,14 @@ async def generate_month(
     existing_counts = await _counts_by_platform_month(brand.id, body.month, body.year, db)
     platform_values = [p.value for p in body.platforms]
     for pv in platform_values:
-        if existing_counts.get(pv, 0) >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
+        existing = int(existing_counts.get(pv, 0))
+        if existing >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"You already have {MAX_POSTS_PER_PLATFORM_PER_MONTH} posts for "
-                    f"{pv} in this month. Remove some from the calendar or delete them before generating more."
+                    f"You already have {existing} {pv} posts scheduled this month "
+                    f"(limit is {MAX_POSTS_PER_PLATFORM_PER_MONTH}). "
+                    "Delete some posts from the calendar before generating more, or pick a different month."
                 ),
             )
     if not body.confirm_duplicate:
@@ -1658,8 +1674,16 @@ async def generate_month_v2(
     existing_counts = await _counts_by_platform_month(brand.id, body.month, body.year, db)
     platform_values = [str(p).lower() for p in body.platforms]
     for pv in platform_values:
-        if existing_counts.get(pv, 0) >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
-            raise HTTPException(status_code=400, detail=f"Platform limit reached for {pv} in this month")
+        existing = int(existing_counts.get(pv, 0))
+        if existing >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"You already have {existing} {pv} posts scheduled this month "
+                    f"(limit is {MAX_POSTS_PER_PLATFORM_PER_MONTH}). "
+                    "Delete some posts before generating more, or pick a different month."
+                ),
+            )
 
     website_grounding_text = None
     approved_website_opportunities: list[dict] = []
