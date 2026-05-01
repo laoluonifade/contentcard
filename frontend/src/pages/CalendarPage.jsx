@@ -707,7 +707,9 @@ export default function CalendarPage() {
   }
 
   const appendPrepServiceDownNotice = () => {
-    setPrepMinimizedPersist(false)
+    // Pop open transiently so the user sees the notice, but don't persist —
+    // collapsed-by-default is the user's preference.
+    setPrepMinimized(false)
     setPrepMessages((pm) => {
       const last = pm[pm.length - 1]
       if (last?.role === 'assistant' && String(last?.content || '') === PREP_SERVICE_DOWN_MESSAGE) {
@@ -1457,7 +1459,8 @@ export default function CalendarPage() {
           }
           setRenderStatusPoll(null)
           toast(`${platformLabel} generation is done. Posts are ready with finished designs.`)
-          setPrepMinimizedPersist(false)
+          // Pop open transiently to surface the completion update; don't persist.
+          setPrepMinimized(false)
           await requestPrepGenerationUpdate('completed', { platformLabel, before, after })
         } else {
           try {
@@ -1466,7 +1469,8 @@ export default function CalendarPage() {
             /* ignore */
           }
           toast(`${platformLabel} generation started. New posts will appear once rendering finishes.`)
-          setPrepMinimizedPersist(false)
+          // Pop open transiently while generation is in flight; don't persist.
+          setPrepMinimized(false)
           await requestPrepGenerationUpdate('in_progress', { platformLabel, before, after })
         }
       } finally {

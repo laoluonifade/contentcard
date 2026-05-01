@@ -250,39 +250,6 @@ function ScoreBadge({ score }) {
   )
 }
 
-// ── Strength banner ───────────────────────────────────────────────────────────
-function StrengthBanner({ overall, overallLevel }) {
-  const { label, dot, text, pill } = LEVELS[overallLevel]
-  const barColor = overallLevel === 'excellent' ? 'bg-violet-500' : overallLevel === 'good' ? 'bg-blue-500' : overallLevel === 'fair' ? 'bg-amber-500' : 'bg-red-500'
-  return (
-    <div className={`rounded-2xl p-4 border ${pill} mb-6`}>
-      <div className="flex items-center justify-between gap-4 mb-2">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-ink/45 mb-1">Brand Kit Strength</p>
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${dot}`} />
-            <span className={`text-sm font-bold ${text}`}>{label}</span>
-            <span className="text-ink/45 text-xs">· {overall}% complete</span>
-          </div>
-        </div>
-        <span className={`text-2xl font-bold tabular-nums ${text}`}>
-          {overall}<span className="text-sm font-normal text-ink/45">/100</span>
-        </span>
-      </div>
-      <div className="h-1 bg-fog rounded-full overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${overall}%` }} />
-      </div>
-      {overallLevel !== 'excellent' && (
-        <p className="text-ink/55 text-[11px] mt-2 leading-snug">
-          {overallLevel === 'poor' && 'Fill in description, audience, and tone first: these drive the biggest quality lift.'}
-          {overallLevel === 'fair' && 'Making progress. Focus on any fields still showing Poor or Can Be Better.'}
-          {overallLevel === 'good' && 'Almost there: a few more fields will push you to Excellent.'}
-        </p>
-      )}
-    </div>
-  )
-}
-
 // ── Color swatch ──────────────────────────────────────────────────────────────
 function ColorSwatch({ color, onRemove, onEdit }) {
   const inputRef = useRef()
@@ -814,7 +781,7 @@ export default function BrandKitPage() {
   }
 
   // Live scores: recomputed on every keystroke
-  const { S, overall, overallLevel } = useBrandScores(form)
+  const { S } = useBrandScores(form)
   const missingRequiredFields = getMissingFields(form)
 
   if (!brandsLoaded) {
@@ -874,8 +841,6 @@ export default function BrandKitPage() {
         </div>
       </div>
 
-      {/* Brand Strength Banner */}
-      <StrengthBanner overall={overall} overallLevel={overallLevel} />
       {missingRequiredFields.length > 0 && (
         <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <div className="flex items-start justify-between gap-4">

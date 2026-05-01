@@ -721,6 +721,22 @@ def _collect_post_quality_warnings(post: dict, words_to_avoid: list[str] | None 
 
 REQUIRED_POST_FIELDS = {"caption", "date", "format"}
 VALID_FORMATS = {"single", "carousel", "quote", "gif"}
+
+# Carousel posts are disabled until the carousel design system is rebuilt —
+# the AI's per-slide output is too inconsistent right now. Every post the
+# Brain emits is coerced to "single" downstream. The carousel rendering
+# pipeline (image_service._post_for_slide etc.) stays in place for re-enable.
+_CAROUSEL_ENABLED = False
+
+
+def _coerce_disabled_carousel(post: dict) -> None:
+    """If carousel posts are disabled, force this post to single-image."""
+    if _CAROUSEL_ENABLED:
+        return
+    if str(post.get("format") or "").lower() == "carousel":
+        post["format"] = "single"
+        post["slide_count"] = 1
+        post.pop("slide_blueprint", None)
 VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
 VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
 VALID_LOGO_SAFE_ZONES = frozenset({"upper_left", "upper_right", "lower_left", "lower_right"})
@@ -1933,6 +1949,7 @@ def _validate_posts(
         if fmt not in VALID_FORMATS:
             fmt = "single"
         post["format"] = fmt
+        _coerce_disabled_carousel(post)
 
         if assigned:
             post["content_type"] = str(assigned.get("content_type") or "")
@@ -2005,6 +2022,7 @@ def _validate_posts(
         if post["format"] in ("single", "gif", "quote") and any(t in topic_lc for t in TEASER_STYLE_WORDS):
             post["format"] = "carousel"
             post["slide_count"] = max(3, int(post.get("slide_count", 3)))
+        _coerce_disabled_carousel(post)
 
         # Truncate caption with a hard stop, but bias toward platform-native lengths via warnings/polish.
         caption = str(post.get("caption", ""))
