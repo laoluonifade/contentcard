@@ -2814,6 +2814,16 @@ async def regenerate_visual(
 
     try:
         await _regenerate_visual_core(db, item, brand, body)
+        # PRD §14.a — quality signal: user regenerated the visual.
+        try:
+            from app.services.success_metrics_service import record_image_regenerated
+            record_image_regenerated(
+                brand_id=str(item.brand_id),
+                post_id=str(item.id),
+                reason=str(getattr(body, "mode", "") or "user_regenerate"),
+            )
+        except Exception:
+            pass
         return _coerce_disabled_carousel_for_response(ContentOut.model_validate(item))
     except HTTPException:
         raise

@@ -84,6 +84,19 @@ Hard rules:
 5. The `text_on_image` field describes the typographic content the AI should render
    into the image — headline, optional supporting line, optional CTA chip — using
    the brand's language style.
+6. PRODUCT HANDLING (PRD §8.3): if the brand kit lists products, the `scene` MUST
+   feature a specific product as the focal element — UNLESS the content_type is
+   one of: testimonial, story_or_culture, community_or_engagement, announcement.
+   For those types, the product can be background. For everything else with a
+   listed product, lead with the product.
+7. AUDIENCE INFLUENCE (PRD §8.5): the `audience_angle` field MUST cite three
+   distinct things:
+     (a) the audience's LOCATION or market (city / region / country),
+     (b) the audience's DEMOGRAPHIC (age range, role, or business size),
+     (c) the RELATABILITY HOOK (the specific moment, frustration, or aspiration
+         this audience recognises as their own).
+   These three influence the `scene` (setting), the people in frame (if any),
+   and the emotional pitch of the design respectively.
 
 Output format: a single JSON object with EXACTLY these fields, all populated with
 specific, brand-grounded prose (one to three sentences each, never empty, never
@@ -353,14 +366,20 @@ def _parse_strategy_response(raw: str) -> dict[str, Any]:
     return {}
 
 
-def pick_variation_axis(brand_id: str, post_id: str) -> str:
-    """Deterministically pick a variation axis per (brand, post).
+def pick_variation_axis(brand_id: str, post_id: str, retry: int = 0) -> str:
+    """Deterministically pick a variation axis per (brand, post, retry).
 
     Stable across re-renders of the same post (cache-friendly) but
     different posts on the calendar pick different axes — so a series
     of posts varies along all four axes over time.
+
+    PRD §12.c — image failure → retry with variation: when the quality
+    gate fails and we re-render, advance the axis by `retry` so the
+    next attempt explicitly varies on a different dimension. retry=0
+    is the original render; retry=1, 2, 3 cycle through the other
+    three axes deterministically.
     """
     import hashlib
     seed = f"{brand_id or ''}|{post_id or 'default'}|variation".encode("utf-8")
     h = int(hashlib.sha256(seed).hexdigest()[:8], 16)
-    return VARIATION_AXES[h % len(VARIATION_AXES)]
+    return VARIATION_AXES[(h + max(0, int(retry))) % len(VARIATION_AXES)]
