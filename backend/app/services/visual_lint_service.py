@@ -100,7 +100,7 @@ async def lint_final_image(image_url: str | None, brand: dict[str, Any], art_bri
     if not contrast_ok:
         if status == "pass":
             status = "warn_contrast"
-        hints.append("Low tonal spread: headline overlay may lack separation; check Bannerbear contrast.")
+        hints.append("Low tonal spread: headline overlay may lack separation; the AI should redraw with stronger tonal contrast.")
 
     out["status"] = status
     out["hints"] = hints

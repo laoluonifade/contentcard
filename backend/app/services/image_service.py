@@ -652,12 +652,12 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     if extra_never:
         negative += " Avoid specifically: " + "; ".join(str(x) for x in extra_never[:10] if x) + "."
 
-    # ── Bannerbear-off mode ──────────────────────────────────────────────────
-    # When Bannerbear compositing is disabled, the AI is the only renderer in
-    # the pipeline — it MUST draw the headline and CTA itself. Strip the no-
-    # text negatives that would otherwise prevent that, and append a positive
+    # ── AI-only renderer ─────────────────────────────────────────────────────
+    # Bannerbear was removed — the AI is the only renderer in the pipeline
+    # and it MUST draw the headline and CTA itself. Strip the no-text
+    # negatives that would otherwise prevent that, and append a positive
     # typography directive with the exact strings to render.
-    if not settings.BANNERBEAR_ENABLED:
+    if True:
         for phrase in (
             "No text, no words, no letters, no watermarks, ",
             "no typography, no captions, ",
@@ -845,12 +845,11 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     else:
         prompt = f"{prompt.strip()}{edge_guard}"
 
-    # When Bannerbear compositing is off, strip the no-text language sprinkled
+    # AI is the only text renderer — strip the no-text language sprinkled
     # throughout the strategy_block / format_note / negatives so it does not
     # contradict the positive typography directive that requires the AI to
     # render the headline + CTA itself.
-    if not settings.BANNERBEAR_ENABLED:
-        prompt = _strip_no_text_phrases(prompt)
+    prompt = _strip_no_text_phrases(prompt)
 
     return prompt.strip()
 
@@ -1601,11 +1600,8 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
     n = max(1, min(10, settings.IMAGE_COUNT))
     if settings.AI_IMAGE_VARIANT_MIN_MODE:
         n = 1
-    # When Bannerbear compositing is off the AI is the only frame producer,
-    # so a carousel post must request N frames from the image API itself.
-    # Bannerbear was the layer that previously expanded a single hero into
-    # multiple templated slides.
-    if not settings.BANNERBEAR_ENABLED and str(post.get("format") or "").lower() == "carousel":
+    # AI is the only frame producer — carousel posts request one frame per slide.
+    if str(post.get("format") or "").lower() == "carousel":
         try:
             requested_slides = int(post.get("slide_count") or 0)
         except (TypeError, ValueError):

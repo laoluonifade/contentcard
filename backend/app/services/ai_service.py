@@ -1334,9 +1334,9 @@ def _hard_visual_type_rule(ips: str) -> str:
 
 
 def _coerce_visual_type_by_content_type(post: dict, brand: dict | None = None) -> str:
-    """
-    Route style by content intent so we do not default to generic people photos.
-    """
+    """No-op since the AI-only rip-out — visual_type is no longer enforced."""
+    return str(post.get("visual_type") or "").strip().lower()
+    # Legacy body kept below for reference but unreachable.
     ctype = str(post.get("content_type") or "").lower()
     topic = str(post.get("topic") or post.get("content_idea") or "").lower()
     bag = f"{ctype} {topic}"
@@ -1467,9 +1467,7 @@ def _apply_dynamic_layout_system(post: dict, brand: dict | None) -> None:
 def _apply_family_visual_defaults(post: dict) -> None:
     # Experiment: when the playbook is off, do not force visual_type or
     # visual_archetype based on the template family. The AI chose them.
-    from app.core.config import settings as _settings
-    if not _settings.CONTENT_PLAYBOOK_ENABLED:
-        return
+    return  # AI-only mode: archetype/visual_type are free-form, no defaults applied.
     fam = _detect_template_family_for_mix(post)
     current_vt = str(post.get("visual_type") or "").lower()
     current_arch = str(post.get("visual_archetype") or "").lower()
@@ -1988,48 +1986,11 @@ def _validate_posts(
         hashtag_limit = _platform_hashtag_limit(post.get("platform"))
         post["hashtags"] = list(dict.fromkeys(normalized_hashtags))[:hashtag_limit]
 
-        _br_vs = (brand or {}).get("visual_system")
-        vs = _br_vs if isinstance(_br_vs, dict) else {}
-        art_style_profile = str(vs.get("campaign_art_style_profile") or "balanced_social_ad").strip().lower()
-        if art_style_profile not in ("balanced_social_ad", "bold_illustration_offer", "minimal_premium_editorial", "product_cutout_collage"):
-            art_style_profile = "balanced_social_ad"
-        post["campaign_art_style_profile"] = art_style_profile
-        ips = str(vs.get("image_people_style") or "mixed").lower()
-        if ips not in ("real_people", "illustration", "cartoon", "mixed"):
-            ips = "mixed"
-        vt_ai = str(post.get("visual_type", "real_people")).lower()
-        if vt_ai not in VALID_VISUAL_TYPES:
-            vt_ai = "real_people"
-        if ips == "real_people":
-            post["visual_type"] = "real_people"
-        elif ips in ("illustration", "cartoon"):
-            post["visual_type"] = "illustration"
-        else:
-            post["visual_type"] = vt_ai
-        post["visual_type"] = _coerce_visual_type_by_content_type(post, brand)
-        _apply_family_visual_defaults(post)
-
-        # visual_archetype: layout family for VBS / art brief (PRD)
-        # Experiment: when the playbook is off, accept the AI's free-form
-        # archetype string (e.g. "product hero", "editorial portrait") rather
-        # than coercing into the 13-enum set.
-        va = str(post.get("visual_archetype", "")).strip().lower()
-        if not settings.CONTENT_PLAYBOOK_ENABLED:
-            post["visual_archetype"] = va or infer_default_archetype(post["visual_type"])
-        elif not va or va not in VALID_VISUAL_ARCHETYPES:
-            post["visual_archetype"] = infer_default_archetype(post["visual_type"])
-        else:
-            post["visual_archetype"] = va
-
-        vt = post["visual_type"]
-        if vt == "abstract" and post["visual_archetype"] not in ("pattern_headline", "flat_edu", "offer_pill_stack", "sticker_collage", "editorial_issue_card", "quote_editorial_sheet"):
-            post["visual_archetype"] = "pattern_headline"
-        elif vt == "product" and post["visual_archetype"] not in ("photo_hero", "flat_edu", "pattern_headline", "merchant_launch_cutout", "product_grid_offer", "co_brand_lockup", "offer_pill_stack"):
-            post["visual_archetype"] = "flat_edu"
-        elif vt == "illustration" and post["visual_archetype"] not in ("flat_edu", "pattern_headline", "pov_comic", "device_mockup_benefit", "editorial_issue_card", "quote_editorial_sheet", "sticker_collage", "co_brand_lockup"):
-            post["visual_archetype"] = "flat_edu"
-        elif vt == "real_people" and post["visual_archetype"] not in ("photo_hero", "portrait_story", "pov_comic", "co_brand_lockup", "editorial_issue_card"):
-            post["visual_archetype"] = "portrait_story"
+        # AI-only mode: visual_type and visual_archetype are no longer enforced.
+        # The AI describes its visual freely via visual_direction + image_prompt.
+        # We pass through whatever it returned (or empty) without coercion.
+        post["visual_type"] = str(post.get("visual_type") or "").strip().lower()
+        post["visual_archetype"] = str(post.get("visual_archetype") or "").strip()
 
         zone = str(post.get("logo_safe_zone", "")).strip().lower().replace(" ", "_")
         if zone not in VALID_LOGO_SAFE_ZONES:
@@ -3489,106 +3450,28 @@ async def _generate_for_platform(
 
     fmt_pref = str(format_mix or "").strip().lower()
     single_only = any(k in fmt_pref for k in ("single_only", "single", "no_carousel", "single-post"))
-    playbook_plan = _build_design_mix_schedule(
-        posting_dates,
-        brand=brand_dict,
-        format_mix=format_mix,
-        seed_key=f"{month_name}{year}{platform}",
-        platform=platform,
-    )
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
     rng = random.Random(seed)
-    # Brand-kit-only experiment: when CONTENT_PLAYBOOK_ENABLED is False the
-    # planner does not pre-pick content_type/format. The model decides every
-    # field for every date from the brand kit.
-    playbook_disabled = not settings.CONTENT_PLAYBOOK_ENABLED
-    if playbook_disabled:
-        assignment_instructions = "\n".join(
-            f"• {d}: content_type=YOUR_CHOICE | template_family=YOUR_CHOICE | post_type=YOUR_CHOICE"
-            for d in posting_dates
-        )
-        assignment_header = (
-            "For each posting date below, you decide content_type, post_type, and template_family "
-            "from your reading of the BRAND CONTEXT (audience, voice, value props, content goals, "
-            "active campaigns). Diversify across the month — no two consecutive posts should share "
-            "the same content_type, post_type, or visual archetype:"
-        )
-        assignment_contract = (
-            "Treat the date list as a delivery schedule, not a content contract:\n"
-            "• Choose content_type per date based on the brand kit and what would best serve the "
-            "audience that day (weekday vs weekend cadence, recency of topics, campaign moments).\n"
-            "• Pick post_type (single / carousel / gif) based on whether the idea naturally needs "
-            "multi-step breakdown.\n"
-            "• Pick template_family from the allowed list at field 17 based on the post idea.\n"
-            "• Maximum diversity is the goal: never repeat the same content_type or template_family "
-            "back-to-back."
-        )
-        field_content_type_clause = (
-            "1. content_type: short string you choose for this post (e.g. educational, promotional, "
-            "social_proof, story, engagement, product_spotlight, behind_the_scenes, founder_story); "
-            "must vary across the month"
-        )
-        field_template_family_clause = (
-            "17. template_family: choose from promo, text_poster, data_card, testimonial, "
-            "announcement, illustration_editorial, edu, story_carousel, product_hero, "
-            "co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, "
-            "editorial_issue_card, or seasonal_pattern_promo — pick the one that best fits this post idea"
-        )
-        format_clause = (
-            "12. format: choose single, carousel, or gif based on whether the idea naturally needs "
-            "multi-step breakdown or motion"
-        )
-        visual_direction_assignment_clause = (
-            "If you draft a strong visual_direction for a post, follow it through; otherwise rewrite "
-            "before returning. There is no fixed assignment to honour."
-        )
-        visual_archetype_clause = (
-            "11. visual_archetype: short 1-3 word string describing the look you want for this post "
-            "(e.g. 'product hero', 'editorial portrait', 'bold typography', 'flat illustration', "
-            "'pattern field', 'product grid'). Pick whatever describes your visual; do not pick from a fixed list."
-        )
-    elif playbook_plan:
-        assignment_instructions = _playbook_assignment_text(playbook_plan)
-        assignment_header = "Assign one post to each date using this exact assignment map:"
-        assignment_contract = (
-            "Treat the assignment map as a creative contract, not a loose hint:\n"
-            "• Keep content_type exactly as assigned.\n"
-            "• Treat business_shape, pillar, cta_hint, and proof in the assignment map as commercial strategy instructions for copy, message_architecture, and visual_direction.\n"
-            "• Preserve each visual_direction's core scene idea and composition logic, expand it only with sharper brand-specific detail.\n"
-            "• If slot_key is present, stay recognisably within that slot's concept family instead of inventing a totally different frame.\n"
-            "• If a slot says carousel, build a truly carousel-native idea, not a single-post caption forced into slides."
-        )
-        field_content_type_clause = "1. content_type: exactly as assigned above"
-        field_template_family_clause = "17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, product_hero, co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, editorial_issue_card, or seasonal_pattern_promo."
-        format_clause = "12. format: must match post_type assignment (single->\"single\" or \"gif\", carousel->\"carousel\")"
-        visual_direction_assignment_clause = "If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning"
-        visual_archetype_clause = "11. visual_archetype: one of: \"photo_hero\", \"flat_edu\", \"pattern_headline\", \"pov_comic\", \"portrait_story\", \"co_brand_lockup\", \"offer_pill_stack\", \"device_mockup_benefit\", \"editorial_issue_card\", \"quote_editorial_sheet\", \"merchant_launch_cutout\", \"sticker_collage\", \"product_grid_offer\"; must align with content_type, template_family, visual_type, and campaign system"
-    else:
-        content_types = [
-            "Educational Tip", "Meme / Relatable Humour", "CTA / Promotion",
-            "Trending Moment", "Behind the Scenes", "Customer Testimonial",
-            "Hot Take", "Engagement Question", "Product Spotlight",
-            "Monday Motivation", "Founder Story", "Industry Insight",
-        ]
-        assigned_types = [content_types[rng.randint(0, len(content_types) - 1)] for _ in posting_dates]
-        assignment_instructions = "\n".join(
-            [
-                f"• {d}: content_type={t} | template_family=default | design_mode=editorial | post_type=single"
-                for d, t in zip(posting_dates, assigned_types)
-            ]
-        )
-        assignment_header = "Assign one post to each date using this exact assignment map:"
-        assignment_contract = (
-            "Treat the assignment map as a creative contract, not a loose hint:\n"
-            "• Keep content_type exactly as assigned.\n"
-            "• Preserve each visual_direction's core scene idea and composition logic, expand it only with sharper brand-specific detail."
-        )
-        field_content_type_clause = "1. content_type: exactly as assigned above"
-        field_template_family_clause = "17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, product_hero, co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, editorial_issue_card, or seasonal_pattern_promo."
-        format_clause = "12. format: must match post_type assignment (single->\"single\" or \"gif\", carousel->\"carousel\")"
-        visual_direction_assignment_clause = "If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning"
-        visual_archetype_clause = "11. visual_archetype: one of: \"photo_hero\", \"flat_edu\", \"pattern_headline\", \"pov_comic\", \"portrait_story\", \"co_brand_lockup\", \"offer_pill_stack\", \"device_mockup_benefit\", \"editorial_issue_card\", \"quote_editorial_sheet\", \"merchant_launch_cutout\", \"sticker_collage\", \"product_grid_offer\"; must align with content_type, template_family, visual_type, and campaign system"
+    # AI-only mode: no playbook, no enum lists, no template_family, no visual_archetype.
+    # The model picks every dimension freely from BRAND CONTEXT for every posting date.
+    assignment_instructions = "\n".join(f"• {d}" for d in posting_dates)
+    assignment_header = (
+        "Posting dates for this month — produce one post per date. You decide content_type, "
+        "format, content_idea, message_architecture, and the entire visual treatment from "
+        "BRAND CONTEXT (audience, voice, value props, content goals, active campaigns) and from "
+        "any prior posts listed below. Diversify across the month — no two consecutive posts may "
+        "share the same content_type or visual treatment:"
+    )
+    assignment_contract = (
+        "The date list above is a delivery schedule, not a content contract:\n"
+        "• Choose content_type per date based on the brand kit and what would best serve the "
+        "audience that day (weekday vs weekend cadence, recency of topics, campaign moments).\n"
+        "• Pick format (single / carousel / quote / gif) based on whether the idea naturally needs "
+        "multi-step breakdown or motion.\n"
+        "• Maximum diversity is the goal: never repeat the same content_type, the same hook noun, "
+        "the same composition, or the same caption opener back-to-back."
+    )
 
     platform_notes = {
         "instagram": "Instagram square 1:1",
@@ -3606,45 +3489,15 @@ async def _generate_for_platform(
     business_strategy_text = _business_default_strategy_text(business_strategy)
     business_copy_bias = _business_platform_copy_bias(brand_dict, platform, business_strategy)
 
-    _vs_raw = (brand_dict or {}).get("visual_system")
-    _vs_dict = _vs_raw if isinstance(_vs_raw, dict) else {}
-    ips = str(_vs_dict.get("image_people_style") or "mixed")
-    ips = ips.lower() if ips in ("real_people", "illustration", "cartoon", "mixed") else "mixed"
-    if ips == "real_people":
-        img_style_rules = (
-            "• ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
-            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
-            "• ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
-            "• People are the default subject style: photoreal campaign/documentary humans with authentic local casting, natural skin texture, realistic hands, true facial anatomy, and candid expressions\n"
-            "• Avoid plastic AI faces, duplicated faces, malformed hands, and generic smiling stock-pose crowds\n"
-            "• Add real-camera authenticity: natural micro-contrast, slight lens falloff or grain where appropriate, believable shadows, and non-perfect staging\n"
-            "• Many posts should have zero people: use product, environment, macro detail, hands-at-work, or abstract texture when the idea allows\n"
-            "• NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", or \"modern design\""
-        ).format(bn=brand_name)
-    elif ips == "illustration":
-        img_style_rules = (
-            f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
-            "• image_prompt may use premium 2D illustration, flat brand graphics, or tasteful vector-adjacent art; keep it on-brand, not childish\n"
-            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
-            "• People may be illustrated (stylised but professional), not photoreal stock\n"
-            "• NEVER use generic AI-art clichés"
-        )
-    elif ips == "cartoon":
-        img_style_rules = (
-            f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
-            "• image_prompt should use premium cartoon/comic illustration: strong shape language, clean linework, modern editorial composition\n"
-            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
-            "• Characters, if used, should be stylised and expressive, but not childish clip-art\n"
-            "• NEVER use generic low-quality sticker-pack aesthetics"
-        )
-    else:
-        img_style_rules = (
-            f"• ALWAYS name the brand ({brand_name}) and honour VISUAL IDENTITY colours and motifs\n"
-            "• Vary the month: mix photoreal (with or without people), premium illustration, abstract texture, and product or still-life heroes\n"
-            "• Pick visual_type per post; do not default to crowds or smiling models — lean abstract/product when the topic is not human-centric\n"
-            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
-            "• NEVER generic stock or clichéd \"AI slop\""
-        )
+    img_style_rules = (
+        f"• ALWAYS name the brand ({brand_name}) and honour every signal in VISUAL IDENTITY (colours, imagery_style, lighting_style, design_style, brand_motifs)\n"
+        "• You decide the visual treatment per post (photoreal, illustrated, abstract, product still-life, mixed) based on what the post idea calls for. Vary across the month.\n"
+        "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark — reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
+        "• image_prompt MUST direct the AI to render the on-image headline + CTA crisply (sharp Latin glyphs, exact spelling, single geometric sans-serif, 8-10% safe margin from every edge, never garble letters, never invent extra copy beyond message_architecture)\n"
+        "• When humans appear, use authentic local casting, real skin texture, realistic hands, true facial anatomy, candid expressions; avoid plastic AI faces and stock-pose crowds\n"
+        "• Many posts should have zero people — lean product, environment, macro detail, hands-at-work, or abstract texture when the idea allows\n"
+        "• NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", \"modern design\", or other AI-art clichés"
+    )
 
     brand_system = f"""You are a world-class social media strategist and creative director working exclusively for {brand_name}. Today is {today.isoformat()}.
 
@@ -3673,7 +3526,6 @@ When writing captions:
 • Custom brand note for {platform}: {brand_platform_style_note}
 • Use specific buyer language, proof, product detail, use-case detail, or offer detail, not generic motivational filler"""
 
-    quality_playbook = _industry_quality_playbook_block(industry)
 
     creative_brief = f"""Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
 
@@ -3691,7 +3543,7 @@ Business default strategy:
 
 For EACH post return ALL these fields:
 
-{field_content_type_clause}
+1. content_type: short string YOU choose for this post (e.g. educational, promotional, social_proof, story, engagement, product_spotlight, behind_the_scenes, founder_story, industry_insight). Must vary across the month — no two consecutive posts share the same content_type.
 2. content_idea: punchy post title, max 8 words
 3. description: 2-3 sentences: what this post achieves, why this angle, who it speaks to
 4. caption: full ready-to-post caption, max {platform_caption_limit} words, platform-native, NO hashtags inside the caption body. The caption MUST satisfy ALL these caption rules:
@@ -3713,63 +3565,42 @@ For EACH post return ALL these fields:
    • NEVER quote text from BRAND CONTEXT that is labelled as guidance (e.g. lines marked "do NOT copy literally", "do not quote", or "guidance for the strategist"). Translate guidance into brand-native, post-specific language.
 5. cta: REQUIRED non-empty string, unique to this post, standalone imperative, max 12 words. Must ask for ONE clear action specific to THIS post's content_type and goal — never the same generic CTA on every post. Examples: "Tap the link in bio to grab the July menu," / "Reply with the spice level you'd pick," / "DM us for a sample shoot," / "Save this and try it tomorrow morning." Use brand cta_style only as TONE direction, never copied verbatim. Never use banned filler ("Explore Our Features", "Take the next step", "Get started", "Learn more", "Click here").
 6. hashtags: array of 0-{platform_hashtag_limit} relevant hashtag strings WITHOUT the # symbol. Each hashtag is a real social-tag (max 30 chars, max 3 PascalCase words). NEVER mash the post topic / content_idea / hook into a single mega-hashtag (forbidden examples: #HowContentcardTurnsABriefIntoReadyPosts, #ProductSpotlightForSmallBusinesses). NEVER include the bare industry as a generic tag (#Technology, #Business). Prefer audience-relevant niche tags, location tags, and 1-2 brand tags.
-7. visual_direction: 4-7 sentences as a single design brief. MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster, (f) two sentences that quote the on-card copy using these exact prefixes so layout and raster stay aligned: Headline for layout: \"...hook...\" and Subhead for layout: \"...support...\" where the quoted strings are identical to message_architecture.hook and message_architecture.support from field 16, (g) one sentence that ties this post to strategy_note and the first content goal in BRAND CONTEXT so the scene advances commercial strategy, not random decoration. Plan composition so headline and subcopy read before the caption (leave headline-safe negative space when the scene is busy).
-8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable letters, numbers, prices, hashtags, titles, or watermarks and must NOT ask the raster model to paint any logo, wordmark, or trademark. On-image story copy belongs in message_architecture only.
-{_image_prompt_ending_for_style(ips)}
+7. visual_direction: 4-7 sentences as a single design brief. MUST include: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) two sentences quoting on-card copy using these exact prefixes so the image and the layout stay aligned: Headline for layout: "...hook..." and Subhead for layout: "...support..." where the quoted strings are identical to message_architecture.hook and message_architecture.support from field 12, (f) one sentence tying this post to a content goal in BRAND CONTEXT so the scene advances commercial strategy, not random decoration. Reserve the logo_safe_zone quadrant as calmer negative space for the post-production logo lockup — do NOT instruct drawing a logo into the raster.
+8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, and audience. The AI is the only renderer, so the prompt MUST direct it to render the on-image headline and CTA crisply (sharp Latin glyphs, exact spelling, single geometric sans-serif, 8-10% safe margin from every edge, never garble letters, never invent extra copy). Must NOT ask the model to paint any logo, wordmark, or trademark — reserve logo_safe_zone as calm negative space for the post-production logo lockup only.
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
-10. visual_type: {_visual_type_rule_for_style(ips)}
-{visual_archetype_clause}
-{format_clause}
-13. slide_count: 1 for single or gif, 2-5 for carousel
-14. date: posting date in YYYY-MM-DD format exactly as listed above
-15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
-16. message_architecture: REQUIRED object for the on-image typography layout (rendered as headline and subcopy on the final graphic, before people read the caption). String fields:
+10. format: choose single, carousel, quote, or gif based on whether the idea naturally needs multi-step breakdown or motion
+11. slide_count: 1 for single / gif / quote, 2-5 for carousel
+12. date: posting date in YYYY-MM-DD format exactly from the list above
+13. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
+14. message_architecture: REQUIRED object for the on-image typography layout (rendered as headline and subcopy on the final graphic, before people read the caption). String fields:
     - hook: 3-10 words, scroll-stopping headline; may be seasonal, cheeky, or celebratory when USER / STRATEGIST add-ons mention a holiday or moment. Must feel like ad copy, not a dry calendar label alone.
     - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim. The caption's first sentence must NOT match the hook verbatim either — they sit next to each other and reading the same line twice is a fail. The caption opener should advance the idea (add specifics, set context, drop a stat) rather than restate the hook.
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
-{field_template_family_clause}
-18. layout_family: short string naming the overall campaign system, such as conversion_banner, offer_pill_system, co_brand_launch_system, issue_editorial_system, ui_benefit_system, or merchant_onboarding_announcement.
-19. component_pack: array of 3-6 specific reusable modules the final design should visibly use, such as partner_lockup, offer_pill, issue_chip, device_mockup, cutout_product_frame, stat_module, qa_body, seasonal_motif, utility_icon_set.
-20. slide_blueprint: array naming the role of each slide in order. For singles return ["cover"]. For carousels use roles like cover, insight, proof, qa, ui_proof, benefit_detail, quote, close, cta.
-21. campaign_modules: object with any extra structured modules needed by the design. Use simple keys like partner_lockup, issue_label, location_chip, offer_module, cta_pill, device_mockup, product_frame_shape, seasonal_motif, co_brand_context.
 
 HARD RULES:
-• Every post MUST have a non-empty "cta" string (see field 5); if unsure, default to "Visit our site via the link in bio." adapted to brand voice and website if known
-• If no explicit selected template or design playbook overrides it, follow BUSINESS DEFAULT STRATEGY for the content pillar, conversion objective, CTA, proof cue, visual behavior, and platform-native copy tone.
-• Each post must feel distinctly different; vary tone, angle, format, and style
+• Every post MUST have a non-empty "cta" string (see field 5), unique per post.
+• Each post must feel distinctly different; vary tone, angle, format, visual treatment, and rhythm.
 • ZERO duplicate hooks, content_ideas, or caption openers across the month. Two posts that anchor on the same brand pillar must approach it from different angles (different verb, different audience segment, different proof type, different time-of-day, different rhetorical move). Reusing the same noun phrase in two hooks is a fail.
-• Before writing each post, scan the prior posts in this batch and confirm your hook noun + verb + angle do not repeat. If they do, change them.
+• Before writing each post, scan the prior posts in this batch AND every row in the "PRIOR PUBLISHED POSTS" section (if present) — confirm your hook noun, verb, content_idea, hero scene, prop cluster, camera framing, and caption opener do not repeat. If they do, rewrite the post from a different angle. Cross-month duplicates are the most visible failure of this generator.
 • Captions must be tailored to {platform}, not generic cross-post copy. The same idea should sound different on Instagram, Facebook, Twitter/X, and LinkedIn.
 • Every caption must sound like it belongs to this business and industry. Use concrete proof, product specifics, pain-point language, offer mechanics, occasion cues, or use-case detail whenever the brand context supports it.
-• Fix prior system weaknesses: avoid repeating the same centered-text layout, avoid repeating gradient-heavy backgrounds, avoid overusing flat illustration style, and avoid template-looking sameness
-• Rotate design mode across posts and do not repeat consecutively: editorial, product hero, lifestyle, abstract, ui_saas
-• Treat template_family as the strongest layout instruction in the batch. If template_family=text_poster, data_card, announcement, edu, or testimonial, the final concept must read as a designed social graphic, not a hero photo with copy added later.
-• Treat layout_family and component_pack as mandatory structural instructions, not decorative suggestions. The final design must visibly express those modules.
-• Include human/lifestyle context in some posts (especially mixed mode), not only abstract or illustration outputs
-• Vary typography behavior between posts: change alignment, scale contrast, and structure (stacked, split, overlay)
-• If a draft visual direction resembles a previous pattern in this batch, rewrite it to be clearly different before returning
-• When USER / STRATEGIST add-ons include the section "PRIOR RECENT POSTS", never reuse the same hero dish, same monochrome studio backdrop, or same prop cluster described there—each new post must use an obviously different raster scene while staying on brand
-• NEVER use words from the words_to_avoid list
-• NEVER produce generic AI-sounding captions
-• If format is "single", "gif", or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next"
-• Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely
-• For carousel outputs, slide_blueprint must create genuine role variation across slides; do not repeat one poster layout with only the copy changed
-• When the idea is a merchant launch, partnership, price drop, promo, or seasonal offer, prefer modular campaign design with co-brand lockups, offer pills, CTA chips, cutout products, merchant badges, and issue or location chips where relevant
-• Use "gif" for selected high-energy moments (product reveal, testimonial proof pulse, quick before/after) when motion would improve scroll-stopping impact, without requiring full video
-• topic must equal content_idea exactly
-• CRITICAL: each date in the assignment map must appear exactly once in your JSON for this platform — never return two posts with the same "date" value
-{_hard_visual_type_rule(ips)}
-• image_prompt must never ask for text, titles, captions, prices, currency, hashtags, or watermarks, or for any drawn logo or wordmark; reserve logo_safe_zone only
-• message_architecture carries every headline, subhead, and CTA line meant to be read on the graphic; the raster image stays photo or illustration only
-• visual_direction must include the literal prefix Headline for layout: with quoted copy matching message_architecture.hook exactly; when message_architecture.support is non-empty, also include Subhead for layout: with quoted support matching exactly; when strategy_note or content goals exist in BRAND CONTEXT, include one strategy bridge sentence; field 7 and field 16 must never contradict each other
-• visual_direction should plan final logo lockup placement and breathing room for compositing after generation, not an in-model logo
-• Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
-• {visual_direction_assignment_clause}
-• Ensure monthly composition variety: include at least one product/device hero, one lifestyle context scene, one abstract/graphic metaphor, and one trust-proof frame where batch size allows
-• Ensure monthly family variety: include multiple layout families across the batch, and never let photo-led hero cards dominate more than a third of posts
-• Realism QA for human photos: reject and rewrite prompts that would likely create uncanny outputs (waxy skin, duplicated faces, malformed hands, doll-like eyes, over-airbrushed complexion, impossible lighting reflections)
-• Prefer believable editorial camera realism over synthetic polish: natural skin pores, realistic texture, grounded shadows, and candid body language
+• Vary the visual treatment month-to-month: mix photoreal scenes, premium illustration, abstract texture/typography, and product-led still life. Never default every post to the same look.
+• Vary typography behavior between posts: change alignment, scale contrast, and structure (stacked, split, overlay).
+• If a draft visual direction resembles a previous pattern in this batch, rewrite it to be clearly different before returning.
+• NEVER use words from the words_to_avoid list.
+• NEVER produce generic AI-sounding captions.
+• If format is "single", "gif", or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next".
+• Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely with genuine role variation.
+• Use "gif" for selected high-energy moments (product reveal, testimonial proof pulse, quick before/after) when motion would improve scroll-stopping impact, without requiring full video.
+• topic must equal content_idea exactly.
+• CRITICAL: each date in the schedule above must appear exactly once in your JSON for this platform — never return two posts with the same "date" value.
+• image_prompt must direct the AI image renderer to draw on-image text (headline + CTA from message_architecture) crisply with no garbled letters; reserve logo_safe_zone for the post-production logo lockup only — never paint a logo into the raster.
+• message_architecture carries every headline, subhead, and CTA line meant to be read on the graphic. The image renders all of that copy directly.
+• visual_direction must include the literal prefix Headline for layout: with quoted copy matching message_architecture.hook exactly; when message_architecture.support is non-empty, also include Subhead for layout: with quoted support matching exactly; field 7 and field 14 must never contradict each other.
+• Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign.
+• Realism QA for human photos: reject and rewrite prompts that would likely create uncanny outputs (waxy skin, duplicated faces, malformed hands, doll-like eyes, over-airbrushed complexion, impossible lighting reflections).
+• Prefer believable editorial camera realism over synthetic polish: natural skin pores, realistic texture, grounded shadows, and candid body language.
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""
@@ -3783,8 +3614,6 @@ Return a JSON object with a single key "posts" containing the array:
 
     if planner_addon.strip():
         creative_brief += f"\n\n=== USER / STRATEGIST ADD-ONS ===\n{planner_addon.strip()}\n"
-    if quality_playbook.strip():
-        creative_brief += f"\n\n=== BENCHMARK QUALITY PLAYBOOK ===\n{quality_playbook}\n"
 
     max_attempts = 2 if settings.AI_COST_OPTIMIZATION_ENABLED else 3
     last_error = None
