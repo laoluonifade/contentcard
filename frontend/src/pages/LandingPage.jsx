@@ -14,7 +14,11 @@ import ShopifyIcon from '../components/ui/ShopifyIcon'
 // All inline SVG / styled divs so the page has zero asset dependencies.
 // Pinned to floating positions just above the headline.
 
-function StickerYellowCircle() {
+// Stickers reuse the ContentCard palette: brand teal #10A37F, ink #101820,
+// surface white, with one warm accent (coral #FF6584) for energy. Same
+// playful sticker-on-paper vibe, our colours.
+
+function StickerBrandCircle() {
   return (
     <div
       className="absolute select-none pointer-events-none"
@@ -29,7 +33,7 @@ function StickerYellowCircle() {
         style={{
           width: 220,
           height: 220,
-          background: '#FFC93C',
+          background: '#10A37F',
           boxShadow: '0 0 0 12px white, 0 24px 50px rgba(0,0,0,0.10)',
         }}
       >
@@ -38,7 +42,7 @@ function StickerYellowCircle() {
           style={{
             fontFamily: '"Bowlby One", "Arial Black", sans-serif',
             fontSize: 48,
-            color: '#E76A1C',
+            color: '#FFFFFF',
             letterSpacing: 2,
             transform: 'translateY(2px)',
           }}
@@ -50,7 +54,7 @@ function StickerYellowCircle() {
   )
 }
 
-function StickerPinkScript() {
+function StickerScriptSell() {
   return (
     <div
       className="absolute select-none pointer-events-none"
@@ -65,7 +69,7 @@ function StickerPinkScript() {
         style={{
           fontFamily: '"Caveat Brush", "Pacifico", cursive',
           fontSize: 220,
-          color: '#FF5BB1',
+          color: '#10A37F',
           textShadow: '8px 0 0 white, -8px 0 0 white, 0 8px 0 white, 0 -8px 0 white, 6px 6px 0 white, -6px -6px 0 white, 6px -6px 0 white, -6px 6px 0 white, 0 30px 50px rgba(0,0,0,0.10)',
           lineHeight: 1,
           display: 'inline-block',
@@ -77,7 +81,7 @@ function StickerPinkScript() {
   )
 }
 
-function StickerBlueStarburst() {
+function StickerInkStarburst() {
   return (
     <div
       className="absolute select-none pointer-events-none"
@@ -90,7 +94,7 @@ function StickerBlueStarburst() {
       <svg width="220" height="220" viewBox="0 0 100 100">
         <polygon
           points="50,2 58,32 88,28 65,50 88,72 58,68 50,98 42,68 12,72 35,50 12,28 42,32"
-          fill="#5145E5"
+          fill="#101820"
           stroke="white"
           strokeWidth="6"
           strokeLinejoin="round"
@@ -100,7 +104,7 @@ function StickerBlueStarburst() {
   )
 }
 
-function StickerOrangeWedge() {
+function StickerCoralWedge() {
   return (
     <div
       className="absolute select-none pointer-events-none"
@@ -113,7 +117,7 @@ function StickerOrangeWedge() {
       <svg width="200" height="160" viewBox="0 0 200 160">
         <polygon
           points="10,80 180,10 190,150 30,140"
-          fill="#FF6B2C"
+          fill="#FF6584"
           stroke="white"
           strokeWidth="8"
           strokeLinejoin="round"
@@ -135,7 +139,7 @@ function BrandWordmark() {
         style={{
           width: 18,
           height: 18,
-          background: '#168C5A',
+          background: '#10A37F',
         }}
       />
       <span
@@ -165,10 +169,10 @@ export default function LandingPage() {
       }}
     >
       {/* Decorative stickers, floating */}
-      <StickerYellowCircle />
-      <StickerPinkScript />
-      <StickerBlueStarburst />
-      <StickerOrangeWedge />
+      <StickerBrandCircle />
+      <StickerScriptSell />
+      <StickerInkStarburst />
+      <StickerCoralWedge />
 
       {/* Centered hero column */}
       <section className="relative z-10 flex flex-col items-center text-center px-6 pt-[36vh] pb-16">
@@ -195,7 +199,7 @@ export default function LandingPage() {
           onClick={() => navigate('/signup')}
           className="mt-12 inline-flex items-center justify-center gap-3 font-semibold transition-colors"
           style={{
-            background: '#5145E5',
+            background: '#10A37F',
             color: '#FFFFFF',
             borderRadius: 999,
             paddingTop: 22,
@@ -204,21 +208,14 @@ export default function LandingPage() {
             paddingRight: 36,
             fontSize: 20,
             minWidth: 360,
-            boxShadow: '0 12px 30px rgba(81, 69, 229, 0.35)',
+            boxShadow: '0 12px 30px rgba(16, 163, 127, 0.35)',
           }}
-          onMouseEnter={(e) => (e.currentTarget.style.background = '#3F32C6')}
-          onMouseLeave={(e) => (e.currentTarget.style.background = '#5145E5')}
+          onMouseEnter={(e) => (e.currentTarget.style.background = '#0d8f6e')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = '#10A37F')}
         >
           <ShopifyIcon className="w-5 h-5" monochrome />
           Continue with Shopify
         </button>
-
-        <p className="mt-6 text-sm text-ink/60 max-w-md leading-relaxed">
-          By using ContentCard, you agree to our{' '}
-          <a href="/terms" className="font-semibold text-ink hover:underline">Terms of Service</a>
-          {' '}and{' '}
-          <a href="/privacy" className="font-semibold text-ink hover:underline">Privacy Policy.</a>
-        </p>
       </section>
 
       {/* Tiny existing-user link, bottom-right */}
