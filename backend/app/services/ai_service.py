@@ -44,6 +44,64 @@ def _sanitize_ai_mentions(text: str | None) -> str | None:
     return text
 
 
+# Canned strategy / filler phrases the AI sometimes parrots from the brand
+# context block. These read as boilerplate to a human ("build trust, remove
+# money anxiety, show useful control, speed, or clarity"). Stripped from
+# captions / hooks / CTAs after generation so they never reach the user.
+_CANNED_STRATEGY_PHRASES = (
+    "build trust, remove money anxiety, and show useful control, speed, or clarity",
+    "build trust, remove money anxiety",
+    "show useful control, speed, or clarity",
+    "build trust, qualify leads, and make locations or properties feel desirable and credible",
+    "qualify leads and make locations or properties feel desirable and credible",
+    "explore our features",
+    "take the next step",
+    "make the next step",
+    "tap below",
+    "don't miss out",
+    "a fresh post",
+    "clear, useful, and easy to act on",
+)
+
+
+def _strip_canned_strategy_phrases(text: str | None) -> str | None:
+    if not text or not isinstance(text, str):
+        return text
+    out = text
+    for phrase in _CANNED_STRATEGY_PHRASES:
+        # Case-insensitive, swallow any neighbouring punctuation/space so we
+        # don't leave dangling commas or double spaces behind.
+        out = re.sub(
+            rf"[\s,.;:—\-]*\b{re.escape(phrase)}\b[\s,.;:—\-]*",
+            " ",
+            out,
+            flags=re.IGNORECASE,
+        )
+    out = re.sub(r"\s{2,}", " ", out).strip()
+    return out
+
+
+def _dedupe_consecutive_brand_name(text: str | None, brand_name: str | None) -> str | None:
+    """Collapse 'contentcard ContentCard' / 'BrandX brandx' patterns into a single mention.
+
+    The model sometimes echoes the brand name twice in adjacent words — once from
+    the brand context line ("Brand: contentcard") and once auto-capitalised
+    ("ContentCard"). Detect and collapse to one canonical form.
+    """
+    if not text or not isinstance(text, str) or not brand_name:
+        return text
+    name = brand_name.strip()
+    if not name:
+        return text
+    # Match the brand name (case-insensitive) followed by a small gap and
+    # another case-variant of itself. Keep the first occurrence verbatim.
+    pattern = re.compile(
+        rf"(\b{re.escape(name)}\b)([\s,]+)(\b{re.escape(name)}\b)",
+        flags=re.IGNORECASE,
+    )
+    return pattern.sub(r"\1", text)
+
+
 def _platform_key(platform: str | None) -> str:
     raw = str(platform or "").strip().lower()
     if raw in ("x", "twitter/x"):
@@ -181,7 +239,8 @@ def _strip_hashtags_from_caption(caption: str | None) -> tuple[str, list[str]]:
     return cleaned.strip(), [str(t).lstrip("#") for t in tags if str(t).strip()]
 
 
-def _sanitize_post_copy_fields(post: dict) -> dict:
+def _sanitize_post_copy_fields(post: dict, brand: dict | None = None) -> dict:
+    brand_name = (brand or {}).get("name") if isinstance(brand, dict) else None
     for key in (
         "caption",
         "cta",
@@ -193,14 +252,25 @@ def _sanitize_post_copy_fields(post: dict) -> dict:
     ):
         if key in post:
             v = _sanitize_ai_copy_dashes(post.get(key))
-            post[key] = _sanitize_ai_mentions(v)
+            v = _sanitize_ai_mentions(v)
+            # Strip canned strategy phrases the AI parrots from brand context
+            # (e.g. "Explore Our Features", "build trust, remove money anxiety").
+            # Caption / hook / cta are user-facing — boilerplate ruins them.
+            if key in ("caption", "cta", "content_idea", "topic"):
+                v = _strip_canned_strategy_phrases(v)
+            # Collapse "contentcard ContentCard" double-emit into one mention.
+            v = _dedupe_consecutive_brand_name(v, brand_name)
+            post[key] = v
     ma = post.get("message_architecture")
     if isinstance(ma, dict):
         out_ma = dict(ma)
         for mk in ("hook", "support", "evidence", "cta"):
             if mk in out_ma and out_ma[mk] is not None:
                 v = _sanitize_ai_copy_dashes(str(out_ma[mk]))
-                out_ma[mk] = _sanitize_ai_mentions(v)
+                v = _sanitize_ai_mentions(v)
+                v = _strip_canned_strategy_phrases(v)
+                v = _dedupe_consecutive_brand_name(v, brand_name)
+                out_ma[mk] = v
         post["message_architecture"] = out_ma
     return post
 
@@ -915,6 +985,18 @@ def _normalize_cta_raw(raw) -> str:
     return str(raw).strip()[:300]
 
 
+_BANNED_CTA_PHRASES = {
+    "explore our features",
+    "take the next step",
+    "make the next step",
+    "tap below",
+    "don't miss out",
+    "learn more",
+    "click here",
+    "get started",
+}
+
+
 def _default_cta_from_brand(brand: dict | None, post: dict | None = None) -> str:
     """
     Deterministic fallback when the model omits a CTA. Prefer website visit, then food order,
@@ -925,7 +1007,11 @@ def _default_cta_from_brand(brand: dict | None, post: dict | None = None) -> str
     industry = f"{b.get('industry') or ''} {b.get('sub_industry') or ''}".lower()
     website = str(b.get("website") or "").strip()
     cta_style = str(b.get("cta_style") or "").strip()
-    if 6 <= len(cta_style) <= 300:
+    # Reject the brand's saved cta_style if it's a banned filler phrase. The
+    # whole point of this audit was that "Explore Our Features" was getting
+    # stamped on every post; treating cta_style as guidance not text means we
+    # must not blindly return it.
+    if 6 <= len(cta_style) <= 300 and cta_style.lower().strip(" .!") not in _BANNED_CTA_PHRASES:
         return cta_style[:300]
     try:
         strategy = resolve_business_default_strategy(b)
@@ -1878,10 +1964,27 @@ def _validate_posts(
         post["caption"] = cleaned_caption
         raw_hashtags = post.get("hashtags") if isinstance(post.get("hashtags"), list) else []
         normalized_hashtags: list[str] = []
+        # Sanity bar for hashtags. The AI sometimes mashes the entire post topic
+        # into a single PascalCase mega-tag (e.g. #HowContentcardTurnsABriefIntoReadyPosts)
+        # or echoes the bare industry as a generic tag (#Technology). Filter both.
+        topic_signature = re.sub(r"[^a-z0-9]", "", str(post.get("topic") or post.get("content_idea") or "").lower())
+        idea_signature = re.sub(r"[^a-z0-9]", "", str(post.get("content_idea") or "").lower())
         for tag in [*raw_hashtags, *inline_hashtags]:
             clean = str(tag or "").strip().lstrip("#")
-            if clean:
-                normalized_hashtags.append(clean)
+            if not clean:
+                continue
+            # Drop tags > 30 chars or with > 4 PascalCase tokens — those are mega-tags.
+            if len(clean) > 30:
+                continue
+            pascal_tokens = re.findall(r"[A-Z][a-z0-9]*", clean)
+            if len(pascal_tokens) > 4:
+                continue
+            # Drop if the tag (alphanumeric only) matches the topic or content_idea
+            # exactly — that's the topic-as-hashtag mega-tag.
+            tag_sig = re.sub(r"[^a-z0-9]", "", clean.lower())
+            if tag_sig and tag_sig in (topic_signature, idea_signature):
+                continue
+            normalized_hashtags.append(clean)
         hashtag_limit = _platform_hashtag_limit(post.get("platform"))
         post["hashtags"] = list(dict.fromkeys(normalized_hashtags))[:hashtag_limit]
 
@@ -1965,7 +2068,7 @@ def _validate_posts(
         _ensure_post_cta(post, brand)
         _align_post_creative_contract(post, brand)
         post["quality_warnings"] = _collect_post_quality_warnings(post, words_to_avoid=avoid)
-        valid.append(_sanitize_post_copy_fields(post))
+        valid.append(_sanitize_post_copy_fields(post, brand))
 
     valid = _apply_style_mix_targets(valid, brand)
     valid = _enforce_family_mix_requirements(valid, brand)
@@ -1974,7 +2077,12 @@ def _validate_posts(
     for p in valid:
         _align_post_creative_contract(p, brand)
         p["quality_warnings"] = _collect_post_quality_warnings(p, words_to_avoid=avoid)
-        _sanitize_post_copy_fields(p)
+        _flag_hook_caption_opener_collision(p)
+        _sanitize_post_copy_fields(p, brand)
+        # Sanitize may have blanked a CTA that was a banned filler phrase
+        # (e.g. "Explore Our Features"). Refill from the brand-aware default,
+        # which now also refuses the same banned set.
+        _ensure_post_cta(p, brand)
     return valid
 
 
@@ -1994,6 +2102,27 @@ def _dedupe_signature(text: str) -> str:
     if not tokens:
         return ""
     return " ".join(sorted(tokens))
+
+
+def _flag_hook_caption_opener_collision(post: dict) -> None:
+    """Tag the post when the on-image hook and the caption's first sentence are
+    near-identical. Adds 'hook_equals_caption_opener' to quality_warnings so
+    the regenerate flow can rewrite. We do not auto-fix the caption — the AI
+    is better at producing a fresh opener than a regex.
+    """
+    ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+    hook = str(ma.get("hook") or "").strip()
+    caption = str(post.get("caption") or "").strip()
+    if not hook or not caption:
+        return
+    first_line = caption.split("\n", 1)[0]
+    first_sentence = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0]
+    if not first_sentence:
+        return
+    if _dedupe_signature(hook) and _dedupe_signature(hook) == _dedupe_signature(first_sentence):
+        warnings = list(post.get("quality_warnings") or [])
+        warnings.append("hook_equals_caption_opener")
+        post["quality_warnings"] = warnings
 
 
 def _flag_duplicate_posts(posts: list[dict]) -> list[dict]:
@@ -2790,16 +2919,21 @@ def _business_default_strategy_text(strategy: dict | None) -> str:
         return ""
     mix = strategy.get("content_type_mix") if isinstance(strategy.get("content_type_mix"), dict) else {}
     mix_text = ", ".join(f"{k} {int(v * 100)}%" for k, v in list(mix.items())[:8])
+    # Header makes it explicit that these are *guidance for what to write about*,
+    # not text to copy verbatim into captions. Without this header the AI was
+    # parroting phrases like "build trust, remove money anxiety, and show useful
+    # control, speed, or clarity" directly into post captions.
     return "\n".join(
         [
+            "(Guidance for the strategist — describes goals, NEVER copy these phrases verbatim into caption / hook / CTA / hashtags. Translate them into brand-specific language.)",
             f"Business shape: {strategy.get('business_shape')}",
-            f"Default conversion objective: {strategy.get('conversion_objective')}",
+            f"Conversion objective (use as guidance, do not quote): {strategy.get('conversion_objective')}",
             f"Default pillars: {', '.join(strategy.get('content_pillars') or [])}",
             f"Default content type mix: {mix_text}",
             f"Default template families: {', '.join(strategy.get('template_family_mix') or [])}",
-            f"Default CTA style: {strategy.get('default_cta_style')}",
-            f"Proof strategy: {strategy.get('proof_strategy')}",
-            f"Visual behavior: {strategy.get('visual_behavior')}",
+            f"CTA style guidance (do NOT copy literally — use as TONE direction): {strategy.get('default_cta_style')}",
+            f"Proof strategy (guidance, do not quote): {strategy.get('proof_strategy')}",
+            f"Visual behavior (guidance, do not quote): {strategy.get('visual_behavior')}",
         ]
     )
 
@@ -3573,8 +3707,12 @@ For EACH post return ALL these fields:
    • NEVER use long dash, en dash, or two hyphens in a row as punctuation; use commas / periods / parentheses
    • If the topic is a generic slot label, infer a concrete publishable angle from BRAND CONTEXT before writing
    • Not the same caption shape as any other post on this date list — vary length, structure, and angle every post
-5. cta: REQUIRED non-empty string, standalone imperative, max 12 words. Must ask for ONE clear action: order food or book a table, visit the website or tap link in bio, or engage (comment, DM, save, share). Never omit, never use placeholders.
-6. hashtags: array of 0-{platform_hashtag_limit} relevant hashtag strings WITHOUT the # symbol
+   • NEVER name the brand twice in one sentence or in two consecutive sentences. Mention it at most once per caption, and only when it adds meaning.
+   • NEVER name the audience twice in the same sentence (e.g. "For small businesses, BrandX empowers small businesses by..." is forbidden).
+   • The caption's first sentence must NOT match message_architecture.hook verbatim or near-verbatim. The hook is the on-image headline; the caption opener must advance the idea (specifics, context, stat, story beat), not restate it.
+   • NEVER quote text from BRAND CONTEXT that is labelled as guidance (e.g. lines marked "do NOT copy literally", "do not quote", or "guidance for the strategist"). Translate guidance into brand-native, post-specific language.
+5. cta: REQUIRED non-empty string, unique to this post, standalone imperative, max 12 words. Must ask for ONE clear action specific to THIS post's content_type and goal — never the same generic CTA on every post. Examples: "Tap the link in bio to grab the July menu," / "Reply with the spice level you'd pick," / "DM us for a sample shoot," / "Save this and try it tomorrow morning." Use brand cta_style only as TONE direction, never copied verbatim. Never use banned filler ("Explore Our Features", "Take the next step", "Get started", "Learn more", "Click here").
+6. hashtags: array of 0-{platform_hashtag_limit} relevant hashtag strings WITHOUT the # symbol. Each hashtag is a real social-tag (max 30 chars, max 3 PascalCase words). NEVER mash the post topic / content_idea / hook into a single mega-hashtag (forbidden examples: #HowContentcardTurnsABriefIntoReadyPosts, #ProductSpotlightForSmallBusinesses). NEVER include the bare industry as a generic tag (#Technology, #Business). Prefer audience-relevant niche tags, location tags, and 1-2 brand tags.
 7. visual_direction: 4-7 sentences as a single design brief. MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster, (f) two sentences that quote the on-card copy using these exact prefixes so layout and raster stay aligned: Headline for layout: \"...hook...\" and Subhead for layout: \"...support...\" where the quoted strings are identical to message_architecture.hook and message_architecture.support from field 16, (g) one sentence that ties this post to strategy_note and the first content goal in BRAND CONTEXT so the scene advances commercial strategy, not random decoration. Plan composition so headline and subcopy read before the caption (leave headline-safe negative space when the scene is busy).
 8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable letters, numbers, prices, hashtags, titles, or watermarks and must NOT ask the raster model to paint any logo, wordmark, or trademark. On-image story copy belongs in message_architecture only.
 {_image_prompt_ending_for_style(ips)}
@@ -3587,7 +3725,7 @@ For EACH post return ALL these fields:
 15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
 16. message_architecture: REQUIRED object for the on-image typography layout (rendered as headline and subcopy on the final graphic, before people read the caption). String fields:
     - hook: 3-10 words, scroll-stopping headline; may be seasonal, cheeky, or celebratory when USER / STRATEGIST add-ons mention a holiday or moment. Must feel like ad copy, not a dry calendar label alone.
-    - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim.
+    - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim. The caption's first sentence must NOT match the hook verbatim either — they sit next to each other and reading the same line twice is a fail. The caption opener should advance the idea (add specifics, set context, drop a stat) rather than restate the hook.
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
 {field_template_family_clause}
