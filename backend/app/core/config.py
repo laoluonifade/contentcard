@@ -33,25 +33,9 @@ class Settings(BaseSettings):
     # When True, logo upload also requests Cloudinary AI background removal (paid add-on). Local edge-based stripping always runs first.
     CLOUDINARY_LOGO_AI_BG_REMOVAL: bool = False
 
-    # When False, the Bannerbear text/logo compositing layer is skipped and
-    # the raw gpt-image-1 background is delivered directly. The model is
-    # then expected to render headline/CTA/offer typography itself.
-    BANNERBEAR_ENABLED: bool = False
-    BANNERBEAR_API_KEY: str = ""
-    BANNERBEAR_TEMPLATE_COVER: str = ""
-    BANNERBEAR_TEMPLATE_CONTENT: str = ""
-    BANNERBEAR_TEMPLATE_QUOTE: str = ""
-    BANNERBEAR_TEMPLATE_HOOK: str = ""
-    BANNERBEAR_TEMPLATE_PROMO: str = ""
-    BANNERBEAR_TEMPLATE_EDU: str = ""
-    BANNERBEAR_TEMPLATE_TESTIMONIAL: str = ""
-    BANNERBEAR_TEMPLATE_HIRING: str = ""
-    BANNERBEAR_TEMPLATE_TEXT_POSTER: str = ""
-    BANNERBEAR_TEMPLATE_PRODUCT_HERO: str = ""
-    BANNERBEAR_TEMPLATE_DATA_CARD: str = ""
-    BANNERBEAR_TEMPLATE_ANNOUNCEMENT: str = ""
-    BANNERBEAR_TEMPLATE_STORY_CAROUSEL: str = ""
-    BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL: str = ""
+    # Bannerbear was removed entirely — the AI generates the full visual
+    # (background + headline + CTA + layout) and Cloudinary stamps the real
+    # uploaded brand logo on top via burn_logo_into_image_url.
 
     FREE_TRIAL_DAYS: int = 14
     FRONTEND_URL: str = "http://localhost:5173"

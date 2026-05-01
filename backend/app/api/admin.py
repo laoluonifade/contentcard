@@ -1935,23 +1935,7 @@ async def admin_content_visual_debug(
         "logo_required": cc_meta.get("logo_required"),
         "logo_applied": cc_meta.get("logo_applied"),
         "art_brief": cc_meta.get("art_brief"),
-        "has_bannerbear_urls": isinstance(item.image_urls, list) and len(item.image_urls) > 0,
-        "bannerbear_template_config": {
-            "cover": bool(settings.BANNERBEAR_TEMPLATE_COVER),
-            "content": bool(settings.BANNERBEAR_TEMPLATE_CONTENT),
-            "quote": bool(settings.BANNERBEAR_TEMPLATE_QUOTE),
-            "hook": bool(getattr(settings, "BANNERBEAR_TEMPLATE_HOOK", "")),
-            "promo": bool(getattr(settings, "BANNERBEAR_TEMPLATE_PROMO", "")),
-            "edu": bool(getattr(settings, "BANNERBEAR_TEMPLATE_EDU", "")),
-            "testimonial": bool(getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", "")),
-            "hiring": bool(getattr(settings, "BANNERBEAR_TEMPLATE_HIRING", "")),
-            "text_poster": bool(getattr(settings, "BANNERBEAR_TEMPLATE_TEXT_POSTER", "")),
-            "product_hero": bool(getattr(settings, "BANNERBEAR_TEMPLATE_PRODUCT_HERO", "")),
-            "data_card": bool(getattr(settings, "BANNERBEAR_TEMPLATE_DATA_CARD", "")),
-            "announcement": bool(getattr(settings, "BANNERBEAR_TEMPLATE_ANNOUNCEMENT", "")),
-            "story_carousel": bool(getattr(settings, "BANNERBEAR_TEMPLATE_STORY_CAROUSEL", "")),
-            "illustration_editorial": bool(getattr(settings, "BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL", "")),
-        },
+        "has_image_urls": isinstance(item.image_urls, list) and len(item.image_urls) > 0,
     }
 
 

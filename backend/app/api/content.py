@@ -70,7 +70,7 @@ from app.services.image_service import (
     generate_post_image,
     has_brand_logo,
 )
-from app.services.bannerbear_service import generate_post_images, detect_template_family
+# Bannerbear was removed — the AI generates the full visual; Cloudinary stamps the logo.
 from app.services.billing_entitlements import (
     effective_plan,
     free_generations_used,
@@ -1279,17 +1279,13 @@ async def _render_with_quality_gate(
     for attempt in range(max_attempts):
         render_post = dict(post_data)
         render_post["quality_gate_retry"] = attempt
-        render_post["template_family"] = detect_template_family(render_post)
         if attempt > 0:
-            # Stricter fallback guidance for retries.
+            # Stricter retry guidance for the AI image prompt.
             render_post["quality_gate_notes"] = (
                 "Cleaner focal hierarchy, fewer background objects, stronger tonal separation, "
                 "more ad-quality realism, and less synthetic aesthetics."
             )
-            if not str(render_post.get("force_template_family") or "").strip():
-                render_post["force_template_family"] = "default"
 
-        fam = detect_template_family(render_post)
         product_bg_url = str(render_post.get("product_image_url") or "").strip()
         grounding = render_post.get("website_grounding") if isinstance(render_post.get("website_grounding"), dict) else {}
         grounding_payload = grounding.get("payload") if isinstance(grounding.get("payload"), dict) else {}
@@ -1299,11 +1295,7 @@ async def _render_with_quality_gate(
         # Never use raw website product photos as the final slide background.
         # They can be low-res or poorly framed. Instead, always generate a designed
         # hero visual grounded by product context and references.
-        if bool(product_bg_url) and (
-            fam in ("product_hero", "promo", "announcement")
-            or str(render_post.get("visual_type") or "").lower() == "product"
-            or grounding_entity_type == "product"
-        ):
+        if bool(product_bg_url) and grounding_entity_type == "product":
             render_post["quality_gate_notes"] = " ".join(
                 x for x in [
                     str(render_post.get("quality_gate_notes") or "").strip(),
@@ -1320,14 +1312,9 @@ async def _render_with_quality_gate(
             item.visual_strategy_used    = render_post["visual_strategy_used"]
             item.composition_description = render_post.get("composition_description")
 
-        if settings.BANNERBEAR_ENABLED:
-            bb_urls = await generate_post_images(render_post, brand_dict, background_image_url=item.image_url or None)
-            if bb_urls:
-                item.image_urls = bb_urls
-        else:
-            # Bannerbear disabled — the raw AI frames are the final visual set.
-            # For carousels, generate_post_image returns N frames (one per slide).
-            item.image_urls = list(bg_urls) if bg_urls else None
+        # AI is the only renderer; the raw AI frames ARE the final visual set.
+        # For carousels, generate_post_image returns N frames (one per slide).
+        item.image_urls = list(bg_urls) if bg_urls else None
 
         last_logo_ok = await _apply_brand_logo_to_visuals(item, render_post, brand_dict)
         rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
@@ -1353,29 +1340,16 @@ async def _render_with_quality_gate(
                 ] if x
             ).strip()
 
-    # Final fallback render: deterministic branded template output (no AI background)
-    # so posts are still delivered instead of staying pending forever.
+    # No template fallback exists anymore — the AI retries above are the only
+    # production path. If they all fail we hard-block (return below).
     fallback_post = dict(post_data)
     fallback_post["quality_gate_fallback"] = True
-    if not str(fallback_post.get("force_template_family") or "").strip():
-        fallback_post["force_template_family"] = "default"
-    fallback_post["template_family"] = detect_template_family(fallback_post)
     fallback_post["quality_gate_notes"] = (
-        "Fallback mode: clean layout, strong hierarchy, low clutter, ad-style readability."
+        "Fallback mode: cleaner layout, stronger hierarchy, low clutter, ad-style readability."
     )
     try:
-        # Fallback should still prefer designed output. Avoid passing raw website
-        # product image directly as final background.
-        fallback_bg = None
         item.image_url = None
-        if settings.BANNERBEAR_ENABLED:
-            bb_urls = await generate_post_images(fallback_post, brand_dict, background_image_url=fallback_bg)
-            if bb_urls:
-                item.image_urls = bb_urls
-                item.image_url = bb_urls[0]
-        # When Bannerbear is disabled there is no template fallback; the prior
-        # AI retries already exhausted what we can deliver. Continue so the
-        # caller can return a hard-block.
+        item.image_urls = None
         last_logo_ok = await _apply_brand_logo_to_visuals(item, fallback_post, brand_dict)
         rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
         last_lint, fallback_qg = await _score_rendered_visual_set(
@@ -2575,7 +2549,7 @@ async def _regenerate_visual_core(
         "art_brief": sab,
         "visual_lint": lint,
         "quality_gate": quality_gate,
-        "template_family": detect_template_family(post),
+        "template_family": "default",
         "website_grounding": post.get("website_grounding") if isinstance(post.get("website_grounding"), dict) else None,
         "product_image_url": post.get("product_image_url"),
         "product_image_urls": post.get("product_image_urls") if isinstance(post.get("product_image_urls"), list) else None,
@@ -3341,11 +3315,11 @@ async def _load_prior_cross_month_memory(
     if not lines:
         return set(), set(), ""
     brief = (
-        "=== PRIOR RECENT POSTS (already published or drafted on this brand in earlier months) ===\n"
-        "Do NOT recycle the same hero dish, same single-colour studio sweep, same prop cluster, or same "
-        "camera/framing as any row below. Each new post needs a clearly different scene: change surface, "
-        "lighting recipe, background hue, distance, plating format, or tell the story through environment "
-        "instead of repeating an isolated hero duplicate.\n\n"
+        "=== PRIOR PUBLISHED POSTS (already published or drafted on this brand in earlier months — DO NOT DUPLICATE) ===\n"
+        "Read every row below. For THIS new month, no post may share the same content_idea, same hook noun, "
+        "same hero scene, same composition, same prop cluster, same camera framing, or the same caption opener "
+        "as any row. Even a near-paraphrase is a fail. Each new post needs a clearly different idea, scene, "
+        "and visual treatment. If your draft would land on something visible below, rewrite it before returning.\n\n"
         + "\n".join(lines[:38])
     )
     return sigs, slugs, brief
@@ -3368,11 +3342,10 @@ def _differentiate_if_topic_reused(
         return post
     ym = f"{target_year}-{target_month:02d}"
     suffix = (
-        f"\n\nMANDATORY VISUAL DIFFERENTIATION (new month {ym}; this headline/topic already ran before): "
-        "Do not repeat the same food plate, sandwich/pita hero, monochrome studio field, or identical prop stack "
-        "from the prior execution. Use a new composition: different surface (linen, stone, timber, concrete), "
-        "different lighting (soft window vs hard side light vs overhead), different camera distance/angle, "
-        "different garnish/accent colours, or shift to contextual/lifestyle framing instead of an isolated duplicate hero."
+        f"\n\nMANDATORY VISUAL DIFFERENTIATION (new month {ym}; a near-identical idea or hook ran in a prior month): "
+        "Do not repeat the same hero subject, prop cluster, surface, palette, framing, or composition from the prior "
+        "execution. Use a clearly different scene: change the surface, lighting recipe, camera distance/angle, "
+        "accent colour, or shift to a contextual / story framing instead of restaging the prior hero."
     )
     out = dict(post)
     if str(out.get("image_prompt") or "").strip():
@@ -3389,6 +3362,9 @@ def _differentiate_if_topic_reused(
             f"Fresh {ym} visual direction for {idea or 'this post'}; avoid prior month composition repeats."
             + suffix
         )
+    warnings = list(out.get("quality_warnings") or [])
+    warnings.append("cross_month_topic_reused:auto_differentiated")
+    out["quality_warnings"] = warnings
     return out
 
 
@@ -3712,7 +3688,7 @@ async def _do_generate_month(
                     "art_brief": sab,
                     "visual_lint": None,
                     "visual_type": post.get("visual_type"),
-                    "template_family": detect_template_family(post),
+                    "template_family": "default",
                     "template_contract": template_contract if template_contract else None,
                     "message_architecture": post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else None,
                     "website_grounding": matched_op if isinstance(matched_op, dict) else None,

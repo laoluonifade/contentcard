@@ -17,19 +17,22 @@ import { toast } from './Toast'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
-const CONTENT_TYPES = [
-  'Product Spotlight',
-  'Educational',
-  'Behind the Scenes',
-  'Promotional',
-  'Trending Topic',
-  'Testimonial',
-  'Lifestyle',
-  'Event',
-  'Seasonal',
-  'Founder Story',
-  'Industry Insight',
-  'Community',
+// Free-form suggestions only — the AI now picks content_type per post from the
+// brand kit, so this list seeds an autocomplete datalist rather than locking
+// the user into a fixed enum.
+const CONTENT_TYPE_SUGGESTIONS = [
+  'educational',
+  'promotional',
+  'social_proof',
+  'story',
+  'engagement',
+  'product_spotlight',
+  'behind_the_scenes',
+  'founder_story',
+  'industry_insight',
+  'community',
+  'seasonal',
+  'event',
 ]
 
 const POST_TYPES = ['single', 'carousel', 'quote']
@@ -68,7 +71,7 @@ export function buildInitialPlan({ month, year, platform, postsPerWeek, template
     date,
     platform,
     post_type:       POST_TYPES[i % POST_TYPES.length],
-    content_type:    CONTENT_TYPES[i % CONTENT_TYPES.length],
+    content_type:    CONTENT_TYPE_SUGGESTIONS[i % CONTENT_TYPE_SUGGESTIONS.length],
     content_idea:    '',
     product_image_url:  null,
     template_id:     templateId || null,
@@ -167,27 +170,6 @@ function PlanRow({ row, idx, templates, brandPhotos, onUpdate, onDelete, workspa
         />
       </td>
 
-      {/* Template */}
-      <td className="px-2 py-2 w-32">
-        <div className="relative">
-          <select
-            value={row.template_id || ''}
-            onChange={e => {
-              const t = templates.find(t => t.id === e.target.value)
-              update('template_id', e.target.value || null)
-              update('template_name', t?.name || 'Auto')
-            }}
-            className="w-full text-xs border border-fog rounded-lg pl-2 pr-6 py-1.5 bg-surface text-ink appearance-none focus:outline-none focus:border-brand/60 truncate"
-          >
-            <option value="">Auto</option>
-            {templates.map(t => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-          <ChevronDown size={10} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink/30 pointer-events-none" />
-        </div>
-      </td>
-
       {/* Post type */}
       <td className="px-2 py-2 w-32">
         <div className="flex gap-1">
@@ -218,7 +200,7 @@ function PlanRow({ row, idx, templates, brandPhotos, onUpdate, onDelete, workspa
           className="w-full text-xs border border-fog rounded-lg px-2 py-1.5 bg-surface text-ink focus:outline-none focus:border-brand/60 truncate"
         />
         <datalist id={`ctlist-${row._id}`}>
-          {CONTENT_TYPES.map(ct => <option key={ct} value={ct} />)}
+          {CONTENT_TYPE_SUGGESTIONS.map(ct => <option key={ct} value={ct} />)}
         </datalist>
         {row.content_idea ? (
           <p className="text-[10px] text-ink/35 mt-0.5 truncate" title={row.content_idea}>{row.content_idea}</p>
@@ -367,7 +349,7 @@ export default function GenerationPlanModal({
         date:            nextDate,
         platform,
         post_type:       POST_TYPES[i % POST_TYPES.length],
-        content_type:    CONTENT_TYPES[i % CONTENT_TYPES.length],
+        content_type:    CONTENT_TYPE_SUGGESTIONS[i % CONTENT_TYPE_SUGGESTIONS.length],
         product_image_url:  null,
         template_id:     templateId || null,
         template_name:   templateName || 'Auto',
@@ -431,7 +413,6 @@ export default function GenerationPlanModal({
               <tr className="border-b border-fog">
                 <th className="pl-4 pr-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-8">#</th>
                 <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-32">Date</th>
-                <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-32">Template</th>
                 <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-32">Post Type</th>
                 <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-40">Content Type</th>
                 <th className="px-2 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-ink/30 w-24">Image</th>
