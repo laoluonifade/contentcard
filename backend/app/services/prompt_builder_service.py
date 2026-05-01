@@ -159,15 +159,28 @@ def build_image_prompt(
     Sections follow PRD §6.3 in order. Constraint Layer (PRD §9) is always
     appended last so it has positional priority near the end of the prompt
     where image models tend to weight final tokens.
+
+    E-commerce redraft (Phase A): when `use_product_image=true`, the AI's
+    output is a BACKGROUND ONLY — the user's actual product photo is
+    composited on top by the frontend. The prompt asks for a clean,
+    product-friendly backdrop with safe space, NOT a full design with
+    text overlays. The frontend's layout engine handles all typography
+    and UI components (Headline, PriceTag, CTAButton, etc.) so the AI
+    must NOT render any text.
     """
     scene = str(strategy.get("scene") or "").strip() or "A clean brand composition."
     composition = str(strategy.get("composition") or "").strip() or "One clear focal element with generous negative space."
     lighting = str(strategy.get("lighting") or "").strip() or "Soft, even, considered lighting."
     visual_style = str(strategy.get("visual_style") or "").strip()
     color_strategy = str(strategy.get("color_strategy") or "").strip()
-    text_on_image = str(strategy.get("text_on_image") or "").strip()
     audience_angle = str(strategy.get("audience_angle") or "").strip()
     objective = str(strategy.get("objective") or "").strip()
+    # E-commerce redraft fields. text_on_image is deprecated for the AI
+    # (frontend renders all text via components[]) but we still read the
+    # post_type / layout / use_product_image to shape the prompt.
+    post_type = str(strategy.get("post_type") or "product_spotlight").strip().lower()
+    layout = str(strategy.get("layout") or "centered_product").strip().lower()
+    use_product_image = bool(strategy.get("use_product_image"))
 
     brand_colors = _resolve_brand_colors(brand_kit)
     palette_str = ", ".join(brand_colors) if brand_colors else "(no specific palette set; use a restrained, cohesive palette)"
@@ -181,12 +194,39 @@ def build_image_prompt(
     camera = _camera_for_visual_style(visual_style)
 
     # ── Section 1: Scene description ────────────────────────────────────
-    scene_block = (
-        f"Design a {visual_style or 'brand-led social-media post'} for {platform} ({platform_dim}). "
-        f"Objective: {objective} "
-        f"Audience angle: {audience_angle} "
-        f"Scene: {scene}"
-    )
+    if use_product_image:
+        # Phase A — render a BACKGROUND ONLY. The brand's actual product photo
+        # will be composited on top by the frontend layout engine. The AI
+        # must NOT include a product hero or any text.
+        if layout == "centered_product":
+            safe_zone = "the centre of the canvas (60% of the area, the middle) must be clean, even, and uncluttered so the product photo can be composited there"
+        elif layout == "split":
+            safe_zone = "the right half of the canvas must be clean and uncluttered for the product photo; the left half can carry tone (subtle texture, palette wash)"
+        elif layout == "offer_card":
+            safe_zone = "leave a small bottom-right corner clean (about 25% of the canvas) for a small product cameo; the rest is bold colour-block"
+        elif layout == "social_proof" or layout == "split":
+            safe_zone = "the right half clean for the product; the left half for soft tone"
+        else:
+            safe_zone = "leave the dominant subject area clean and uncluttered for the product photo"
+        scene_block = (
+            f"Generate a clean {visual_style or 'minimal brand'} BACKGROUND (no product, no people, no text) "
+            f"for {platform} ({platform_dim}). "
+            f"This is a backdrop only — {safe_zone}. "
+            f"Backdrop scene: {scene}. "
+            "The product photo and all typography are composited on top later — leave space, do not draw them."
+        )
+    else:
+        # Lifestyle / scene-led post — AI generates the full image including
+        # any people / environment. The frontend still overlays text and
+        # CTA components on top.
+        scene_block = (
+            f"Generate a {visual_style or 'lifestyle brand'} scene for {platform} ({platform_dim}). "
+            f"Post type: {post_type}. "
+            f"Objective: {objective} "
+            f"Audience angle: {audience_angle} "
+            f"Scene: {scene}. "
+            "Leave one calmer zone (lower-left or lower third) clean for typography that the frontend overlays."
+        )
 
     # ── Section 2: Composition rules ────────────────────────────────────
     composition_block = f"Composition: {composition}"
@@ -207,26 +247,26 @@ def build_image_prompt(
     color_block = " ".join(color_block_parts)
 
     # ── Section 6: Text instructions ────────────────────────────────────
-    text_block_parts = []
-    if text_on_image:
-        text_block_parts.append(
-            f"Text to render in the design (verbatim, exact spelling, sharp letterforms): {text_on_image}"
-        )
-        text_block_parts.append(
-            f"Language style for any text rendered in-image: {language_style}."
-        )
-        text_block_parts.append(
-            "Keep all text inside an 8-10% safe margin from every canvas edge. "
-            "Use a single clean modern geometric sans-serif. "
-            "Do NOT invent additional text, taglines, prices, hashtags, URLs, or social handles."
-        )
-    else:
-        text_block_parts.append("No text rendered in the design — pure visual composition.")
+    # E-commerce redraft: frontend owns ALL text rendering (Headline,
+    # PriceTag, CTAButton, ReviewCard, Badge components). The AI must
+    # produce a no-text image so frontend type doesn't collide with
+    # AI-rendered glyphs.
+    text_block_parts = [
+        "NO TEXT in the image. The frontend layout engine renders all "
+        "headlines, prices, CTAs, reviews, and badges via overlay components. "
+        "Any text the AI renders will collide with that overlay and is a render failure. "
+        "Do NOT render the brand name, taglines, prices, hashtags, URLs, social handles, "
+        "watermarks, or any letterforms — even decorative ones.",
+    ]
     text_block_parts.append(_LOGO_INSTRUCTIONS[logo_rendering])
     text_block = " ".join(text_block_parts)
 
     # ── Section 7: Constraints (PRD §9) ─────────────────────────────────
     constraint_lines = ["Constraints (always enforced):"] + [f"- {c}" for c in PRD_CONSTRAINT_LAYER]
+    constraint_lines.append("- ZERO text / typography / letters / digits in the rendered image — the frontend draws all type")
+    if use_product_image:
+        constraint_lines.append("- ZERO product photography in the rendered image — the user's actual product photo is composited on top")
+        constraint_lines.append("- ZERO people, faces, hands as subject — this is a backdrop only")
     if words_to_avoid:
         constraint_lines.append(f"- never use these words anywhere in the design: {', '.join(words_to_avoid)}")
     if never_show:

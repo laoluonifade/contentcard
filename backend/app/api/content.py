@@ -1451,6 +1451,21 @@ async def _render_with_quality_gate(
             item.visual_strategy_used    = render_post["visual_strategy_used"]
             item.composition_description = render_post.get("composition_description")
 
+        # Phase A — persist the strategist output (post_type / layout /
+        # components / use_product_image) onto theme.cc_meta so the
+        # frontend layout engine can render the design from these fields.
+        strategist_out = render_post.get("strategist_output")
+        if isinstance(strategist_out, dict):
+            theme_curr = dict(item.theme) if isinstance(item.theme, dict) else {}
+            cc_meta = dict(theme_curr.get("cc_meta") or {})
+            cc_meta["strategy"] = strategist_out
+            cc_meta["post_type"] = render_post.get("post_type")
+            cc_meta["layout"] = render_post.get("layout_family")
+            cc_meta["components"] = render_post.get("component_pack")
+            cc_meta["use_product_image"] = render_post.get("use_product_image")
+            theme_curr["cc_meta"] = cc_meta
+            item.theme = theme_curr
+
         # AI is the only renderer; the raw AI frames ARE the final visual set.
         # For carousels, generate_post_image returns N frames (one per slide).
         item.image_urls = list(bg_urls) if bg_urls else None

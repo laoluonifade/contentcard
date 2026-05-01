@@ -49,7 +49,46 @@ REQUIRED_STRATEGY_FIELDS: tuple[str, ...] = (
     "color_strategy",
     "text_on_image",
     "format",
+    # E-commerce redraft (Phase A) — structured marketing-creative output.
+    # The frontend renders the design from these fields; the AI only generates
+    # backgrounds (or no image at all when use_product_image=true).
+    "post_type",
+    "layout",
+    "components",
+    "use_product_image",
 )
+
+# E-commerce redraft enums.
+ALLOWED_POST_TYPES: frozenset[str] = frozenset({
+    "product_spotlight",
+    "offer_discount",
+    "social_proof",
+    "lifestyle_use",
+})
+
+ALLOWED_LAYOUTS: frozenset[str] = frozenset({
+    "centered_product",
+    "split",
+    "offer_card",
+    "lifestyle_overlay",
+})
+
+ALLOWED_COMPONENT_TYPES: frozenset[str] = frozenset({
+    "ProductImage",
+    "Headline",
+    "PriceTag",
+    "Badge",
+    "CTAButton",
+    "ReviewCard",
+})
+
+# Default layout per post_type when the strategist doesn't pick one explicitly.
+_DEFAULT_LAYOUT_BY_POST_TYPE: dict[str, str] = {
+    "product_spotlight": "centered_product",
+    "offer_discount":    "offer_card",
+    "social_proof":      "split",
+    "lifestyle_use":     "lifestyle_overlay",
+}
 
 # PRD §6.2 strict schema enums.
 ALLOWED_FORMATS: frozenset[str] = frozenset({"single", "quote", "gif"})
@@ -95,53 +134,74 @@ VARIATION_AXES: tuple[str, ...] = (
 # System prompt enforcing PRD §7.1: brand awareness, cultural realism,
 # non-generic outputs, no raw user prompt passthrough.
 _STRATEGIST_SYSTEM_PROMPT = """\
-You are a senior brand strategist for ContentCard, a marketing tool for small businesses.
+You are a senior conversion strategist for ContentCard — an AI conversion engine
+for small online stores. Your job is NOT "generate a designed post". It is
+"turn a product into a high-converting social-media creative".
 
-Your job: convert a brand kit plus a user prompt into a STRICT structured creative
-direction JSON that downstream systems use to generate a single social-media post design.
+Output is consumed by a downstream layout engine that renders the design itself.
+You decide the structure; the renderer draws it. The image model may not be
+called at all if `use_product_image` is true — in that case the user's product
+photo is composited directly.
 
 Hard rules:
 1. NEVER pass the user's prompt through to the image model as-is. Interpret it; do not echo it.
-2. Every output field MUST reference data from the brand kit — colours, audience, tone,
-   industry, location, value proposition, products. Generic strategies are rejected.
-3. Localize. If the brand serves a specific market (e.g. Lagos), the scene, talent,
-   props, and language must reflect that market — never default to generic Western
-   stock-photo aesthetics.
-4. Vary intentionally. The user supplies a `variation_axis` parameter — explicitly
-   differentiate THIS post from typical defaults along that axis (camera angle,
-   composition, lighting, OR environment).
-5. The `text_on_image` field describes the typographic content the AI should render
-   into the image — headline, optional supporting line, optional CTA chip — using
-   the brand's language style.
-6. PRODUCT HANDLING (PRD §8.3): if the brand kit lists products, the `scene` MUST
-   feature a specific product as the focal element — UNLESS the content_type is
-   one of: testimonial, story_or_culture, community_or_engagement, announcement.
-   For those types, the product can be background. For everything else with a
-   listed product, lead with the product.
-7. AUDIENCE INFLUENCE (PRD §8.5): the `audience_angle` field MUST cite three
-   distinct things:
-     (a) the audience's LOCATION or market (city / region / country),
-     (b) the audience's DEMOGRAPHIC (age range, role, or business size),
-     (c) the RELATABILITY HOOK (the specific moment, frustration, or aspiration
-         this audience recognises as their own).
-   These three influence the `scene` (setting), the people in frame (if any),
-   and the emotional pitch of the design respectively.
+2. Every field MUST reference brand kit data — colours, audience, tone, industry,
+   location, value proposition, products. Generic outputs are rejected.
+3. Localize. Reflect the brand's actual market — never default to generic
+   Western stock-photo aesthetics.
+4. Vary intentionally per the supplied `variation_axis`.
+5. PRODUCT-FIRST. If the brand has products, the post MUST sell one specifically.
+   `scene` and `components` lead with the product unless `post_type` is `social_proof`.
+6. NON-NEGOTIABLES — every output must enable: clear hierarchy, breathing space,
+   product used properly, CTA always present, no clutter.
+
+POST TYPES — pick exactly one:
+- product_spotlight  — single product as hero (default for product-led posts)
+- offer_discount     — promo / sale / urgency-driven
+- social_proof       — testimonial / review / star rating + product
+- lifestyle_use      — product in real-world use, emotional / aspirational
+
+LAYOUTS — pick exactly one (default by post_type listed):
+- centered_product   — product image centred, headline above, price + CTA below   (default for product_spotlight)
+- split              — text/quote left, product right                             (default for social_proof)
+- offer_card         — full background colour, big offer headline, small product  (default for offer_discount)
+- lifestyle_overlay  — full-bleed scene, overlay text + CTA in one zone           (default for lifestyle_use)
+
+COMPONENTS — list of 2-6 entries the renderer will draw. Each entry:
+  { "type": "<one of: ProductImage | Headline | PriceTag | Badge | CTAButton | ReviewCard>",
+    "content": "<verbatim text OR a structured object for ReviewCard>" }
+Examples:
+  - {"type": "Headline",  "content": "Glow starts here"}
+  - {"type": "PriceTag",  "content": "₦12,000"}
+  - {"type": "Badge",     "content": "20% OFF"}
+  - {"type": "CTAButton", "content": "Shop Now"}
+  - {"type": "ReviewCard","content": {"quote": "Cleared my skin in 2 weeks", "author": "Amaka", "rating": 5}}
+  - {"type": "ProductImage","content": "primary"}     // tells renderer to use the brand's primary product image
+
+USE_PRODUCT_IMAGE rules:
+- product_spotlight  → true (use the brand's actual product photo)
+- offer_discount     → true if a specific product is featured, else false (background only)
+- social_proof       → true (the product is part of the trust signal)
+- lifestyle_use      → false (the AI generates a scene of the product in use)
 
 Output format: a single JSON object with EXACTLY these fields, all populated with
-specific, brand-grounded prose (one to three sentences each, never empty, never
-boilerplate):
+specific, brand-grounded values (no empty strings):
 
 {
-  "objective":       "What this post is meant to achieve for the brand.",
-  "content_type":    "What kind of post this is (offer, education, proof, story, announcement, etc.) — pick from brand context.",
-  "audience_angle":  "How the message lands for THIS brand's specific audience — name them, name their context.",
-  "visual_style":    "The art-direction stance — editorial photography, brand-graphic poster, product still-life, etc. — chosen from brand visual identity.",
-  "scene":           "The literal subject and setting in the frame, named concretely (objects, place, talent, props) using brand-localized details.",
-  "composition":     "Where things sit in the frame, the focal hierarchy, negative space.",
-  "lighting":        "The light quality (soft directional, hard noon, warm golden hour, studio softbox, etc.) chosen to match brand mood.",
-  "color_strategy":  "How the brand palette is deployed — which hex is the dominant background, which is the accent, what is the neutral.",
-  "text_on_image":   "The exact text to render in the design — headline (verbatim), optional support line, optional CTA — written in the brand's language style.",
-  "format":          "Final format (single | quote | gif). Match the requested format unless the brand or content type strongly justifies a switch."
+  "objective":       "What this post is meant to achieve commercially.",
+  "content_type":    "Pick from the canonical content_type set.",
+  "audience_angle":  "Name the audience's LOCATION, DEMOGRAPHIC, and RELATABILITY HOOK.",
+  "visual_style":    "Editorial brand-graphic stance — minimal/bold/premium/playful/etc.",
+  "scene":           "If use_product_image=true, this is the BACKGROUND only (e.g. 'cream paper, soft top-down light'). If false, this is the full scene.",
+  "composition":     "Where the focal element sits, hierarchy, breathing space.",
+  "lighting":        "Light quality consistent with brand mood.",
+  "color_strategy":  "Which brand hex is background, which is accent, which is neutral.",
+  "text_on_image":   "DEPRECATED — leave as a short summary of the headline. Frontend uses `components` instead.",
+  "format":          "single | quote | gif",
+  "post_type":       "product_spotlight | offer_discount | social_proof | lifestyle_use",
+  "layout":          "centered_product | split | offer_card | lifestyle_overlay",
+  "components":      [ { "type": "...", "content": "..." }, ... ],
+  "use_product_image": true | false
 }
 
 Return ONLY the JSON. No commentary, no markdown fences."""
@@ -237,10 +297,44 @@ def _validate_strategy(strategy: dict[str, Any]) -> tuple[bool, list[str]]:
     """Validate strategy includes all required fields with non-empty values
     AND that enumerated fields hold allowed values (PRD §6.2 strict schema)."""
     missing: list[str] = []
-    for field in REQUIRED_STRATEGY_FIELDS:
+    # The 10 original string fields must all be non-empty strings.
+    string_fields = (
+        "objective", "content_type", "audience_angle", "visual_style",
+        "scene", "composition", "lighting", "color_strategy",
+        "text_on_image", "format",
+    )
+    for field in string_fields:
         value = strategy.get(field)
         if not isinstance(value, str) or not value.strip():
             missing.append(field)
+    # Phase A — e-commerce structured fields.
+    pt = str(strategy.get("post_type") or "").strip().lower()
+    if not pt:
+        missing.append("post_type")
+    elif pt not in ALLOWED_POST_TYPES:
+        missing.append(f"post_type(invalid:{pt})")
+    layout = str(strategy.get("layout") or "").strip().lower()
+    if not layout:
+        missing.append("layout")
+    elif layout not in ALLOWED_LAYOUTS:
+        missing.append(f"layout(invalid:{layout})")
+    components = strategy.get("components")
+    if not isinstance(components, list) or not components:
+        missing.append("components")
+    else:
+        bad = []
+        for i, c in enumerate(components):
+            if not isinstance(c, dict):
+                bad.append(str(i))
+                continue
+            ctype = str(c.get("type") or "").strip()
+            if ctype not in ALLOWED_COMPONENT_TYPES:
+                bad.append(f"{i}:{ctype}")
+        if bad:
+            missing.append(f"components(invalid:{','.join(bad)})")
+    upi = strategy.get("use_product_image")
+    if not isinstance(upi, bool):
+        missing.append("use_product_image")
 
     # Strict enum checks (PRD §6.2). Out-of-vocab values count as "missing"
     # so the retry path triggers a corrective re-generation.
@@ -381,7 +475,7 @@ async def call_strategist(
     ok, missing = _validate_strategy(strategy)
     product_ok, product_note = _validate_product_handling(strategy, brand_kit)
     if ok and product_ok:
-        return strategy
+        return coerce_strategy_with_defaults(strategy)
 
     # Retry once with explicit nudge about missing fields and/or product gap.
     nudge_parts: list[str] = []
@@ -412,7 +506,7 @@ async def call_strategist(
     ok2, missing2 = _validate_strategy(strategy_retry)
     product_ok2, _ = _validate_product_handling(strategy_retry, brand_kit)
     if ok2 and product_ok2:
-        return strategy_retry
+        return coerce_strategy_with_defaults(strategy_retry)
 
     # Log the validation miss as a metric so ops can spot patterns over time.
     if not product_ok2:
@@ -436,7 +530,7 @@ async def call_strategist(
         if isinstance(v, str) and v.strip():
             merged[k] = v
     for field in REQUIRED_STRATEGY_FIELDS:
-        if not merged.get(field):
+        if merged.get(field) in (None, "", []):
             merged[field] = _MINIMAL_FALLBACKS.get(field, "")
     # Final enum normalisation — never let an out-of-vocab format/content_type
     # leak past the strategist boundary.
@@ -444,25 +538,66 @@ async def call_strategist(
         merged["format"] = "single"
     if str(merged.get("content_type") or "").strip().lower() not in ALLOWED_CONTENT_TYPES:
         merged["content_type"] = "story_or_culture"
+    # Phase A — apply e-commerce redraft defaults so post_type / layout /
+    # components / use_product_image are always present and valid downstream.
+    merged = coerce_strategy_with_defaults(merged)
     logger.error(
-        "Strategist failed validation twice; using merged + fallback. Final missing: %s",
-        [f for f in REQUIRED_STRATEGY_FIELDS if not merged.get(f)],
+        "Strategist failed validation twice; using merged + fallback.",
     )
     return merged
 
 
-_MINIMAL_FALLBACKS: dict[str, str] = {
-    "objective": "Build brand awareness with a clean, on-brand social post.",
-    "content_type": "story_or_culture",
-    "audience_angle": "Speak directly to the brand's stated target audience.",
-    "visual_style": "Editorial brand-graphic design.",
-    "scene": "A simple branded composition built from the brand's colour palette.",
-    "composition": "Single focal element, generous negative space, left-aligned hierarchy.",
-    "lighting": "Soft, even lighting consistent with the brand's mood.",
-    "color_strategy": "Use the first brand colour as background, second as accent, neutral for text.",
-    "text_on_image": "A short, on-brand headline matching the brand's language style.",
+_MINIMAL_FALLBACKS: dict[str, Any] = {
+    "objective": "Drive a click to the product page.",
+    "content_type": "product_or_service_spotlight",
+    "audience_angle": "The brand's stated audience in their stated market.",
+    "visual_style": "Minimal, premium, product-first.",
+    "scene": "Soft cream paper background with even top-down light.",
+    "composition": "Product centred with generous breathing space.",
+    "lighting": "Soft, even lighting.",
+    "color_strategy": "Brand colour 1 as background, brand colour 2 as accent, neutral for text.",
+    "text_on_image": "On-brand product headline.",
     "format": "single",
+    "post_type": "product_spotlight",
+    "layout": "centered_product",
+    "components": [
+        {"type": "ProductImage", "content": "primary"},
+        {"type": "Headline",     "content": "Shop our latest"},
+        {"type": "CTAButton",    "content": "Shop now"},
+    ],
+    "use_product_image": True,
 }
+
+
+def coerce_strategy_with_defaults(strategy: dict[str, Any]) -> dict[str, Any]:
+    """Bridge: fill in the e-commerce redraft fields when missing.
+
+    Used for legacy strategies cached / persisted before the redraft
+    that don't have post_type / layout / components / use_product_image.
+    Defaults align with the PRD's product-first stance.
+    """
+    if not isinstance(strategy, dict):
+        return strategy
+    out = dict(strategy)
+    pt = str(out.get("post_type") or "").strip().lower()
+    if pt not in ALLOWED_POST_TYPES:
+        out["post_type"] = "product_spotlight"
+    layout = str(out.get("layout") or "").strip().lower()
+    if layout not in ALLOWED_LAYOUTS:
+        out["layout"] = _DEFAULT_LAYOUT_BY_POST_TYPE.get(out["post_type"], "centered_product")
+    if not isinstance(out.get("components"), list) or not out["components"]:
+        # Bridge from text_on_image + product when nothing else is available
+        text_summary = str(out.get("text_on_image") or "").strip() or "Shop our latest"
+        out["components"] = [
+            {"type": "ProductImage", "content": "primary"},
+            {"type": "Headline",     "content": text_summary[:120]},
+            {"type": "CTAButton",    "content": "Shop now"},
+        ]
+    if not isinstance(out.get("use_product_image"), bool):
+        # Default true for product_spotlight / social_proof / offer_discount,
+        # false for lifestyle_use.
+        out["use_product_image"] = out["post_type"] != "lifestyle_use"
+    return out
 
 
 def _parse_strategy_response(raw: str) -> dict[str, Any]:

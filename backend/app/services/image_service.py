@@ -353,6 +353,21 @@ async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
         )
     except Exception:
         pass
+
+    # Phase A — expose the structured strategy on the post dict so callers
+    # (api/content._render_with_quality_gate) can persist it onto
+    # ContentItem.theme.cc_meta.strategy. The frontend layout engine reads
+    # post_type / layout / components / use_product_image from there.
+    try:
+        if isinstance(strategy, dict):
+            post["strategist_output"] = strategy
+            post["post_type"] = str(strategy.get("post_type") or "").strip().lower() or post.get("post_type")
+            post["layout_family"] = str(strategy.get("layout") or "").strip().lower() or post.get("layout_family")
+            post["component_pack"] = list(strategy.get("components") or [])
+            post["use_product_image"] = bool(strategy.get("use_product_image"))
+    except Exception:
+        pass
+
     return prompt_text
 
 
