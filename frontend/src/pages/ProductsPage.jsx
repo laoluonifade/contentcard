@@ -15,7 +15,7 @@ const cardCls =
 const sectionTitleCls = 'text-sm font-semibold text-ink'
 
 export default function ProductsPage() {
-  const { activeBrandId, activeWorkspaceId, brands, isAuthenticated } = useAppStore()
+  const { activeBrandId, activeWorkspaceId, brands } = useAppStore()
   const brand = brands?.find?.((b) => b.id === activeBrandId) || null
 
   const [products, setProducts] = useState([])
@@ -131,13 +131,6 @@ export default function ProductsPage() {
     }
   }
 
-  if (!isAuthenticated) {
-    return (
-      <div className="max-w-5xl mx-auto p-6">
-        <p className="text-ink/55 text-sm">Sign in to manage products.</p>
-      </div>
-    )
-  }
   if (!activeBrandId) {
     return (
       <div className="max-w-5xl mx-auto p-6">
