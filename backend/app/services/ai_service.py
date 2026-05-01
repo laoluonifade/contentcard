@@ -1379,6 +1379,11 @@ def _apply_dynamic_layout_system(post: dict, brand: dict | None) -> None:
 
 
 def _apply_family_visual_defaults(post: dict) -> None:
+    # Experiment: when the playbook is off, do not force visual_type or
+    # visual_archetype based on the template family. The AI chose them.
+    from app.core.config import settings as _settings
+    if not _settings.CONTENT_PLAYBOOK_ENABLED:
+        return
     fam = _detect_template_family_for_mix(post)
     current_vt = str(post.get("visual_type") or "").lower()
     current_arch = str(post.get("visual_archetype") or "").lower()
@@ -1902,8 +1907,13 @@ def _validate_posts(
         _apply_family_visual_defaults(post)
 
         # visual_archetype: layout family for VBS / art brief (PRD)
+        # Experiment: when the playbook is off, accept the AI's free-form
+        # archetype string (e.g. "product hero", "editorial portrait") rather
+        # than coercing into the 13-enum set.
         va = str(post.get("visual_archetype", "")).strip().lower()
-        if not va or va not in VALID_VISUAL_ARCHETYPES:
+        if not settings.CONTENT_PLAYBOOK_ENABLED:
+            post["visual_archetype"] = va or infer_default_archetype(post["visual_type"])
+        elif not va or va not in VALID_VISUAL_ARCHETYPES:
             post["visual_archetype"] = infer_default_archetype(post["visual_type"])
         else:
             post["visual_archetype"] = va
@@ -1960,11 +1970,68 @@ def _validate_posts(
     valid = _apply_style_mix_targets(valid, brand)
     valid = _enforce_family_mix_requirements(valid, brand)
     valid = _enforce_design_mode_rotation(valid, brand)
+    valid = _flag_duplicate_posts(valid)
     for p in valid:
         _align_post_creative_contract(p, brand)
         p["quality_warnings"] = _collect_post_quality_warnings(p, words_to_avoid=avoid)
         _sanitize_post_copy_fields(p)
     return valid
+
+
+_DEDUPE_FILLER = re.compile(
+    r"\b(the|a|an|to|of|for|with|from|on|in|at|by|and|or|but|is|are|be|will|your|our|my|how)\b",
+    re.IGNORECASE,
+)
+
+
+def _dedupe_signature(text: str) -> str:
+    """Canonicalise text for similarity matching: lowercase, strip filler, sort tokens."""
+    if not text:
+        return ""
+    s = re.sub(r"[^a-z0-9 ]", " ", str(text).lower())
+    s = _DEDUPE_FILLER.sub(" ", s)
+    tokens = [t for t in s.split() if len(t) >= 3]
+    if not tokens:
+        return ""
+    return " ".join(sorted(tokens))
+
+
+def _flag_duplicate_posts(posts: list[dict]) -> list[dict]:
+    """Detect near-duplicate posts by hook + content_idea + caption-opener and tag them.
+
+    The AI is told via the prompt to never repeat hooks, but with the playbook
+    off and full freedom it will sometimes anchor on the same brand pillar
+    twice. Surface duplicates via quality_warnings so the user / regenerate
+    flow can rewrite them. A hard auto-rewrite would require another AI call
+    per dup — defer to the user for now.
+    """
+    if not posts:
+        return posts
+    seen_hooks: dict[str, int] = {}
+    seen_ideas: dict[str, int] = {}
+    seen_first_lines: dict[str, int] = {}
+    for idx, post in enumerate(posts):
+        ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+        hook_sig = _dedupe_signature(str(ma.get("hook") or ""))
+        idea_sig = _dedupe_signature(str(post.get("content_idea") or post.get("topic") or ""))
+        caption = str(post.get("caption") or "").strip()
+        first_line = caption.split("\n", 1)[0]
+        first_sig = _dedupe_signature(first_line[:90])
+        warnings = list(post.get("quality_warnings") or [])
+        if hook_sig and hook_sig in seen_hooks:
+            warnings.append(f"duplicate_hook:matches_post_{seen_hooks[hook_sig]}")
+        elif hook_sig:
+            seen_hooks[hook_sig] = idx
+        if idea_sig and idea_sig in seen_ideas:
+            warnings.append(f"duplicate_content_idea:matches_post_{seen_ideas[idea_sig]}")
+        elif idea_sig:
+            seen_ideas[idea_sig] = idx
+        if first_sig and first_sig in seen_first_lines:
+            warnings.append(f"duplicate_caption_opener:matches_post_{seen_first_lines[first_sig]}")
+        elif first_sig:
+            seen_first_lines[first_sig] = idx
+        post["quality_warnings"] = warnings
+    return posts
 
 
 # ── Core OpenAI chat wrapper ───────────────────────────────────────────────────
@@ -3342,6 +3409,11 @@ async def _generate_for_platform(
             "If you draft a strong visual_direction for a post, follow it through; otherwise rewrite "
             "before returning. There is no fixed assignment to honour."
         )
+        visual_archetype_clause = (
+            "11. visual_archetype: short 1-3 word string describing the look you want for this post "
+            "(e.g. 'product hero', 'editorial portrait', 'bold typography', 'flat illustration', "
+            "'pattern field', 'product grid'). Pick whatever describes your visual; do not pick from a fixed list."
+        )
     elif playbook_plan:
         assignment_instructions = _playbook_assignment_text(playbook_plan)
         assignment_header = "Assign one post to each date using this exact assignment map:"
@@ -3357,6 +3429,7 @@ async def _generate_for_platform(
         field_template_family_clause = "17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, product_hero, co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, editorial_issue_card, or seasonal_pattern_promo."
         format_clause = "12. format: must match post_type assignment (single->\"single\" or \"gif\", carousel->\"carousel\")"
         visual_direction_assignment_clause = "If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning"
+        visual_archetype_clause = "11. visual_archetype: one of: \"photo_hero\", \"flat_edu\", \"pattern_headline\", \"pov_comic\", \"portrait_story\", \"co_brand_lockup\", \"offer_pill_stack\", \"device_mockup_benefit\", \"editorial_issue_card\", \"quote_editorial_sheet\", \"merchant_launch_cutout\", \"sticker_collage\", \"product_grid_offer\"; must align with content_type, template_family, visual_type, and campaign system"
     else:
         content_types = [
             "Educational Tip", "Meme / Relatable Humour", "CTA / Promotion",
@@ -3381,6 +3454,7 @@ async def _generate_for_platform(
         field_template_family_clause = "17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, product_hero, co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, editorial_issue_card, or seasonal_pattern_promo."
         format_clause = "12. format: must match post_type assignment (single->\"single\" or \"gif\", carousel->\"carousel\")"
         visual_direction_assignment_clause = "If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning"
+        visual_archetype_clause = "11. visual_archetype: one of: \"photo_hero\", \"flat_edu\", \"pattern_headline\", \"pov_comic\", \"portrait_story\", \"co_brand_lockup\", \"offer_pill_stack\", \"device_mockup_benefit\", \"editorial_issue_card\", \"quote_editorial_sheet\", \"merchant_launch_cutout\", \"sticker_collage\", \"product_grid_offer\"; must align with content_type, template_family, visual_type, and campaign system"
 
     platform_notes = {
         "instagram": "Instagram square 1:1",
@@ -3486,7 +3560,19 @@ For EACH post return ALL these fields:
 {field_content_type_clause}
 2. content_idea: punchy post title, max 8 words
 3. description: 2-3 sentences: what this post achieves, why this angle, who it speaks to
-4. caption: full ready-to-post caption, max {platform_caption_limit} words, platform-native, NO hashtags inside the caption body
+4. caption: full ready-to-post caption, max {platform_caption_limit} words, platform-native, NO hashtags inside the caption body. The caption MUST satisfy ALL these caption rules:
+   • First line is a scroll-stopping hook with a specific noun pulled from BRAND CONTEXT (product name, audience pain, ritual, ingredient, proof point, offer mechanic) — never a generic "ship consistent content" / "get started" opener
+   • Sounds like {platform} copy, not cross-posted: {platform_guide}
+   • Reflects the brand's writing style, tone tags, and language (English / Pidgin / etc.) — read BRAND CONTEXT and match
+   • Industry conversion angle: {industry_conversion_guide}
+   • Business-shape copy bias: {business_copy_bias}
+   • Custom platform style note for {platform}: {brand_platform_style_note}
+   • If a customer review / social-proof quote exists in BRAND CONTEXT, weave a real detail in (do not invent quotes)
+   • NEVER use filler phrases: "A fresh post", "clear, useful, and easy to act on", "Explore our features", "Take the next step", "Make the next step", "Tap below", "Don't miss out"
+   • NEVER reuse the same opener structure between two posts in this batch — vary verb, tense, and rhythm
+   • NEVER use long dash, en dash, or two hyphens in a row as punctuation; use commas / periods / parentheses
+   • If the topic is a generic slot label, infer a concrete publishable angle from BRAND CONTEXT before writing
+   • Not the same caption shape as any other post on this date list — vary length, structure, and angle every post
 5. cta: REQUIRED non-empty string, standalone imperative, max 12 words. Must ask for ONE clear action: order food or book a table, visit the website or tap link in bio, or engage (comment, DM, save, share). Never omit, never use placeholders.
 6. hashtags: array of 0-{platform_hashtag_limit} relevant hashtag strings WITHOUT the # symbol
 7. visual_direction: 4-7 sentences as a single design brief. MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster, (f) two sentences that quote the on-card copy using these exact prefixes so layout and raster stay aligned: Headline for layout: \"...hook...\" and Subhead for layout: \"...support...\" where the quoted strings are identical to message_architecture.hook and message_architecture.support from field 16, (g) one sentence that ties this post to strategy_note and the first content goal in BRAND CONTEXT so the scene advances commercial strategy, not random decoration. Plan composition so headline and subcopy read before the caption (leave headline-safe negative space when the scene is busy).
@@ -3494,7 +3580,7 @@ For EACH post return ALL these fields:
 {_image_prompt_ending_for_style(ips)}
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
 10. visual_type: {_visual_type_rule_for_style(ips)}
-11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story", "co_brand_lockup", "offer_pill_stack", "device_mockup_benefit", "editorial_issue_card", "quote_editorial_sheet", "merchant_launch_cutout", "sticker_collage", "product_grid_offer"; must align with content_type, template_family, visual_type, and campaign system
+{visual_archetype_clause}
 {format_clause}
 13. slide_count: 1 for single or gif, 2-5 for carousel
 14. date: posting date in YYYY-MM-DD format exactly as listed above
@@ -3514,6 +3600,8 @@ HARD RULES:
 • Every post MUST have a non-empty "cta" string (see field 5); if unsure, default to "Visit our site via the link in bio." adapted to brand voice and website if known
 • If no explicit selected template or design playbook overrides it, follow BUSINESS DEFAULT STRATEGY for the content pillar, conversion objective, CTA, proof cue, visual behavior, and platform-native copy tone.
 • Each post must feel distinctly different; vary tone, angle, format, and style
+• ZERO duplicate hooks, content_ideas, or caption openers across the month. Two posts that anchor on the same brand pillar must approach it from different angles (different verb, different audience segment, different proof type, different time-of-day, different rhetorical move). Reusing the same noun phrase in two hooks is a fail.
+• Before writing each post, scan the prior posts in this batch and confirm your hook noun + verb + angle do not repeat. If they do, change them.
 • Captions must be tailored to {platform}, not generic cross-post copy. The same idea should sound different on Instagram, Facebook, Twitter/X, and LinkedIn.
 • Every caption must sound like it belongs to this business and industry. Use concrete proof, product specifics, pain-point language, offer mechanics, occasion cues, or use-case detail whenever the brand context supports it.
 • Fix prior system weaknesses: avoid repeating the same centered-text layout, avoid repeating gradient-heavy backgrounds, avoid overusing flat illustration style, and avoid template-looking sameness
@@ -4296,7 +4384,14 @@ Structured campaign brief:
 {_campaign_brief_text(brief) or 'none'}
 
 Playbook context:
-{_caption_playbook_summary(brand)}""".strip()
+{_caption_playbook_summary(brand)}
+
+Caption quality bar:
+- First sentence MUST contain a specific noun from this brand kit (a product name, audience pain, ritual, ingredient, neighbourhood, occasion, proof point, or offer mechanic). Generic openers ("Welcome to…", "Take the next step", "A fresh post", "Stay consistent") are forbidden.
+- Echo the brand's exact writing style, tone tags, and language. Match how this brand actually talks, not a generic content-writer voice.
+- If a real customer quote / review is in the brand profile, weave one concrete detail in. Do not invent quotes.
+- Vary opener structure post-to-post (verb, tense, rhythm). Reusing the same shape is a fail.
+- Caption must do real commercial work: name the buyer, the trigger, and the next step — not aesthetic vibes.""".strip()
 
 
 async def _generate_caption_with_structured_brief(
