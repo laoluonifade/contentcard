@@ -64,7 +64,8 @@ class GenerateMonthV2Request(BaseModel):
     use_reference_research: bool = True
     variant_count: int = 2
     campaign_brief: CampaignBriefIn | None = None
-    # User-reviewed plan from GenerationPlanModal: when provided, these post
-    # slots are used instead of having the AI compute a schedule from scratch.
-    # Each entry: {date, platform, format, content_type, visual_direction, product_image_url, template_id}
+    # Legacy plan-override hook. The Plan modal that produced this field was
+    # removed — generation now flows directly without a preview step — but the
+    # field stays in the schema so any external API caller passing a custom
+    # plan is still honoured by _do_generate_month.
     custom_plan: list[dict] | None = None

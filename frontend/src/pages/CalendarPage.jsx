@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, Component } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
@@ -10,7 +10,6 @@ import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 import { buildCampaignBrief } from '../utils/campaignBrief'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
-import GenerationPlanModal from '../components/ui/GenerationPlanModal'
 import PaymentModal from '../components/ui/PaymentModal'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -224,52 +223,6 @@ function weekdayFromIso(isoDate) {
 
 function recommendationForPlatform(platform) {
   return PLATFORM_POST_WINDOWS[platform] || { best: 'Weekdays, midday', backup: 'Early evening', tz: 'Local time' }
-}
-
-class GenerationPlanErrorBoundary extends Component {
-  constructor(props) {
-    super(props)
-    this.state = { hasError: false }
-  }
-
-  static getDerivedStateFromError() {
-    return { hasError: true }
-  }
-
-  componentDidUpdate(prevProps) {
-    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
-      this.setState({ hasError: false })
-    }
-  }
-
-  componentDidCatch(error) {
-    console.error('Generation plan modal crashed', error)
-  }
-
-  render() {
-    if (!this.state.hasError) return this.props.children
-
-    return (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-        <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg p-6 space-y-4">
-          <div>
-            <h3 className="text-ink font-semibold text-base">Couldn&apos;t open the review step</h3>
-            <p className="text-ink/45 text-sm mt-1">
-              Something in the generation plan failed to render. Go back to settings and try again.
-            </p>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" onClick={this.props.onBack} className="btn-secondary px-4 py-2 text-sm">
-              Back to settings
-            </button>
-            <button type="button" onClick={this.props.onClose} className="btn-primary px-4 py-2 text-sm">
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
 }
 
 function toIsoDate(y, m, d) {
@@ -773,7 +726,6 @@ export default function CalendarPage() {
   const [editHashtags, setEditHashtags] = useState([])
   const [filterPlat, setFilterPlat] = useState('all')
   const [showGenPanel, setShowGenPanel] = useState(false)
-  const [showPlanModal, setShowPlanModal] = useState(false)
   const [markingPosted, setMarkingPosted] = useState(false)
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
@@ -958,8 +910,7 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (generatingMonth && showGenPanel) setShowGenPanel(false)
-    if (generatingMonth && showPlanModal) setShowPlanModal(false)
-  }, [generatingMonth, showGenPanel, showPlanModal])
+  }, [generatingMonth, showGenPanel])
 
   useEffect(() => {
     if (!showGenPanel || !activeBrandId) return
@@ -1431,15 +1382,14 @@ export default function CalendarPage() {
       toast('Choose a platform first', 'error')
       return false
     }
-    // Open plan modal — actual generation fires after user reviews/edits the plan
+    // No preview step — fire generation immediately. The AI plans + writes +
+    // renders the whole month from the brand kit in one shot.
     setShowGenPanel(false)
-    setShowPlanModal(true)
-    return true
+    return runGenerationFlow(null)
   }
 
-  const handlePlanConfirmed = async (customPlan) => {
+  const runGenerationFlow = async (customPlan) => {
     try {
-      setShowPlanModal(false)
       setGenerationBaseline({
         with: posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length,
         total: posts.length,
@@ -1501,7 +1451,8 @@ export default function CalendarPage() {
       }
       return true
     } catch (err) {
-      setShowPlanModal(true)
+      // Re-open the generation panel so the user can adjust settings and retry.
+      setShowGenPanel(true)
       const d = err.response?.data?.detail
       if (isAiCapacityError(err)) {
         setPrepServiceDown(true)
@@ -2207,30 +2158,6 @@ export default function CalendarPage() {
           </div>
         </div>
       )}
-
-      {/* ── Generation plan modal ── */}
-      {showPlanModal && (
-        <GenerationPlanErrorBoundary
-          resetKey={`${month}-${year}-${genPlatform}-${genPPW}-${genTemplateId || 'auto'}`}
-          onBack={() => { setShowPlanModal(false); setShowGenPanel(true) }}
-          onClose={() => setShowPlanModal(false)}
-        >
-          <GenerationPlanModal
-            month={month}
-            year={year}
-            platform={genPlatform}
-            postsPerWeek={genPPW}
-            templateId={genTemplateId}
-            templates={activeTemplates}
-            brand={activeBrand}
-            workspaceId={activeWorkspaceId}
-            onConfirm={handlePlanConfirmed}
-            onBack={() => { setShowPlanModal(false); setShowGenPanel(true) }}
-            onClose={() => setShowPlanModal(false)}
-          />
-        </GenerationPlanErrorBoundary>
-      )}
-
       {/* ── Post modal ── */}
       {modal && (
         <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
