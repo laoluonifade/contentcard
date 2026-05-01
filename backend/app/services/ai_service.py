@@ -3666,17 +3666,19 @@ Return a JSON object with a single key "posts" containing the array:
             if not isinstance(posts, list) or len(posts) == 0:
                 raise ValueError("posts array is empty or not a list")
 
-            posts = _enforce_playbook_assignments(posts, playbook_plan)
+            # No playbook plan exists in AI-only mode — pass None so the
+            # legacy enforce/validate helpers no-op rather than NameError.
+            posts = _enforce_playbook_assignments(posts, None)
             validated = _validate_posts(
                 posts,
                 words_to_avoid=words_to_avoid,
                 brand=brand_dict,
-                playbook_plan=playbook_plan,
+                playbook_plan=None,
             )
             if len(validated) == 0:
                 raise ValueError("All posts failed validation")
 
-            validated = _unique_dates_per_platform_batch(validated, posting_dates, playbook_plan)
+            validated = _unique_dates_per_platform_batch(validated, posting_dates, None)
             if len(validated) == 0:
                 raise ValueError("All posts dropped during unique-date dedupe")
 
