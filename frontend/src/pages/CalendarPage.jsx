@@ -183,6 +183,20 @@ function fmtDate(str) {
   return new Date(y,m-1,d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})
 }
 
+// Convert internal archetype slugs (photo_hero, device_mockup_benefit, "product hero")
+// into human-readable labels for the post modal. Free-form values from the AI
+// (since playbook went off) just get title-cased.
+function humanizeArchetype(slug) {
+  if (!slug) return ''
+  return String(slug)
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map(w => w ? w[0].toUpperCase() + w.slice(1) : '')
+    .join(' ')
+}
+
 function isDateInCurrentWeek(isoDate) {
   if (!isoDate) return false
   const now = new Date()
@@ -199,7 +213,7 @@ function isDateInCurrentWeek(isoDate) {
 
 function formatArchetypeLabel(id) {
   if (!id) return ''
-  return String(id).replace(/_/g, ' ')
+  return humanizeArchetype(id)
 }
 
 function weekdayFromIso(isoDate) {
@@ -2232,7 +2246,7 @@ export default function CalendarPage() {
                 </p>
                 <p className="text-ink font-semibold text-sm truncate">{modal.content_idea || modal.topic}</p>
                 {modal.visual_archetype && (
-                  <p className="text-ink/35 text-[10px] mt-1 font-mono">Layout: {modal.visual_archetype}</p>
+                  <p className="text-ink/35 text-[10px] mt-1">Layout: {humanizeArchetype(modal.visual_archetype)}</p>
                 )}
               </div>
               <button onClick={()=>setModal(null)} className="text-ink/30 hover:text-ink p-1.5 transition-colors -mr-1 flex-shrink-0">
