@@ -2170,9 +2170,23 @@ async def _openai_chat(
     payload: dict = {
         "model": model,
         "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
     }
+    # Reasoning-tier models (gpt-5.5*, o1*, o3*, o4*) require
+    # max_completion_tokens instead of max_tokens, default temperature=1, and
+    # may not accept arbitrary temperature / response_format. Detect by
+    # model-name prefix and adapt the payload accordingly. Without this,
+    # every chat call fails with a 400 Bad Request from OpenAI.
+    _model_lc = str(model or "").lower()
+    is_reasoning_model = _model_lc.startswith(("gpt-5.5", "gpt-5-", "o1", "o3", "o4"))
+    if is_reasoning_model:
+        payload["max_completion_tokens"] = max_tokens
+        # Reasoning models accept temperature=1 only; drop the override entirely
+        # so the API uses its default rather than 400-ing on unsupported values.
+        if abs(float(temperature) - 1.0) > 1e-6:
+            logger.debug("Dropping temperature=%s for reasoning model %s", temperature, model)
+    else:
+        payload["max_tokens"] = max_tokens
+        payload["temperature"] = temperature
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
 
