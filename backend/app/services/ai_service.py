@@ -3610,13 +3610,13 @@ For EACH post return ALL these fields:
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
 15. slide_blueprint: REQUIRED ONLY when format=carousel. Array of exactly slide_count entries, each describing ONE slide. Every slide must advance the story — NEVER repeat the same headline or restage the same scene. Use the standard carousel storytelling arc: hook -> problem/tension -> insight or proof -> how/what -> close/CTA (compress or expand to fit slide_count). Each entry has the shape:
-    {
+    {{
       "slide_number": 1-based index,
       "role": one short label (hook / problem / insight / proof / how / story / contrast / cta) — your choice per slide,
       "headline": 2-8 words, the on-image headline for THIS slide ONLY. MUST differ from every other slide's headline. The slide-1 headline can match message_architecture.hook; slide-2+ headlines must be fresh.
       "support": 8-25 words, on-image body copy for THIS slide. Pushes the story forward — never restates the headline.
       "image_brief": 2-3 sentences describing the visual for THIS slide. Each slide's visual MUST be a different scene, not a re-render of the cover with a new colour. Vary subject, angle, props, palette per slide while staying on brand. Reference brand colors, imagery_style, lighting_style.
-    }
+    }}
     Set slide_blueprint to [] for non-carousel formats.
 
 HARD RULES:
