@@ -410,9 +410,9 @@ export default function SignupPage() {
               color: '#101820',
             }}
           >
-            Turn products
+            Stop guessing
             <br />
-            into posts.
+            what to post.
           </h2>
           <p className="text-ink/55 text-sm leading-relaxed">
             Connect your Shopify store and your products start showing up as scroll-stopping social posts.

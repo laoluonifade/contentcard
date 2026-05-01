@@ -245,9 +245,9 @@ export default function LandingPage() {
             color: '#101820',
           }}
         >
-          Turn products
+          Stop guessing
           <br />
-          into posts.
+          what to post.
         </h1>
 
         <p className="mt-6 text-ink/60 text-base sm:text-lg max-w-md leading-relaxed">
