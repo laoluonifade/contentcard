@@ -228,6 +228,24 @@ const useAppStore = create(
           generationFailure: null,
           lastGenerationRequest: requestSnapshot,
         })
+
+        // Snapshot the existing post counts BEFORE the kickoff so the
+        // polling loop can tell "still has the previous batch" apart from
+        // "the new run has finished". Without this, /content/status
+        // returns the stale 7/7 from a prior generation on the very first
+        // poll and the loader exits in 3 seconds with a misleading
+        // success — exactly what the user reported.
+        let baseline = { with: 0, total: 0 }
+        try {
+          const status0 = await contentApi.getStatus(brandId, year, month)
+          baseline = {
+            with: Number(status0?.with_visuals ?? status0?.count ?? 0),
+            total: Number(status0?.total ?? 0),
+          }
+        } catch {
+          /* If the baseline probe fails, treat as zero — worst case
+             a brand-new month polls one extra cycle. */
+        }
         try {
           const reqV2 = {
             brand_id: brandId, month, year, platforms, format_mix,
@@ -264,7 +282,7 @@ const useAppStore = create(
               throw e
             }
           }
-          const count = await get()._pollForContent(brandId, month, year)
+          const count = await get()._pollForContent(brandId, month, year, baseline)
           // Success path — clear failure if any, mark generation as complete.
           set({ generationFailure: null })
           return count
@@ -306,10 +324,23 @@ const useAppStore = create(
       // last poll, we re-fetch the month so newly-ready posts appear in the
       // calendar grid + on the dashboard's "today" card without waiting for
       // the whole batch to finish. The user sees their feed fill up live.
-      _pollForContent: async (brandId, month, year) => {
+      //
+      // `baseline` is the (with_visuals, total) snapshot taken just BEFORE
+      // the generation kickoff. The "ready" exit only fires when the new
+      // run has actually grown the count past this baseline, so a stale
+      // /content/status that still reports the previous batch's 7/7 can't
+      // dismiss the loader the moment polling starts.
+      _pollForContent: async (brandId, month, year, baseline = { with: 0, total: 0 }) => {
         const maxAttempts = 36
         const delays = [3000, 3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
         let lastWithV = -1
+        const baselineWith = Number(baseline?.with || 0)
+        // Show the baseline immediately so the progress label doesn't read
+        // "0 of 0" before the first poll lands. The loop will overwrite it
+        // as soon as it gets a real status response.
+        if (baselineWith > 0) {
+          set({ generationProgress: { with: baselineWith, total: Number(baseline?.total || baselineWith) } })
+        }
 
         for (let i = 0; i < maxAttempts; i++) {
           const delay = delays[Math.min(i, delays.length - 1)]
@@ -338,18 +369,31 @@ const useAppStore = create(
               }
               lastWithV = withV
             }
-            if (status.ready && withV > 0) {
+            // Don't trust "ready" until the count has actually GROWN past
+            // the baseline. A backend that hasn't yet picked up the new
+            // run will still report the previous batch as ready — exiting
+            // here would dismiss the loader without anything new being
+            // created. Wait until either the count grew, or the backend
+            // reports a strictly larger total (new posts queued).
+            const grewPastBaseline = withV > baselineWith || total > Number(baseline?.total || 0)
+            if (status.ready && withV > 0 && grewPastBaseline) {
               const items = await get().fetchMonthContent(month, year)
               return items.length
             }
           } catch (e) {
             if (e.message && !e.message.includes('fetch') && !e.message.includes('Network')) throw e
             const items = await get().fetchMonthContent(month, year)
-            if (items.length > 0) return items.length
+            if (items.length > baselineWith) return items.length
           }
         }
         const items = await get().fetchMonthContent(month, year)
-        if (items.length === 0) {
+        // Only the count matters for the "taking too long" message — if the
+        // batch hasn't grown the catalogue past the baseline we know the
+        // run hasn't actually delivered yet, even if the previous batch
+        // still has posts in it. Treat both "no posts at all" and "no
+        // growth past baseline" as a timeout so the user gets the
+        // friendly message + the failure banner with a Retry button.
+        if (items.length === 0 || items.length <= baselineWith) {
           throw new Error(
             'Generation is taking longer than expected. Finished posts will appear on the calendar automatically; check back in a minute.'
           )
