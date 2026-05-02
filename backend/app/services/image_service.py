@@ -45,6 +45,52 @@ _PERMANENT_APP_BADGE_BAN = (
 IMAGES_API_URL      = "https://api.openai.com/v1/images/generations"
 IMAGES_EDIT_API_URL = "https://api.openai.com/v1/images/edits"
 
+
+class OpenAICapacityError(Exception):
+    """OpenAI returned a transient capacity / billing / outage error.
+
+    Raised by the image-generation paths when the underlying HTTP call
+    fails with a status that the user (not the system) can resolve:
+    quota exhaustion, billing problems, rate limiting, or upstream
+    outages. The caller in api/content uses this to surface a specific
+    "ChatGPT is busy — try again later" failure instead of the generic
+    "generation failed" message.
+    """
+    def __init__(self, code: str, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
+
+def _classify_openai_capacity_error(exc: Exception) -> OpenAICapacityError | None:
+    """Return an OpenAICapacityError if `exc` describes a capacity/billing/outage condition.
+
+    Detects:
+      - 429 Too Many Requests (rate limit)
+      - 402 Payment Required (billing) / `insufficient_quota` body
+      - 503 / 502 / 504 (upstream outage)
+      - httpx.ConnectError / ReadTimeout (network down)
+    Anything else returns None — the caller should treat it as a normal
+    failure and let the existing telemetry path handle it.
+    """
+    status_code: int | None = None
+    body_text = ""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = exc.response.status_code
+        try:
+            body_text = exc.response.text or ""
+        except Exception:
+            body_text = ""
+    if status_code == 429:
+        return OpenAICapacityError("openai_busy", "ChatGPT is rate-limited right now.", status_code)
+    if status_code == 402 or "insufficient_quota" in body_text.lower():
+        return OpenAICapacityError("openai_billing", "ChatGPT account is over quota or unfunded.", status_code)
+    if status_code in (502, 503, 504):
+        return OpenAICapacityError("openai_outage", "ChatGPT is having an outage right now.", status_code)
+    if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout)):
+        return OpenAICapacityError("openai_outage", "Couldn't reach ChatGPT — network or upstream issue.", None)
+    return None
+
 PLATFORM_FORMAT = {
     "instagram": "square Instagram post 1:1 (1080×1080)",
     "facebook": "Facebook post image, square or 1.91:1",
@@ -1682,6 +1728,7 @@ async def _generate_with_product_collage(
         ))
         return urls
     except Exception as exc:
+        capacity_err = _classify_openai_capacity_error(exc)
         logger.error("Product collage generation failed for '%s': %s", topic, exc)
         telemetry_record(CallTelemetry(
             endpoint_name="image_edit",
@@ -1693,8 +1740,10 @@ async def _generate_with_product_collage(
             cache_hit=False,
             retries=0,
             success=False,
-            failure_reason=str(exc)[:200],
+            failure_reason=(capacity_err.code if capacity_err else str(exc)[:200]),
         ))
+        if capacity_err is not None:
+            raise capacity_err from exc
         return []
 
 
@@ -1814,6 +1863,7 @@ async def _generate_with_product_edits(
         return urls
 
     except Exception as exc:
+        capacity_err = _classify_openai_capacity_error(exc)
         logger.error("Product edits generation failed for '%s': %s", topic, exc)
         telemetry_record(CallTelemetry(
             endpoint_name="image_edit",
@@ -1825,8 +1875,10 @@ async def _generate_with_product_edits(
             cache_hit=False,
             retries=0,
             success=False,
-            failure_reason=str(exc)[:200],
+            failure_reason=(capacity_err.code if capacity_err else str(exc)[:200]),
         ))
+        if capacity_err is not None:
+            raise capacity_err from exc
         return []
 
 
@@ -1948,6 +2000,13 @@ async def _render_one_image(
                 cache_set("openai_image", cache_key, [permanent_url], ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
             return permanent_url
     except Exception as e:
+        capacity_err = _classify_openai_capacity_error(e)
+        if capacity_err is not None:
+            logger.warning(
+                "Carousel slide %d render hit OpenAI capacity (%s) for '%s': %s",
+                slide_idx, capacity_err.code, topic, e,
+            )
+            raise capacity_err from e
         logger.warning("Carousel slide %d render failed for '%s': %s", slide_idx, topic, e)
         return None
 
@@ -2281,6 +2340,7 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
             return urls
 
     except Exception as e:
+        capacity_err = _classify_openai_capacity_error(e)
         logger.error(f"Image generation failed for '{topic}' ({model}): {e}")
         telemetry_record(
             CallTelemetry(
@@ -2293,7 +2353,9 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                 cache_hit=False,
                 retries=0,
                 success=False,
-                failure_reason=type(e).__name__,
+                failure_reason=(capacity_err.code if capacity_err else type(e).__name__),
             )
         )
+        if capacity_err is not None:
+            raise capacity_err from e
         return []

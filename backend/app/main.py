@@ -248,6 +248,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS free_generations_used INTEGER DEFAULT 0",
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS brand_photos JSON",
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS active_generation JSON",
+            "ALTER TABLE brands ADD COLUMN IF NOT EXISTS last_generation_failure JSON",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS paystack_authorization_code VARCHAR(255)",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_last4 VARCHAR(10)",
             "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS card_type VARCHAR(50)",

@@ -318,6 +318,39 @@ const useAppStore = create(
 
       clearGenerationFailure: () => set({ generationFailure: null }),
 
+      // Surface a backend-recorded OpenAI capacity failure on the
+      // GenerationStatusBanner. /content/status returns
+      // `last_generation_failure: { code, message, occurred_at, month, year }`
+      // when the most recent run for this brand+month hit a 429 / billing /
+      // outage condition. We treat it as a one-shot dismissable failure
+      // identical to a live generation error so the same Retry CTA works.
+      checkLastGenerationFailure: async (month, year) => {
+        const brandId = get().activeBrandId
+        if (!brandId || !month || !year) return false
+        if (get().generatingMonth) return false
+        if (get().generationFailure) return false
+        let status
+        try {
+          status = await contentApi.getStatus(brandId, year, month)
+        } catch {
+          return false
+        }
+        const failure = status?.last_generation_failure
+        if (!failure || !failure.code) return false
+        if (Number(failure.month) !== Number(month) || Number(failure.year) !== Number(year)) {
+          return false
+        }
+        set({
+          generationFailure: {
+            code: String(failure.code),
+            reason: String(failure.message || 'ChatGPT had a problem during your last generation. Try again.').slice(0, 400),
+            month,
+            year,
+          },
+        })
+        return true
+      },
+
       // Poll with exponential backoff. Returns number of posts found.
       //
       // Incremental: every time the server reports more visuals than we saw

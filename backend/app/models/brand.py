@@ -72,6 +72,20 @@ class Brand(Base):
     # (Render SIGTERMs the bg task on deploy and it never resumes).
     active_generation: Mapped[dict | None] = mapped_column(JSON, default=None, nullable=True)
 
+    # Most recent OpenAI capacity / billing / outage failure for this brand.
+    # Shape:
+    # {
+    #   "code": "openai_busy" | "openai_billing" | "openai_outage",
+    #   "message": "Human-readable copy for the banner",
+    #   "occurred_at": "ISO 8601 UTC",
+    #   "month": int, "year": int,
+    # }
+    # Set when _do_generate_month catches OpenAICapacityError so the
+    # frontend banner can show "ChatGPT is busy — try again later"
+    # instead of the generic timeout. Cleared when the next generation
+    # for this brand starts cleanly.
+    last_generation_failure: Mapped[dict | None] = mapped_column(JSON, default=None, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

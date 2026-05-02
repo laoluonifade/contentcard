@@ -66,6 +66,7 @@ from app.services.art_brief_service import build_art_brief
 from app.services.visual_lint_service import lint_final_image
 from app.services.quality_gate_service import score_visual_quality
 from app.services.image_service import (
+    OpenAICapacityError,
     create_loop_gif_from_image_url,
     generate_post_image,
     has_brand_logo,
@@ -136,7 +137,11 @@ def _coerce_disabled_carousel_for_response(out: "ContentOut") -> "ContentOut":
 # they don't resume). The startup sweeper clears these and the
 # idempotency check rejects new requests until the existing run either
 # finishes or expires.
-ACTIVE_GENERATION_TTL_MIN = 30
+#
+# Tuned to "healthy run + 1 retry": a successful generation completes
+# in ~3-5 minutes, so 8 minutes covers normal slack without locking
+# users out for 30 minutes when OpenAI was just briefly down.
+ACTIVE_GENERATION_TTL_MIN = 8
 TRIAL_FREE_GENERATIONS = 2000
 CARD_BONUS_FREE_GENERATIONS = 0
 PLAN_MONTHLY_POST_CAPS = {
@@ -405,11 +410,73 @@ async def _mark_generation_started(
         "platforms": [str(p).lower() for p in platforms],
         "user_id": str(user_id) if user_id else None,
     }
+    # Stamping a fresh run also wipes any prior capacity-failure marker so
+    # the banner doesn't keep showing "ChatGPT is busy" after the user
+    # successfully retries.
     await db.execute(
-        Brand.__table__.update().where(Brand.id == brand_id).values(active_generation=payload)
+        Brand.__table__.update()
+        .where(Brand.id == brand_id)
+        .values(active_generation=payload, last_generation_failure=None)
     )
     await db.commit()
     return run_id
+
+
+async def _record_capacity_failure(
+    brand_id: str,
+    *,
+    code: str,
+    message: str,
+    month: int,
+    year: int,
+) -> None:
+    """Persist a brand-level OpenAI capacity failure for the polling endpoint.
+
+    The frontend banner reads `last_generation_failure` via /content/status
+    and shows specific copy ("ChatGPT is busy" / "ChatGPT account is over
+    quota" / "ChatGPT is having an outage") instead of the generic timeout
+    message.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            payload = {
+                "code": code,
+                "message": message,
+                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "month": int(month),
+                "year": int(year),
+            }
+            await db.execute(
+                Brand.__table__.update()
+                .where(Brand.id == brand_id)
+                .values(last_generation_failure=payload)
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning(
+            "Could not record last_generation_failure for brand %s: %s", brand_id, exc
+        )
+
+
+async def _clear_capacity_failure(brand_id: str) -> None:
+    """Drop a stale capacity failure once a run completes cleanly.
+
+    Called from _do_generate_month after the render loop finishes without
+    hitting OpenAICapacityError, so a successful generation removes the
+    "ChatGPT is busy" banner from the next /content/status response.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                Brand.__table__.update()
+                .where(Brand.id == brand_id)
+                .values(last_generation_failure=None)
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning(
+            "Could not clear last_generation_failure for brand %s: %s", brand_id, exc
+        )
 
 
 async def _mark_generation_finished(brand_id: str, run_id: str | None = None) -> None:
@@ -2022,8 +2089,13 @@ async def generation_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Poll for content count — frontend polls this until count > 0."""
-    await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
+    """Poll for content count — frontend polls this until count > 0.
+
+    Also returns `last_generation_failure` so the frontend can show a
+    specific OpenAI-busy / billing / outage banner instead of the
+    generic timeout when the previous run hit ChatGPT capacity issues.
+    """
+    brand = await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
     result = await db.execute(
         select(ContentItem).where(
             ContentItem.brand_id == brand_id,
@@ -2055,6 +2127,27 @@ async def generation_status(
         "failed_quality": failed_quality,
         "ready": total > 0 and ready_items >= total,
         "by_platform": by_platform,
+        "last_generation_failure": _serialize_last_generation_failure(brand, month, year),
+    }
+
+
+def _serialize_last_generation_failure(brand: Brand, month: int, year: int) -> dict | None:
+    """Return the most recent capacity failure when it covers this month, else None.
+
+    Surfaced by /content/status so the frontend banner can show
+    "ChatGPT is busy — try again later" with the existing Retry button.
+    """
+    failure = brand.last_generation_failure if isinstance(brand.last_generation_failure, dict) else None
+    if not failure:
+        return None
+    if int(failure.get("month") or 0) != month or int(failure.get("year") or 0) != year:
+        return None
+    return {
+        "code": failure.get("code"),
+        "message": failure.get("message"),
+        "occurred_at": failure.get("occurred_at"),
+        "month": failure.get("month"),
+        "year": failure.get("year"),
     }
 
 
@@ -4452,12 +4545,35 @@ async def _do_generate_month(
                         rv.image_url = item.image_url
                         rv.image_urls = item.image_urls if isinstance(item.image_urls, list) else []
                     await db.commit()
+            except OpenAICapacityError as cap_err:
+                # OpenAI is rate-limited / over quota / having an outage.
+                # Per-image retries inside the render loop won't recover —
+                # bail out, persist a brand-level failure marker so the
+                # frontend banner can show "ChatGPT is busy, try again
+                # later", and clear the active_generation slot so the user
+                # can retry without waiting out the TTL.
+                logger.warning(
+                    "OpenAI capacity error during generation for brand %s "
+                    "(post %s, code=%s): %s",
+                    brand_id, getattr(item, "id", "?"), cap_err.code, cap_err,
+                )
+                await _record_capacity_failure(
+                    brand_id,
+                    code=cap_err.code,
+                    message=str(cap_err),
+                    month=int(month),
+                    year=int(year),
+                )
+                await _mark_generation_finished(brand_id, active_run_id)
+                return
             except Exception as e:
                 logger.warning(f"quality gate/render failed for post {item.id}: {e}")
 
     # Generation finished cleanly (no early return inside the outer except
-    # blocks). Clear the in-flight guard so the user can re-trigger.
+    # blocks). Clear the in-flight guard so the user can re-trigger, and
+    # clear any prior capacity failure since the run completed.
     await _mark_generation_finished(brand_id, active_run_id)
+    await _clear_capacity_failure(brand_id)
 
 
 def _brand_to_dict(brand: Brand) -> dict:
