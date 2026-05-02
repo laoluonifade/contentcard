@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Check, Sun, Trash2, AlertTriangle, Bell, Mail, Images, ArrowRight, LogOut } from 'lucide-react'
+import { Check, Sun, Trash2, AlertTriangle, Bell, Mail, Images, ArrowRight, LogOut, Plus } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { authApi, workspaceApi, inviteApi } from '../api'
@@ -11,7 +11,7 @@ import { useTheme } from '../hooks/useTheme'
 import SettingsExtras from '../components/settings/SettingsExtras'
 import ShopifyIcon from '../components/ui/ShopifyIcon'
 
-const TABS = ['Profile', 'Company', 'Team', 'Apps', 'Directory', 'Social', 'Notifications', 'Appearance']
+const TABS = ['Profile', 'Brands', 'Team', 'Apps', 'Directory', 'Social', 'Notifications', 'Appearance']
 
 /** Matches billing tiers; `plan` on a workspace row can lag behind pooled subscription. Prefer `effective_plan`. */
 const PLAN_LABELS = { trial: 'Trial', starter: 'Starter', smb: 'Growth', pro: 'Pro' }
@@ -38,9 +38,12 @@ function clearVisitorSession() {
 export default function SettingsPage() {
   const { user, updateUser, fetchMe, deleteAccount, logout } = useAuthStore()
   const {
+    workspaces,
     activeWorkspace,
     activeWorkspaceId,
     fetchWorkspaces,
+    setActiveWorkspace,
+    createWorkspace,
     renameWorkspace,
     fetchSubscription,
   } = useAppStore()
@@ -55,7 +58,7 @@ export default function SettingsPage() {
   }, [searchParams])
 
   useEffect(() => {
-    if (tab === 'Company') {
+    if (tab === 'Brands') {
       fetchMe?.().catch(() => {})
       fetchWorkspaces?.().catch(() => {})
     }
@@ -105,8 +108,10 @@ export default function SettingsPage() {
   const [inviteRole, setInviteRole] = useState('editor')
   const [inviting, setInviting] = useState(false)
   const [lastInviteLink, setLastInviteLink] = useState(null)
-  const [workspaceName, setWorkspaceName] = useState('')
-  const [renamingWorkspace, setRenamingWorkspace] = useState(false)
+  const [renamingId, setRenamingId] = useState(null)  // workspace id currently mid-save
+  const [brandNameDrafts, setBrandNameDrafts] = useState({})  // { [workspaceId]: pendingName }
+  const [switchingId, setSwitchingId] = useState(null)
+  const [creatingBrand, setCreatingBrand] = useState(false)
   const [socialForm, setSocialForm] = useState({
     postingMode: 'approval_required',
     postsPerDay: 2,
@@ -176,9 +181,17 @@ export default function SettingsPage() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting, setDeleting] = useState(false)
+  // Seed per-brand rename drafts from server state. Re-runs whenever the
+  // workspaces list changes (creation, rename, etc.).
   useEffect(() => {
-    setWorkspaceName(activeWorkspace?.name || '')
-  }, [activeWorkspace?.id, activeWorkspace?.name])
+    setBrandNameDrafts((prev) => {
+      const next = { ...prev }
+      for (const ws of workspaces) {
+        if (next[ws.id] === undefined) next[ws.id] = ws.name || ''
+      }
+      return next
+    })
+  }, [workspaces])
 
   const nameParts = (user?.full_name || '').split(' ')
   const [profileForm, setProfileForm] = useState({
@@ -252,19 +265,58 @@ export default function SettingsPage() {
   const inviteRowLabel = (email) =>
     email && email.toLowerCase().endsWith(LINK_INVITE_HINT.toLowerCase()) ? 'Link invite' : email
 
-  const saveWorkspaceName = async () => {
-    const nextName = workspaceName.trim()
-    if (!activeWorkspaceId) { toast('Pick a workspace first.', 'error'); return }
-    if (!nextName) { toast('Give the workspace a name.', 'error'); return }
-    if (nextName === (activeWorkspace?.name || '')) return
-    setRenamingWorkspace(true)
+  const saveBrandName = async (workspaceId) => {
+    const draft = (brandNameDrafts[workspaceId] || '').trim()
+    const current = (workspaces.find((w) => w.id === workspaceId)?.name || '').trim()
+    if (!draft) { toast('Give the brand a name.', 'error'); return }
+    if (draft === current) return
+    setRenamingId(workspaceId)
     try {
-      await renameWorkspace(activeWorkspaceId, nextName)
-      toast('Workspace renamed.')
+      await renameWorkspace(workspaceId, draft)
+      toast('Brand renamed.')
     } catch (err) {
-      toast(err.response?.data?.detail || err.message || "Couldn't rename the workspace. Try again in a moment.", 'error')
+      toast(err.response?.data?.detail || err.message || "Couldn't rename the brand. Try again in a moment.", 'error')
     } finally {
-      setRenamingWorkspace(false)
+      setRenamingId(null)
+    }
+  }
+
+  const switchBrand = async (workspaceId) => {
+    if (workspaceId === activeWorkspaceId) return
+    setSwitchingId(workspaceId)
+    try {
+      await setActiveWorkspace(workspaceId)
+      const target = workspaces.find((w) => w.id === workspaceId)
+      toast(`Switched to ${target?.name || 'brand'}.`)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || "Couldn't switch brands. Try again.", 'error')
+    } finally {
+      setSwitchingId(null)
+    }
+  }
+
+  const startAddBrand = async () => {
+    if (creatingBrand) return
+    // Pick a unique placeholder name. Onboarding renames the workspace to the
+    // business_name when the user finishes the setup flow.
+    const used = new Set((workspaces || []).map((w) => (w.name || '').trim().toLowerCase()))
+    let placeholder = 'New brand'
+    if (used.has(placeholder.toLowerCase())) {
+      let i = 2
+      while (used.has(`new brand ${i}`)) i += 1
+      placeholder = `New brand ${i}`
+    }
+    setCreatingBrand(true)
+    try {
+      await createWorkspace({ name: placeholder })
+      // setActiveWorkspace is called inside createWorkspace; brandsLoaded
+      // momentarily flips back, then to true with brands.length === 0,
+      // which mounts the OnboardingOverlay automatically.
+      toast('Set up your new brand to start generating posts.', 'success')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || "Couldn't add a brand. Try again in a moment.", 'error')
+    } finally {
+      setCreatingBrand(false)
     }
   }
 
@@ -411,18 +463,111 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {tab === 'Company' && (
+          {tab === 'Brands' && (
             <div className="space-y-4">
+              <div className="bg-surface border border-fog rounded-2xl p-6">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-5">
+                  <div>
+                    <h3 className="text-ink font-bold text-sm mb-1">Your brands</h3>
+                    <p className="text-ink/40 text-xs">
+                      Each brand has its own brand kit, calendar, content, and billing. Switch between them anytime.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={startAddBrand}
+                    disabled={creatingBrand}
+                    className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-xs font-semibold transition-colors whitespace-nowrap flex-shrink-0"
+                  >
+                    <Plus size={13} /> {creatingBrand ? 'Creating…' : 'Add another brand'}
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {workspaces.length === 0 && (
+                    <p className="text-ink/40 text-sm">Loading brands…</p>
+                  )}
+                  {workspaces.map((ws) => {
+                    const isActive = ws.id === activeWorkspaceId
+                    const draft = brandNameDrafts[ws.id] ?? ws.name ?? ''
+                    const dirty = draft.trim() !== (ws.name || '').trim() && draft.trim().length > 0
+                    return (
+                      <div
+                        key={ws.id}
+                        className={`rounded-xl border p-4 transition-colors ${
+                          isActive ? 'border-brand-300 bg-brand-500/5' : 'border-fog bg-mist/40'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3 mb-3">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <p className="text-ink font-semibold text-sm truncate">{ws.name}</p>
+                            {isActive && (
+                              <span className="text-[10px] font-bold uppercase tracking-widest text-brand-600 bg-brand-500/15 px-1.5 py-0.5 rounded">
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          {!isActive && (
+                            <button
+                              type="button"
+                              onClick={() => switchBrand(ws.id)}
+                              disabled={switchingId === ws.id}
+                              className="px-3 py-1.5 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-300 disabled:opacity-60 whitespace-nowrap flex-shrink-0"
+                            >
+                              {switchingId === ws.id ? 'Switching…' : 'Switch'}
+                            </button>
+                          )}
+                        </div>
+
+                        <label className="block text-[10px] font-bold uppercase tracking-widest text-ink/40 mb-1.5">
+                          Brand name
+                        </label>
+                        <div className="flex flex-col sm:flex-row gap-2 mb-3">
+                          <input
+                            value={draft}
+                            onChange={(e) => setBrandNameDrafts((d) => ({ ...d, [ws.id]: e.target.value }))}
+                            placeholder="Brand name"
+                            className={`${inputCls} flex-1`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => saveBrandName(ws.id)}
+                            disabled={renamingId === ws.id || !dirty}
+                            className="px-4 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap"
+                          >
+                            {renamingId === ws.id ? 'Saving…' : 'Save'}
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase tracking-widest text-ink/40 mb-1.5">Plan</label>
+                            <div className="px-3 py-2 bg-surface border border-fog rounded-lg text-xs">
+                              {workspacePlanLabel(ws)}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold uppercase tracking-widest text-ink/40 mb-1.5">Payment</label>
+                            <div className="px-3 py-2 bg-surface border border-fog rounded-lg text-xs capitalize">
+                              {ws.payment_provider || 'Not set'}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+
               <div className="bg-surface border border-fog rounded-2xl p-6">
                 <h3 className="text-ink font-bold text-sm mb-1">Agency mode</h3>
                 <p className="text-ink/40 text-xs mb-4">
-                  Turn on when you manage multiple client companies. You can create a separate workspace for each: its own brands,
-                  brand kits, calendar, and billing. Use the sidebar switcher (and <strong className="text-ink/60">New client workspace</strong>) to move between clients.
+                  Turn on when you manage multiple client brands. Each gets its own brand kit, calendar, content, and billing — and you can switch between them above.
                 </p>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                   <div>
-                    <p className="text-ink text-sm font-semibold">Multi-workspace account</p>
-                    <p className="text-ink/35 text-xs mt-0.5">{user?.agency_mode ? 'Enabled' : 'Off. One owned workspace unless you are only invited to others.'}</p>
+                    <p className="text-ink text-sm font-semibold">Multi-brand account</p>
+                    <p className="text-ink/35 text-xs mt-0.5">{user?.agency_mode ? 'Enabled' : 'Off. One owned brand unless you are invited to others.'}</p>
                   </div>
                   <button
                     type="button"
@@ -433,7 +578,7 @@ export default function SettingsPage() {
                       try {
                         const u = await authApi.updateProfile({ agency_mode: next })
                         updateUser(u)
-                        toast(next ? 'Agency mode on. You can add client workspaces from the sidebar.' : 'Agency mode off.')
+                        toast(next ? 'Agency mode on. Add client brands above.' : 'Agency mode off.')
                       } catch (err) {
                         toast(err.response?.data?.detail || err.message || 'Update failed', 'error')
                       } finally {
@@ -448,34 +593,6 @@ export default function SettingsPage() {
                   >
                     {user?.agency_mode ? 'Turn off agency mode' : 'Enable agency mode'}
                   </button>
-                </div>
-              </div>
-
-              <div className="bg-surface border border-fog rounded-2xl p-6">
-                <h3 className="text-ink font-bold text-sm mb-1">Active workspace</h3>
-                <p className="text-ink/40 text-xs mb-5">{activeWorkspace?.name}</p>
-                <div className="mb-4">
-                  <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Workspace name</label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      value={workspaceName}
-                      onChange={(e) => setWorkspaceName(e.target.value)}
-                      placeholder="Workspace name"
-                      className={`${inputCls} flex-1`}
-                    />
-                    <button
-                      type="button"
-                      onClick={saveWorkspaceName}
-                      disabled={renamingWorkspace || !workspaceName.trim() || workspaceName.trim() === (activeWorkspace?.name || '')}
-                      className="px-4 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap"
-                    >
-                      {renamingWorkspace ? 'Saving…' : 'Save name'}
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Plan</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm">{workspacePlanLabel(activeWorkspace)}</div></div>
-                  <div><label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Payment provider</label><div className="px-4 py-3 bg-mist border border-fog rounded-xl text-sm capitalize">{activeWorkspace?.payment_provider || 'Not set'}</div></div>
                 </div>
               </div>
             </div>
