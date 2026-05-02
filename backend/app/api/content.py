@@ -4498,6 +4498,8 @@ async def _do_generate_month(
                 cm["logo_required"] = has_brand_logo(brand_dict)
                 cm["logo_applied"] = logo_ok
                 cm["quality_failure_tags"] = _quality_failure_tags(quality_gate)
+                if post_data.get("background_mode_used"):
+                    cm["background_mode"] = post_data.get("background_mode_used")
                 requested_media_type = str(cm.get("requested_media_type") or "").lower()
                 if requested_media_type == "gif" and item.image_url:
                     gif_url = await create_loop_gif_from_image_url(item.image_url, item.topic or "post")
