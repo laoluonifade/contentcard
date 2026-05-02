@@ -1548,9 +1548,18 @@ export default function CalendarPage() {
                     </>
                   )
                 })()}
-                {modal.visual_archetype && (
-                  <p className="text-ink/35 text-[10px] mt-1">Layout: {humanizeArchetype(modal.visual_archetype)}</p>
-                )}
+                {(() => {
+                  // Show the real renderer layout (cc_meta.layout) — that's
+                  // what actually drove the canvas. visual_archetype is a
+                  // legacy field whose values (pov_comic, flat_edu,
+                  // pattern_headline) aren't keys in LAYOUT_RENDERERS, so
+                  // surfacing it as "Layout:" was misleading.
+                  const realLayout = modal?.theme?.cc_meta?.layout
+                  if (!realLayout) return null
+                  return (
+                    <p className="text-ink/35 text-[10px] mt-1">Layout: {humanizeArchetype(realLayout)}</p>
+                  )
+                })()}
               </div>
               <button
                 onClick={()=>setModal(null)}
