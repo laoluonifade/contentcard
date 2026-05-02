@@ -6,7 +6,6 @@ import { toast } from '../ui/Toast'
 import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
 import Seo from '../seo/Seo'
-import { getMissingFields, isBrandReady } from '../../utils/brandReadiness'
 import OnboardingOverlay from '../onboarding/OnboardingOverlay'
 
 const NAV = [
@@ -42,14 +41,13 @@ export default function DashboardLayout() {
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
           fetchTrends, createWorkspace,
-          brands, activeBrandId, brandsLoaded } = useAppStore()
+          brandsLoaded } = useAppStore()
   const navigate = useNavigate()
   const location = useLocation()
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [newWsOpen, setNewWsOpen] = useState(false)
   const [newWsName, setNewWsName] = useState('')
   const [creatingWs, setCreatingWs] = useState(false)
-  const activeBrand = brands.find((brand) => brand.id === activeBrandId) || null
 
   useEffect(() => {
     setSidebarOpen(false)
@@ -62,21 +60,6 @@ export default function DashboardLayout() {
     fetchTrends().catch(() => {})
     fetchMe?.().catch(() => {})
   }, [])
-
-  useEffect(() => {
-    const protectedPaths = new Set([
-      '/dashboard',
-      '/dashboard/calendar',
-    ])
-    if (!activeBrand || isBrandReady(activeBrand) || location.pathname === '/dashboard/brand-kit') return
-    if (!protectedPaths.has(location.pathname)) return
-    const missing = getMissingFields(activeBrand)
-    toast(
-      `Finish ${missing.length} required brand kit ${missing.length === 1 ? 'field' : 'fields'} before using AI generation.`,
-      'error'
-    )
-    navigate('/dashboard/brand-kit', { replace: true })
-  }, [activeBrand, location.pathname, navigate])
 
   const agencyMode = !!user?.agency_mode
 

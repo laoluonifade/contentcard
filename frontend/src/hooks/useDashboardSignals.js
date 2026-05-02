@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
 import { contentApi, socialApi } from '../api'
-import { getMissingFields } from '../utils/brandReadiness'
 
 /**
  * Ranks the most important action for the user right now.
@@ -11,7 +10,6 @@ import { getMissingFields } from '../utils/brandReadiness'
  *   c. Failed publish in last 24h
  *   d. Trend opportunity matched to brand
  *   e. Empty calendar slot today/tomorrow
- *   f. Brand Kit < 60% complete
  *
  * Returns the *highest-priority* signal as { kind, payload, cta }, plus a
  * `loading` flag and a `refresh` callback. Falls back to a neutral
@@ -19,7 +17,6 @@ import { getMissingFields } from '../utils/brandReadiness'
  */
 
 const FAILED_LOOKBACK_HOURS = 24
-const REQUIRED_FIELD_COUNT = 5
 
 function parseLocalDate(str) {
   if (!str) return null
@@ -35,7 +32,7 @@ function isoDate(d) {
   return `${y}-${m}-${day}`
 }
 
-export default function useDashboardSignals({ brandId, brand, trends }) {
+export default function useDashboardSignals({ brandId, trends }) {
   const [signal, setSignal] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -195,31 +192,7 @@ export default function useDashboardSignals({ brandId, brand, trends }) {
       return
     }
 
-    // f. Brand Kit < 60% complete
-    if (brand) {
-      const missing = getMissingFields(brand)
-      const complete = REQUIRED_FIELD_COUNT - missing.length
-      const ratio = REQUIRED_FIELD_COUNT > 0 ? complete / REQUIRED_FIELD_COUNT : 1
-      if (ratio < 0.6) {
-        setSignal({
-          kind: 'brand_kit_incomplete',
-          priority: 6,
-          title: `Brand Kit is ${Math.round(ratio * 100)}% complete`,
-          body: `${missing.length} required ${missing.length === 1 ? 'field' : 'fields'} missing — finish to unlock on-brand content.`,
-          tone: 'attention',
-          cta: {
-            kind: 'open_brand_kit',
-            label: 'Finish Brand Kit',
-            firstTab: missing[0]?.tab,
-          },
-          meta: { missing: missing.map((m) => m.label) },
-        })
-        setLoading(false)
-        return
-      }
-    }
-
-    // g. All clear (fallback so card always renders)
+    // f. All clear (fallback so card always renders)
     setSignal({
       kind: 'all_clear',
       priority: 99,
@@ -230,7 +203,7 @@ export default function useDashboardSignals({ brandId, brand, trends }) {
       meta: {},
     })
     setLoading(false)
-  }, [brandId, brand, trends])
+  }, [brandId, trends])
 
   useEffect(() => {
     let cancelled = false

@@ -1,26 +1,39 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowRight, Check, Instagram, Facebook, Twitter, Linkedin, Music2, Sparkles } from 'lucide-react'
+import { ArrowRight, Check, Instagram, Facebook, Twitter, Linkedin, Music2, Sparkles, Upload, X } from 'lucide-react'
 import { LogoMark } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
-import { onboardingApi, workspaceApi } from '../api'
+import { onboardingApi, workspaceApi, brandApi } from '../api'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
+import { extractLogoColors } from '../lib/extractLogoColors'
+import { normalizeHex } from '../lib/brandVisualValidate'
 
 /*
  * Streamlined onboarding.
  *
- * Two screens, one mandatory each:
+ * Two screens:
  *
- *   Step 1 — basics:   business name + product/store URL  (required)
- *   Step 2 — extras:   logo URL, primary platform, primary goal  (all optional)
+ *   Step 1 — basics:   business name, sales channel + storefront link,
+ *                       category, sub-category
+ *   Step 2 — extras:   logo upload, primary platforms (multi),
+ *                       primary goals (multi)  — all optional
  *
  * Submit calls POST /workspaces/:wsId/onboarding/quick-start which creates
  * the brand and kicks off website sync + first-week generation in the
  * background. The overlay this page lives inside unmounts as soon as the
  * brand exists (auth's onboarding_completed flips automatically).
  */
+
+const SALES_CHANNELS = [
+  { id: 'shopify',     label: 'Shopify' },
+  { id: 'chowdeck',    label: 'Chowdeck' },
+  { id: 'own_website', label: 'My own website' },
+  { id: 'bumpa',       label: 'Bumpa' },
+  { id: 'selar',       label: 'Selar' },
+  { id: 'others',      label: 'Others' },
+]
 
 const PLATFORMS = [
   { id: 'instagram', label: 'Instagram', Icon: Instagram },
@@ -36,6 +49,8 @@ const GOALS = [
   { id: 'awareness',  label: 'Brand awareness',  hint: 'Posts that introduce you to new people.' },
 ]
 
+const MAX_LOGO_BYTES = 10 * 1024 * 1024  // matches backend cap
+
 function isProbablyValidUrl(value) {
   const raw = String(value || '').trim()
   if (raw.length < 4) return false
@@ -49,33 +64,141 @@ export default function OnboardingPage() {
   const { activeWorkspaceId, fetchWorkspaces, fetchBrands } = useAppStore()
   const [step, setStep] = useState(1)
   const [submitting, setSubmitting] = useState(false)
+  const fileInputRef = useRef(null)
 
   const [form, setForm] = useState({
     business_name: '',
+    sales_channel: '',
     product_url: '',
     category: '',
     sub_category: '',
-    logo_url: '',
-    primary_platform: '',
-    primary_goal: '',
+    logo_file: null,
+    logo_preview: '',
+    brand_colors: [],
+    primary_platforms: [],
+    primary_goals: [],
   })
+  const [extractingColors, setExtractingColors] = useState(false)
+  const [colorsAutoFilled, setColorsAutoFilled] = useState(false)
+  const [colorDraft, setColorDraft] = useState('')
+  const [dragActive, setDragActive] = useState(false)
 
   // Whenever the parent category changes, drop the sub-category so the user
   // doesn't end up with an inconsistent (parent A, sub from parent B) pair.
   const set = (k, v) =>
     setForm((f) => (k === 'category' ? { ...f, category: v, sub_category: '' } : { ...f, [k]: v }))
 
+  const toggleInArray = (key, id) =>
+    setForm((f) => {
+      const cur = f[key] || []
+      return { ...f, [key]: cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id] }
+    })
+
   const subCategoryOptions = INDUSTRY_TAXONOMY[form.category] || []
 
   const firstName = user?.full_name?.split(' ')[0] || ''
+
+  const ingestLogoFile = (file) => {
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      toast('Pick an image file (PNG, JPG, or SVG).', 'error')
+      return
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      toast('That logo is over 10 MB. Try a smaller file.', 'error')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => {
+      setForm((f) => ({ ...f, logo_file: file, logo_preview: String(reader.result || '') }))
+    }
+    reader.readAsDataURL(file)
+
+    // Auto-extract dominant colors. Only overwrite when the user hasn't
+    // hand-picked their own palette yet (or only the previous auto-fill).
+    setExtractingColors(true)
+    extractLogoColors(file)
+      .then((hexes) => {
+        if (!hexes || hexes.length === 0) return
+        setForm((f) => {
+          const userEdited = f.brand_colors.length > 0 && !colorsAutoFilled
+          if (userEdited) return f
+          return { ...f, brand_colors: hexes }
+        })
+        setColorsAutoFilled(true)
+      })
+      .catch(() => {
+        // Extraction is best-effort; users can add colors manually.
+      })
+      .finally(() => setExtractingColors(false))
+  }
+
+  const onPickLogo = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''  // allow re-selecting the same file later
+    ingestLogoFile(file)
+  }
+
+  const onLogoDrop = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+    const file = e.dataTransfer?.files?.[0]
+    if (file) ingestLogoFile(file)
+  }
+
+  const onLogoDragOver = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(true)
+  }
+
+  const onLogoDragLeave = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragActive(false)
+  }
+
+  const removeLogo = () =>
+    setForm((f) => ({
+      ...f,
+      logo_file: null,
+      logo_preview: '',
+      brand_colors: colorsAutoFilled ? [] : f.brand_colors,
+    }))
+
+  const addBrandColor = (raw) => {
+    const cleaned = normalizeHex(String(raw || '').trim())
+    if (!cleaned) {
+      toast('Use a valid hex (e.g. #6366F1).', 'error')
+      return
+    }
+    if (form.brand_colors.length >= 5) {
+      toast('Pick up to 5 colours.', 'error')
+      return
+    }
+    if (form.brand_colors.includes(cleaned)) return
+    setForm((f) => ({ ...f, brand_colors: [...f.brand_colors, cleaned] }))
+    setColorsAutoFilled(false)
+    setColorDraft('')
+  }
+
+  const removeBrandColor = (hex) => {
+    setForm((f) => ({ ...f, brand_colors: f.brand_colors.filter((c) => c !== hex) }))
+    setColorsAutoFilled(false)
+  }
 
   const goToStep2 = () => {
     if (form.business_name.trim().length < 2) {
       toast('Add your business name to continue.', 'error')
       return
     }
+    if (!form.sales_channel) {
+      toast('Tell us where you sell so we can tailor your posts.', 'error')
+      return
+    }
     if (!isProbablyValidUrl(form.product_url)) {
-      toast('Add a valid store URL so we can pull your products.', 'error')
+      toast('Add a valid storefront link so we can pull your products.', 'error')
       return
     }
     if (!form.category) {
@@ -109,15 +232,27 @@ export default function OnboardingPage() {
         throw new Error("We couldn't find a workspace to set up. Refresh and try again.")
       }
 
-      await onboardingApi.quickStart(wsId, {
+      const result = await onboardingApi.quickStart(wsId, {
         business_name: form.business_name.trim(),
         product_url: form.product_url.trim(),
+        sales_channel: form.sales_channel || null,
         category: form.category || null,
         sub_category: form.sub_category || null,
-        logo_url: form.logo_url.trim() || null,
-        primary_platform: form.primary_platform || null,
-        primary_goal: form.primary_goal || null,
+        brand_colors: form.brand_colors,
+        primary_platforms: form.primary_platforms,
+        primary_goals: form.primary_goals,
       })
+
+      // Upload logo (if any) now that the brand exists.
+      if (form.logo_file && result?.brand_id) {
+        try {
+          await brandApi.uploadLogo(wsId, result.brand_id, form.logo_file)
+        } catch (err) {
+          // Non-blocking — user can re-upload from Brand Kit later.
+          const detail = err.response?.data?.detail || err.message
+          toast(typeof detail === 'string' ? detail : "Logo upload didn't finish — you can add it from Brand Kit.", 'error')
+        }
+      }
 
       // The brand now exists, so /me will report onboarding_completed=true.
       // Set it locally so the overlay unmounts immediately, no /me round-trip.
@@ -176,7 +311,7 @@ export default function OnboardingPage() {
                   {firstName ? `Welcome, ${firstName}.` : 'Welcome to ContentCard.'}
                 </h2>
                 <p className="text-ink/55 text-sm">
-                  Two quick questions and we&apos;ll start generating your first week of posts.
+                  A few quick questions and we&apos;ll start generating your first week of posts.
                 </p>
               </div>
 
@@ -194,6 +329,20 @@ export default function OnboardingPage() {
 
               <div>
                 <label className="label">Where do you sell?</label>
+                <select
+                  className="input cursor-pointer"
+                  value={form.sales_channel}
+                  onChange={(e) => set('sales_channel', e.target.value)}
+                >
+                  <option value="">Pick the platform you sell on…</option>
+                  {SALES_CHANNELS.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="label">Storefront link</label>
                 <input
                   className="input"
                   placeholder="yourstore.bumpa.shop  ·  yourstore.myshopify.com"
@@ -266,32 +415,148 @@ export default function OnboardingPage() {
 
               <div>
                 <label className="label">
-                  Logo URL <span className="text-ink/40 font-normal normal-case">(optional)</span>
+                  Logo &amp; brand colours <span className="text-ink/40 font-normal normal-case">(optional)</span>
                 </label>
                 <input
-                  className="input"
-                  placeholder="https://yourbrand.com/logo.png"
-                  value={form.logo_url}
-                  onChange={(e) => set('logo_url', e.target.value)}
-                  inputMode="url"
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={onPickLogo}
                 />
+
+                {!form.logo_preview && (
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragOver={onLogoDragOver}
+                    onDragEnter={onLogoDragOver}
+                    onDragLeave={onLogoDragLeave}
+                    onDrop={onLogoDrop}
+                    className={`w-full flex flex-col items-center justify-center gap-2 px-6 py-10 rounded-2xl border-2 border-dashed transition-colors ${
+                      dragActive
+                        ? 'border-brand-500 bg-brand-500/10'
+                        : 'border-fog bg-mist/40 hover:border-brand-300 hover:bg-mist/60'
+                    }`}
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-brand-500/10 flex items-center justify-center">
+                      <Upload size={20} className="text-brand-600" />
+                    </div>
+                    <p className="text-sm font-semibold text-ink">Upload your logo</p>
+                    <p className="text-xs text-ink/50">Tap to browse or drag a PNG, JPG, or SVG here</p>
+                  </button>
+                )}
+
+                {form.logo_preview && (
+                  <div
+                    onDragOver={onLogoDragOver}
+                    onDragEnter={onLogoDragOver}
+                    onDragLeave={onLogoDragLeave}
+                    onDrop={onLogoDrop}
+                    className={`rounded-2xl border-2 border-dashed transition-colors ${
+                      dragActive ? 'border-brand-500 bg-brand-500/5' : 'border-fog bg-mist/40'
+                    }`}
+                  >
+                    <div className="flex flex-col items-center px-6 pt-6 pb-3">
+                      <div className="w-32 h-32 rounded-2xl bg-surface border border-fog flex items-center justify-center overflow-hidden shadow-sm">
+                        <img src={form.logo_preview} alt="Logo preview" className="w-full h-full object-contain p-2" />
+                      </div>
+                      <div className="flex gap-2 mt-3">
+                        <button
+                          type="button"
+                          onClick={() => fileInputRef.current?.click()}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-fog bg-surface text-ink/75 text-xs font-semibold hover:bg-mist"
+                        >
+                          <Upload size={13} /> Replace
+                        </button>
+                        <button
+                          type="button"
+                          onClick={removeLogo}
+                          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-fog bg-surface text-ink/55 text-xs font-semibold hover:bg-mist"
+                        >
+                          <X size={13} /> Remove
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="px-6 pb-5 pt-3 border-t border-fog/70">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-ink/55">
+                          Brand colours
+                        </p>
+                        {extractingColors && (
+                          <span className="inline-flex items-center gap-1.5 text-[11px] text-ink/45">
+                            <span className="w-3 h-3 border-2 border-brand-400/40 border-t-brand-500 rounded-full animate-spin" />
+                            Detecting…
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {form.brand_colors.map((hex) => (
+                          <span
+                            key={hex}
+                            className="inline-flex items-center gap-1.5 pl-1 pr-2 py-1 rounded-lg border border-fog bg-surface text-xs font-mono text-ink/75"
+                          >
+                            <span className="w-5 h-5 rounded-md border border-fog" style={{ backgroundColor: hex }} />
+                            {hex}
+                            <button
+                              type="button"
+                              onClick={() => removeBrandColor(hex)}
+                              className="text-ink/35 hover:text-ink"
+                              aria-label={`Remove ${hex}`}
+                            >
+                              <X size={11} />
+                            </button>
+                          </span>
+                        ))}
+                        {!extractingColors && form.brand_colors.length === 0 && (
+                          <span className="text-xs text-ink/40">No colours detected — add one below.</span>
+                        )}
+                      </div>
+                      {form.brand_colors.length < 5 && (
+                        <div className="flex gap-2 mt-3">
+                          <input
+                            className="input flex-1 text-sm"
+                            placeholder="#6366F1"
+                            value={colorDraft}
+                            onChange={(e) => setColorDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                addBrandColor(colorDraft)
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => addBrandColor(colorDraft)}
+                            className="px-4 py-3 rounded-xl border border-fog bg-surface text-ink/75 text-sm font-semibold hover:bg-mist"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 <p className="text-xs text-ink/45 mt-2">
-                  Paste a link to your logo. We&apos;ll add it to your designs.
+                  PNG with transparency works best. We&apos;ll auto-detect your brand colours from the logo.
                 </p>
               </div>
 
               <div>
                 <label className="label">
-                  Primary platform <span className="text-ink/40 font-normal normal-case">(optional)</span>
+                  Primary platforms <span className="text-ink/40 font-normal normal-case">(optional · pick any)</span>
                 </label>
                 <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
                   {PLATFORMS.map(({ id, label, Icon }) => {
-                    const active = form.primary_platform === id
+                    const active = form.primary_platforms.includes(id)
                     return (
                       <button
                         key={id}
                         type="button"
-                        onClick={() => set('primary_platform', active ? '' : id)}
+                        onClick={() => toggleInArray('primary_platforms', id)}
                         className={`flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl border text-xs font-semibold transition-colors ${
                           active
                             ? 'border-brand-400 bg-brand-500/10 text-ink'
@@ -308,16 +573,16 @@ export default function OnboardingPage() {
 
               <div>
                 <label className="label">
-                  Primary goal <span className="text-ink/40 font-normal normal-case">(optional)</span>
+                  Primary goals <span className="text-ink/40 font-normal normal-case">(optional · pick any)</span>
                 </label>
                 <div className="space-y-2">
                   {GOALS.map(({ id, label, hint }) => {
-                    const active = form.primary_goal === id
+                    const active = form.primary_goals.includes(id)
                     return (
                       <button
                         key={id}
                         type="button"
-                        onClick={() => set('primary_goal', active ? '' : id)}
+                        onClick={() => toggleInArray('primary_goals', id)}
                         className={`w-full text-left px-4 py-3 rounded-xl border transition-colors ${
                           active
                             ? 'border-brand-400 bg-brand-500/10'

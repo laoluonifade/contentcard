@@ -9,6 +9,7 @@ import { toast } from '../components/ui/Toast'
 import LogoCropModal from '../components/brand/LogoCropModal'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 import { normalizeHex } from '../lib/brandVisualValidate'
+import { extractLogoColors } from '../lib/extractLogoColors'
 
 /*
  * Brand Kit — simplified to six fields per the PRD.
@@ -85,6 +86,7 @@ export default function BrandKitPage() {
   const fileInputRef = useRef(null)
   const [cropImageSrc, setCropImageSrc] = useState(null)
   const [cropOriginalFile, setCropOriginalFile] = useState(null)
+  const [logoDragActive, setLogoDragActive] = useState(false)
 
   // New colour input below the existing chips.
   const [colorDraft, setColorDraft] = useState('')
@@ -101,10 +103,8 @@ export default function BrandKitPage() {
   const subIndustryOptions = INDUSTRY_TAXONOMY[form.industry] || []
 
   // ── Logo upload ───────────────────────────────────────────────────────────
-  const onPickFile = (e) => {
-    const file = e.target.files?.[0]
+  const ingestLogoFile = (file) => {
     if (!file) return
-    e.target.value = ''  // allow re-selecting the same file later
     if (!file.type.startsWith('image/')) {
       toast('Pick an image file (PNG, JPG, or SVG).', 'error')
       return
@@ -115,6 +115,31 @@ export default function BrandKitPage() {
       setCropOriginalFile(file)
     }
     reader.readAsDataURL(file)
+  }
+
+  const onPickFile = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''  // allow re-selecting the same file later
+    ingestLogoFile(file)
+  }
+
+  const onLogoDrop = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setLogoDragActive(false)
+    ingestLogoFile(e.dataTransfer?.files?.[0])
+  }
+
+  const onLogoDragOver = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setLogoDragActive(true)
+  }
+
+  const onLogoDragLeave = (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setLogoDragActive(false)
   }
 
   const closeCropModal = () => {
@@ -132,6 +157,19 @@ export default function BrandKitPage() {
         set('logo_url', newUrl)
         await fetchBrands(activeWorkspaceId).catch(() => {})
         toast('Logo uploaded.')
+      }
+      // Auto-extract dominant colors from the cropped logo, but only fill them
+      // in when the user hasn't already picked a palette themselves.
+      try {
+        const hexes = await extractLogoColors(file, { maxColors: MAX_COLOURS })
+        if (hexes && hexes.length > 0) {
+          setForm((f) => {
+            if (f.brand_colors && f.brand_colors.length > 0) return f
+            return { ...f, brand_colors: hexes.slice(0, MAX_COLOURS) }
+          })
+        }
+      } catch {
+        // Best-effort — extraction failure shouldn't block upload.
       }
     } catch (err) {
       toast(err.response?.data?.detail || err.message || "Couldn't upload that logo. Try again.", 'error')
@@ -281,45 +319,75 @@ export default function BrandKitPage() {
           <label className={labelCls}>
             Logo <span className="text-ink/40 font-normal normal-case">(optional)</span>
           </label>
-          <div className="flex items-center gap-4">
-            <div className="w-20 h-20 rounded-2xl border border-fog bg-mist flex items-center justify-center overflow-hidden flex-shrink-0">
-              {form.logo_url ? (
-                <img src={form.logo_url} alt="Brand logo" className="w-full h-full object-contain" />
-              ) : (
-                <span className="text-[10px] text-ink/30 text-center px-1">No logo</span>
-              )}
-            </div>
-            <div className="flex flex-col gap-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={onPickFile}
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
-              >
-                <Upload size={13} />
-                {uploading ? 'Uploading…' : form.logo_url ? 'Replace logo' : 'Upload a logo'}
-              </button>
-              {form.logo_url && (
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={onPickFile}
+          />
+
+          {!form.logo_url && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={onLogoDragOver}
+              onDragEnter={onLogoDragOver}
+              onDragLeave={onLogoDragLeave}
+              onDrop={onLogoDrop}
+              disabled={uploading}
+              className={`w-full flex flex-col items-center justify-center gap-2 px-6 py-10 rounded-2xl border-2 border-dashed transition-colors disabled:opacity-50 ${
+                logoDragActive
+                  ? 'border-brand-500 bg-brand-500/10'
+                  : 'border-fog bg-mist/40 hover:border-brand-300 hover:bg-mist/60'
+              }`}
+            >
+              <div className="w-12 h-12 rounded-2xl bg-brand-500/10 flex items-center justify-center">
+                <Upload size={20} className="text-brand-600" />
+              </div>
+              <p className="text-sm font-semibold text-ink">
+                {uploading ? 'Uploading…' : 'Upload your logo'}
+              </p>
+              <p className="text-xs text-ink/50">Tap to browse or drag a PNG, JPG, or SVG here</p>
+            </button>
+          )}
+
+          {form.logo_url && (
+            <div
+              onDragOver={onLogoDragOver}
+              onDragEnter={onLogoDragOver}
+              onDragLeave={onLogoDragLeave}
+              onDrop={onLogoDrop}
+              className={`flex flex-col items-center px-6 py-6 rounded-2xl border-2 border-dashed transition-colors ${
+                logoDragActive ? 'border-brand-500 bg-brand-500/5' : 'border-fog bg-mist/40'
+              }`}
+            >
+              <div className="w-32 h-32 rounded-2xl bg-surface border border-fog flex items-center justify-center overflow-hidden shadow-sm">
+                <img src={form.logo_url} alt="Brand logo" className="w-full h-full object-contain p-2" />
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                >
+                  <Upload size={13} />
+                  {uploading ? 'Uploading…' : 'Replace'}
+                </button>
                 <button
                   type="button"
                   onClick={removeLogo}
                   disabled={uploading}
-                  className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50 self-start"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-fog bg-surface text-xs font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50"
                 >
-                  Remove
+                  <X size={13} /> Remove
                 </button>
-              )}
+              </div>
             </div>
-          </div>
+          )}
           <p className="text-xs text-ink/45 mt-2">
-            PNG with transparency works best. Skip and we&apos;ll generate posts without a logo.
+            PNG with transparency works best. We&apos;ll auto-detect your brand colours from the logo.
           </p>
         </div>
 
