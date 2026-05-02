@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowRight, Check, Instagram, Facebook, Twitter, Linkedin, Music2, Sparkles, Upload, X } from 'lucide-react'
+import { ArrowRight, Check, ChevronDown, Instagram, Facebook, Twitter, Linkedin, Music2, Sparkles, Upload, X } from 'lucide-react'
 import { LogoMark } from '../components/ui/Logo'
 import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
@@ -61,10 +61,19 @@ function isProbablyValidUrl(value) {
 export default function OnboardingPage() {
   const navigate = useNavigate()
   const { user, updateUser } = useAuthStore()
-  const { workspaces, activeWorkspaceId, fetchWorkspaces, fetchBrands, renameWorkspace } = useAppStore()
+  const {
+    workspaces,
+    activeWorkspaceId,
+    fetchWorkspaces,
+    fetchBrands,
+    renameWorkspace,
+    addBrand,
+    setActiveWorkspace,
+  } = useAppStore()
   const [step, setStep] = useState(1)
   const [submitting, setSubmitting] = useState(false)
   const fileInputRef = useRef(null)
+  const otherWorkspaces = workspaces.filter((w) => w.id !== activeWorkspaceId)
 
   const [form, setForm] = useState({
     business_name: '',
@@ -266,7 +275,23 @@ export default function OnboardingPage() {
       // The brand now exists, so /me will report onboarding_completed=true.
       // Set it locally so the overlay unmounts immediately, no /me round-trip.
       updateUser({ onboarding_completed: true })
-      await fetchBrands(wsId).catch(() => {})
+
+      // Surface the new brand in local state synchronously so the dashboard's
+      // onboarding gate releases right away — the follow-up fetchBrands below
+      // refreshes the canonical record but is no longer load-bearing for the
+      // overlay dismissal.
+      if (result?.brand_id && wsId === activeWorkspaceId) {
+        addBrand({
+          id: result.brand_id,
+          workspace_id: wsId,
+          name: form.business_name.trim(),
+          website: form.product_url.trim(),
+          industry: form.category || null,
+          sub_industry: form.sub_category || null,
+          brand_colors: form.brand_colors || [],
+        })
+      }
+      fetchBrands(wsId).catch(() => {})
 
       toast(
         "We're generating your first week of posts now. They'll start landing on your calendar in a few minutes.",
@@ -284,11 +309,35 @@ export default function OnboardingPage() {
   return (
     <div className="min-h-screen bg-mist flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-lg">
-        <div className="flex items-center gap-2.5 mb-8">
-          <LogoMark size={28} />
-          <span className="font-bold text-ink text-[15px]" style={{ letterSpacing: '-0.02em' }}>
-            ContentCard
-          </span>
+        <div className="flex items-center justify-between gap-3 mb-8">
+          <div className="flex items-center gap-2.5">
+            <LogoMark size={28} />
+            <span className="font-bold text-ink text-[15px]" style={{ letterSpacing: '-0.02em' }}>
+              ContentCard
+            </span>
+          </div>
+          {otherWorkspaces.length > 0 && (
+            <div className="relative">
+              <select
+                value=""
+                disabled={submitting}
+                onChange={(e) => {
+                  const next = e.target.value
+                  if (next && next !== activeWorkspaceId) {
+                    setActiveWorkspace(next).catch(() => {})
+                  }
+                }}
+                className="appearance-none bg-surface border border-fog rounded-lg pl-3 pr-7 py-1.5 text-xs font-semibold text-ink/70 outline-none cursor-pointer max-w-[180px] truncate disabled:opacity-50"
+                aria-label="Switch to another brand"
+              >
+                <option value="">Switch brand…</option>
+                {otherWorkspaces.map((ws) => (
+                  <option key={ws.id} value={ws.id}>{ws.name}</option>
+                ))}
+              </select>
+              <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink/40" />
+            </div>
+          )}
         </div>
 
         <div className="bg-surface border border-fog rounded-2xl p-7 shadow-sm">
