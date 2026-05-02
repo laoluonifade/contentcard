@@ -62,8 +62,6 @@ export default function GeneratePage() {
     trends,
     brands,
     fetchTrends,
-    templates,
-    fetchTemplates,
   } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
   const showTrends = planIncludesTrendingTopics(activeWorkspace?.plan)
@@ -79,42 +77,17 @@ export default function GeneratePage() {
   const [onlyNewWebsiteChanges, setOnlyNewWebsiteChanges] = useState(false)
   const [useReferenceResearch, setUseReferenceResearch] = useState(true)
   const [variantCount, setVariantCount] = useState(2)
-  const [selectedTemplateId, setSelectedTemplateId] = useState('')
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
-  const usableTemplates = (templates || []).filter(t => t.is_active)
 
   useEffect(() => {
     if (location.state?.topic) { setTopic(location.state.topic); setSelTrend(null) }
   }, [location.state])
 
   useEffect(() => {
-    const incomingTemplateId = location.state?.templateId
-    if (!incomingTemplateId || !usableTemplates.length) return
-    if (usableTemplates.some((t) => t.id === incomingTemplateId)) {
-      setSelectedTemplateId(incomingTemplateId)
-    }
-  }, [location.state?.templateId, usableTemplates.length])
-
-  useEffect(() => {
     if (!showTrends) return
     if (trends.length) return
     fetchTrends().catch(() => {})
   }, [showTrends, activeWorkspace?.id])
-
-  useEffect(() => {
-    if (!activeBrandId) return
-    fetchTemplates().catch(() => {})
-  }, [activeBrandId])
-
-  useEffect(() => {
-    if (usableTemplates.length === 0) {
-      setSelectedTemplateId('')
-      return
-    }
-    if (!usableTemplates.find(t => t.id === selectedTemplateId)) {
-      setSelectedTemplateId(usableTemplates[0].id)
-    }
-  }, [templates, selectedTemplateId])
 
   useEffect(() => {
     if (!generatingMonth || !generationStartedAt) {
@@ -153,7 +126,6 @@ export default function GeneratePage() {
       only_new_changes: onlyNewWebsiteChanges,
       use_reference_research: useReferenceResearch,
       variant_count: variantCount,
-      template_id: selectedTemplateId || null,
       confirm_duplicate: confirmDuplicate,
     })
   }
@@ -229,45 +201,10 @@ export default function GeneratePage() {
       <div className="grid lg:grid-cols-[1fr_240px] gap-6 items-start">
         <div className="space-y-3">
 
-          {/* Step 1: Playbook */}
+          {/* Step 1: Platform */}
           <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">1</span>
-              Playbook item
-            </p>
-            {usableTemplates.length === 0 ? (
-              <div className="space-y-2">
-                <p className="text-xs text-ink/60">
-                  No customized playbook item selected. We will generate from your current brand playbook defaults.
-                </p>
-                <p className="text-[11px] text-ink/40">
-                  Create playbook items to control recurring content type, cadence, and design contract.
-                </p>
-              </div>
-            ) : (
-              <div className="grid sm:grid-cols-2 gap-2">
-                {usableTemplates.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => setSelectedTemplateId(t.id)}
-                    className={`text-left border rounded-xl p-3 transition-all ${
-                      selectedTemplateId === t.id ? 'border-ink bg-mist' : 'border-fog hover:border-ink/20'
-                    }`}
-                  >
-                    <p className="text-xs font-semibold text-ink">{t.name}</p>
-                    <p className="text-[10px] text-ink/40 capitalize">
-                      {t.category}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Step 2: Platform */}
-          <div className="bg-surface border border-fog rounded-2xl p-5">
-            <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
-              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">2</span>
               Platform
             </p>
             <div className="grid grid-cols-4 gap-2">
@@ -285,10 +222,10 @@ export default function GeneratePage() {
             </div>
           </div>
 
-          {/* Step 3: Month */}
+          {/* Step 2: Month */}
           <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-4 flex items-center gap-2">
-              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">3</span>
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">2</span>
               Month
             </p>
             <div className="flex flex-wrap gap-2">
@@ -311,10 +248,10 @@ export default function GeneratePage() {
             <p className="text-ink/25 text-[11px] mt-2">You can generate up to 3 months ahead.</p>
           </div>
 
-          {/* Step 4: Posting frequency */}
+          {/* Step 3: Posting frequency */}
           <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
-              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">4</span>
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">3</span>
               Posting frequency
             </p>
             <p className="text-ink/30 text-xs mb-4 ml-6">
@@ -336,10 +273,10 @@ export default function GeneratePage() {
             </p>
           </div>
 
-          {/* Step 5: Website intelligence */}
+          {/* Step 4: Website intelligence */}
           <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-3 flex items-center gap-2">
-              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">5</span>
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">4</span>
               Website intelligence
             </p>
             <div className="space-y-3">
@@ -386,10 +323,10 @@ export default function GeneratePage() {
             </div>
           </div>
 
-          {/* Step 4: Topic */}
+          {/* Step 5: Topic */}
           <div className="bg-surface border border-fog rounded-2xl p-5">
             <p className="text-xs font-medium text-ink/40 mb-1 flex items-center gap-2">
-              <span className="w-4 h-4 rounded-full bg-mist text-ink/30 text-[9px] font-bold flex items-center justify-center">6</span>
+              <span className="w-4 h-4 rounded-full bg-mist text-ink/30 text-[9px] font-bold flex items-center justify-center">5</span>
               Focus topic <span className="text-ink/25 font-normal ml-1">(optional)</span>
             </p>
             <p className="text-ink/30 text-xs mb-3 ml-6">Leave blank for varied topics, automatically selected</p>
