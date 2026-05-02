@@ -179,7 +179,7 @@ function buildSeo(pathname) {
   return { ...pageMeta, structuredData }
 }
 
-export default function MarketingLayout({ children }) {
+export default function MarketingLayout({ children, hideFooter = false }) {
   const location = useLocation()
   const seo = buildSeo(location.pathname)
   const marketingLightThemeVars = {
@@ -228,7 +228,9 @@ export default function MarketingLayout({ children }) {
       {/* Page content */}
       <main className="flex-1">{children}</main>
 
-      {/* Footer */}
+      {/* Footer — suppressed on legal pages so the dense green block doesn't
+          dominate a short policy page on mobile. */}
+      {!hideFooter && (
       <footer className="relative overflow-hidden border-t border-fog py-14 px-4 sm:px-6 mt-24 bg-gradient-to-br from-[#064E3B] via-[#047857] to-[#10B981]">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_85%,rgba(52,211,153,0.45),transparent_35%),radial-gradient(circle_at_88%_20%,rgba(16,185,129,0.35),transparent_30%),radial-gradient(circle_at_55%_100%,rgba(110,231,183,0.28),transparent_38%)]" />
         <div className="relative max-w-7xl mx-auto rounded-3xl border border-white/50 bg-white/88 backdrop-blur-sm p-8 sm:p-10">
@@ -258,6 +260,7 @@ export default function MarketingLayout({ children }) {
           </div>
         </div>
       </footer>
+      )}
     </div>
   )
 }
