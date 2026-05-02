@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Check, Plus, Upload, X } from 'lucide-react'
+import { Check, Plus, Upload, X, Instagram, Facebook, Twitter, Linkedin, Music2 } from 'lucide-react'
 import clsx from 'clsx'
 
 import useAppStore from '../stores/appStore'
@@ -10,6 +10,31 @@ import LogoCropModal from '../components/brand/LogoCropModal'
 import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 import { normalizeHex } from '../lib/brandVisualValidate'
 import { extractLogoColors } from '../lib/extractLogoColors'
+
+// Mirror the onboarding option lists so the Brand Kit shows the same
+// labels for every value the brand was created with.
+const SALES_CHANNELS = [
+  { id: 'shopify',     label: 'Shopify' },
+  { id: 'chowdeck',    label: 'Chowdeck' },
+  { id: 'own_website', label: 'My own website' },
+  { id: 'bumpa',       label: 'Bumpa' },
+  { id: 'selar',       label: 'Selar' },
+  { id: 'others',      label: 'Others' },
+]
+
+const PLATFORMS = [
+  { id: 'instagram', label: 'Instagram', Icon: Instagram },
+  { id: 'facebook',  label: 'Facebook',  Icon: Facebook  },
+  { id: 'twitter',   label: 'X',         Icon: Twitter   },
+  { id: 'linkedin',  label: 'LinkedIn',  Icon: Linkedin  },
+  { id: 'tiktok',    label: 'TikTok',    Icon: Music2    },
+]
+
+const GOALS = [
+  { id: 'sales',      label: 'Drive sales',      hint: 'Posts that lead to checkout.' },
+  { id: 'engagement', label: 'Build engagement', hint: 'Posts your followers comment and share.' },
+  { id: 'awareness',  label: 'Brand awareness',  hint: 'Posts that introduce you to new people.' },
+]
 
 /*
  * Brand Kit — simplified to six fields per the PRD.
@@ -63,6 +88,13 @@ function formFromBrand(brand) {
       ? brand.tone_tags.slice(0, MAX_TONES)
       : [],
     tagline: typeof kit.tagline === 'string' ? kit.tagline : '',
+    // Onboarding fields previously hidden from Brand Kit. The website
+    // lives on its own column; sales_channel + primary_platforms +
+    // primary_goals live inside brand_kit JSON.
+    website: brand?.website || '',
+    sales_channel: typeof kit.sales_channel === 'string' ? kit.sales_channel : '',
+    primary_platforms: Array.isArray(kit.primary_platforms) ? kit.primary_platforms : [],
+    primary_goals: Array.isArray(kit.primary_goals) ? kit.primary_goals : [],
   }
 }
 
@@ -215,6 +247,17 @@ export default function BrandKitPage() {
     set('tone_tags', [...cur, tone])
   }
 
+  // ── Multi-select helpers for primary platforms / goals ───────────────────
+  const togglePlatform = (id) => {
+    const cur = form.primary_platforms
+    set('primary_platforms', cur.includes(id) ? cur.filter((p) => p !== id) : [...cur, id])
+  }
+
+  const toggleGoal = (id) => {
+    const cur = form.primary_goals
+    set('primary_goals', cur.includes(id) ? cur.filter((g) => g !== id) : [...cur, id])
+  }
+
   // ── Save ──────────────────────────────────────────────────────────────────
   const dirty = useMemo(() => {
     if (!brand) return false
@@ -224,8 +267,12 @@ export default function BrandKitPage() {
     if (cur.industry !== form.industry) return true
     if (cur.sub_industry !== form.sub_industry) return true
     if (cur.tagline !== form.tagline) return true
+    if (cur.website !== form.website) return true
+    if (cur.sales_channel !== form.sales_channel) return true
     if (!arraysEqual(cur.brand_colors, form.brand_colors)) return true
     if (!arraysEqual(cur.tone_tags, form.tone_tags)) return true
+    if (!arraysEqual(cur.primary_platforms, form.primary_platforms)) return true
+    if (!arraysEqual(cur.primary_goals, form.primary_goals)) return true
     return false
   }, [brand, form])
 
@@ -250,11 +297,15 @@ export default function BrandKitPage() {
         logo_url: form.logo_url || null,
         industry: form.industry || null,
         sub_industry: form.sub_industry || null,
+        website: form.website.trim() || null,
         brand_colors: form.brand_colors,
         tone_tags: form.tone_tags.map((t) => t.toLowerCase()),
         brand_kit: {
           ...(brand.brand_kit && typeof brand.brand_kit === 'object' ? brand.brand_kit : {}),
           tagline: form.tagline.trim() || null,
+          sales_channel: form.sales_channel || null,
+          primary_platforms: form.primary_platforms,
+          primary_goals: form.primary_goals,
         },
       }
       await brandApi.update(activeWorkspaceId, brand.id, updates)
@@ -432,7 +483,47 @@ export default function BrandKitPage() {
           </div>
         )}
 
-        {/* 4. Brand colours */}
+        {/* 4. Where you sell — sales channel + storefront URL.
+            Captured at onboarding; surfaced here so users can change them
+            after they've moved platforms or pointed a new domain. */}
+        <div>
+          <label htmlFor="brand-sales-channel" className={labelCls}>Where you sell</label>
+          <select
+            id="brand-sales-channel"
+            className={`${inputCls} cursor-pointer`}
+            value={form.sales_channel}
+            onChange={(e) => set('sales_channel', e.target.value)}
+          >
+            <option value="">Pick the platform you sell on…</option>
+            {SALES_CHANNELS.map((c) => (
+              <option key={c.id} value={c.id}>{c.label}</option>
+            ))}
+          </select>
+          <p className="text-xs text-ink/45 mt-2">
+            Drives how we fetch your products. Bumpa stores on a custom domain still work — pick
+            Bumpa here.
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="brand-website" className={labelCls}>
+            Storefront URL <span className="text-ink/40 font-normal normal-case">(used for product sync)</span>
+          </label>
+          <input
+            id="brand-website"
+            className={inputCls}
+            value={form.website}
+            onChange={(e) => set('website', e.target.value)}
+            placeholder="yourstore.bumpa.shop  ·  yourstore.myshopify.com  ·  yourdomain.com"
+            inputMode="url"
+            autoComplete="url"
+          />
+          <p className="text-xs text-ink/45 mt-2">
+            We re-scan this on every sync. Update it if you move platforms or change domains.
+          </p>
+        </div>
+
+        {/* 5. Brand colours */}
         <div>
           <label className={labelCls}>
             Brand colours <span className="text-ink/40 font-normal normal-case">(optional, up to {MAX_COLOURS})</span>
@@ -502,7 +593,7 @@ export default function BrandKitPage() {
           </p>
         </div>
 
-        {/* 5. Brand tone */}
+        {/* 6. Brand tone */}
         <div>
           <label className={labelCls}>
             Brand tone <span className="text-ink/40 font-normal normal-case">(pick up to {MAX_TONES})</span>
@@ -534,7 +625,73 @@ export default function BrandKitPage() {
           </p>
         </div>
 
-        {/* 6. Tagline */}
+        {/* 7. Primary platforms — captured at onboarding; surfaced here so
+            users can update where they want to publish. */}
+        <div>
+          <label className={labelCls}>
+            Primary platforms <span className="text-ink/40 font-normal normal-case">(pick any)</span>
+          </label>
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+            {PLATFORMS.map(({ id, label, Icon }) => {
+              const active = form.primary_platforms.includes(id)
+              return (
+                <button
+                  type="button"
+                  key={id}
+                  onClick={() => togglePlatform(id)}
+                  aria-pressed={active}
+                  className={clsx(
+                    'flex flex-col items-center gap-1.5 px-2 py-3 rounded-xl border text-xs font-semibold transition-colors',
+                    active
+                      ? 'border-brand-400 bg-brand-500/10 text-ink'
+                      : 'border-fog bg-mist/40 text-ink/55 hover:border-brand-300',
+                  )}
+                >
+                  <Icon size={16} />
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-xs text-ink/45 mt-2">
+            Drives the default platform when you generate a month. Leave blank to default to Instagram.
+          </p>
+        </div>
+
+        {/* 8. Primary goals */}
+        <div>
+          <label className={labelCls}>
+            Primary goals <span className="text-ink/40 font-normal normal-case">(pick any)</span>
+          </label>
+          <div className="space-y-2">
+            {GOALS.map(({ id, label, hint }) => {
+              const active = form.primary_goals.includes(id)
+              return (
+                <button
+                  type="button"
+                  key={id}
+                  onClick={() => toggleGoal(id)}
+                  aria-pressed={active}
+                  className={clsx(
+                    'w-full text-left px-4 py-3 rounded-xl border transition-colors',
+                    active
+                      ? 'border-brand-400 bg-brand-500/10'
+                      : 'border-fog bg-mist/40 hover:border-brand-300',
+                  )}
+                >
+                  <p className={clsx('text-sm font-semibold', active ? 'text-ink' : 'text-ink/75')}>{label}</p>
+                  <p className="text-xs text-ink/50 mt-0.5">{hint}</p>
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-xs text-ink/45 mt-2">
+            Bias the calendar toward what you want most. The strategist still mixes in supporting
+            content types.
+          </p>
+        </div>
+
+        {/* 9. Tagline */}
         <div>
           <label htmlFor="brand-tagline" className={labelCls}>
             Tagline <span className="text-ink/40 font-normal normal-case">(optional)</span>
