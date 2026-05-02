@@ -1467,6 +1467,96 @@ async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand
     return True
 
 
+def _component_types_present(components: list) -> set[str]:
+    out: set[str] = set()
+    if not isinstance(components, list):
+        return out
+    for c in components:
+        if isinstance(c, dict):
+            t = str(c.get("type") or "").strip()
+            if t:
+                out.add(t)
+    return out
+
+
+def _enforce_required_components(
+    components: list,
+    post_type: str,
+    post_data: dict,
+    brand_dict: dict,
+) -> list:
+    """Post-process the strategist's component list so every post_type carries
+    its required slots. The strategist sometimes returns a valid-but-thin list
+    like [Headline, CTAButton] for an offer_discount post, which renders as a
+    vague headline with no offer attached. This function tops up the missing
+    slots in-place rather than dropping back to the full fallback synth.
+
+    Rules:
+      - offer_discount → must include Badge (extracted offer or month floor)
+      - social_proof   → must include ReviewCard (synthesized from
+        message_architecture.evidence when the strategist omitted one)
+    """
+    if not isinstance(components, list):
+        components = []
+    types = _component_types_present(components)
+    pt = str(post_type or "").strip().lower()
+
+    if pt == "offer_discount" and "Badge" not in types:
+        holiday_name = str(post_data.get("holiday_name") or "").strip()
+        if holiday_name:
+            badge_content = holiday_name.upper()[:24]
+        else:
+            badge_content = _extract_offer_badge_text(post_data)
+        if not badge_content:
+            scheduled = str(post_data.get("scheduled_date") or "").strip()
+            month_names = (
+                "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+                "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
+            )
+            month_token = ""
+            if scheduled:
+                try:
+                    month_token = month_names[int(scheduled.split("-")[1]) - 1]
+                except (ValueError, IndexError):
+                    month_token = ""
+            badge_content = (f"{month_token} SPECIAL" if month_token else "LIMITED OFFER")[:24]
+        # Badges read first, so insert at the front.
+        components = [{"type": "Badge", "content": badge_content}, *components]
+
+    if pt == "social_proof" and "ReviewCard" not in types:
+        ma = post_data.get("message_architecture") if isinstance(post_data.get("message_architecture"), dict) else {}
+        # Prefer evidence (the proof line) over support so the rendered card
+        # carries the strongest customer-quote candidate. Cap to a length the
+        # ReviewCard slot can render without overflow.
+        quote_src = (
+            str(ma.get("evidence") or "").strip()
+            or str(ma.get("support") or "").strip()
+            or str(post_data.get("description") or "").strip()
+        )
+        if quote_src:
+            quote = quote_src.split(".")[0].strip()
+            if len(quote) > 160:
+                quote = quote[:157].rstrip() + "..."
+            attribution = (
+                str((post_data.get("attribution") or "")).strip()
+                or "A real customer"
+            )
+            components = [
+                *components,
+                {
+                    "type": "ReviewCard",
+                    "content": {"quote": quote, "by": attribution},
+                },
+            ]
+        else:
+            logger.info(
+                "social_proof post had no message_architecture evidence/support to "
+                "synthesize a ReviewCard; rendering will fall back to Headline only."
+            )
+
+    return components
+
+
 def _extract_offer_badge_text(post_data: dict) -> str | None:
     """Pull a short, loud offer string out of the post's message architecture
     or caption so an offer_discount post always has a visible value prop on
@@ -1729,7 +1819,17 @@ async def _render_with_quality_gate(
             cc_meta["strategy"] = strategist_out
             cc_meta["post_type"] = render_post.get("post_type") or strategist_out.get("post_type")
             cc_meta["layout"] = render_post.get("layout_family") or strategist_out.get("layout")
-            cc_meta["components"] = render_post.get("component_pack") or strategist_out.get("components") or []
+            base_components = render_post.get("component_pack") or strategist_out.get("components") or []
+            # Even when the strategist succeeds, its components list can be
+            # thin (e.g. offer posts shipping without a Badge, social_proof
+            # posts shipping without a ReviewCard). Top up the missing slots
+            # so the canvas always renders the value prop the post promised.
+            cc_meta["components"] = _enforce_required_components(
+                list(base_components),
+                str(cc_meta.get("post_type") or ""),
+                render_post,
+                brand_dict,
+            )
             cc_meta["use_product_image"] = (
                 render_post.get("use_product_image")
                 if render_post.get("use_product_image") is not None
@@ -1741,6 +1841,22 @@ async def _render_with_quality_gate(
         # AI is the only renderer; the raw AI frames ARE the final visual set.
         # For carousels, generate_post_image returns N frames (one per slide).
         item.image_urls = list(bg_urls) if bg_urls else None
+        if not bg_urls:
+            # Surface this loudly so a silent image failure stops looking
+            # like "the canvas just rendered green". The post still saves
+            # because the component overlay can carry the message, but ops
+            # need to know the AI image pipeline produced nothing on this
+            # attempt.
+            logger.warning(
+                "Empty image_urls for post %s after attempt %s/%s "
+                "(brand=%s, post_type=%s); canvas will fall back to "
+                "brand-color background.",
+                getattr(item, "id", "?"),
+                attempt + 1,
+                max_attempts,
+                brand_dict.get("name") or brand_dict.get("id"),
+                render_post.get("post_type") or "?",
+            )
 
         last_logo_ok = await _apply_brand_logo_to_visuals(item, render_post, brand_dict)
         rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
