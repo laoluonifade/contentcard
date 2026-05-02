@@ -30,3 +30,23 @@ class OnboardingQuickStartResponse(BaseModel):
     # avoid showing a duplicate "we're generating!" toast on retries.
     generation_started: bool
     already_onboarded: bool
+
+
+class OnboardingProductCheckRequest(BaseModel):
+    """Dry-run probe: does this storefront URL surface products we can fetch?"""
+    product_url: str
+    # Optional. When the user has already picked a sales channel in onboarding
+    # we trust it for platform detection (mirrors the website-sync fast path).
+    sales_channel: str | None = None
+
+
+class OnboardingProductCheckResponse(BaseModel):
+    # Status the frontend renders into the loader chip:
+    #   'ok'      → at least one product found, sync will work.
+    #   'empty'   → reached the storefront but it has no products yet.
+    #   'invalid' → URL is malformed or unreachable.
+    #   'error'   → upstream request failed (timeout, 5xx, etc).
+    status: str
+    product_count: int = 0
+    platform_detected: str | None = None
+    message: str

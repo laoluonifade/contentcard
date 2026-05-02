@@ -161,6 +161,8 @@ export const workspaceApi = {
 
 // ─── Onboarding ─────────────────────────────────────────────────
 export const onboardingApi = {
+  checkProducts: (wsId, data) =>
+    api.post(`/workspaces/${wsId}/onboarding/check-products`, data).then((r) => r.data),
   quickStart: (wsId, data) =>
     api.post(`/workspaces/${wsId}/onboarding/quick-start`, data).then((r) => r.data),
 }

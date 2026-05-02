@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, Check, ChevronDown, Instagram, Facebook, Twitter, Linkedin, Music2, Sparkles, Upload, X } from 'lucide-react'
 import { LogoMark } from '../components/ui/Logo'
@@ -92,10 +92,82 @@ export default function OnboardingPage() {
   const [colorDraft, setColorDraft] = useState('')
   const [dragActive, setDragActive] = useState(false)
 
+  // Storefront probe state. We don't block onboarding on the result —
+  // the loader is just feedback so users see whether their products will
+  // come through automatically or whether they'll need to upload manually
+  // from the dashboard later.
+  const [productCheck, setProductCheck] = useState({
+    state: 'idle',  // idle | loading | ok | empty | error | invalid
+    count: 0,
+    message: '',
+    platform: null,
+    url: '',  // the URL the result corresponds to — guards against stale responses
+  })
+  const productCheckTimerRef = useRef(null)
+
   // Whenever the parent category changes, drop the sub-category so the user
   // doesn't end up with an inconsistent (parent A, sub from parent B) pair.
   const set = (k, v) =>
     setForm((f) => (k === 'category' ? { ...f, category: v, sub_category: '' } : { ...f, [k]: v }))
+
+  // Debounced probe. Fires ~700 ms after the URL or sales-channel field
+  // settles, only when the URL looks valid. Stale responses are dropped
+  // by checking the URL on the response.
+  useEffect(() => {
+    if (productCheckTimerRef.current) {
+      clearTimeout(productCheckTimerRef.current)
+      productCheckTimerRef.current = null
+    }
+    const url = (form.product_url || '').trim()
+    if (!url || !isProbablyValidUrl(url)) {
+      setProductCheck({ state: 'idle', count: 0, message: '', platform: null, url: '' })
+      return
+    }
+    setProductCheck((p) => ({ ...p, state: 'loading', message: 'Checking your store…', url }))
+    productCheckTimerRef.current = setTimeout(async () => {
+      try {
+        let wsId = activeWorkspaceId
+        if (!wsId) {
+          const list = await fetchWorkspaces().catch(() => [])
+          wsId = list?.[0]?.id || null
+        }
+        if (!wsId) {
+          // No workspace yet — skip silently. The post-submit chain will run a
+          // full website sync once the brand is created.
+          setProductCheck({ state: 'idle', count: 0, message: '', platform: null, url: '' })
+          return
+        }
+        const res = await onboardingApi.checkProducts(wsId, {
+          product_url: url,
+          sales_channel: form.sales_channel || null,
+        })
+        setProductCheck({
+          state: res.status,
+          count: res.product_count || 0,
+          message: res.message || '',
+          platform: res.platform_detected || null,
+          url,
+        })
+      } catch (err) {
+        setProductCheck({
+          state: 'error',
+          count: 0,
+          platform: null,
+          message:
+            err?.response?.data?.detail ||
+            "We couldn't check your store right now. Don't panic — finish onboarding and you can upload products manually later.",
+          url,
+        })
+      }
+    }, 700)
+    return () => {
+      if (productCheckTimerRef.current) {
+        clearTimeout(productCheckTimerRef.current)
+        productCheckTimerRef.current = null
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.product_url, form.sales_channel, activeWorkspaceId])
 
   const toggleInArray = (key, id) =>
     setForm((f) => {
@@ -409,9 +481,40 @@ export default function OnboardingPage() {
                   inputMode="url"
                   autoComplete="url"
                 />
-                <p className="text-xs text-ink/45 mt-2">
-                  We&apos;ll scan your storefront for products, prices, and your visual style.
-                </p>
+                {/* Product-fetch loader: feedback only, never blocks onboarding.
+                    States: idle (no chip) · loading · ok · empty · error · invalid. */}
+                {productCheck.state === 'loading' && (
+                  <div className="mt-2 flex items-center gap-2 text-xs text-ink/55">
+                    <span className="w-3 h-3 border-[1.5px] border-ink/30 border-t-ink rounded-full animate-spin" aria-hidden />
+                    {productCheck.message || 'Checking your store…'}
+                  </div>
+                )}
+                {productCheck.state === 'ok' && (
+                  <div
+                    role="status"
+                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-xs font-semibold text-emerald-700"
+                  >
+                    <span aria-hidden>✓</span>
+                    Found {productCheck.count} product{productCheck.count === 1 ? '' : 's'}
+                  </div>
+                )}
+                {productCheck.state === 'empty' && (
+                  <p className="mt-2 text-xs text-amber-700 leading-relaxed">
+                    {productCheck.message ||
+                      "We reached your store but couldn't find any products yet. No problem — finish onboarding and you can upload products from the dashboard."}
+                  </p>
+                )}
+                {(productCheck.state === 'error' || productCheck.state === 'invalid') && (
+                  <p className="mt-2 text-xs text-ink/60 leading-relaxed">
+                    {productCheck.message ||
+                      "Don't panic — finish onboarding and you'll be able to upload products manually from the dashboard."}
+                  </p>
+                )}
+                {productCheck.state === 'idle' && (
+                  <p className="text-xs text-ink/45 mt-2">
+                    We&apos;ll scan your storefront for products, prices, and your visual style.
+                  </p>
+                )}
               </div>
 
               <div>
