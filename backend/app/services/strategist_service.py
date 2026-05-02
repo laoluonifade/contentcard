@@ -174,6 +174,26 @@ Hard rules:
 6. NON-NEGOTIABLES — every output must enable: clear hierarchy, breathing space,
    sensible product use when one is featured, CTA always present, no clutter.
 
+FINAL RULES (apply to every post, every sub-category — do not break these):
+A. TEXT ON DESIGN ≠ CAPTION. The on-image text (`text_on_image` and any
+   Headline / Badge / CTAButton component) must be SHORT — typically 1-5
+   words for product-led posts, max one short line otherwise. Never put a
+   paragraph on the image. The caption carries the detail (how, when,
+   where, link).
+B. ONE CLEAR FOCUS PER POST. Every post says ONE thing. No layered offers,
+   no two competing headlines, no laundry list of features. If the planner
+   handed you a moment, lead with that moment; everything else recedes.
+C. AVOID THE GENERIC AI LOOK. Specify real people, real context, real
+   depth in `scene` and `composition`. No plastic AI faces, no symmetric
+   stock-photo poses, no glossy 3D renders unless the product itself is
+   3D. Reference local culture and the brand's actual market.
+D. MATCH THE SUB-CATEGORY. The CATEGORY DESIGN CUES block in the user
+   message names a sub-category for THIS brand. Honour the cues for that
+   exact sub-category — a Restaurant post is not a Bakery post; a
+   Streetwear drop is not a Luxury Fashion launch. Lean into the
+   sub-category's `layout_emphasis`, `text_balance`, and `tone_hint`
+   even when they pull against the parent's defaults.
+
 POST TYPES — pick exactly one:
 - product_spotlight  — single product as hero (default for product-led posts)
 - offer_discount     — promo / sale / urgency-driven
@@ -509,7 +529,10 @@ async def call_strategist(
     cues_block = ""
     try:
         from app.services.category_design_cues import get_category_cues, cues_as_text
-        cues = get_category_cues(brand_kit.get("industry") if isinstance(brand_kit, dict) else None)
+        if isinstance(brand_kit, dict):
+            cues = get_category_cues(brand_kit.get("industry"), brand_kit.get("sub_industry"))
+        else:
+            cues = get_category_cues(None)
         cues_block = cues_as_text(cues, label="CATEGORY DESIGN CUES (combine with brand tone + colours)")
     except Exception:
         cues_block = ""

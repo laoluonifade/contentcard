@@ -4460,7 +4460,9 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
     # category without overriding brand-specific colours or tone.
     try:
         from app.services.category_design_cues import get_category_cues, cues_as_text
-        _cues_block = cues_as_text(get_category_cues(brand.get("industry")))
+        _cues_block = cues_as_text(
+            get_category_cues(brand.get("industry"), brand.get("sub_industry"))
+        )
         if _cues_block:
             brand_ctx = f"{brand_ctx}\n\n{_cues_block}"
     except Exception:  # never let a cue lookup break generation
