@@ -261,6 +261,13 @@ async def quick_start(
         match = next((c for c in supported_categories() if c.lower() == cat_lower), None)
         category = match or category
 
+    # Sub-category travels through to brand.sub_industry. We don't validate the
+    # exact value against a server-side list — the canonical taxonomy lives in
+    # the frontend (lib/industryTaxonomy.js) and we'd rather accept whatever
+    # the user picked than reject a legitimate sub-industry the backend hasn't
+    # been taught about.
+    sub_category = (body.sub_category or "").strip() or None
+
     # If this workspace already has a brand, the user finished onboarding
     # earlier (or in another session). Don't silently double-create.
     existing = (
@@ -280,6 +287,8 @@ async def quick_start(
         kit["primary_goal"] = primary_goal
     if category:
         kit["onboarding_category"] = category
+    if sub_category:
+        kit["onboarding_sub_category"] = sub_category
 
     brand = Brand(
         workspace_id=workspace_id,
@@ -287,6 +296,7 @@ async def quick_start(
         website=website,
         logo_url=logo_url,
         industry=category,
+        sub_industry=sub_category,
         brand_kit=kit,
     )
     _apply_quick_start_defaults(brand, business_name)

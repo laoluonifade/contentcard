@@ -6,7 +6,7 @@ import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { onboardingApi, workspaceApi } from '../api'
-import { INDUSTRIES } from '../lib/industryTaxonomy'
+import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 
 /*
  * Streamlined onboarding.
@@ -54,12 +54,18 @@ export default function OnboardingPage() {
     business_name: '',
     product_url: '',
     category: '',
+    sub_category: '',
     logo_url: '',
     primary_platform: '',
     primary_goal: '',
   })
 
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+  // Whenever the parent category changes, drop the sub-category so the user
+  // doesn't end up with an inconsistent (parent A, sub from parent B) pair.
+  const set = (k, v) =>
+    setForm((f) => (k === 'category' ? { ...f, category: v, sub_category: '' } : { ...f, [k]: v }))
+
+  const subCategoryOptions = INDUSTRY_TAXONOMY[form.category] || []
 
   const firstName = user?.full_name?.split(' ')[0] || ''
 
@@ -74,6 +80,10 @@ export default function OnboardingPage() {
     }
     if (!form.category) {
       toast('Pick the category that fits your business.', 'error')
+      return
+    }
+    if (!form.sub_category) {
+      toast('Pick the sub-category that fits best.', 'error')
       return
     }
     setStep(2)
@@ -103,6 +113,7 @@ export default function OnboardingPage() {
         business_name: form.business_name.trim(),
         product_url: form.product_url.trim(),
         category: form.category || null,
+        sub_category: form.sub_category || null,
         logo_url: form.logo_url.trim() || null,
         primary_platform: form.primary_platform || null,
         primary_goal: form.primary_goal || null,
@@ -213,6 +224,26 @@ export default function OnboardingPage() {
                   finance posts lean confident-neutral, fashion posts lean editorial.
                 </p>
               </div>
+
+              {form.category && (
+                <div>
+                  <label className="label">Sub-category</label>
+                  <select
+                    className="input cursor-pointer"
+                    value={form.sub_category}
+                    onChange={(e) => setForm((f) => ({ ...f, sub_category: e.target.value }))}
+                  >
+                    <option value="">Pick a sub-category…</option>
+                    {subCategoryOptions.map((s) => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-ink/45 mt-2">
+                    Sharpens the visual direction further — e.g. quick-service vs. fine
+                    dining within Food &amp; Beverage.
+                  </p>
+                </div>
+              )}
 
               <button
                 type="button"

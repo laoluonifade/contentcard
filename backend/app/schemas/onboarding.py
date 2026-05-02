@@ -8,6 +8,10 @@ class OnboardingQuickStartRequest(BaseModel):
     # immediately rather than waiting on async website inference.
     # See category_design_cues.supported_categories() for the canonical list.
     category: str | None = None
+    # Sub-category under the parent (e.g. 'D2C Fashion' under 'E-commerce
+    # & Retail'). Stored on `brand.sub_industry` and used by the design
+    # playbook to pick a more specific template family.
+    sub_category: str | None = None
     logo_url: str | None = None
     primary_platform: str | None = None  # instagram | facebook | twitter | linkedin | tiktok
     primary_goal: str | None = None  # sales | engagement | awareness

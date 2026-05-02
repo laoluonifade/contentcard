@@ -7,7 +7,7 @@ import useAppStore from '../stores/appStore'
 import { brandApi } from '../api'
 import { toast } from '../components/ui/Toast'
 import LogoCropModal from '../components/brand/LogoCropModal'
-import { INDUSTRIES } from '../lib/industryTaxonomy'
+import { INDUSTRIES, INDUSTRY_TAXONOMY } from '../lib/industryTaxonomy'
 import { normalizeHex } from '../lib/brandVisualValidate'
 
 /*
@@ -54,6 +54,7 @@ function formFromBrand(brand) {
     name: brand?.name || '',
     logo_url: brand?.logo_url || '',
     industry: brand?.industry || '',
+    sub_industry: brand?.sub_industry || '',
     brand_colors: Array.isArray(brand?.brand_colors) && brand.brand_colors.length
       ? brand.brand_colors.slice(0, MAX_COLOURS)
       : [],
@@ -92,7 +93,12 @@ export default function BrandKitPage() {
     if (brand) setForm(formFromBrand(brand))
   }, [brand?.id, brand?.updated_at]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+  // When the parent industry changes, drop the sub_industry so we don't end up
+  // with an inconsistent (parent A, sub from parent B) pair on save.
+  const set = (k, v) =>
+    setForm((f) => (k === 'industry' ? { ...f, industry: v, sub_industry: '' } : { ...f, [k]: v }))
+
+  const subIndustryOptions = INDUSTRY_TAXONOMY[form.industry] || []
 
   // ── Logo upload ───────────────────────────────────────────────────────────
   const onPickFile = (e) => {
@@ -178,6 +184,7 @@ export default function BrandKitPage() {
     if (cur.name !== form.name) return true
     if (cur.logo_url !== form.logo_url) return true
     if (cur.industry !== form.industry) return true
+    if (cur.sub_industry !== form.sub_industry) return true
     if (cur.tagline !== form.tagline) return true
     if (!arraysEqual(cur.brand_colors, form.brand_colors)) return true
     if (!arraysEqual(cur.tone_tags, form.tone_tags)) return true
@@ -194,12 +201,17 @@ export default function BrandKitPage() {
       toast('Pick a business type so the AI knows your visual norms.', 'error')
       return
     }
+    if (subIndustryOptions.length > 0 && !form.sub_industry) {
+      toast('Pick the sub-category that fits best.', 'error')
+      return
+    }
     setSaving(true)
     try {
       const updates = {
         name: form.name.trim(),
         logo_url: form.logo_url || null,
         industry: form.industry || null,
+        sub_industry: form.sub_industry || null,
         brand_colors: form.brand_colors,
         tone_tags: form.tone_tags.map((t) => t.toLowerCase()),
         brand_kit: {
@@ -311,7 +323,7 @@ export default function BrandKitPage() {
           </p>
         </div>
 
-        {/* 3. Business type */}
+        {/* 3. Business type + sub-category */}
         <div>
           <label htmlFor="brand-industry" className={labelCls}>Business type</label>
           <select
@@ -330,6 +342,27 @@ export default function BrandKitPage() {
             confident-neutral, fashion posts lean editorial.
           </p>
         </div>
+
+        {form.industry && subIndustryOptions.length > 0 && (
+          <div>
+            <label htmlFor="brand-sub-industry" className={labelCls}>Sub-category</label>
+            <select
+              id="brand-sub-industry"
+              className={`${inputCls} cursor-pointer`}
+              value={form.sub_industry}
+              onChange={(e) => setForm((f) => ({ ...f, sub_industry: e.target.value }))}
+            >
+              <option value="">Pick a sub-category…</option>
+              {subIndustryOptions.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            <p className="text-xs text-ink/45 mt-2">
+              Sharpens the visual direction further — e.g. quick-service vs. fine dining within
+              Food &amp; Beverage.
+            </p>
+          </div>
+        )}
 
         {/* 4. Brand colours */}
         <div>
