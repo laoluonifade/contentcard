@@ -1958,6 +1958,19 @@ def _validate_posts(
             if assigned_family:
                 post["template_family"] = assigned_family
                 post["force_template_family"] = assigned_family
+            # Carry the planner's per-post hints onto the post dict so
+            # downstream image generation (image_service) and the
+            # strategist see them explicitly instead of inferring from
+            # the free-text visual_direction.
+            visual_theme = str(assigned.get("visual_theme") or "").strip().lower()
+            if visual_theme:
+                post["visual_theme"] = visual_theme
+            holiday_name = str(assigned.get("holiday_name") or "").strip()
+            if holiday_name:
+                post["holiday_name"] = holiday_name
+                post["is_holiday_post"] = True
+            elif assigned.get("is_holiday_post"):
+                post["is_holiday_post"] = True
 
         # Coerce slide_count
         try:
@@ -2888,6 +2901,28 @@ def resolve_business_default_strategy(brand: dict | None) -> dict:
     if not family_mix:
         family_mix = ["text_poster", "testimonial", "announcement", "data_card"]
 
+    # Per-brand override: brand_kit.content_mix lets a brand bias the
+    # planner toward more product / promo / education / etc. without
+    # changing the underlying business shape. Values are weights — they
+    # don't need to sum to 1.0; _normalize_weight_map handles that.
+    overrides_kit = (brand or {}).get("brand_kit") if isinstance(brand, dict) else None
+    content_mix_override = (
+        overrides_kit.get("content_mix")
+        if isinstance(overrides_kit, dict) and isinstance(overrides_kit.get("content_mix"), dict)
+        else None
+    )
+    base_content_mix = _normalize_weight_map(
+        defaults.get("content_type_mix"),
+        {"education": 0.35, "proof": 0.25, "offer": 0.20, "community_or_engagement": 0.20},
+    )
+    if content_mix_override:
+        merged = {**base_content_mix, **{
+            str(k).strip().lower(): float(v)
+            for k, v in content_mix_override.items()
+            if isinstance(k, str) and isinstance(v, (int, float)) and v > 0
+        }}
+        base_content_mix = _normalize_weight_map(merged, base_content_mix)
+
     strategy = {
         "business_shape": shape,
         "secondary_shapes": secondary_shapes,
@@ -2896,7 +2931,7 @@ def resolve_business_default_strategy(brand: dict | None) -> dict:
         "content_pillars": pillars[:6],
         "content_goals": content_goals[:6],
         "funnel_stages": funnel_stages[:6],
-        "content_type_mix": _normalize_weight_map(defaults.get("content_type_mix"), {"education": 0.35, "proof": 0.25, "offer": 0.20, "community_or_engagement": 0.20}),
+        "content_type_mix": base_content_mix,
         "template_family_mix": family_mix,
         "post_format_mix": _normalize_weight_map(defaults.get("post_format_mix"), {"single": 0.65, "carousel": 0.30, "gif": 0.05}),
         "preferred_ctas": preferred_ctas[:6],
@@ -3256,6 +3291,7 @@ def _build_design_mix_schedule(
     format_mix: str,
     seed_key: str,
     platform: str | None = None,
+    holiday_dates: dict[str, str] | None = None,
 ) -> list[dict]:
     if not posting_dates:
         return []
@@ -3279,6 +3315,7 @@ def _build_design_mix_schedule(
         if single_only:
             for row in hydrated:
                 row["post_type"] = "single"
+        _annotate_visuals_and_holidays(hydrated, rng=rng, holiday_dates=holiday_dates)
         return hydrated
 
     selected_formats = _weighted_key_schedule(strategy.get("post_format_mix"), len(posting_dates), rng)
@@ -3310,7 +3347,109 @@ def _build_design_mix_schedule(
             }
         )
         recent_families.append(fam)
-    return _hydrate_strategy_onto_plan(plan, strategy, platform=platform)
+    hydrated = _hydrate_strategy_onto_plan(plan, strategy, platform=platform)
+    _annotate_visuals_and_holidays(hydrated, rng=rng, holiday_dates=holiday_dates)
+    return hydrated
+
+
+# ── Per-post visual themes ─────────────────────────────────────────────────────
+#
+# Picked deterministically per content_type so the AI gets an explicit hint of
+# what visual approach this post should lean on (vs. inferring it from the
+# free-text visual_direction). Themes:
+#
+#   product_hero  — single product, clean background, hero composition
+#   lifestyle     — product or scene in a real-world setting
+#   flatlay       — top-down arrangement of items / props
+#   collage       — multiple products composed together (bundle / set)
+#   abstract      — typography-led / pattern-led, no product hero
+#   editorial     — magazine-style scene with mood + light, broader story
+#
+# Image service uses these to bias the gpt-image-1 prompt; strategist uses
+# them as an explicit input alongside content_type / post_type.
+
+_THEMES_BY_CONTENT_TYPE: dict[str, tuple[str, ...]] = {
+    "product_spotlight": ("product_hero", "lifestyle", "flatlay"),
+    "product":           ("product_hero", "lifestyle", "flatlay"),
+    "promotional":       ("collage", "product_hero", "editorial"),
+    "promo":             ("collage", "product_hero"),
+    "offer":             ("collage", "product_hero"),
+    "bundle":            ("collage", "flatlay"),
+    "social_proof":      ("lifestyle", "abstract"),
+    "testimonial":       ("lifestyle", "abstract"),
+    "educational":       ("abstract", "flatlay", "editorial"),
+    "education":         ("abstract", "flatlay", "editorial"),
+    "engagement":        ("abstract", "lifestyle"),
+    "story":             ("lifestyle", "editorial"),
+    "behind_the_scenes": ("lifestyle", "editorial"),
+}
+
+_DEFAULT_THEMES: tuple[str, ...] = ("product_hero", "lifestyle", "abstract", "editorial")
+
+
+def _pick_visual_theme(content_type: str, idx: int) -> str:
+    """Deterministic visual theme for a plan row.
+
+    Rotates through the per-content-type theme tuple by `idx` so consecutive
+    posts of the same content_type don't all land on the same theme. Falls
+    back to a generic rotation when content_type isn't in the table.
+    """
+    key = (content_type or "").strip().lower().replace(" ", "_")
+    options = _THEMES_BY_CONTENT_TYPE.get(key)
+    if not options:
+        for token in key.split("_"):
+            if token in _THEMES_BY_CONTENT_TYPE:
+                options = _THEMES_BY_CONTENT_TYPE[token]
+                break
+    if not options:
+        options = _DEFAULT_THEMES
+    return options[idx % len(options)]
+
+
+def _annotate_visuals_and_holidays(
+    plan: list[dict],
+    *,
+    rng,  # random.Random — used for tie-breaking when a date is shared between holidays
+    holiday_dates: dict[str, str] | None,
+) -> None:
+    """Mutate plan rows in place: add visual_theme, is_holiday_post, holiday_name.
+
+    Holiday matching is exact on the YYYY-MM-DD date string. When a row falls
+    on a holiday, content_type is preserved (downstream copy generation honours
+    it as a hint), but the dedicated `holiday_name` field tells the AI to lead
+    with the moment, not the brand pitch.
+    """
+    holidays = holiday_dates or {}
+    for idx, row in enumerate(plan):
+        if not isinstance(row, dict):
+            continue
+        ct = str(row.get("content_type") or "")
+        row["visual_theme"] = _pick_visual_theme(ct, idx)
+        date_key = str(row.get("date") or "").strip()[:10]
+        holiday_name = holidays.get(date_key)
+        row["is_holiday_post"] = bool(holiday_name)
+        row["holiday_name"] = holiday_name or None
+
+
+def _extract_holiday_dates(holiday_context: str | None) -> dict[str, str]:
+    """Parse `- YYYY-MM-DD: Name (type)` lines out of build_month_holiday_context.
+
+    Returns {date: name}. Empty when no context block was supplied or the block
+    contains no parseable lines. Tolerant of leading whitespace and the optional
+    bullet prefix used by the existing renderer.
+    """
+    if not holiday_context:
+        return {}
+    import re as _re
+    out: dict[str, str] = {}
+    for raw in holiday_context.splitlines():
+        line = raw.strip()
+        if not line.startswith("-"):
+            continue
+        m = _re.match(r"-\s*(\d{4}-\d{2}-\d{2})\s*:\s*(.+?)(?:\s*\([^)]+\))?\s*$", line)
+        if m:
+            out[m.group(1)] = m.group(2).strip()
+    return out
 
 
 def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, seed_key: str) -> list[dict]:
@@ -3375,22 +3514,36 @@ def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, se
 
 
 def _playbook_assignment_text(plan: list[dict]) -> str:
-    return "\n".join(
-        [
-            (
-                f"• {row.get('date')}: content_type={row.get('content_type')} | "
-                f"template_family={row.get('template_family') or 'default'} | "
-                f"design_mode={row.get('design_mode') or 'editorial'} | "
-                f"post_type={row.get('post_type')} | slot_key={row.get('slot_key') or 'N/A'} | "
-                f"business_shape={row.get('business_shape') or 'inferred'} | "
-                f"pillar={row.get('content_pillar') or 'default'} | "
-                f"cta_hint={row.get('cta_style') or 'clear next step'} | "
-                f"proof={row.get('proof_strategy') or 'brand-specific proof'} | "
-                f"visual_direction={row.get('visual_direction')}"
-            )
-            for row in plan
-        ]
-    )
+    """Format the plan as instructions for the AI text generator.
+
+    Each row is rendered as a single line. Two newer fields surface here so
+    the model sees them explicitly rather than inferring from the free-text
+    visual_direction:
+
+      visual_theme    — product_hero | lifestyle | flatlay | collage |
+                        abstract | editorial. Drives composition & subject.
+      holiday         — non-empty name when the date falls on a public
+                        holiday/observance; the post MUST lead with the
+                        moment instead of the brand's usual pitch.
+    """
+    lines: list[str] = []
+    for row in plan:
+        holiday = str(row.get("holiday_name") or "").strip()
+        holiday_seg = f" | HOLIDAY={holiday} (lead with the moment, not the brand pitch)" if holiday else ""
+        lines.append(
+            f"• {row.get('date')}: content_type={row.get('content_type')} | "
+            f"template_family={row.get('template_family') or 'default'} | "
+            f"design_mode={row.get('design_mode') or 'editorial'} | "
+            f"post_type={row.get('post_type')} | slot_key={row.get('slot_key') or 'N/A'} | "
+            f"visual_theme={row.get('visual_theme') or 'editorial'} | "
+            f"business_shape={row.get('business_shape') or 'inferred'} | "
+            f"pillar={row.get('content_pillar') or 'default'} | "
+            f"cta_hint={row.get('cta_style') or 'clear next step'} | "
+            f"proof={row.get('proof_strategy') or 'brand-specific proof'} | "
+            f"visual_direction={row.get('visual_direction')}"
+            f"{holiday_seg}"
+        )
+    return "\n".join(lines)
 
 
 def _unique_dates_per_platform_batch(
@@ -3511,7 +3664,17 @@ async def _generate_for_platform(
         "• Pick format (single / carousel / quote / gif) based on whether the idea naturally needs "
         "multi-step breakdown or motion.\n"
         "• Maximum diversity is the goal: never repeat the same content_type, the same hook noun, "
-        "the same composition, or the same caption opener back-to-back."
+        "the same composition, or the same caption opener back-to-back.\n"
+        "• Each row above carries a visual_theme — honour it on the image_prompt:\n"
+        "    - product_hero  → single product, clean negative-space background, hero composition.\n"
+        "    - lifestyle     → product or scene in a real-world context with people or environment.\n"
+        "    - flatlay       → top-down arrangement of products, ingredients, or props.\n"
+        "    - collage       → two or more products composed together (bundle / set / 'complete the look').\n"
+        "    - abstract      → typography-led or pattern-led, no product hero, message takes the frame.\n"
+        "    - editorial     → magazine-style scene with mood, light, and a broader brand story beat.\n"
+        "• Each row may carry HOLIDAY=Name. When present, that post MUST lead with the holiday "
+        "moment (acknowledgment / celebration / brand-tying), not the brand's usual pitch — and the "
+        "image headline + visual must read as that occasion, not a generic promo with the date."
     )
 
     platform_notes = {
@@ -4084,6 +4247,7 @@ async def _generate_for_platform(
     planner_addon: str = "",
     campaign_brief: dict | None = None,
     posts_per_week: int = 3,
+    holiday_dates: dict[str, str] | None = None,
 ) -> list[dict]:
     business_strategy = resolve_business_default_strategy(brand_dict)
     playbook_plan = _build_design_mix_schedule(
@@ -4092,6 +4256,7 @@ async def _generate_for_platform(
         format_mix=format_mix,
         seed_key=f"{month_name}{year}{platform}",
         platform=platform,
+        holiday_dates=holiday_dates,
     )
     assignment_instructions = _playbook_assignment_text(playbook_plan) if playbook_plan else "\n".join(
         [
@@ -4307,6 +4472,11 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
     addon_parts = [x.strip() for x in (holiday_context, generation_brief) if x and str(x).strip()]
     planner_addon = "\n\n".join(addon_parts)
 
+    # Extract structured date → holiday-name pairs out of the (already prose)
+    # holiday_context block so the planner can mark exact-date matches as
+    # is_holiday_post and the AI sees the moment explicitly per row.
+    holiday_dates = _extract_holiday_dates(holiday_context)
+
     all_posts = []
     for platform in platforms:
         try:
@@ -4320,6 +4490,7 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
                 planner_addon=planner_addon,
                 campaign_brief=campaign_brief,
                 posts_per_week=posts_per_week,
+                holiday_dates=holiday_dates,
             )
             all_posts.extend(posts)
         except Exception as e:
