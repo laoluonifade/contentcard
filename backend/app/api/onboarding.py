@@ -36,8 +36,18 @@ from app.db.database import AsyncSessionLocal, get_db
 from app.models.brand import Brand
 from app.models.user import User
 from app.models.workspace import WorkspaceRole
-from app.schemas.onboarding import OnboardingQuickStartRequest, OnboardingQuickStartResponse
-from app.services.website_intelligence_service import sync_brand_website_intelligence
+from app.schemas.onboarding import (
+    OnboardingProductCheckRequest,
+    OnboardingProductCheckResponse,
+    OnboardingQuickStartRequest,
+    OnboardingQuickStartResponse,
+)
+from app.services.website_intelligence_service import (
+    _fetch_bumpa_products,
+    _fetch_shopify_products,
+    _looks_like_bumpa,
+    sync_brand_website_intelligence,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -357,4 +367,127 @@ async def quick_start(
         brand_id=brand.id,
         generation_started=True,
         already_onboarded=False,
+    )
+
+
+# ── Product-fetch dry run ────────────────────────────────────────────────
+#
+# Powers the loader on the onboarding URL field. When the user types their
+# storefront URL we hit this endpoint to confirm we can actually pull
+# products before they finish onboarding. If we can't, we tell them not
+# to panic — they can upload products from the dashboard later — and we
+# never block onboarding on this check.
+
+# Map the user's onboarding sales-channel pick to a fetcher we own.
+_SALES_CHANNEL_TO_PLATFORM: dict[str, str] = {
+    "bumpa": "bumpa",
+    "shopify": "shopify",
+    "chowdeck": "chowdeck",
+}
+
+
+async def _resolve_check_platform(url: str, sales_channel: str | None) -> str:
+    """Pick the platform we'll probe against. Mirrors the website-sync logic
+    minus the persistence: trust the user's onboarding answer first, then
+    the hostname, then a Bumpa HTML probe. Returns 'unknown' when nothing
+    matches (the caller will surface a friendly error)."""
+    sc = (sales_channel or "").strip().lower()
+    if sc in _SALES_CHANNEL_TO_PLATFORM:
+        return _SALES_CHANNEL_TO_PLATFORM[sc]
+    from urllib.parse import urlparse  # noqa: WPS433 - kept local; only used here
+
+    host = (urlparse(url).hostname or "").lower()
+    if "myshopify.com" in host:
+        return "shopify"
+    if "mybumpa.com" in host or "bumpa" in host:
+        return "bumpa"
+    if "chowdeck.com" in host:
+        return "chowdeck"
+    try:
+        if await _looks_like_bumpa(url):
+            return "bumpa"
+    except Exception:
+        pass
+    return "unknown"
+
+
+@router.post("/check-products", response_model=OnboardingProductCheckResponse)
+async def check_products(
+    workspace_id: str,
+    body: OnboardingProductCheckRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSessionLocal = Depends(get_db),  # only here for the auth chain
+):
+    """Dry-run probe — does this storefront URL surface products we can fetch?
+
+    Lightweight on purpose: hits the platform-specific products endpoint
+    once with a small limit, returns the count, never persists anything.
+    Onboarding never blocks on the result; the loader is just feedback.
+    """
+    await _check_member(workspace_id, current_user.id, db)
+
+    url = _normalize_url(body.product_url)
+    if not url:
+        return OnboardingProductCheckResponse(
+            status="invalid",
+            message="Add a valid storefront URL so we can check it.",
+        )
+
+    platform = await _resolve_check_platform(url, body.sales_channel)
+    if platform == "unknown":
+        return OnboardingProductCheckResponse(
+            status="error",
+            platform_detected=None,
+            message=(
+                "We couldn't recognise this storefront. No worries — finish onboarding and you can "
+                "add products manually from the dashboard later."
+            ),
+        )
+
+    try:
+        if platform == "bumpa":
+            rows = await _fetch_bumpa_products(url)
+        elif platform == "shopify":
+            rows = await _fetch_shopify_products(url)
+        else:
+            # Chowdeck and the generic scrapers are slow + best-effort. We
+            # don't probe them here — onboarding will run them in the
+            # background and the user can add products manually if it fails.
+            return OnboardingProductCheckResponse(
+                status="ok",
+                product_count=0,
+                platform_detected=platform,
+                message=(
+                    f"We'll fetch your products from {platform.title()} after you finish onboarding."
+                ),
+            )
+    except Exception as exc:
+        logger.warning("Onboarding product check failed for %s: %s", url, exc)
+        return OnboardingProductCheckResponse(
+            status="error",
+            platform_detected=platform,
+            message=(
+                "We couldn't reach your storefront right now. Don't panic — finish onboarding and "
+                "you'll be able to upload products manually from the dashboard."
+            ),
+        )
+
+    count = len(rows or [])
+    if count == 0:
+        return OnboardingProductCheckResponse(
+            status="empty",
+            product_count=0,
+            platform_detected=platform,
+            message=(
+                f"We found your {platform.title()} store but it has no products yet. Add some on "
+                f"{platform.title()} and we'll pull them in on the next sync — or finish onboarding "
+                "and add products manually from the dashboard."
+            ),
+        )
+
+    return OnboardingProductCheckResponse(
+        status="ok",
+        product_count=count,
+        platform_detected=platform,
+        message=f"Found {count} product{'s' if count != 1 else ''}. We'll use these in your posts.",
     )
