@@ -483,25 +483,31 @@ SUBCATEGORY_DESIGN_CUES: dict[str, CategoryCues] = {
 
     # ── Multi-product ──
     "General retail": {
+        "focus":           "Variety, convenience, affordability, everyday needs, product discovery, value, availability, bundles, shopping ease, deals.",
         "layout_emphasis": "Bundle / collage hero. Multiple products composed as one offer.",
-        "visual_focus":    "The selection — 'today's picks' / 'weekend essentials'. Consistent backdrop and lighting across items.",
-        "text_balance":    "Medium and curatorial: 'Today's drop', '4 essentials, ₦15,000 in total'.",
-        "tone_hint":       "Sales-driven, friendly, never pushy. Curate, don't shout.",
-        "content_types":   "Daily picks, weekly bundles, restock alerts, seasonal edits, gift guides.",
+        "visual_focus":    "Product grids, bundle shots, clean catalog layouts, lifestyle product mix, shopping bags, multiple categories, bright retail layouts, simple price cards, top picks, single-post grid carousels.",
+        "text_options":    "'Top Picks', 'Shop More', 'New Arrivals', 'Everything You Need', 'Best Deals', 'This Week's Picks', 'Bundle & Save', 'Available Now', 'Fresh Finds', 'Shop the Collection'.",
+        "text_balance":    "Medium and curatorial ('Today's drop', '4 essentials, ₦15,000 in total'). Pick one phrase from text_options.",
+        "tone_hint":       "Practical, friendly, clear, sales-driven, accessible, energetic, helpful, deal-focused, simple, broad-appeal.",
+        "content_types":   "Top picks, weekly deals, new arrivals, bundle offer, category highlight, bestsellers, shopping guide, seasonal items, restock alert, value post.",
     },
     "Dropshipping store": {
+        "focus":           "Trending products, impulse buying, problem-solving, novelty, urgency, convenience, perceived deal, product demo, viral appeal, fast decision.",
         "layout_emphasis": "Single product hero with one value claim. Credibility cues are non-negotiable (delivery time, returns, payment).",
-        "visual_focus":    "The product on a clean backdrop with a single benefit callout.",
-        "text_balance":    "Medium with a trust line: 'Free returns · Pay on delivery'.",
-        "tone_hint":       "Sales-driven, transparent. Lean on shipping promises that build trust.",
-        "content_types":   "Product spotlights, shipping reassurances, comparison vs alternatives, customer reactions.",
+        "visual_focus":    "Product in use, before-and-after, attention-grabbing layout, dynamic arrows, simple benefit callouts, lifestyle demos, UGC-style shots, bold colours, comparison visuals, quick problem-solution scenes.",
+        "text_options":    "'Trending Now', 'You Need This', 'Problem Solved', 'Limited Offer', 'Viral Find', 'Makes Life Easier', 'Grab Yours', 'Hot Product', 'Don't Miss This', 'Smart Buy'.",
+        "text_balance":    "Medium with a trust line ('Free returns · Pay on delivery'). Pick one phrase from text_options for the headline.",
+        "tone_hint":       "Energetic, direct, persuasive, benefit-heavy, slightly hype-driven, simple, urgent, casual, conversion-led, fast-paced.",
+        "content_types":   "Product demo, problem-solution, viral product highlight, limited deal, customer reaction, before-and-after, top trending item, bundle upsell, FAQ post, urgency campaign.",
     },
     "Mixed catalog": {
+        "focus":           "Discovery, variety, customer choice, multiple needs, product grouping, seasonal relevance, value, convenience, curated shopping, repeat visits.",
         "layout_emphasis": "Category-of-the-day hero. Pick one slice of the catalog per post; treat it as that subcategory's design.",
-        "visual_focus":    "Whatever category leads today (food / fashion / electronics) gets that subcategory's visual norms.",
-        "text_balance":    "Medium and contextual to the slice. Stay consistent within a post; vary between posts.",
-        "tone_hint":       "Curatorial. Speak as a buyer who knows their stock.",
-        "content_types":   "Category-of-the-day, weekly arrivals, mixed-category bundles, staff picks.",
+        "visual_focus":    "Organized product collections, category tiles, lifestyle collages, clean grids, bundle images, seasonal product sets, shopping inspiration, bright backgrounds, product cards, curated mood boards.",
+        "text_options":    "'Shop the Edit', 'Curated Picks', 'Something for Everyone', 'New This Week', 'Fresh Finds', 'Your Next Buy', 'Best of the Store', 'Picked for You', 'Explore More', 'This Week's Collection'.",
+        "text_balance":    "Medium and contextual to the slice. Stay consistent within a post; vary between posts. Pick one phrase from text_options.",
+        "tone_hint":       "Friendly, curated, practical, discovery-led, sales-friendly, clear, accessible, helpful, upbeat, organized.",
+        "content_types":   "Curated collection, category spotlight, weekly picks, seasonal guide, bundle post, product comparison, bestseller list, new arrivals, gift guide, promo campaign.",
     },
 }
 
