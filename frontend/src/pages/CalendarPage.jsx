@@ -343,6 +343,7 @@ export default function CalendarPage() {
     generationStartedAt,
     generationPollCount,
     generationProgress,
+    resumeActiveGenerationIfAny,
   } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
@@ -442,6 +443,15 @@ export default function CalendarPage() {
     setSelectMode(false)
     setSelectedDate('')
   }, [month, year, activeBrandId, user?.id])
+
+  // Reattach the loader if the backend has a run in flight for the month
+  // we just navigated to. No-op when nothing is running or we're already
+  // polling — see resumeActiveGenerationIfAny in appStore.
+  useEffect(() => {
+    if (!activeBrandId) return
+    resumeActiveGenerationIfAny(month, year)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrandId, month, year])
 
   const lastRenderStatusSigRef = useRef('')
 

@@ -2022,8 +2022,13 @@ async def generation_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Poll for content count — frontend polls this until count > 0."""
-    await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
+    """Poll for content count — frontend polls this until count > 0.
+
+    Also returns `active_generation` so the frontend can resume the loader
+    after a page refresh: if a run is mid-flight on this brand for this
+    month, the banner reattaches without re-firing generateMonth.
+    """
+    brand = await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
     result = await db.execute(
         select(ContentItem).where(
             ContentItem.brand_id == brand_id,
@@ -2055,6 +2060,39 @@ async def generation_status(
         "failed_quality": failed_quality,
         "ready": total > 0 and ready_items >= total,
         "by_platform": by_platform,
+        "active_generation": _serialize_active_generation_for_status(brand, month, year),
+    }
+
+
+def _serialize_active_generation_for_status(brand: Brand, month: int, year: int) -> dict | None:
+    """Return the in-flight generation slot when it covers this month, else None.
+
+    Stale slots are reported with `stale: true` so the frontend can ignore
+    them rather than spinning a loader forever — the startup sweeper will
+    clear them on the next deploy.
+    """
+    active = brand.active_generation if isinstance(brand.active_generation, dict) else None
+    if not active:
+        return None
+    if int(active.get("month") or 0) != month or int(active.get("year") or 0) != year:
+        return None
+    started_at = active.get("started_at")
+    age_seconds: int | None = None
+    if started_at:
+        try:
+            ts = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            age_seconds = int((datetime.now(timezone.utc) - ts).total_seconds())
+        except ValueError:
+            age_seconds = None
+    return {
+        "run_id": active.get("run_id"),
+        "started_at": started_at,
+        "age_seconds": age_seconds,
+        "stale": _is_active_generation_stale(active),
+        "month": active.get("month"),
+        "year": active.get("year"),
     }
 
 

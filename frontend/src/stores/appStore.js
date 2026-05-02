@@ -318,6 +318,68 @@ const useAppStore = create(
 
       clearGenerationFailure: () => set({ generationFailure: null }),
 
+      // Reattach the loader after a page refresh.
+      //
+      // /content/status now exposes `active_generation` when the backend
+      // has a run in flight on this brand for this month. If we're not
+      // already polling, we set generatingMonth=true and resume polling
+      // without re-firing generateMonthV2 — the backend's run is still
+      // working in the background.
+      //
+      // No-op if generatingMonth is already true (we're already polling),
+      // if no active brand, or if active_generation is missing/stale.
+      resumeActiveGenerationIfAny: async (month, year) => {
+        const brandId = get().activeBrandId
+        if (!brandId || !month || !year) return false
+        if (get().generatingMonth) return false
+        let status0
+        try {
+          status0 = await contentApi.getStatus(brandId, year, month)
+        } catch {
+          return false
+        }
+        const active = status0?.active_generation
+        if (!active || active.stale) return false
+        if (Number(active.month) !== Number(month) || Number(active.year) !== Number(year)) {
+          return false
+        }
+        const startedAtMs = (() => {
+          if (!active.started_at) return Date.now()
+          const t = Date.parse(active.started_at)
+          return Number.isFinite(t) ? t : Date.now()
+        })()
+        const baseline = {
+          with: Number(status0?.with_visuals ?? status0?.count ?? 0),
+          total: Number(status0?.total ?? 0),
+        }
+        set({
+          generatingMonth: true,
+          generationStartedAt: startedAtMs,
+          generationPollCount: 0,
+          generationProgress: baseline.total > 0 ? baseline : null,
+          generationFailure: null,
+        })
+        ;(async () => {
+          try {
+            await get()._pollForContent(brandId, month, year, baseline)
+            set({ generationFailure: null })
+          } catch (err) {
+            const detail = err?.response?.data?.detail
+            const reason =
+              (typeof detail === 'string' && detail.trim()) ||
+              (detail && typeof detail === 'object' && (detail.message || detail.code)) ||
+              err?.message ||
+              'Generation failed. Please try again.'
+            set({
+              generationFailure: { reason: String(reason).slice(0, 400), month, year },
+            })
+          } finally {
+            set({ generatingMonth: false, generationStartedAt: null, generationProgress: null })
+          }
+        })()
+        return true
+      },
+
       // Poll with exponential backoff. Returns number of posts found.
       //
       // Incremental: every time the server reports more visuals than we saw

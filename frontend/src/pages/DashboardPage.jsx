@@ -119,6 +119,7 @@ export default function DashboardPage() {
     trends,
     fetchTrends,
     fetchMonthContent,
+    resumeActiveGenerationIfAny,
   } = useAppStore()
 
   const activeBrand = brands.find((b) => b.id === activeBrandId)
@@ -153,6 +154,15 @@ export default function DashboardPage() {
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrandId, activeWorkspaceId])
+
+  // After a refresh, reattach the loader if the backend has a run in
+  // flight for the current month on this brand. resumeActiveGenerationIfAny
+  // is a no-op when nothing is running or when we're already polling.
+  useEffect(() => {
+    if (!activeBrandId) return
+    resumeActiveGenerationIfAny(now.getMonth() + 1, now.getFullYear())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrandId])
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const today = useMemo(
