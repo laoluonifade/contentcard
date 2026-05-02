@@ -23,12 +23,17 @@ back a single dict.
 
 Fields per entry (all strings, all optional):
 
+  focus            — strategic priorities the AI anchors the post around
+                     (a menu of 8-10 angles to pick 1-3 from per post).
   layout_emphasis  — what the composition leads with.
-  visual_focus     — what the eye lands on first.
+  visual_focus     — what the eye lands on first (concrete visual cues
+                     the AI can pick from).
   color_mood       — emotional palette temperature (brand colours still win).
-  text_balance     — caption + on-image text balance.
+  text_options     — on-design headline snippets the AI can pick from.
+  text_balance     — how much text on the design + caption balance.
   imagery_style    — what kind of photography / illustration fits.
-  tone_hint        — a short voice nudge for caption + on-image text.
+  tone_hint        — voice nudge for caption + on-image text (a list of
+                     tonal attributes the AI can lean into).
   content_types    — example post angles that suit this sub-category.
 
 `cues_as_text()` renders any subset of these fields into the strategist /
@@ -44,58 +49,74 @@ CategoryCues = dict[str, str]
 # Parent categories match frontend/src/lib/industryTaxonomy.js.
 CATEGORY_DESIGN_CUES: dict[str, CategoryCues] = {
     "Fashion Store": {
+        "focus":           "Style, identity, fit, quality, self-expression, drops, occasions, confidence, aspiration, wardrobe value.",
         "layout_emphasis": "Editorial poster. Lead with one outfit / garment / pair on a clean backdrop. Spacious composition; let silhouette and fabric texture carry the frame.",
         "visual_focus":    "The product itself, sharp and uncropped. Models when they help (showing fit or fabric movement) — always real, never plastic-AI / stock.",
         "color_mood":      "Either honour the brand palette dramatically (saturated brand block) or go restrained editorial (warm neutral, cream, charcoal). The product carries the colour story.",
+        "text_options":    "'New In', 'New Drop', 'Now Available', 'Out Now', 'Fresh Arrival', 'Your Next Look', 'Style Upgrade', 'Limited Run'.",
         "text_balance":    "One bold headline with a specific noun (the garment, the drop, the silhouette). Price + CTA always present but small — the visual sells.",
         "imagery_style":   "Real product or lookbook photography. Avoid 3D renders, plastic AI faces, and stock 'fashion' clichés.",
     },
     "Beauty / Skincare Store": {
+        "focus":           "Results, transformation, beauty, confidence, ingredients, routine, trust, self-care, identity, glow.",
         "layout_emphasis": "Product-as-hero with breathing space. A single bottle, pan, or stick on a clean surface in soft natural light, or a close-up of the texture.",
         "visual_focus":    "The product or its texture (cream swatch, pigment swatch, lather, fragrance bottle catching light). Skin / hair / face shots when they show the result.",
         "color_mood":      "Soft, expensive-looking. Pair the brand colour with cream / nude / oat / blush / sage. Avoid neon saturation unless the brand is explicitly bold.",
+        "text_options":    "'Glow Starts Here', 'Your Daily Ritual', 'Made for You', 'New Arrival', 'Now Available', 'Beauty Made Simple', 'Wear Confidence', 'Start Today'.",
         "text_balance":    "Promise the outcome ('Plump skin in 14 days', 'Glow that lasts'). Headline tight + specific; supporting copy mentions a key ingredient or claim.",
         "imagery_style":   "Real product photography with crisp specular highlights. Diverse, real skin / hair when models appear. Avoid 'wellness' cucumber-slice stock.",
     },
     "Food Store": {
+        "focus":           "Hunger, freshness, taste, convenience, cravings, value, occasions, repeat orders, indulgence, locality.",
         "layout_emphasis": "Appetite-first. Hero plate or close-up of the dish, full-bleed composition with generous breathing space.",
         "visual_focus":    "The food itself with sensory cues — steam, sauce drip, ice condensation, hands reaching, a fork lifting a bite. The product is the headline.",
         "color_mood":      "Warm, saturated, mouthwatering. Honour the brand colour but lean into the natural colours of the food. Lighting flatters texture.",
+        "text_options":    "'Hot & Fresh', 'Order Now', 'Today's Special', 'Freshly Made', 'Try This Today', 'Made Hot', 'Bring Your Appetite', 'Available Now'.",
         "text_balance":    "Short and craveable. Headline names the dish, the bundle, or the offer. Price + ordering CTA close to the headline. No paragraphs.",
         "imagery_style":   "Real food photography with natural light. Avoid plastic AI food and overly-composed studio plates.",
     },
     "Electronics / Gadgets Store": {
+        "focus":           "Performance, value, speed, reliability, daily use, upgrade, specs, features, status, problem-solving.",
         "layout_emphasis": "Spec-led product hero. The device on a clean surface or floating in clean negative space. Emphasise materials (matte, metal, glass) and edges.",
         "visual_focus":    "The product itself — hero shots, exploded views, side-by-side comparisons. UI on screen when the product has one.",
         "color_mood":      "Cool and crisp. Brand accent on a calm neutral background (charcoal, off-white, soft graphite). Saturated only on highlights / actions.",
+        "text_options":    "'Upgrade Now', 'New Arrival', 'Built for Speed', 'Power in Your Hand', 'Now Available', 'Smarter Tech', 'Stay Connected', 'Your Next Upgrade'.",
         "text_balance":    "Concrete claims with units (battery hrs, RAM, screen size, price). Headline names the spec advantage; supporting line gives one number.",
         "imagery_style":   "Photoreal product shots. Avoid generic 'tech' stock photography of laptops on wooden desks.",
     },
     "Home & Lifestyle Store": {
+        "focus":           "Aesthetics, comfort, ambience, room transformation, quality, taste, self-expression, lifestyle, mood, durability.",
         "layout_emphasis": "Magazine-clean. Either a hero product on a styled surface or a wide shot of the styled scene the product fits into.",
         "visual_focus":    "The product in its natural context (the chair in the room, linens on the bed, the lamp lighting a corner). Real spaces, not stock interiors.",
         "color_mood":      "Warm neutrals (oat, cream, terracotta, soft sage) plus the brand accent. Light is intentional and directional, never harsh.",
+        "text_options":    "'Style Your Space', 'Room Refresh', 'Make It Yours', 'Now Available', 'New Arrival', 'Bring Comfort Home', 'Your Space, Elevated', 'Designed for Living'.",
         "text_balance":    "Considered, evocative. Headline plants the feeling ('Sundays start here'); supporting copy gives one practical detail (size, finish, price).",
         "imagery_style":   "Real interior photography or a controlled studio still-life. Avoid 3D-rendered rooms and CGI furniture.",
     },
     "Health & Wellness Store": {
+        "focus":           "Wellness, results, energy, routine, balance, trust, daily action, support, self-care, body confidence.",
         "layout_emphasis": "Calm and clean. Product close-up with breathing space, or a real person mid-routine.",
         "visual_focus":    "The product or the routine moment. Real bodies, real hands, real breath; the supplement bottle, the resistance band, the wellness drink.",
         "color_mood":      "Soft and earthy — sage, oat, muted terracotta. The brand accent stays calm, never neon. Natural light flatters skin.",
+        "text_options":    "'Daily Wellness', 'Feel Better Daily', 'Support Your Routine', 'Start Today', 'Your Daily Boost', 'Made for You', 'Health Made Simple', 'Now Available'.",
         "text_balance":    "Promise the benefit, not the science. Single-claim headline; supporting line gives one specific (timeframe, ingredient, dose).",
         "imagery_style":   "Diverse real people in real spaces. Avoid 'wellness' stock with white robes and zen rocks.",
     },
     "Digital Products Store": {
+        "focus":           "Outcome, transformation, skill, productivity, time-saved, convenience, expertise, growth, accessibility, value.",
         "layout_emphasis": "Type-led hero. Big claim plus a single artefact (a screen, a chapter cover, a lesson card, a template thumbnail). Spacious and grid-aligned.",
         "visual_focus":    "The artefact (course preview, ebook cover, template thumbnail, app screen). When people appear, they're real users — never stock.",
         "color_mood":      "Confident and modern. Brand accent on calm neutrals; saturated only on the CTA. Avoid generic 'tech' gradients.",
+        "text_options":    "'Start Today', 'Learn Faster', 'Work Smarter', 'Save Time', 'Your Next Level', 'Download Now', 'Get Instant Access', 'Built for Outcomes'.",
         "text_balance":    "Bold headline with the outcome ('Land your first 5 clients'); supporting line gives one piece of proof or scope. CTAs sound like 'Start free', 'Download', 'Enrol now'.",
         "imagery_style":   "Photoreal screenshots, clean illustrations, or a single artefact photographed cleanly. Avoid generic 'computer' stock.",
     },
     "Multi-product Store (General Store)": {
+        "focus":           "Variety, discovery, value, convenience, bundles, curation, deals, repeat visits, availability, broad appeal.",
         "layout_emphasis": "Versatile and editorial. Lead with a curated grid of products or a single hero rotated by category. Unifying treatment matters more than any one shot.",
         "visual_focus":    "The selection — multiple products composed together (collage / set / 'today's picks') — or a single hero with the rest as supporting marks.",
         "color_mood":      "Brand-led with a flexible accent. Backgrounds drawn from the brand kit, never busy or cluttered.",
+        "text_options":    "'Top Picks', 'New Arrivals', 'Best Deals', 'This Week's Picks', 'Bundle & Save', 'Available Now', 'Fresh Finds', 'Shop the Edit'.",
         "text_balance":    "Concise and curatorial. Headline names the moment ('Today's drop', 'Weekend essentials'); supporting copy lists 2-3 product names or a price band.",
         "imagery_style":   "Real product photography composed cleanly. Avoid mismatched scales or jarring background swaps between items.",
     },
@@ -412,9 +433,11 @@ SUBCATEGORY_DESIGN_CUES: dict[str, CategoryCues] = {
 
 
 DEFAULT_CATEGORY_CUES: CategoryCues = {
+    "focus":           "Whatever the brand actually cares about — pick from product quality, customer outcome, value, trust, convenience.",
     "layout_emphasis": "Clear hierarchy with breathing space. Lead with one focal element and one supporting line — no clutter.",
     "visual_focus":    "Whatever the brand sells: the product, the service moment, or a real customer using it. Avoid generic stock.",
     "color_mood":      "Honour the brand's own palette. Use brand accent sparingly on calm neutrals.",
+    "text_options":    "'Now Available', 'New Arrival', 'Made for You', 'Try It Today', 'Your Next Favourite', 'Available Now'.",
     "text_balance":    "Specific over generic. Headline names the thing; supporting copy gives one piece of proof or context.",
     "imagery_style":   "Real photography of the brand's actual subject (product / place / people). Avoid clichéd AI art and stock imagery.",
 }
@@ -422,9 +445,11 @@ DEFAULT_CATEGORY_CUES: CategoryCues = {
 
 # Order matters in cues_as_text — this is the order the AI sees.
 _CUE_FIELDS: tuple[str, ...] = (
+    "focus",
     "layout_emphasis",
     "visual_focus",
     "color_mood",
+    "text_options",
     "text_balance",
     "imagery_style",
     "tone_hint",
