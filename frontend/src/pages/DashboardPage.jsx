@@ -119,6 +119,7 @@ export default function DashboardPage() {
     trends,
     fetchTrends,
     fetchMonthContent,
+    resumeActiveGenerationIfAny,
     checkLastGenerationFailure,
   } = useAppStore()
 
@@ -155,13 +156,13 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrandId, activeWorkspaceId])
 
-  // Surface a stored OpenAI capacity failure on mount so the banner
-  // shows "ChatGPT is busy / over quota / unreachable" with a Retry CTA
-  // when the previous generation hit one of those errors. No-op when
-  // a run is in flight or the user already has a different failure
-  // showing.
+  // After a refresh, reattach the loader if a run is in flight, and
+  // surface any stored OpenAI capacity failure so the banner shows
+  // "ChatGPT is busy / over quota / unreachable" with the Retry CTA.
+  // Both helpers no-op when nothing's relevant.
   useEffect(() => {
     if (!activeBrandId) return
+    resumeActiveGenerationIfAny(now.getMonth() + 1, now.getFullYear())
     checkLastGenerationFailure(now.getMonth() + 1, now.getFullYear())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrandId])

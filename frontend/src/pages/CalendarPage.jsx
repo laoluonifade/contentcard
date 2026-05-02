@@ -343,6 +343,7 @@ export default function CalendarPage() {
     generationStartedAt,
     generationPollCount,
     generationProgress,
+    resumeActiveGenerationIfAny,
     checkLastGenerationFailure,
   } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
@@ -444,12 +445,13 @@ export default function CalendarPage() {
     setSelectedDate('')
   }, [month, year, activeBrandId, user?.id])
 
-  // Surface a stored OpenAI capacity failure on month / brand change so
-  // the banner shows ChatGPT-specific copy + Retry instead of a silent
-  // empty calendar. No-op when a run is in flight or another failure
-  // is already being shown.
+  // Reattach the loader if a run is in flight for the month we just
+  // navigated to, and surface any stored OpenAI capacity failure so the
+  // banner shows the right state without re-firing generation. Both
+  // helpers no-op when nothing's relevant.
   useEffect(() => {
     if (!activeBrandId) return
+    resumeActiveGenerationIfAny(month, year)
     checkLastGenerationFailure(month, year)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrandId, month, year])
