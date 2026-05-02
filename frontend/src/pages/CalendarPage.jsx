@@ -927,17 +927,6 @@ export default function CalendarPage() {
   const postCountLabel = loading ? 'Loading…' : `${posts.length} post${posts.length === 1 ? '' : 's'}`
   const withVisuals = posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length
   const pendingVisuals = Math.max(0, posts.length - withVisuals)
-  const finishingBannerActive =
-    generatingMonth ||
-    Boolean(renderStatusPoll && !renderStatusPoll.ready && Number(renderStatusPoll.total) > 0)
-  const prog = generationProgress
-  const finishingReady = generatingMonth
-    ? Number(prog?.with ?? 0)
-    : Number(renderStatusPoll?.with_visuals ?? 0)
-  const finishingTotal = generatingMonth
-    ? Number(prog?.total ?? 0)
-    : Number(renderStatusPoll?.total ?? 0)
-  const showFinishingCounts = finishingBannerActive && finishingTotal > 0
 
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
@@ -1005,28 +994,6 @@ export default function CalendarPage() {
           >
             Cancel
           </button>
-        </div>
-      )}
-
-      {finishingBannerActive && (
-        <div className="mb-4 rounded-xl border border-fog bg-mist px-4 py-3 text-sm text-ink/70">
-          {showFinishingCounts ? (
-            <>
-              Finishing designs… <strong className="text-ink">{finishingReady}</strong> of{' '}
-              <strong className="text-ink">{finishingTotal}</strong> posts have finished visuals.
-              This page refreshes automatically when they are all done. You do not need to reload manually.
-            </>
-          ) : (
-            <>
-              Generation is running. Posts will appear here automatically once captions and images are finished
-              (poll #{generationPollCount}).
-            </>
-          )}
-          {(generationElapsedSec >= 45 || renderStatusPoll) && (
-            <p className="mt-2 text-xs text-ink/55">
-              Rendering can take longer than usual. Check back in about a minute; this calendar updates automatically as visuals finish.
-            </p>
-          )}
         </div>
       )}
 
