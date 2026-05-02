@@ -26,16 +26,25 @@ const MOBILE_NAV = [
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'  },
 ]
 
+function placeholderBrandName(workspaces) {
+  // "New brand" or "New brand 2", "New brand 3" if the previous ones are
+  // still hanging around. Lets the user start onboarding without picking a
+  // name first — onboarding renames the workspace to the business_name.
+  const used = new Set((workspaces || []).map((w) => (w.name || '').trim().toLowerCase()))
+  if (!used.has('new brand')) return 'New brand'
+  let i = 2
+  while (used.has(`new brand ${i}`)) i += 1
+  return `New brand ${i}`
+}
+
 export default function DashboardLayout() {
   const { user, fetchMe }                 = useAuthStore()
   const { workspaces, activeWorkspace,
           fetchWorkspaces, setActiveWorkspace,
           fetchTrends, createWorkspace,
-          brandsLoaded } = useAppStore()
+          brands, brandsLoaded } = useAppStore()
   const location = useLocation()
-  const [newWsOpen, setNewWsOpen] = useState(false)
-  const [newWsName, setNewWsName] = useState('')
-  const [creatingWs, setCreatingWs] = useState(false)
+  const [creatingBrand, setCreatingBrand] = useState(false)
 
   useEffect(() => {
     if (!workspaces.length) {
@@ -47,22 +56,24 @@ export default function DashboardLayout() {
 
   const agencyMode = !!user?.agency_mode
   const showWorkspaceSwitcher = workspaces.length > 1
+  const needsOnboarding =
+    user?.onboarding_completed === false ||
+    (brandsLoaded && (brands?.length || 0) === 0)
 
-  const submitNewWorkspace = async (e) => {
-    e?.preventDefault?.()
-    const name = newWsName.trim()
-    if (!name) { toast('Enter a brand name', 'error'); return }
-    setCreatingWs(true)
+  const startAddBrand = async () => {
+    if (creatingBrand) return
+    setCreatingBrand(true)
     try {
-      await createWorkspace({ name })
-      setNewWsOpen(false)
-      setNewWsName('')
-      toast('Brand workspace created.', 'success')
+      await createWorkspace({ name: placeholderBrandName(workspaces) })
+      // setActiveWorkspace runs inside createWorkspace; brandsLoaded flips
+      // back to false then to true with brands.length === 0, which triggers
+      // OnboardingOverlay automatically.
+      toast('Set up your new brand to start generating posts.', 'success')
     } catch (err) {
       const msg = err.response?.data?.detail || err.message || 'Could not create brand'
       toast(typeof msg === 'string' ? msg : 'Could not create brand', 'error')
     } finally {
-      setCreatingWs(false)
+      setCreatingBrand(false)
     }
   }
 
@@ -112,9 +123,10 @@ export default function DashboardLayout() {
           {agencyMode && (
             <button
               type="button"
-              onClick={() => { setNewWsName(''); setNewWsOpen(true) }}
-              className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border border-dashed border-fog text-[11px] font-semibold text-brand-600 hover:bg-brand-500/5 transition-colors">
-              <Plus size={12} /> Add another brand
+              onClick={startAddBrand}
+              disabled={creatingBrand}
+              className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border border-dashed border-fog text-[11px] font-semibold text-brand-600 hover:bg-brand-500/5 transition-colors disabled:opacity-50">
+              <Plus size={12} /> {creatingBrand ? 'Creating…' : 'Add another brand'}
             </button>
           )}
         </div>
@@ -169,37 +181,6 @@ export default function DashboardLayout() {
         path={location.pathname}
         noindex
       />
-      {newWsOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
-          <div className="bg-surface rounded-2xl border border-fog shadow-xl max-w-md w-full p-6">
-            <h2 className="text-ink font-bold text-lg mb-1">Add another brand</h2>
-            <p className="text-ink/45 text-sm mb-4">
-              Each brand is its own world: brand kit, calendar, content, and billing. You can switch between them anytime.
-            </p>
-            <form onSubmit={submitNewWorkspace} className="space-y-4">
-              <div>
-                <label className="block text-[11px] font-semibold text-ink/40 uppercase tracking-wider mb-1.5">Brand name</label>
-                <input
-                  autoFocus
-                  value={newWsName}
-                  onChange={e => setNewWsName(e.target.value)}
-                  placeholder="e.g. Acme Corp"
-                  className="w-full px-4 py-3 bg-mist border border-fog rounded-xl text-sm text-ink outline-none focus:ring-2 focus:ring-brand-400/40"
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setNewWsOpen(false)} className="px-4 py-2 text-sm font-semibold text-ink/50 hover:text-ink">
-                  Cancel
-                </button>
-                <button type="submit" disabled={creatingWs} className="px-4 py-2 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold disabled:opacity-50">
-                  {creatingWs ? 'Creating…' : 'Create'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Desktop sidebar */}
       <div className="hidden lg:flex">
         <Sidebar />
@@ -244,7 +225,7 @@ export default function DashboardLayout() {
         </nav>
       </main>
 
-      {user?.onboarding_completed === false && <OnboardingOverlay />}
+      {needsOnboarding && <OnboardingOverlay />}
     </div>
   )
 }

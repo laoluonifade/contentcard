@@ -61,7 +61,7 @@ function isProbablyValidUrl(value) {
 export default function OnboardingPage() {
   const navigate = useNavigate()
   const { user, updateUser } = useAuthStore()
-  const { activeWorkspaceId, fetchWorkspaces, fetchBrands } = useAppStore()
+  const { workspaces, activeWorkspaceId, fetchWorkspaces, fetchBrands, renameWorkspace } = useAppStore()
   const [step, setStep] = useState(1)
   const [submitting, setSubmitting] = useState(false)
   const fileInputRef = useRef(null)
@@ -252,6 +252,15 @@ export default function OnboardingPage() {
           const detail = err.response?.data?.detail || err.message
           toast(typeof detail === 'string' ? detail : "Logo upload didn't finish — you can add it from Brand Kit.", 'error')
         }
+      }
+
+      // Sync the workspace name with the brand business_name so the brand
+      // switcher reflects what the user just typed (placeholder workspaces
+      // created via "Add another brand" start out as "New brand").
+      const businessName = form.business_name.trim()
+      const ws = workspaces.find((w) => w.id === wsId)
+      if (ws && businessName && ws.name !== businessName) {
+        try { await renameWorkspace(wsId, businessName) } catch { /* non-blocking */ }
       }
 
       // The brand now exists, so /me will report onboarding_completed=true.
