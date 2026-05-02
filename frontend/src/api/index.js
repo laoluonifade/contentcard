@@ -72,20 +72,6 @@ async function axiosPostWithRetry(url, data, headers) {
   }
 }
 
-async function axiosGetWithRetry(url, params, headers) {
-  try {
-    return await axios.get(url, { params, headers }).then((r) => r.data)
-  } catch (err) {
-    const transient =
-      !err?.response && /^https:\/\/contentcard-backend\.onrender\.com/i.test(String(url))
-    if (transient) {
-      await new Promise((r) => setTimeout(r, 900))
-      return axios.get(url, { params, headers }).then((r) => r.data)
-    }
-    throw err
-  }
-}
-
 /**
  * Unauthenticated auth calls use absolute URLs + optional fallback so the browser
  * never hits the static site for `/api/v1/auth/*` (shows as "login" / preflight failed).
@@ -103,23 +89,10 @@ function postPublicAuth(path, data) {
   })
 }
 
-function getPublicAuth(path, params) {
-  const primaryUrl = joinApiUrl(resolveContentCardApiBase(), path)
-  const fallbackUrl = joinApiUrl(CONTENTCARD_RENDER_API_BASE, path)
-  const headers = { 'Content-Type': 'application/json' }
-  return axiosGetWithRetry(primaryUrl, params, headers).catch((err) => {
-    const networkFailure = !err?.response
-    const canFallback =
-      networkFailure && primaryUrl !== fallbackUrl && /^https?:\/\//i.test(String(primaryUrl))
-    if (canFallback) return axiosGetWithRetry(fallbackUrl, params, headers)
-    throw err
-  })
-}
-
 function isPublicAuthRequest(err) {
   const cfg = err.config || {}
   const combined = `${cfg.baseURL || ''}${cfg.url || ''}`
-  return /auth\/(login|signup)(\?|$|\/)/i.test(combined) || /auth\/shopify\/start/i.test(combined)
+  return /auth\/otp\/(request|verify)(\?|$|\/)/i.test(combined)
 }
 
 const api = axios.create({
@@ -161,21 +134,14 @@ export const marketingApi = {
 }
 
 export const authApi = {
-  signup:         (data) => postPublicAuth('/auth/signup', data),
-  login:          (data) => postPublicAuth('/auth/login', data),
-  me:             ()     => api.get('/auth/me').then(r => r.data),
-  updateProfile:  (data) => api.put('/auth/me', data).then(r => r.data),
-  changePassword: (data) => api.post('/auth/change-password', data).then(r => r.data),
-  deleteAccount:    (data) => api.delete('/auth/me', { data }).then(r => r.data),
-  forgotPassword:   (data) => postPublicAuth('/auth/forgot-password', data),
-  resetPassword:    (data) => postPublicAuth('/auth/reset-password', data),
-  verifyEmail:        (data) => postPublicAuth('/auth/verify-email', data),
-  resendVerification: (data) => postPublicAuth('/auth/resend-verification', data),
-  shopifyStart:   (params) => getPublicAuth('/auth/shopify/start', params),
-  shopifyOnboardingStatus: () => api.get('/auth/shopify/onboarding-status').then(r => r.data),
-  completeShopifyOnboarding: (data) => api.post('/auth/shopify/onboarding-complete', data).then(r => r.data),
-  getPostSignupDecision: () => api.get('/auth/post-signup-decision').then(r => r.data),
-  setPostSignupDecision: (decision) => api.post('/auth/post-signup-decision', { decision }).then(r => r.data),
+  requestOtp:    (email)      => postPublicAuth('/auth/otp/request', { email }),
+  verifyOtp:     (email, code) => postPublicAuth('/auth/otp/verify', { email, code }),
+  me:            ()           => api.get('/auth/me').then(r => r.data),
+  updateProfile: (data)       => api.put('/auth/me', data).then(r => r.data),
+  deleteAccount: ()           => api.delete('/auth/me').then(r => r.data),
+  shopifyStart:  (shop)       => api.get('/auth/shopify/start', { params: { shop } }).then(r => r.data),
+  shopifyConnection: ()       => api.get('/auth/shopify/connection').then(r => r.data),
+  shopifyDisconnect: ()       => api.delete('/auth/shopify/connection').then(r => r.data),
   getEmailPreferences:    ()     => api.get('/auth/me/email-preferences').then(r => r.data),
   updateEmailPreferences: (data) => api.put('/auth/me/email-preferences', data).then(r => r.data),
 }
@@ -191,6 +157,14 @@ export const workspaceApi = {
     api.put(`/workspaces/${wsId}/members/${memberId}`, { role }).then(r => r.data),
   removeMember: (wsId, memberId) =>
     api.delete(`/workspaces/${wsId}/members/${memberId}`).then(r => r.data),
+}
+
+// ─── Onboarding ─────────────────────────────────────────────────
+export const onboardingApi = {
+  checkProducts: (wsId, data) =>
+    api.post(`/workspaces/${wsId}/onboarding/check-products`, data).then((r) => r.data),
+  quickStart: (wsId, data) =>
+    api.post(`/workspaces/${wsId}/onboarding/quick-start`, data).then((r) => r.data),
 }
 
 // ─── Invites ────────────────────────────────────────────────────
@@ -264,22 +238,20 @@ export const contentApi = {
   generateMonthV2:     (data)          => api.post('/content/generate-month-v2', data).then(r => r.data),
   generationPrepChat:  (data)          => api.post('/content/generation-prep-chat', data).then(r => r.data),
   prepExecuteVisual:     (data)          => api.post('/content/prep-execute-visual', data).then(r => r.data),
-  brandFormCoach:      (data)          => api.post('/content/brand-form-coach', data).then(r => r.data),
   bulkRemoveFromCalendar: (data)      => api.post('/content/bulk-remove-from-calendar', data).then(r => r.data),
   bulkDelete:            (data)       => api.post('/content/bulk-delete', data).then(r => r.data),
+  redistributeDates:     (data)       => api.post('/content/redistribute-dates', data).then(r => r.data),
   generatePhotoCaption:(data)          => api.post('/content/generate-photo-caption', data).then(r => r.data),
   getStatus:           (brandId, year, month) => api.get(`/content/status/${brandId}/${year}/${month}`).then(r => r.data),
   list:       (params)         => api.get('/content', { params }).then(r => r.data),
   exportCalendar: (params)     => api.get('/content/export', { params, responseType: 'blob' }),
   directory:  (workspaceId)   => api.get('/content/directory', { params: { workspace_id: workspaceId } }).then(r => r.data),
-  memes:      ()              => api.get('/content/memes').then(r => r.data),
-  addMeme:    (data)          => api.post('/content/memes', data).then(r => r.data),
-  deleteMeme: (id)            => api.delete(`/content/memes/${id}`).then(r => r.data),
   get:        (id)             => api.get(`/content/${id}`).then(r => r.data),
   update:     (id, data)       => api.put(`/content/${id}`, data).then(r => r.data),
   regenerate: (id, data)       => api.post(`/content/${id}/regenerate`, data).then(r => r.data),
   regenerateVisual: (id, data) => api.post(`/content/${id}/regenerate-visual`, data).then(r => r.data),
   approve:    (id)             => api.post(`/content/${id}/approve`).then(r => r.data),
+  feedback:   (id, data)       => api.post(`/content/${id}/feedback`, data).then(r => r.data),
   reject:     (id)             => api.post(`/content/${id}/reject`).then(r => r.data),
   delete:     (id)             => api.delete(`/content/${id}`).then(r => r.data),
 }
@@ -371,6 +343,9 @@ export const socialApi = {
 }
 
 // ─── Templates ──────────────────────────────────────────────────
+// User-facing /dashboard/templates page was removed (nav stripped) but
+// internal callers — calendar template-picker, dashboard panel, admin —
+// still hit these endpoints, so the wrappers stay.
 export const templateApi = {
   list:   (brandId) => api.get('/templates', { params: { brand_id: brandId } }).then(r => r.data),
   playbookCatalog: (brandId) => api.get('/templates/playbook-catalog', { params: { brand_id: brandId } }).then(r => r.data),

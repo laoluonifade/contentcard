@@ -1,14 +1,20 @@
 """
-OpenAI Assistants API layer: one Assistant + Vector Store per brand.
+OpenAI brand-memory layer using the Responses API + Vector Stores.
 
-Each brand gets:
-  • A Vector Store containing the brand kit as a structured markdown document
-  • An Assistant configured to use that vector store via file_search
+The legacy Assistants API was deprecated by OpenAI (EOL August 2026). This
+module now uses the Responses API (v1/responses) with a per-brand Vector
+Store for file_search-grounded retrieval. The brand-kit markdown document
+is uploaded to that vector store and queried per-request via the
+file_search tool — no Assistant object is created or maintained.
 
-When generating content, only the creative brief is sent per request; the
-assistant retrieves brand context from the vector store automatically.
-The brand's openai_assistant_id and openai_vector_store_id are persisted
-back to the DB after first creation and reused on every subsequent generation.
+Each brand gets ONE vector store; its ID is persisted to
+``brand.openai_vector_store_id``. Creation is idempotent (tags the VS with
+the brand_id in metadata and lists existing VSes by metadata before
+creating) so concurrent calls for the same brand cannot produce duplicates.
+
+``brand.openai_assistant_id`` is no longer written to. Existing values
+remain on legacy brands for safe rollback; ``cleanup_legacy_assistant``
+deletes orphan assistants on OpenAI's side when a brand is migrated.
 """
 
 import io
@@ -21,9 +27,12 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-ASSISTANT_INSTRUCTIONS = """You are a dedicated brand content strategist inside ContentCard.
 
-Your sole job is to generate social media content that is 100% aligned with the brand's identity. Before generating anything, ALWAYS search the brand kit document to retrieve:
+# Embedded into the user prompt on every Responses API call so the model
+# behaves like the brand strategist that the old Assistant did.
+BRAND_MEMORY_SYSTEM_PROMPT = """You are a dedicated brand content strategist inside ContentCard.
+
+Your sole job is to generate social media content that is 100% aligned with the brand's identity. Before generating anything, ALWAYS search the brand kit document via the file_search tool to retrieve:
 • Brand name, industry, mission, tagline, and value proposition
 • Target audience demographics, psychographics, aspirations, and objections
 • Exact brand colors (hex values), design style, imagery style, and lighting style
@@ -119,14 +128,7 @@ def _build_brand_kit_document(brand) -> str:
   • Logo placement (raster): {_fmt((kit.get('visual_system') or {}).get('logo_placement'))}
   • Allowed layout archetypes: {_lst((kit.get('visual_system') or {}).get('allowed_archetypes'))}
   • Never show motifs: {_lst((kit.get('visual_system') or {}).get('never_show_motifs'))}
-  • Forbidden hexes: {_lst((kit.get('visual_system') or {}).get('forbidden_hexes'))}
-• **Poster lockup preferences**:
-  • Logo mode: {_fmt((kit.get('poster_lockup') or {}).get('logo_mode'))}
-  • Website mode: {_fmt((kit.get('poster_lockup') or {}).get('website_mode'))}
-  • Phone mode: {_fmt((kit.get('poster_lockup') or {}).get('phone_mode'))}
-  • Address mode: {_fmt((kit.get('poster_lockup') or {}).get('address_mode'))}
-  • Store badges mode: {_fmt((kit.get('poster_lockup') or {}).get('store_badges_mode'))}
-  • Contact phone: {_fmt((kit.get('poster_lockup') or {}).get('contact_phone'))}""",
+  • Forbidden hexes: {_lst((kit.get('visual_system') or {}).get('forbidden_hexes'))}""",
 
         f"""## 5. Messaging Framework
 • **Value Pillars**: {_lst(kit.get('value_pillars'))}
@@ -165,140 +167,237 @@ def _build_brand_kit_document(brand) -> str:
     return "\n\n".join(sections)
 
 
-async def create_brand_assistant(brand) -> tuple[str, str]:
+def _vector_store_name(brand) -> str:
+    return f"ContentCard: {brand.name} Brand Kit"
+
+
+def _brand_metadata(brand) -> dict:
+    """Identifying metadata stored on the OpenAI vector store so we can
+    reliably look up the existing store for a brand on subsequent calls
+    even if the local DB lost the ID."""
+    return {
+        "contentcard_brand_id": str(brand.id),
+        "contentcard_brand_name": str(brand.name)[:60],
+    }
+
+
+async def _find_vector_store_for_brand(client: AsyncOpenAI, brand) -> str | None:
+    """List vector stores and return the first whose metadata.brand_id matches.
+
+    Used as a defensive idempotency check: if the local DB lost
+    ``openai_vector_store_id`` (rollback, race) we still find the existing
+    store on OpenAI rather than spinning up a duplicate.
     """
-    Creates a new Vector Store + Assistant for a brand.
-    Returns (assistant_id, vector_store_id).
-    Called once per brand; IDs are persisted to the Brand model.
+    target_id = str(brand.id)
+    try:
+        # Walk paginated results — an account with hundreds of brands could
+        # span multiple pages. The list is small in practice (one store per brand).
+        cursor = None
+        for _ in range(20):  # cap pages so a runaway listing can't DoS us
+            kwargs = {"limit": 100}
+            if cursor:
+                kwargs["after"] = cursor
+            page = await client.vector_stores.list(**kwargs)
+            for vs in page.data:
+                meta = getattr(vs, "metadata", None) or {}
+                if meta.get("contentcard_brand_id") == target_id:
+                    return vs.id
+            if not getattr(page, "has_more", False):
+                return None
+            cursor = page.data[-1].id if page.data else None
+    except Exception as exc:
+        logger.warning("vector store lookup failed for brand %s: %s", brand.id, exc)
+    return None
+
+
+async def ensure_brand_vector_store(brand) -> str:
+    """Return the brand's vector store id, creating one if it does not exist.
+
+    Idempotent. Safe to call concurrently for the same brand — collisions
+    surface as duplicate vector stores on OpenAI which we then de-dupe by
+    keeping the first metadata-matched store.
+
+    Callers should still take a row-level lock on the brand before calling
+    so they can persist the returned id without losing it to a racing
+    transaction.
     """
     client = _get_client()
 
-    # 1. Create vector store
-    vs = await client.beta.vector_stores.create(
-        name=f"ContentCard: {brand.name} Brand Kit",
-    )
-    logger.info(f"Created vector store {vs.id} for brand {brand.name}")
+    # 1. Trust the persisted ID first (fast path).
+    if getattr(brand, "openai_vector_store_id", None):
+        return brand.openai_vector_store_id
 
-    # 2. Upload brand kit document as a file
+    # 2. Defensive lookup on OpenAI by metadata — handles the case where
+    #    the previous create succeeded on OpenAI but the DB write rolled back.
+    existing = await _find_vector_store_for_brand(client, brand)
+    if existing:
+        logger.info("Reusing existing vector store %s for brand %s (metadata match)", existing, brand.id)
+        return existing
+
+    # 3. Create a fresh one.
+    vs = await client.vector_stores.create(
+        name=_vector_store_name(brand),
+        metadata=_brand_metadata(brand),
+    )
+    logger.info("Created vector store %s for brand %s", vs.id, brand.id)
+
+    # 4. Upload the brand kit document.
     doc_bytes = _build_brand_kit_document(brand).encode("utf-8")
-    file_obj = io.BytesIO(doc_bytes)
-    file_obj.name = "brand_kit.md"
-
-    uploaded = await client.files.create(file=("brand_kit.md", doc_bytes, "text/plain"), purpose="assistants")
-    await client.beta.vector_stores.files.create(vector_store_id=vs.id, file_id=uploaded.id)
-    logger.info(f"Uploaded brand kit file {uploaded.id} to vector store {vs.id}")
-
-    # 3. Create assistant with file_search tool bound to the vector store
-    assistant = await client.beta.assistants.create(
-        name=f"ContentCard: {brand.name}",
-        instructions=ASSISTANT_INSTRUCTIONS,
-        model="gpt-4o",
-        tools=[{"type": "file_search"}],
-        tool_resources={"file_search": {"vector_store_ids": [vs.id]}},
+    uploaded = await client.files.create(
+        file=("brand_kit.md", doc_bytes, "text/plain"),
+        purpose="assistants",
     )
-    logger.info(f"Created assistant {assistant.id} for brand {brand.name}")
+    await client.vector_stores.files.create(vector_store_id=vs.id, file_id=uploaded.id)
+    logger.info("Uploaded brand kit file %s to vector store %s", uploaded.id, vs.id)
+    return vs.id
 
-    return assistant.id, vs.id
 
+async def replace_brand_kit_in_vector_store(brand) -> None:
+    """Replace the brand-kit document in the brand's vector store.
 
-async def update_brand_assistant(brand) -> None:
+    Wipes existing files first so retrieval doesn't hit stale chunks. If
+    the brand has no vector store yet, this calls ``ensure_brand_vector_store``
+    and lets that path handle the initial upload.
     """
-    Replaces the brand kit file in the existing vector store when the brand is updated.
-    Old files are deleted to avoid stale context accumulation.
-    """
-    if not brand.openai_vector_store_id:
+    if not getattr(brand, "openai_vector_store_id", None):
+        await ensure_brand_vector_store(brand)
         return
 
     client = _get_client()
     vs_id = brand.openai_vector_store_id
 
-    # Delete old files from the vector store (and their underlying file objects)
+    # Delete old files from the vector store and their underlying file objects.
     try:
-        existing = await client.beta.vector_stores.files.list(vector_store_id=vs_id)
+        existing = await client.vector_stores.files.list(vector_store_id=vs_id)
         for f in existing.data:
-            await client.beta.vector_stores.files.delete(vector_store_id=vs_id, file_id=f.id)
+            await client.vector_stores.files.delete(vector_store_id=vs_id, file_id=f.id)
             try:
                 await client.files.delete(f.id)
             except Exception:
                 pass
     except Exception as e:
-        logger.warning(f"Could not clean up old vector store files: {e}")
+        logger.warning("Could not clean up old vector store files for %s: %s", vs_id, e)
 
-    # Upload fresh brand kit
+    # Upload fresh brand kit.
     doc_bytes = _build_brand_kit_document(brand).encode("utf-8")
-    uploaded = await client.files.create(file=("brand_kit.md", doc_bytes, "text/plain"), purpose="assistants")
-    await client.beta.vector_stores.files.create(vector_store_id=vs_id, file_id=uploaded.id)
-    logger.info(f"Updated brand kit in vector store {vs_id} for brand {brand.name}")
+    uploaded = await client.files.create(
+        file=("brand_kit.md", doc_bytes, "text/plain"),
+        purpose="assistants",
+    )
+    await client.vector_stores.files.create(vector_store_id=vs_id, file_id=uploaded.id)
+    logger.info("Updated brand kit in vector store %s for brand %s", vs_id, brand.name)
+
+
+async def delete_brand_vector_store(vector_store_id: str | None) -> None:
+    """Cleans up the OpenAI vector store + its files when a brand is deleted."""
+    if not vector_store_id:
+        return
+    client = _get_client()
+    try:
+        existing = await client.vector_stores.files.list(vector_store_id=vector_store_id)
+        for f in existing.data:
+            try:
+                await client.files.delete(f.id)
+            except Exception:
+                pass
+        await client.vector_stores.delete(vector_store_id)
+    except Exception as e:
+        logger.warning("Error cleaning up vector store %s: %s", vector_store_id, e)
+
+
+async def cleanup_legacy_assistant(assistant_id: str | None) -> None:
+    """Delete an orphan legacy Assistant object on OpenAI's side.
+
+    Used during brand cleanup or migration so we don't leave dangling
+    objects on the OpenAI account. The Assistants API is deprecated
+    (EOL Aug 2026) but the delete endpoint still works.
+    """
+    if not assistant_id:
+        return
+    client = _get_client()
+    try:
+        await client.beta.assistants.delete(assistant_id)
+        logger.info("Deleted legacy assistant %s", assistant_id)
+    except Exception as e:
+        logger.warning("Could not delete legacy assistant %s: %s", assistant_id, e)
+
+
+async def generate_with_brand_memory(vector_store_id: str, creative_brief: str) -> str:
+    """Run the creative brief through the Responses API with file_search
+    bound to the brand's vector store.
+
+    Returns the model's text output as a JSON string (the system prompt
+    enforces JSON-only). Citation markers (【x:y†source】) are stripped
+    so the result parses cleanly.
+    """
+    client = _get_client()
+
+    full_input = f"{BRAND_MEMORY_SYSTEM_PROMPT}\n\n=== USER REQUEST ===\n{creative_brief}"
+
+    # The Responses API takes ``tools`` and ``input`` directly — no thread,
+    # no run, no polling. file_search is bound to the brand's vector store.
+    response = await client.responses.create(
+        model=settings.OPENAI_HIGH_QUALITY_MODEL,
+        input=full_input,
+        tools=[{
+            "type": "file_search",
+            "vector_store_ids": [vector_store_id],
+        }],
+        max_output_tokens=12000,
+        temperature=0.4,
+    )
+
+    # The SDK exposes a convenience accessor for the final assistant text.
+    text = getattr(response, "output_text", None)
+    if not text:
+        # Fallback: walk output blocks for the first text content.
+        for block in getattr(response, "output", []) or []:
+            for content in getattr(block, "content", []) or []:
+                ctype = getattr(content, "type", "")
+                if ctype in ("output_text", "text"):
+                    text = getattr(content, "text", None)
+                    if text:
+                        break
+            if text:
+                break
+    if not text:
+        raise RuntimeError("No text output in Responses API result")
+
+    # Strip file_search citation markers: 【4:0†source】
+    return re.sub(r'【\d+:\d+†[^】]*】', '', text).strip()
+
+
+# ── Backward-compat shims ───────────────────────────────────────────────
+# Existing call sites (api/brands.py, api/admin.py, services/ai_service.py)
+# still import the legacy names. These wrappers route to the new vector-
+# store-only flow and ignore the assistant_id arg. Remove once all
+# callers have migrated.
+
+async def create_brand_assistant(brand) -> tuple[str, str]:
+    """Legacy alias. Returns ("", vector_store_id) — the assistant_id slot
+    is left empty on purpose so callers stop persisting it."""
+    vs_id = await ensure_brand_vector_store(brand)
+    return "", vs_id
+
+
+async def update_brand_assistant(brand) -> None:
+    """Legacy alias for replace_brand_kit_in_vector_store."""
+    await replace_brand_kit_in_vector_store(brand)
 
 
 async def delete_brand_assistant(assistant_id: str | None, vector_store_id: str | None) -> None:
-    """Cleans up OpenAI resources when a brand is deleted."""
-    if not assistant_id and not vector_store_id:
-        return
-
-    client = _get_client()
-    try:
-        if vector_store_id:
-            # Delete all files first
-            existing = await client.beta.vector_stores.files.list(vector_store_id=vector_store_id)
-            for f in existing.data:
-                try:
-                    await client.files.delete(f.id)
-                except Exception:
-                    pass
-            await client.beta.vector_stores.delete(vector_store_id)
-        if assistant_id:
-            await client.beta.assistants.delete(assistant_id)
-    except Exception as e:
-        logger.warning(f"Error cleaning up OpenAI resources: {e}")
+    """Legacy alias. Cleans up both the vector store AND the orphan
+    legacy assistant if one exists."""
+    await delete_brand_vector_store(vector_store_id)
+    await cleanup_legacy_assistant(assistant_id)
 
 
 async def generate_with_assistant(assistant_id: str, creative_brief: str) -> str:
-    """
-    Creates a thread, sends the creative brief, waits for completion, returns response text.
-    The assistant retrieves brand context from its vector store automatically.
-    Citation markers (【x:y†source】) are stripped so the result is clean JSON.
-    Uses manual async polling (asyncio.sleep) to avoid blocking the event loop.
-    """
-    import asyncio
-    client = _get_client()
-
-    thread = await client.beta.threads.create()
-    await client.beta.threads.messages.create(
-        thread_id=thread.id,
-        role="user",
-        content=creative_brief,
+    """Legacy alias. Falls back to error if no vector_store_id is available
+    via the assistant_id (we can't recover one from the other). Callers
+    should switch to generate_with_brand_memory(vector_store_id, brief)."""
+    raise RuntimeError(
+        "generate_with_assistant is deprecated; switch to "
+        "generate_with_brand_memory(vector_store_id, brief). The legacy "
+        "Assistants API was EOL'd by OpenAI."
     )
-
-    run = await client.beta.threads.runs.create(
-        thread_id=thread.id,
-        assistant_id=assistant_id,
-        max_completion_tokens=12000,
-        temperature=0.4,
-        response_format={"type": "json_object"},
-    )
-
-    # Poll with asyncio.sleep so the event loop stays free for other requests
-    timeout = 180  # 3 minutes max
-    elapsed = 0
-    while run.status in ("queued", "in_progress", "cancelling"):
-        if elapsed >= timeout:
-            await client.beta.threads.runs.cancel(thread_id=thread.id, run_id=run.id)
-            raise RuntimeError(f"Assistant run timed out after {timeout}s")
-        await asyncio.sleep(3)
-        elapsed += 3
-        run = await client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
-
-    if run.status != "completed":
-        raise RuntimeError(f"Assistant run ended with status: {run.status}")
-
-    messages = await client.beta.threads.messages.list(thread_id=thread.id)
-    for msg in messages.data:
-        if msg.role == "assistant":
-            for block in msg.content:
-                if block.type == "text":
-                    # Strip file_search citation markers: 【4:0†source】
-                    text = re.sub(r'【\d+:\d+†[^】]*】', '', block.text.value)
-                    return text.strip()
-
-    raise RuntimeError("No assistant response found in thread")

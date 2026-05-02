@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Eye, EyeOff, ArrowRight, Check } from 'lucide-react'
+import { ArrowRight, Check } from 'lucide-react'
 import { inviteApi } from '../api'
 import { LogoFull } from '../components/ui/Logo'
 import useAuthStore from '../stores/authStore'
@@ -9,15 +9,19 @@ import { toast } from '../components/ui/Toast'
 export default function AcceptInvite() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const { login } = useAuthStore()
+  const { user, isAuthenticated, hasHydrated, authResolved, bootstrapAuth, fetchMe } = useAuthStore()
   const token = params.get('token')
 
   const [invite, setInvite] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [showPw, setShowPw] = useState(false)
-  const [form, setForm] = useState({ full_name: '', password: '', phone: '', email: '' })
+  const [fullName, setFullName] = useState('')
+
+  useEffect(() => {
+    if (!hasHydrated) return
+    bootstrapAuth()
+  }, [hasHydrated, bootstrapAuth])
 
   useEffect(() => {
     if (!token) { setError('Invalid invite link.'); setLoading(false); return }
@@ -26,30 +30,33 @@ export default function AcceptInvite() {
       .catch(err => { setError(err.message || 'This invite link is invalid or has expired.'); setLoading(false) })
   }, [token])
 
+  // Once we know who the user is, prefill the name input from their profile.
+  useEffect(() => {
+    if (user?.full_name && !fullName) setFullName(user.full_name)
+  }, [user, fullName])
+
+  const sessionReady = hasHydrated && authResolved
+  const needsSignIn = sessionReady && !isAuthenticated
+
+  // Auto-route to /auth so the invitee can verify their email via OTP first.
+  useEffect(() => {
+    if (!needsSignIn || !token) return
+    const next = encodeURIComponent(`/accept-invite?token=${token}`)
+    navigate(`/auth?next=${next}`, { replace: true })
+  }, [needsSignIn, token, navigate])
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    if (!form.full_name) { setError('Please enter your full name.'); return }
-    if (form.password.length < 8) { setError('Password must be at least 8 characters.'); return }
-    if (invite?.link_only && !form.email.trim()) {
-      setError('Please enter the email you want to use for this account.')
-      return
-    }
     setSubmitting(true)
     setError('')
     try {
-      const loginEmail = invite.link_only ? form.email.trim() : (invite.email || '').trim()
-      await inviteApi.accept(token, {
-        full_name: form.full_name,
-        password: form.password,
-        phone: form.phone || null,
-        email: invite.link_only ? form.email.trim() : undefined,
-      })
-      await login({ email: loginEmail, password: form.password })
-      toast('Welcome! You can update your password anytime under Settings → Profile.')
-      navigate('/dashboard/settings?tab=Profile')
+      await inviteApi.accept(token, { full_name: fullName.trim() || null })
+      await fetchMe().catch(() => {})
+      toast(`You're in. Welcome to ${invite.workspace_name}.`)
+      navigate('/dashboard')
     } catch (err) {
       const d = err.response?.data?.detail
-      setError(typeof d === 'string' ? d : (d?.message || err.message || 'Failed to accept invite. Please try again.'))
+      setError(typeof d === 'string' ? d : (d?.message || err.message || 'Could not accept this invite. Try again in a moment.'))
     } finally {
       setSubmitting(false)
     }
@@ -69,7 +76,7 @@ export default function AcceptInvite() {
           </div>
         )}
 
-        {!loading && invite && (
+        {!loading && invite && isAuthenticated && (
           <div className="bg-surface border border-fog rounded-2xl p-8">
             <div className="text-center mb-7">
               <div className="w-14 h-14 bg-brand-500/10 border border-brand-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4">
@@ -81,13 +88,11 @@ export default function AcceptInvite() {
                 <span className="text-brand-500 capitalize font-semibold">{invite.role}</span>
               </p>
               {!invite.link_only && invite.email && (
-                <p className="text-ink/30 text-xs mt-1">{invite.email}</p>
+                <p className="text-ink/30 text-xs mt-1">Invite sent to {invite.email}</p>
               )}
-              {invite.link_only && (
-                <p className="text-ink/40 text-xs mt-2 max-w-xs mx-auto">
-                  This is a link-only invite. Choose the email and password you want for your new account.
-                </p>
-              )}
+              <p className="text-ink/40 text-xs mt-3">
+                Signed in as <strong className="text-ink/60">{user?.email}</strong>
+              </p>
             </div>
 
             {error && (
@@ -95,41 +100,20 @@ export default function AcceptInvite() {
             )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {invite.link_only && (
+              {!user?.full_name && (
                 <div>
-                  <label className="label">Work email</label>
-                  <input type="email" value={form.email}
-                    onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                    placeholder="you@company.com" className="input" autoComplete="email" />
+                  <label className="label">Your name</label>
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="What should we call you?"
+                    className="input"
+                    autoFocus
+                    autoComplete="name"
+                  />
                 </div>
               )}
-              <div>
-                <label className="label">Full name</label>
-                <input type="text" value={form.full_name}
-                  onChange={e => setForm(f => ({ ...f, full_name: e.target.value }))}
-                  placeholder="Your full name" className="input" autoFocus={!invite.link_only} autoComplete="name" />
-              </div>
-              <div>
-                <label className="label">
-                  Phone number <span className="text-ink/25 font-normal normal-case">(optional)</span>
-                </label>
-                <input type="tel" value={form.phone}
-                  onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
-                  placeholder="+1 555 000 0000" className="input" />
-              </div>
-              <div>
-                <label className="label">{invite.link_only ? 'Create a password' : 'Password'}</label>
-                <div className="relative">
-                  <input type={showPw ? 'text' : 'password'} value={form.password}
-                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
-                    placeholder="Min. 8 characters" className="input pr-12" autoComplete="new-password" />
-                  <button type="button" onClick={() => setShowPw(v => !v)}
-                    aria-label={showPw ? 'Hide password' : 'Show password'}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/65 hover:text-ink transition-colors">
-                    {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-              </div>
               <button type="submit" disabled={submitting}
                 className="btn-primary w-full justify-center py-3 text-sm mt-2">
                 {submitting

@@ -52,10 +52,18 @@ const CONTENT = {
 
 export default function LegalPage() {
   const { type } = useParams()
-  const page = CONTENT[type] || CONTENT.privacy
+  // type isn't actually a route param — the routes for /privacy, /terms,
+  // /security, /support all mount this component without params. Fall back
+  // to the pathname so we still pick the right document.
+  const path = (typeof window !== 'undefined' ? window.location.pathname : '').replace(/^\//, '').split('/')[0]
+  const key = type || path || 'privacy'
+  const page = CONTENT[key] || CONTENT.privacy
+  // The marketing footer is a dense green block that dominates short policy
+  // pages on mobile. Suppress it for the two pages users actually skim.
+  const hideFooter = key === 'privacy' || key === 'terms'
 
   return (
-    <MarketingLayout>
+    <MarketingLayout hideFooter={hideFooter}>
       <SurfaceSection className="border-b border-fog">
         <MarketingContainer className="max-w-3xl">
           <SectionHeader eyebrow={page.title} title={page.title} subtitle={`Last updated: ${page.updated}`} />

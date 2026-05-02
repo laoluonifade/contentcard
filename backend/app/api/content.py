@@ -1,9 +1,10 @@
 import json
 import random
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func, or_
-from app.db.database import get_db
+from app.db.database import get_db, AsyncSessionLocal
 from app.core.config import settings
 from app.models.brand import Brand
 from app.models.content import ContentItem, ContentStatus, ContentPlatform, ContentFormat
@@ -39,6 +40,11 @@ from app.schemas.content import (
     RegenerateMonthVisualsRequest,
     RegenerateMonthVisualsResponse,
     BulkDeleteContentRequest,
+    ContentFeedbackRequest,
+    GenerateContentRequest,
+    GenerateContentResponse,
+    RedistributeMonthDatesRequest,
+    RedistributeMonthDatesResponse,
     BrandFormCoachRequest,
     BrandFormCoachResponse,
 )
@@ -54,26 +60,26 @@ from app.services.ai_service import (
 )
 from app.services.month_holiday_context import build_month_holiday_context
 from app.services.visual_tokens import (
-    apply_poster_lockup_defaults,
     apply_visual_system_defaults,
-    poster_lockup_mode_enabled,
 )
 from app.services.art_brief_service import build_art_brief
 from app.services.visual_lint_service import lint_final_image
 from app.services.quality_gate_service import score_visual_quality
 from app.services.image_service import (
+    OpenAICapacityError,
     create_loop_gif_from_image_url,
-    burn_logo_into_image_url,
-    finalize_rendered_urls_with_logo,
     generate_post_image,
     has_brand_logo,
 )
-from app.services.bannerbear_service import generate_post_images, detect_template_family
+# Bannerbear was removed (AI generates the full visual). Cloudinary post-render
+# logo overlay is also disabled — the AI integrates the brand's logo INTO the
+# composition itself. The image-prompt builder passes the brand's logo_url and
+# visual-system tokens so the AI can render a logo consistent with the brand.
 from app.services.billing_entitlements import (
     effective_plan,
     free_generations_used,
 )
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from calendar import month_name, monthrange
 import logging
 import re
@@ -87,6 +93,55 @@ MAX_POSTS_PER_PLATFORM_PER_MONTH = 15
 MAX_PREP_VISUAL_BATCH = 15
 MAX_MONTH_REGEN_BATCH = 100
 MAX_GENERATION_MONTHS_AHEAD = 3
+
+
+def _coerce_disabled_carousel_for_response(out: "ContentOut") -> "ContentOut":
+    """Coerce any legacy carousel rows to look single at the API boundary.
+
+    Carousel format is disabled in ai_service._CAROUSEL_ENABLED while the
+    carousel design system is being rebuilt. New posts can no longer be
+    carousels, but rows generated before the disable are still in the DB.
+    Trim them to a single image on read so the calendar UI doesn't render
+    multi-slide previews. The underlying DB row is untouched — when
+    carousels re-enable, the slide data comes back automatically.
+
+    Coerces aggressively — any row with format=carousel OR slide_count > 1
+    OR image_urls of length > 1 gets flattened. This catches rows that may
+    have ended up in a mixed state (e.g. format=single but slide_count=4)
+    from earlier bugs.
+    """
+    from app.services.ai_service import _CAROUSEL_ENABLED as _CAR_ENABLED
+    if _CAR_ENABLED:
+        return out
+    is_carousel_format = str(getattr(out, "format", "") or "").lower() == "carousel"
+    has_multi_slide = int(getattr(out, "slide_count", 1) or 1) > 1
+    has_multi_urls = isinstance(out.image_urls, list) and len(out.image_urls) > 1
+    if not (is_carousel_format or has_multi_slide or has_multi_urls):
+        return out
+    try:
+        out.format = "single"
+    except Exception:
+        pass
+    try:
+        out.slide_count = 1
+    except Exception:
+        pass
+    try:
+        if isinstance(out.image_urls, list) and out.image_urls:
+            out.image_urls = out.image_urls[:1]
+    except Exception:
+        pass
+    return out
+# In-flight monthly generation guard. A run started this long ago is
+# treated as dead (Render SIGTERMs in-process bg tasks on deploy and
+# they don't resume). The startup sweeper clears these and the
+# idempotency check rejects new requests until the existing run either
+# finishes or expires.
+#
+# Tuned to "healthy run + 1 retry": a successful generation completes
+# in ~3-5 minutes, so 8 minutes covers normal slack without locking
+# users out for 30 minutes when OpenAI was just briefly down.
+ACTIVE_GENERATION_TTL_MIN = 8
 TRIAL_FREE_GENERATIONS = 2000
 CARD_BONUS_FREE_GENERATIONS = 0
 PLAN_MONTHLY_POST_CAPS = {
@@ -258,16 +313,196 @@ def _quality_failure_tags(quality_gate: dict | None) -> list[str]:
 async def _counts_by_platform_month(
     brand_id: str, month: int, year: int, db: AsyncSession
 ) -> dict[str, int]:
+    """Count posts the USER sees on their calendar for the given month/year.
+
+    Filters by ContentItem.scheduled_date so the cap matches what's visible
+    in the calendar UI. Previously this counted by generation_month/year
+    (the run that produced the post) which counted posts that had since
+    been shifted to other months for collision avoidance — leaving users
+    with 5 visible posts but the cap saying they had 19.
+    """
+    start = date(year, month, 1)
+    if month == 12:
+        end = date(year + 1, 1, 1)
+    else:
+        end = date(year, month + 1, 1)
     r = await db.execute(
         select(ContentItem.platform, func.count(ContentItem.id))
         .where(
             ContentItem.brand_id == brand_id,
-            ContentItem.generation_month == month,
-            ContentItem.generation_year == year,
+            ContentItem.scheduled_date.is_not(None),
+            ContentItem.scheduled_date >= start,
+            ContentItem.scheduled_date < end,
         )
         .group_by(ContentItem.platform)
     )
     return {row[0].value: int(row[1] or 0) for row in r.all()}
+
+
+def _is_active_generation_stale(active: dict | None) -> bool:
+    """Return True if the active_generation entry is older than the TTL or malformed.
+
+    Anything stale should be ignored by the idempotency check (and cleared
+    by the startup sweeper). Treats unparseable timestamps as stale to
+    avoid permanent locks if the column ever gets a bad value.
+    """
+    if not isinstance(active, dict):
+        return True
+    started_at = active.get("started_at")
+    if not started_at:
+        return True
+    try:
+        ts = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - ts > timedelta(minutes=ACTIVE_GENERATION_TTL_MIN)
+
+
+def _assert_no_active_generation(brand: Brand, month: int, year: int) -> None:
+    """Reject generation requests when an in-flight run is already covering the same month.
+
+    Same `(month, year)` within ACTIVE_GENERATION_TTL_MIN → 409 with the
+    run's started_at so the frontend can show "still generating, started
+    X min ago". Different month → allow (parallel generations on the same
+    brand for different months are fine; they don't race on the DB rows).
+    """
+    active = brand.active_generation if isinstance(brand.active_generation, dict) else None
+    if not active or _is_active_generation_stale(active):
+        return
+    if int(active.get("month") or 0) != month or int(active.get("year") or 0) != year:
+        return
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "GENERATION_ALREADY_IN_PROGRESS",
+            "message": (
+                f"A generation for {month}/{year} is already running on this brand "
+                f"(started {active.get('started_at')}). Wait for it to finish or "
+                f"retry in {ACTIVE_GENERATION_TTL_MIN} minutes when stale entries are cleared."
+            ),
+            "active_run_id": active.get("run_id"),
+            "started_at": active.get("started_at"),
+            "month": active.get("month"),
+            "year": active.get("year"),
+        },
+    )
+
+
+async def _mark_generation_started(
+    db: AsyncSession,
+    brand_id: str,
+    *,
+    month: int,
+    year: int,
+    platforms: list[str],
+    user_id: str | None,
+) -> str:
+    """Stamp Brand.active_generation atomically, returning the run_id."""
+    import uuid
+    run_id = uuid.uuid4().hex
+    payload = {
+        "run_id": run_id,
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "month": int(month),
+        "year": int(year),
+        "platforms": [str(p).lower() for p in platforms],
+        "user_id": str(user_id) if user_id else None,
+    }
+    # Stamping a fresh run also wipes any prior capacity-failure marker so
+    # the banner doesn't keep showing "ChatGPT is busy" after the user
+    # successfully retries.
+    await db.execute(
+        Brand.__table__.update()
+        .where(Brand.id == brand_id)
+        .values(active_generation=payload, last_generation_failure=None)
+    )
+    await db.commit()
+    return run_id
+
+
+async def _record_capacity_failure(
+    brand_id: str,
+    *,
+    code: str,
+    message: str,
+    month: int,
+    year: int,
+) -> None:
+    """Persist a brand-level OpenAI capacity failure for the polling endpoint.
+
+    The frontend banner reads `last_generation_failure` via /content/status
+    and shows specific copy ("ChatGPT is busy" / "ChatGPT account is over
+    quota" / "ChatGPT is having an outage") instead of the generic timeout
+    message.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            payload = {
+                "code": code,
+                "message": message,
+                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "month": int(month),
+                "year": int(year),
+            }
+            await db.execute(
+                Brand.__table__.update()
+                .where(Brand.id == brand_id)
+                .values(last_generation_failure=payload)
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning(
+            "Could not record last_generation_failure for brand %s: %s", brand_id, exc
+        )
+
+
+async def _clear_capacity_failure(brand_id: str) -> None:
+    """Drop a stale capacity failure once a run completes cleanly.
+
+    Called from _do_generate_month after the render loop finishes without
+    hitting OpenAICapacityError, so a successful generation removes the
+    "ChatGPT is busy" banner from the next /content/status response.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                Brand.__table__.update()
+                .where(Brand.id == brand_id)
+                .values(last_generation_failure=None)
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning(
+            "Could not clear last_generation_failure for brand %s: %s", brand_id, exc
+        )
+
+
+async def _mark_generation_finished(brand_id: str, run_id: str | None = None) -> None:
+    """Clear Brand.active_generation. Called from the bg task on success or failure.
+
+    Opens its own session because the request session is long-closed by
+    the time _do_generate_month wraps up. Only clears the slot when run_id
+    matches — protects against a stale clear that races a new run started
+    after this one expired.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            r = await db.execute(select(Brand).where(Brand.id == brand_id))
+            brand = r.scalar_one_or_none()
+            if not brand:
+                return
+            current = brand.active_generation if isinstance(brand.active_generation, dict) else None
+            if current and run_id and current.get("run_id") and current.get("run_id") != run_id:
+                # A newer run replaced ours; leave its slot alone.
+                return
+            await db.execute(
+                Brand.__table__.update().where(Brand.id == brand_id).values(active_generation=None)
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning("Could not clear active_generation for brand %s: %s", brand_id, exc)
 
 
 def _assert_generation_horizon(month: int, year: int) -> None:
@@ -931,6 +1166,11 @@ def _assert_template_depth_requirements(
 ) -> None:
     if not selected_template:
         return
+    # Experiment: when the playbook layer is disabled the template-depth gate
+    # is meaningless (there is no playbook to compare against). Skip the check
+    # so generation is never blocked on a missing playbook dimension.
+    if not settings.CONTENT_PLAYBOOK_ENABLED:
+        return
     spec = selected_template.design_spec if isinstance(selected_template.design_spec, dict) else {}
     content_type = str(spec.get("playbook_content_type") or "").strip().lower()
     if not content_type:
@@ -1214,44 +1454,108 @@ async def _brand_product_grounding_pool(db: AsyncSession, brand_id: str, limit: 
 
 async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand_dict: dict) -> bool:
     """
-    Burn logo onto final cover (Bannerbear) or raster-only hero.
+    No-op — the AI integrates the brand logo INTO the composition itself.
 
-    Returns True when images are deliverable (with or without logo).
-    Logo compositing failure is non-fatal: images are kept and delivered
-    without the logo rather than being wiped and blocking delivery forever.
+    The image-prompt builder (image_service._build_image_prompt) passes the
+    brand's logo_url, visual-system tokens, and brand-mark guidance so the AI
+    designs the logo into the artwork rather than having Cloudinary stamp it on
+    top after render.
+
+    Returns True so the quality-gate retry loop never blocks delivery on a
+    "missing overlay" — there is no overlay to miss.
     """
-    logo_required = has_brand_logo(brand_dict) and poster_lockup_mode_enabled(brand_dict, "logo", post_data)
-    try:
-        if item.image_urls:
-            finalized, all_applied = await finalize_rendered_urls_with_logo(item.image_urls, brand_dict, post_data)
-            # Keep whatever images we got (with or without logo on each frame).
-            if finalized:
-                item.image_urls = finalized
-                item.image_url = finalized[0]
-            if logo_required and not all_applied:
-                logger.warning(
-                    "_apply_brand_logo_to_visuals: logo composite failed for one or more "
-                    "frames on item %s — delivering without logo overlay", item.id
-                )
-                # Return False so the caller knows logo wasn't fully applied,
-                # but images are kept — content is still deliverable.
-                return False
-        elif item.image_url:
-            nu = await burn_logo_into_image_url(item.image_url, brand_dict, post_data)
-            if nu:
-                item.image_url = nu
-            elif logo_required:
-                logger.warning(
-                    "_apply_brand_logo_to_visuals: logo burn failed for item %s "
-                    "— delivering raster image without logo overlay", item.id
-                )
-                # Do NOT wipe item.image_url — keep the generated image.
-                return False
-    except Exception as e:
-        logger.warning("_apply_brand_logo_to_visuals failed for %s: %s", item.id, e)
-        # Do NOT wipe images on exception — they are still deliverable without the logo.
-        return False if logo_required else True
     return True
+
+
+def _synthesize_fallback_strategy(post_data: dict, brand_dict: dict) -> dict:
+    """Minimum-viable strategy for posts where the strategist call failed,
+    rate-limited, or returned empty components.
+
+    Without this fallback the saved post has `cc_meta.components = []`,
+    `postHasStructuredLayout(post)` returns False on the frontend, and
+    PostCard renders the raw AI image with NO overlay — no headline, no
+    CTA, no holiday badge. That's how a Workers' Day food post ends up
+    looking like a stock food photo: the layout engine never fires.
+
+    This synthesizer guarantees every saved post has at minimum a
+    Headline + CTAButton drawn on top of the AI image, plus a Badge
+    when the post is for a public holiday.
+    """
+    raw_headline = (
+        str(post_data.get("content_idea") or "").strip()
+        or str(post_data.get("topic") or "").strip()
+        or "Today on the menu"
+    )
+    # Cap to ~8 words — the canvas Headline component overflows if the
+    # text is much longer than that on a 1080×1080 canvas.
+    headline_words = raw_headline.split()
+    if len(headline_words) > 8:
+        raw_headline = " ".join(headline_words[:8])
+
+    # CTA leans on the brand's industry / sub-industry. Falls back to a
+    # generic 'Shop now' for unknown categories so the post still has
+    # an action.
+    industry = str(brand_dict.get("industry") or "").lower()
+    sub_industry = str(brand_dict.get("sub_industry") or "").lower()
+
+    def _has(*needles: str) -> bool:
+        haystack = f"{industry} {sub_industry}"
+        return any(n in haystack for n in needles)
+
+    if _has("food", "restaurant", "kitchen", "bakery", "cafe", "drinks", "smoothie", "juice", "grocery"):
+        cta_text = "Order now"
+    elif _has("course", "ebook", "template", "software"):
+        cta_text = "Get instant access"
+    elif _has("fashion", "streetwear", "luxury", "footwear"):
+        cta_text = "Shop the drop"
+    elif _has("beauty", "skincare", "makeup", "fragrance", "wellness", "supplement"):
+        cta_text = "Shop now"
+    else:
+        cta_text = "Shop now"
+
+    holiday_name = str(post_data.get("holiday_name") or "").strip()
+    is_holiday = bool(post_data.get("is_holiday_post")) or bool(holiday_name)
+
+    components: list[dict] = []
+    if holiday_name:
+        # Loud at-a-glance badge so the post reads as a holiday post even
+        # before the user processes the headline.
+        components.append({
+            "type": "Badge",
+            "content": holiday_name.upper()[:24],
+        })
+    components.append({"type": "Headline", "content": raw_headline})
+    if post_data.get("product_image_url"):
+        components.append({"type": "ProductImage", "content": "primary"})
+    components.append({"type": "CTAButton", "content": cta_text})
+
+    # Map visual_theme + content_type onto the strategist's enum so the
+    # canvas layout engine has a recognised layout to dispatch on.
+    visual_theme = str(post_data.get("visual_theme") or "").strip().lower()
+    content_type = str(post_data.get("content_type") or "").strip().lower()
+
+    if is_holiday or visual_theme == "collage" or any(
+        k in content_type for k in ("promo", "offer", "bundle", "upsell")
+    ):
+        post_type = "offer_discount"
+        layout = "offer_card"
+    elif "testimonial" in content_type or "proof" in content_type:
+        post_type = "social_proof"
+        layout = "split"
+    elif visual_theme in ("lifestyle", "editorial"):
+        post_type = "lifestyle_use"
+        layout = "lifestyle_overlay"
+    else:
+        post_type = "product_spotlight"
+        layout = "centered_product"
+
+    return {
+        "post_type": post_type,
+        "layout": layout,
+        "components": components,
+        "use_product_image": bool(post_data.get("product_image_url")),
+        "_source": "fallback_synthesizer",
+    }
 
 
 async def _render_with_quality_gate(
@@ -1272,17 +1576,13 @@ async def _render_with_quality_gate(
     for attempt in range(max_attempts):
         render_post = dict(post_data)
         render_post["quality_gate_retry"] = attempt
-        render_post["template_family"] = detect_template_family(render_post)
         if attempt > 0:
-            # Stricter fallback guidance for retries.
+            # Stricter retry guidance for the AI image prompt.
             render_post["quality_gate_notes"] = (
                 "Cleaner focal hierarchy, fewer background objects, stronger tonal separation, "
                 "more ad-quality realism, and less synthetic aesthetics."
             )
-            if not str(render_post.get("force_template_family") or "").strip():
-                render_post["force_template_family"] = "default"
 
-        fam = detect_template_family(render_post)
         product_bg_url = str(render_post.get("product_image_url") or "").strip()
         grounding = render_post.get("website_grounding") if isinstance(render_post.get("website_grounding"), dict) else {}
         grounding_payload = grounding.get("payload") if isinstance(grounding.get("payload"), dict) else {}
@@ -1292,11 +1592,7 @@ async def _render_with_quality_gate(
         # Never use raw website product photos as the final slide background.
         # They can be low-res or poorly framed. Instead, always generate a designed
         # hero visual grounded by product context and references.
-        if bool(product_bg_url) and (
-            fam in ("product_hero", "promo", "announcement")
-            or str(render_post.get("visual_type") or "").lower() == "product"
-            or grounding_entity_type == "product"
-        ):
+        if bool(product_bg_url) and grounding_entity_type == "product":
             render_post["quality_gate_notes"] = " ".join(
                 x for x in [
                     str(render_post.get("quality_gate_notes") or "").strip(),
@@ -1313,9 +1609,66 @@ async def _render_with_quality_gate(
             item.visual_strategy_used    = render_post["visual_strategy_used"]
             item.composition_description = render_post.get("composition_description")
 
-        bb_urls = await generate_post_images(render_post, brand_dict, background_image_url=item.image_url or None)
-        if bb_urls:
-            item.image_urls = bb_urls
+        # Phase A — persist the strategist output (post_type / layout /
+        # components / use_product_image) onto theme.cc_meta so the
+        # frontend layout engine can render the design from these fields.
+        #
+        # When the strategist call failed, was rate-limited, or returned
+        # an empty components array, synthesize a minimum-viable strategy
+        # so the canvas overlay always has at least a Headline + CTAButton
+        # (and a holiday Badge when applicable). Without this fallback,
+        # PostCard renders the raw AI image with no overlay — which is how
+        # holiday posts end up looking like a stock food photo.
+        strategist_out = render_post.get("strategist_output")
+        existing_pack = render_post.get("component_pack")
+        needs_fallback = (
+            not isinstance(strategist_out, dict)
+            or not strategist_out.get("components")
+            or not isinstance(existing_pack, list)
+            or len(existing_pack) == 0
+        )
+        if needs_fallback:
+            fallback = _synthesize_fallback_strategy(render_post, brand_dict)
+            # Merge: if the strategist gave us SOME fields (e.g. scene,
+            # color_strategy) preserve them and only swap in our headline /
+            # CTA / layout where we have something better.
+            merged = dict(strategist_out) if isinstance(strategist_out, dict) else {}
+            merged["components"] = fallback["components"]
+            merged.setdefault("post_type", fallback["post_type"])
+            merged.setdefault("layout", fallback["layout"])
+            merged.setdefault("use_product_image", fallback["use_product_image"])
+            merged["_fallback_applied"] = True
+            strategist_out = merged
+            render_post["strategist_output"] = merged
+            render_post["component_pack"] = list(fallback["components"])
+            render_post["post_type"] = render_post.get("post_type") or fallback["post_type"]
+            render_post["layout_family"] = render_post.get("layout_family") or fallback["layout"]
+            render_post.setdefault("use_product_image", fallback["use_product_image"])
+            logger.info(
+                "Applied fallback design strategy for post %s (industry=%s, holiday=%s)",
+                getattr(item, "id", "?"),
+                brand_dict.get("industry"),
+                bool(render_post.get("holiday_name")),
+            )
+
+        if isinstance(strategist_out, dict):
+            theme_curr = dict(item.theme) if isinstance(item.theme, dict) else {}
+            cc_meta = dict(theme_curr.get("cc_meta") or {})
+            cc_meta["strategy"] = strategist_out
+            cc_meta["post_type"] = render_post.get("post_type") or strategist_out.get("post_type")
+            cc_meta["layout"] = render_post.get("layout_family") or strategist_out.get("layout")
+            cc_meta["components"] = render_post.get("component_pack") or strategist_out.get("components") or []
+            cc_meta["use_product_image"] = (
+                render_post.get("use_product_image")
+                if render_post.get("use_product_image") is not None
+                else strategist_out.get("use_product_image")
+            )
+            theme_curr["cc_meta"] = cc_meta
+            item.theme = theme_curr
+
+        # AI is the only renderer; the raw AI frames ARE the final visual set.
+        # For carousels, generate_post_image returns N frames (one per slide).
+        item.image_urls = list(bg_urls) if bg_urls else None
 
         last_logo_ok = await _apply_brand_logo_to_visuals(item, render_post, brand_dict)
         rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
@@ -1341,25 +1694,16 @@ async def _render_with_quality_gate(
                 ] if x
             ).strip()
 
-    # Final fallback render: deterministic branded template output (no AI background)
-    # so posts are still delivered instead of staying pending forever.
+    # No template fallback exists anymore — the AI retries above are the only
+    # production path. If they all fail we hard-block (return below).
     fallback_post = dict(post_data)
     fallback_post["quality_gate_fallback"] = True
-    if not str(fallback_post.get("force_template_family") or "").strip():
-        fallback_post["force_template_family"] = "default"
-    fallback_post["template_family"] = detect_template_family(fallback_post)
     fallback_post["quality_gate_notes"] = (
-        "Fallback mode: clean layout, strong hierarchy, low clutter, ad-style readability."
+        "Fallback mode: cleaner layout, stronger hierarchy, low clutter, ad-style readability."
     )
     try:
-        # Fallback should still prefer designed output. Avoid passing raw website
-        # product image directly as final background.
-        fallback_bg = None
         item.image_url = None
-        bb_urls = await generate_post_images(fallback_post, brand_dict, background_image_url=fallback_bg)
-        if bb_urls:
-            item.image_urls = bb_urls
-            item.image_url = bb_urls[0]
+        item.image_urls = None
         last_logo_ok = await _apply_brand_logo_to_visuals(item, fallback_post, brand_dict)
         rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
         last_lint, fallback_qg = await _score_rendered_visual_set(
@@ -1425,62 +1769,6 @@ async def _get_brand_and_check_access(
     return brand
 
 
-# ── Brand readiness check ───────────────────────────────────────────
-
-def _validate_brand_readiness(brand: Brand) -> list[str]:
-    """
-    Returns human-readable labels for required fields that are missing.
-    Empty list means the brand is ready to generate content.
-    """
-    kit = brand.brand_kit or {}
-    missing = []
-
-    if not (brand.description or '').strip():
-        missing.append("Brand description (Basics tab)")
-
-    if not (brand.pain_point or '').strip():
-        missing.append("Customer pain point (Audience tab)")
-
-    if not (brand.target_audience or '').strip():
-        missing.append("Target audience (Audience tab)")
-
-    if not brand.tone_tags or len(brand.tone_tags) == 0:
-        missing.append("Tone tags (Voice tab)")
-
-    if not (brand.language_style or '').strip():
-        missing.append("Language style (Voice tab)")
-
-    ws = str(kit.get('writing_style') or '').strip()
-    if not ws:
-        missing.append("Writing style (Voice tab)")
-
-    vp = str(kit.get('value_proposition') or '').strip()
-    if not vp:
-        missing.append("Value proposition (Identity tab)")
-
-    km = kit.get('key_messages') or []
-    if not km or (isinstance(km, list) and len(km) == 0) or (isinstance(km, str) and not km.strip()):
-        missing.append("Key messages (Identity tab)")
-
-    cta_style = str(kit.get('cta_style') or '').strip()
-    if not cta_style:
-        missing.append("CTA style (Identity tab)")
-
-    has_palette = bool(brand.brand_colors and len([c for c in brand.brand_colors if str(c).strip()]) >= 2)
-    vs = kit.get("visual_system") if isinstance(kit.get("visual_system"), dict) else {}
-    has_visual_tokens = all(str(vs.get(k) or "").strip() for k in ("primary_hex", "secondary_hex", "accent_hex"))
-    if not (has_palette or has_visual_tokens):
-        missing.append("Brand colors or visual system palette (Visual tab)")
-
-    if not (brand.design_style or '').strip():
-        missing.append("Design style (Visual tab)")
-
-    if not (brand.guidelines or '').strip():
-        missing.append("Guidelines / guardrails (Rules tab)")
-
-    return missing
-
-
 # ── Literal routes FIRST — before any /{param} routes ─────────────
 
 @router.post("/generate-month", status_code=202)
@@ -1499,6 +1787,7 @@ async def generate_month(
         raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+    _assert_no_active_generation(brand, body.month, body.year)
 
     monthly_post_cap: int | None = None
     current_month_total = 0
@@ -1528,22 +1817,17 @@ async def generate_month(
             year=body.year,
         )
 
-    missing = _validate_brand_readiness(brand)
-    if missing:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Your brand kit is incomplete. Fill in these fields before generating: {', '.join(missing)}",
-        )
-
     existing_counts = await _counts_by_platform_month(brand.id, body.month, body.year, db)
     platform_values = [p.value for p in body.platforms]
     for pv in platform_values:
-        if existing_counts.get(pv, 0) >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
+        existing = int(existing_counts.get(pv, 0))
+        if existing >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"You already have {MAX_POSTS_PER_PLATFORM_PER_MONTH} posts for "
-                    f"{pv} in this month. Remove some from the calendar or delete them before generating more."
+                    f"You already have {existing} {pv} posts scheduled this month "
+                    f"(limit is {MAX_POSTS_PER_PLATFORM_PER_MONTH}). "
+                    "Delete some posts from the calendar before generating more, or pick a different month."
                 ),
             )
     if not body.confirm_duplicate:
@@ -1576,6 +1860,14 @@ async def generate_month(
             db, brand.id, body.only_new_changes
         )
 
+    run_id = await _mark_generation_started(
+        db,
+        brand.id,
+        month=body.month,
+        year=body.year,
+        platforms=[p.value for p in body.platforms],
+        user_id=current_user.id,
+    )
     background_tasks.add_task(
         _do_generate_month,
         brand_id=brand.id,
@@ -1603,8 +1895,9 @@ async def generate_month(
         existing_counts=existing_snapshot,
         monthly_post_cap=monthly_post_cap,
         current_month_total=current_month_total,
+        active_run_id=run_id,
     )
-    return {"message": "Generation started", "month": body.month, "year": body.year}
+    return {"message": "Generation started", "month": body.month, "year": body.year, "run_id": run_id}
 
 
 @router.post("/generate-month-v2", status_code=202)
@@ -1623,6 +1916,7 @@ async def generate_month_v2(
         raise HTTPException(status_code=400, detail="Pick at least one platform. We generate per-platform.")
 
     brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db)
+    _assert_no_active_generation(brand, body.month, body.year)
     monthly_post_cap: int | None = None
     current_month_total = 0
     ws_r = await db.execute(select(Workspace).where(Workspace.id == brand.workspace_id))
@@ -1669,8 +1963,16 @@ async def generate_month_v2(
     existing_counts = await _counts_by_platform_month(brand.id, body.month, body.year, db)
     platform_values = [str(p).lower() for p in body.platforms]
     for pv in platform_values:
-        if existing_counts.get(pv, 0) >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
-            raise HTTPException(status_code=400, detail=f"Platform limit reached for {pv} in this month")
+        existing = int(existing_counts.get(pv, 0))
+        if existing >= MAX_POSTS_PER_PLATFORM_PER_MONTH:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"You already have {existing} {pv} posts scheduled this month "
+                    f"(limit is {MAX_POSTS_PER_PLATFORM_PER_MONTH}). "
+                    "Delete some posts before generating more, or pick a different month."
+                ),
+            )
 
     website_grounding_text = None
     approved_website_opportunities: list[dict] = []
@@ -1699,6 +2001,14 @@ async def generate_month_v2(
     generation_brief = "\n\n".join([x for x in [style_brief, template_context] if x and str(x).strip()]) or None
     campaign_brief_payload = body.campaign_brief.model_dump(exclude_none=True) if body.campaign_brief else None
 
+    run_id = await _mark_generation_started(
+        db,
+        brand.id,
+        month=body.month,
+        year=body.year,
+        platforms=platform_values,
+        user_id=current_user.id,
+    )
     background_tasks.add_task(
         _do_generate_month,
         brand_id=brand.id,
@@ -1725,6 +2035,7 @@ async def generate_month_v2(
         monthly_post_cap=monthly_post_cap,
         current_month_total=current_month_total,
         custom_plan=body.custom_plan or None,
+        active_run_id=run_id,
     )
     await db.commit()
     return {
@@ -1732,7 +2043,9 @@ async def generate_month_v2(
         "month": body.month,
         "year": body.year,
         "campaign_plan_id": campaign_plan.id,
+        "run_id": run_id,
     }
+
 
 
 @router.post("/generate-photo-caption")
@@ -1776,8 +2089,17 @@ async def generation_status(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Poll for content count — frontend polls this until count > 0."""
-    await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
+    """Poll for content count — frontend polls this until count > 0.
+
+    Also returns `active_generation` so the frontend can resume the loader
+    after a page refresh: if a run is mid-flight on this brand for this
+    month, the banner reattaches without re-firing generateMonth.
+
+    Also returns `last_generation_failure` so the frontend can show a
+    specific OpenAI-busy / billing / outage banner instead of the
+    generic timeout when the previous run hit ChatGPT capacity issues.
+    """
+    brand = await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
     result = await db.execute(
         select(ContentItem).where(
             ContentItem.brand_id == brand_id,
@@ -1809,6 +2131,60 @@ async def generation_status(
         "failed_quality": failed_quality,
         "ready": total > 0 and ready_items >= total,
         "by_platform": by_platform,
+        "active_generation": _serialize_active_generation_for_status(brand, month, year),
+        "last_generation_failure": _serialize_last_generation_failure(brand, month, year),
+    }
+
+
+def _serialize_active_generation_for_status(brand: Brand, month: int, year: int) -> dict | None:
+    """Return the in-flight generation slot when it covers this month, else None.
+
+    Stale slots are reported with `stale: true` so the frontend can ignore
+    them rather than spinning a loader forever — the startup sweeper will
+    clear them on the next deploy.
+    """
+    active = brand.active_generation if isinstance(brand.active_generation, dict) else None
+    if not active:
+        return None
+    if int(active.get("month") or 0) != month or int(active.get("year") or 0) != year:
+        return None
+    started_at = active.get("started_at")
+    age_seconds: int | None = None
+    if started_at:
+        try:
+            ts = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            age_seconds = int((datetime.now(timezone.utc) - ts).total_seconds())
+        except ValueError:
+            age_seconds = None
+    return {
+        "run_id": active.get("run_id"),
+        "started_at": started_at,
+        "age_seconds": age_seconds,
+        "stale": _is_active_generation_stale(active),
+        "month": active.get("month"),
+        "year": active.get("year"),
+    }
+
+
+def _serialize_last_generation_failure(brand: Brand, month: int, year: int) -> dict | None:
+    """Return the most recent capacity failure when it covers this month, else None.
+
+    Surfaced by /content/status so the frontend banner can show
+    "ChatGPT is busy — try again later" with the existing Retry button.
+    """
+    failure = brand.last_generation_failure if isinstance(brand.last_generation_failure, dict) else None
+    if not failure:
+        return None
+    if int(failure.get("month") or 0) != month or int(failure.get("year") or 0) != year:
+        return None
+    return {
+        "code": failure.get("code"),
+        "message": failure.get("message"),
+        "occurred_at": failure.get("occurred_at"),
+        "month": failure.get("month"),
+        "year": failure.get("year"),
     }
 
 
@@ -1850,7 +2226,7 @@ async def list_directory(
         .order_by(ContentItem.created_at.desc())
     )
     rows = [c for c in result.scalars().all() if _item_ready_for_user(c)]
-    return [ContentOut.model_validate(c) for c in rows]
+    return [_coerce_disabled_carousel_for_response(ContentOut.model_validate(c)) for c in rows]
 
 
 @router.get("/memes")
@@ -1988,7 +2364,7 @@ async def list_content(
     rows = list(result.scalars().all())
     if month and year and not include_pending:
         rows = [c for c in rows if _item_ready_for_user(c)]
-    return [ContentOut.model_validate(c) for c in rows]
+    return [_coerce_disabled_carousel_for_response(ContentOut.model_validate(c)) for c in rows]
 
 
 @router.post("/generation-prep-chat", response_model=GenerationPrepChatResponse)
@@ -2011,7 +2387,11 @@ async def generation_prep_chat(
             .limit(8)
         )
     ).scalars().all()
+    # Experiment: when the playbook layer is disabled, send an empty templates
+    # list to the planner so the model decides everything from the brand kit.
     playbook_lines: list[str] = []
+    if not settings.CONTENT_PLAYBOOK_ENABLED:
+        templates = []
     for idx, t in enumerate(templates, start=1):
         spec = t.design_spec if isinstance(t.design_spec, dict) else {}
         ct = str(spec.get("playbook_content_type") or t.name or "general").strip()
@@ -2041,7 +2421,10 @@ async def generation_prep_chat(
                 f"{str(selected_slot.get('visual_direction') or '').strip()[:120]}"
             )
         playbook_lines.append(f"{idx}. {ct} ({direction_count} directions){preferred_text} | examples -> {sample_text}")
-    playbook_summary = "\n".join(playbook_lines) if playbook_lines else "No custom templates yet."
+    if not settings.CONTENT_PLAYBOOK_ENABLED:
+        playbook_summary = "Brand-kit-only mode — no playbook templates. Decide everything from BRAND CONTEXT."
+    else:
+        playbook_summary = "\n".join(playbook_lines) if playbook_lines else "No custom templates yet."
     product_rows = (
         await db.execute(
             select(WebsiteEntity)
@@ -2381,16 +2764,193 @@ async def bulk_delete_content(
     if not ids:
         raise HTTPException(status_code=400, detail="Pick at least one post first.")
     deleted = 0
+    affected_buckets: set[tuple[str, str, int, int]] = set()  # (brand_id, platform, year, month)
     for cid in ids[:100]:
         r = await db.execute(select(ContentItem).where(ContentItem.id == cid))
         item = r.scalar_one_or_none()
         if not item:
             continue
         await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=True)
+        if item.scheduled_date is not None:
+            pv = item.platform.value if isinstance(item.platform, ContentPlatform) else str(item.platform)
+            affected_buckets.add((item.brand_id, str(pv).lower(), item.scheduled_date.year, item.scheduled_date.month))
         await db.delete(item)
         deleted += 1
     await db.commit()
+    for brand_id, plat, yr, mo in affected_buckets:
+        try:
+            await _redistribute_month_dates(
+                db=db, brand_id=brand_id, month=mo, year=yr, platform=plat
+            )
+        except Exception as e:
+            logger.warning("auto-redistribute on bulk-delete failed: %s", e)
     return {"deleted": deleted}
+
+
+@router.post("/generate-content", response_model=GenerateContentResponse)
+async def generate_content(
+    body: GenerateContentRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """PRD §11.1 — single-shot image generation pipeline.
+
+    Flow (PRD §3):
+      1. Fetch the Brand Kit
+      2. Call Strategist (LLM) → structured creative direction JSON
+      3. Call Prompt Builder (deterministic) → plain text image prompt
+      4. Call OpenAI image model → image URL
+      5. Return image_url + strategy + prompt for client transparency
+
+    The Strategist NEVER receives the raw user_prompt as the image prompt —
+    it interprets brand + intent and emits a structured direction.
+    """
+    from app.services.strategist_service import call_strategist, pick_variation_axis
+    from app.services.prompt_builder_service import build_image_prompt as build_prompt_from_strategy
+    from app.services.image_service import generate_post_image
+
+    brand = await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
+    brand_kit = _brand_to_dict(brand)
+
+    fmt = (body.format or "single").lower()
+    if fmt not in ("single", "quote", "gif"):
+        fmt = "single"
+    platform_value = body.platform.value if body.platform else "instagram"
+
+    # Variation axis seeded by brand_id + user_prompt hash so the same prompt
+    # produces a stable strategy on retries, but different prompts diverge.
+    variation_seed = f"{body.brand_id}|{body.user_prompt[:200]}"
+    import hashlib as _h
+    pseudo_post_id = _h.sha256(variation_seed.encode("utf-8")).hexdigest()[:16]
+    variation_axis = pick_variation_axis(body.brand_id, pseudo_post_id)
+
+    try:
+        strategy = await call_strategist(
+            brand_kit=brand_kit,
+            user_prompt=body.user_prompt or "",
+            platform=platform_value,
+            format=fmt,
+            variation_axis=variation_axis,
+        )
+    except Exception as e:
+        logger.error("Strategist failed in /generate-content: %s", e)
+        raise HTTPException(status_code=502, detail="Strategist call failed")
+
+    prompt_text = build_prompt_from_strategy(
+        strategy=strategy,
+        brand_kit=brand_kit,
+        platform=platform_value,
+    )
+
+    # Reuse the existing image-generation pipeline — pass the prebuilt
+    # prompt via image_prompt so generate_post_image's strategist call
+    # can fast-path back to it (the strategist cache short-circuits).
+    synthetic_post = {
+        "id": pseudo_post_id,
+        "platform": platform_value,
+        "format": fmt,
+        "topic": (body.user_prompt or "")[:120],
+        "content_idea": body.user_prompt or "",
+        "image_prompt": prompt_text,  # legacy fallback path uses this
+    }
+
+    urls = await generate_post_image(synthetic_post, brand_kit)
+    if not urls:
+        raise HTTPException(status_code=502, detail="Image generation failed")
+
+    # Persist as a draft ContentItem so the image shows up in the calendar
+    # and tracks like every other generated post (regenerate / approve /
+    # download / metrics). Without this the /generate-content output is
+    # ephemeral — generated, returned, then orphaned.
+    try:
+        platform_enum = ContentPlatform(platform_value)
+    except ValueError:
+        platform_enum = ContentPlatform.INSTAGRAM
+    headline_for_topic = str(strategy.get("text_on_image") or body.user_prompt or "Generated post")[:200]
+    item = ContentItem(
+        brand_id=body.brand_id,
+        topic=headline_for_topic[:500],
+        platform=platform_enum,
+        format=fmt,
+        status=ContentStatus.DRAFT,
+        content_idea=body.user_prompt or None,
+        description=str(strategy.get("scene") or "")[:1000] or None,
+        cta=None,
+        image_prompt=prompt_text,
+        image_prompt_explanation=str(strategy.get("objective") or "")[:500] or None,
+        visual_direction=str(strategy.get("visual_style") or "")[:500] or None,
+        image_url=str(urls[0]),
+        image_urls=list(urls)[:1] if urls else None,
+        slide_count=1,
+        scheduled_date=None,
+        generation_month=None,
+        generation_year=None,
+        theme={"cc_meta": {"strategy": strategy, "source": "generate_content_endpoint"}},
+        caption=None,
+        hashtags=[],
+    )
+    db.add(item)
+    await db.commit()
+    await db.refresh(item)
+
+    return GenerateContentResponse(
+        image_url=str(urls[0]),
+        strategy=strategy,
+        prompt=prompt_text,
+    )
+
+
+@router.post("/{content_id}/feedback", status_code=204)
+async def post_content_feedback(
+    content_id: str,
+    body: ContentFeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """PRD §14 — user-satisfaction signal (thumbs up/down on a generated post)."""
+    r = await db.execute(select(ContentItem).where(ContentItem.id == content_id))
+    item = r.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Content not found")
+    await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=False)
+
+    rating = (body.rating or "").strip().lower()
+    if rating not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="rating must be 'up' or 'down'")
+
+    try:
+        from app.services.success_metrics_service import record_user_satisfaction
+        record_user_satisfaction(
+            brand_id=str(item.brand_id),
+            post_id=str(item.id),
+            rating=rating,
+            note=body.note,
+        )
+    except Exception:
+        pass
+
+
+@router.post("/redistribute-dates", response_model=RedistributeMonthDatesResponse)
+async def redistribute_dates(
+    body: RedistributeMonthDatesRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Spread the remaining posts evenly across the month's weekdays.
+
+    Useful when the user has deleted several posts and the calendar looks gappy.
+    Keeps relative order intact, skips published posts and past-date posts.
+    """
+    await _get_brand_and_check_access(body.brand_id, current_user.id, db, need_editor=True)
+    plat_value = body.platform.value if body.platform else None
+    result = await _redistribute_month_dates(
+        db=db,
+        brand_id=body.brand_id,
+        month=body.month,
+        year=body.year,
+        platform=plat_value,
+    )
+    return RedistributeMonthDatesResponse(**result)
 
 
 # ── Param routes AFTER literal routes ──────────────────────────────
@@ -2406,7 +2966,7 @@ async def get_content_item(
     if not item:
         raise HTTPException(status_code=404, detail="Content not found")
     await _get_brand_and_check_access(item.brand_id, current_user.id, db, need_editor=False)
-    return ContentOut.model_validate(item)
+    return _coerce_disabled_carousel_for_response(ContentOut.model_validate(item))
 
 
 @router.put("/{content_id}", response_model=ContentOut)
@@ -2433,7 +2993,7 @@ async def update_content(
 
     await db.commit()
     await db.refresh(item)
-    return ContentOut.model_validate(item)
+    return _coerce_disabled_carousel_for_response(ContentOut.model_validate(item))
 
 
 @router.post("/{content_id}/regenerate", response_model=ContentOut)
@@ -2469,7 +3029,7 @@ async def regenerate_caption(
 
     await db.commit()
     await db.refresh(item)
-    return ContentOut.model_validate(item)
+    return _coerce_disabled_carousel_for_response(ContentOut.model_validate(item))
 
 
 async def _regenerate_visual_core(
@@ -2482,6 +3042,7 @@ async def _regenerate_visual_core(
 
     brand_dict = apply_visual_system_defaults(_brand_to_dict(brand))
     post = _content_item_to_post_dict(item)
+    post["regenerate_token"] = uuid.uuid4().hex
     if body.mode == "new_archetype" and body.new_archetype:
         na = body.new_archetype.strip().lower()
         if na not in ARCHETYPE_IDS:
@@ -2505,7 +3066,7 @@ async def _regenerate_visual_core(
         "art_brief": sab,
         "visual_lint": lint,
         "quality_gate": quality_gate,
-        "template_family": detect_template_family(post),
+        "template_family": "default",
         "website_grounding": post.get("website_grounding") if isinstance(post.get("website_grounding"), dict) else None,
         "product_image_url": post.get("product_image_url"),
         "product_image_urls": post.get("product_image_urls") if isinstance(post.get("product_image_urls"), list) else None,
@@ -2534,7 +3095,17 @@ async def regenerate_visual(
 
     try:
         await _regenerate_visual_core(db, item, brand, body)
-        return ContentOut.model_validate(item)
+        # PRD §14.a — quality signal: user regenerated the visual.
+        try:
+            from app.services.success_metrics_service import record_image_regenerated
+            record_image_regenerated(
+                brand_id=str(item.brand_id),
+                post_id=str(item.id),
+                reason=str(getattr(body, "mode", "") or "user_regenerate"),
+            )
+        except Exception:
+            pass
+        return _coerce_disabled_carousel_for_response(ContentOut.model_validate(item))
     except HTTPException:
         raise
     except Exception as e:
@@ -2553,8 +3124,123 @@ async def delete_content(
     if not item:
         raise HTTPException(status_code=404, detail="Content not found")
     await _get_brand_and_check_access(item.brand_id, current_user.id, db)
+    affected_buckets: set[tuple[str, int, int]] = set()
+    if item.scheduled_date is not None:
+        pv = item.platform.value if isinstance(item.platform, ContentPlatform) else str(item.platform)
+        affected_buckets.add((str(pv).lower(), item.scheduled_date.year, item.scheduled_date.month))
     await db.delete(item)
     await db.commit()
+    # After a delete, the surviving posts can leave a gap in the calendar — quietly
+    # rebalance the remaining unpublished posts in (platform, month) so dates stay
+    # evenly spread without the user having to drag every card.
+    for plat, yr, mo in affected_buckets:
+        try:
+            await _redistribute_month_dates(
+                db=db, brand_id=item.brand_id, month=mo, year=yr, platform=plat
+            )
+        except Exception as e:
+            logger.warning("auto-redistribute on delete failed: %s", e)
+
+
+async def _redistribute_month_dates(
+    db: AsyncSession,
+    brand_id: str,
+    month: int,
+    year: int,
+    platform: str | None = None,
+) -> dict:
+    """Spread unpublished posts in (brand, platform?, month) evenly across that month's weekdays.
+
+    - Keeps the relative order intact (sorted by current scheduled_date, then created_at).
+    - Skips posts whose status is "published".
+    - Skips posts whose scheduled_date is in the past (today or earlier).
+    - Per-platform: redistributes one platform at a time; pass platform=None to do every
+      platform that has posts in the month.
+
+    Returns {"updated": int, "skipped_published": int, "schedule": [{id, platform, scheduled_date}]}.
+    """
+    last = monthrange(year, month)[1]
+    start = date(year, month, 1)
+    end = date(year, month, last)
+    today = date.today()
+
+    q = select(ContentItem).where(
+        ContentItem.brand_id == brand_id,
+        ContentItem.scheduled_date.isnot(None),
+        ContentItem.scheduled_date >= start,
+        ContentItem.scheduled_date <= end,
+    )
+    if platform:
+        try:
+            plat_enum = ContentPlatform(platform)
+            q = q.where(ContentItem.platform == plat_enum)
+        except ValueError:
+            return {"updated": 0, "skipped_published": 0, "schedule": []}
+
+    r = await db.execute(q)
+    items = list(r.scalars().all())
+
+    by_platform: dict[str, list[ContentItem]] = {}
+    skipped_published = 0
+    for it in items:
+        if str(getattr(it, "status", "") or "").lower() == "published":
+            skipped_published += 1
+            continue
+        if it.scheduled_date and it.scheduled_date <= today:
+            # Don't touch past or today — user may already be planning around them.
+            continue
+        pv = it.platform.value if isinstance(it.platform, ContentPlatform) else str(it.platform)
+        by_platform.setdefault(str(pv).lower(), []).append(it)
+
+    weekdays = _weekday_isos_in_month(year, month)
+    weekdays_future = [w for w in weekdays if date.fromisoformat(w) > today]
+
+    updated = 0
+    schedule: list[dict] = []
+    for pv, group in by_platform.items():
+        group.sort(key=lambda i: (i.scheduled_date or end, i.created_at or datetime.min))
+        n = len(group)
+        if n == 0:
+            continue
+        pool = weekdays_future or weekdays
+        if not pool:
+            continue
+        if n == 1:
+            picks = [pool[len(pool) // 2]]
+        else:
+            step = (len(pool) - 1) / (n - 1)
+            picks = [pool[min(len(pool) - 1, int(round(i * step)))] for i in range(n)]
+            # De-dupe while preserving order; if collisions, push to nearest free slot
+            seen: set[str] = set()
+            free = [w for w in pool if w not in picks]
+            cleaned: list[str] = []
+            for p in picks:
+                if p in seen:
+                    fallback = next((f for f in free if f not in seen), None)
+                    if fallback:
+                        cleaned.append(fallback)
+                        seen.add(fallback)
+                    else:
+                        cleaned.append(p)
+                else:
+                    cleaned.append(p)
+                    seen.add(p)
+            picks = cleaned
+
+        for it, iso in zip(group, picks):
+            new_date = date.fromisoformat(iso)
+            if it.scheduled_date != new_date:
+                it.scheduled_date = new_date
+                updated += 1
+            schedule.append({
+                "id": it.id,
+                "platform": pv,
+                "scheduled_date": new_date.isoformat(),
+            })
+
+    if updated:
+        await db.commit()
+    return {"updated": updated, "skipped_published": skipped_published, "schedule": schedule}
 
 
 async def _existing_platform_dates_in_month(
@@ -3271,11 +3957,11 @@ async def _load_prior_cross_month_memory(
     if not lines:
         return set(), set(), ""
     brief = (
-        "=== PRIOR RECENT POSTS (already published or drafted on this brand in earlier months) ===\n"
-        "Do NOT recycle the same hero dish, same single-colour studio sweep, same prop cluster, or same "
-        "camera/framing as any row below. Each new post needs a clearly different scene: change surface, "
-        "lighting recipe, background hue, distance, plating format, or tell the story through environment "
-        "instead of repeating an isolated hero duplicate.\n\n"
+        "=== PRIOR PUBLISHED POSTS (already published or drafted on this brand in earlier months — DO NOT DUPLICATE) ===\n"
+        "Read every row below. For THIS new month, no post may share the same content_idea, same hook noun, "
+        "same hero scene, same composition, same prop cluster, same camera framing, or the same caption opener "
+        "as any row. Even a near-paraphrase is a fail. Each new post needs a clearly different idea, scene, "
+        "and visual treatment. If your draft would land on something visible below, rewrite it before returning.\n\n"
         + "\n".join(lines[:38])
     )
     return sigs, slugs, brief
@@ -3298,11 +3984,10 @@ def _differentiate_if_topic_reused(
         return post
     ym = f"{target_year}-{target_month:02d}"
     suffix = (
-        f"\n\nMANDATORY VISUAL DIFFERENTIATION (new month {ym}; this headline/topic already ran before): "
-        "Do not repeat the same food plate, sandwich/pita hero, monochrome studio field, or identical prop stack "
-        "from the prior execution. Use a new composition: different surface (linen, stone, timber, concrete), "
-        "different lighting (soft window vs hard side light vs overhead), different camera distance/angle, "
-        "different garnish/accent colours, or shift to contextual/lifestyle framing instead of an isolated duplicate hero."
+        f"\n\nMANDATORY VISUAL DIFFERENTIATION (new month {ym}; a near-identical idea or hook ran in a prior month): "
+        "Do not repeat the same hero subject, prop cluster, surface, palette, framing, or composition from the prior "
+        "execution. Use a clearly different scene: change the surface, lighting recipe, camera distance/angle, "
+        "accent colour, or shift to a contextual / story framing instead of restaging the prior hero."
     )
     out = dict(post)
     if str(out.get("image_prompt") or "").strip():
@@ -3319,6 +4004,9 @@ def _differentiate_if_topic_reused(
             f"Fresh {ym} visual direction for {idea or 'this post'}; avoid prior month composition repeats."
             + suffix
         )
+    warnings = list(out.get("quality_warnings") or [])
+    warnings.append("cross_month_topic_reused:auto_differentiated")
+    out["quality_warnings"] = warnings
     return out
 
 
@@ -3343,6 +4031,7 @@ async def _do_generate_month(
     monthly_post_cap: int | None = None,
     current_month_total: int = 0,
     custom_plan: list[dict] | None = None,
+    active_run_id: str | None = None,
 ):
     from app.db.database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
@@ -3405,6 +4094,7 @@ async def _do_generate_month(
                     product_image_url = str(slot.get("product_image_url") or "").strip() or None
                     # Merge override template_id from slot (if any) or fall back to global
                     slot_template_id = str(slot.get("template_id") or "").strip() or template_id or None
+                    user_idea = str(slot.get("content_idea") or "").strip()
                     posts.append({
                         "date": raw_date,
                         "platform": platform_val,
@@ -3413,8 +4103,11 @@ async def _do_generate_month(
                         "visual_direction": visual_direction,
                         "product_image_url": product_image_url,
                         "template_id": slot_template_id,
-                        # Leave topic/caption/image_prompt blank — AI fills these later
-                        "topic": topic_override or content_type or "content",
+                        # AI's planned content_idea seeds the topic so captions/images
+                        # match what the preview promised. Falls back to topic_override
+                        # or content_type when the user cleared the field.
+                        "topic": user_idea or topic_override or content_type or "content",
+                        "content_idea": user_idea or topic_override or "",
                         "caption": None,
                     })
                 logger.info(
@@ -3551,6 +4244,14 @@ async def _do_generate_month(
             brand_product_grounding_pool = await _brand_product_grounding_pool(db, brand_id)
             enforce_product_imagery = _is_product_based_brand(brand_dict)
             product_img_idx = 0
+            # Per-month dedup of product hero images. Without this, two
+            # general-purpose posts (community / engagement / seasonal) can
+            # land on the same hero photo when the planner matches both to
+            # the same opportunity or both fall back to the first product
+            # in the pool. We track the URL we actually shipped per post and
+            # swap to an unused product when a collision happens, so users
+            # see different products across the calendar grid.
+            used_primary_product_urls: set[str] = set()
 
             for i in range(len(saved_items)):
                 item, post = saved_items[i]
@@ -3629,6 +4330,115 @@ async def _do_generate_month(
                         "product_image_url": pinned_image_url,
                         "product_image_urls": [pinned_image_url],
                     }
+                # Multi-product attachment for bundle / promo / collage posts.
+                # The text generator may have planned a "complete the look" or
+                # "bundle of three" angle and we need to mirror that on the
+                # image side: surface 2-3 distinct product images so the image
+                # service can lay them out as a collage instead of picking one.
+                visual_theme = str(post.get("visual_theme") or "").strip().lower()
+                content_type_l = str(post.get("content_type") or "").strip().lower()
+                wants_multi_product = (
+                    visual_theme == "collage"
+                    or any(k in content_type_l for k in ("promotional", "promo", "offer", "bundle", "upsell"))
+                )
+                if (
+                    wants_multi_product
+                    and len(brand_product_grounding_pool) >= 2
+                    and product_ctx
+                ):
+                    primary_url = product_ctx.get("product_image_url")
+                    extras: list[str] = []
+                    extra_titles: list[str] = []
+                    # Walk the pool starting at the next round-robin index so
+                    # consecutive bundle posts don't pick the same companions.
+                    for offset in range(1, len(brand_product_grounding_pool)):
+                        candidate = brand_product_grounding_pool[(product_img_idx + offset) % len(brand_product_grounding_pool)]
+                        c_url = candidate.get("product_image_url")
+                        if not c_url or c_url == primary_url or c_url in extras:
+                            continue
+                        extras.append(c_url)
+                        if candidate.get("entity_title"):
+                            extra_titles.append(str(candidate.get("entity_title")))
+                        if len(extras) >= 2:
+                            break
+                    if extras:
+                        merged_urls = ([primary_url] if primary_url else []) + extras
+                        product_ctx = {
+                            **(product_ctx or {}),
+                            "product_image_urls": merged_urls,
+                            "bundled_product_titles": extra_titles,
+                        }
+                        # Bump idx so the next bundle post starts from a different cursor.
+                        product_img_idx += len(extras)
+
+                # Hero dedup: swap to an unused product when this post
+                # would reuse the same hero we already shipped earlier in
+                # the run. We skip dedup on promotional / launch / sale /
+                # bundle posts because their caption text usually names
+                # the specific product — swapping the photo would make
+                # the visual contradict the copy. Everything else
+                # (community, engagement, seasonal, educational, quote,
+                # tip, …) is fair game and benefits from variety.
+                content_type_for_dedup = str(post.get("content_type") or "").strip().lower()
+                pin_to_specific_product = any(
+                    k in content_type_for_dedup
+                    for k in ("promo", "launch", "offer", "sale", "upsell", "bundle", "new_product")
+                )
+                if (
+                    product_ctx
+                    and product_ctx.get("product_image_url")
+                    and not pin_to_specific_product
+                    and brand_product_grounding_pool
+                ):
+                    chosen_url = str(product_ctx.get("product_image_url") or "")
+                    if chosen_url and chosen_url in used_primary_product_urls:
+                        alternative = None
+                        for cand in brand_product_grounding_pool:
+                            cand_url = str(cand.get("product_image_url") or "")
+                            if cand_url and cand_url not in used_primary_product_urls:
+                                alternative = cand
+                                break
+                        if alternative:
+                            alt_urls = alternative.get("product_image_urls") or []
+                            if not alt_urls and alternative.get("product_image_url"):
+                                alt_urls = [alternative.get("product_image_url")]
+                            product_ctx = {
+                                **product_ctx,
+                                "product_image_url": alternative.get("product_image_url"),
+                                "product_image_urls": alt_urls,
+                                "product_price": alternative.get("product_price"),
+                                "product_availability": alternative.get("product_availability"),
+                            }
+                            # Re-point matched_op so the prompt builder doesn't
+                            # describe Product A while we render Product B.
+                            matched_op = {
+                                "entity_id": alternative.get("entity_id"),
+                                "entity_type": "product",
+                                "entity_title": alternative.get("entity_title"),
+                                "source_url": alternative.get("source_url"),
+                                "payload": {
+                                    "entity_id": alternative.get("entity_id"),
+                                    "entity_type": "product",
+                                    "entity_title": alternative.get("entity_title"),
+                                    "source_url": alternative.get("source_url"),
+                                    "price": alternative.get("product_price"),
+                                    "availability": alternative.get("product_availability"),
+                                },
+                            }
+                            logger.info(
+                                "Product hero dedup: swapped to '%s' for post '%s' "
+                                "(original URL had already been used this run)",
+                                alternative.get("entity_title") or alternative.get("product_image_url"),
+                                post.get("topic"),
+                            )
+                    final_url = str(product_ctx.get("product_image_url") or "")
+                    if final_url:
+                        used_primary_product_urls.add(final_url)
+                elif product_ctx and product_ctx.get("product_image_url"):
+                    # Pinned-product paths still record the URL so a later
+                    # non-pinned post can dedup against it.
+                    used_primary_product_urls.add(str(product_ctx.get("product_image_url")))
+
                 if product_ctx:
                     enriched.update(product_ctx)
                 if isinstance(matched_op, dict):
@@ -3638,12 +4448,16 @@ async def _do_generate_month(
                     "art_brief": sab,
                     "visual_lint": None,
                     "visual_type": post.get("visual_type"),
-                    "template_family": detect_template_family(post),
+                    "visual_theme": post.get("visual_theme"),
+                    "is_holiday_post": bool(post.get("is_holiday_post")),
+                    "holiday_name": post.get("holiday_name"),
+                    "template_family": "default",
                     "template_contract": template_contract if template_contract else None,
                     "message_architecture": post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else None,
                     "website_grounding": matched_op if isinstance(matched_op, dict) else None,
                     "product_image_url": product_ctx.get("product_image_url") if product_ctx else None,
                     "product_image_urls": product_ctx.get("product_image_urls") if product_ctx else None,
+                    "bundled_product_titles": product_ctx.get("bundled_product_titles") if product_ctx else None,
                     "website_grounding_gate": _website_grounding_gate(
                         matched_op if isinstance(matched_op, dict) else None,
                         post,
@@ -3695,10 +4509,12 @@ async def _do_generate_month(
         except json.JSONDecodeError as e:
             logger.error(f"AI returned invalid JSON for brand {brand_id}: {e}")
             await db.rollback()
+            await _mark_generation_finished(brand_id, active_run_id)
             return
         except Exception as e:
             logger.error(f"Text generation error for brand {brand_id}: {e}")
             await db.rollback()
+            await _mark_generation_finished(brand_id, active_run_id)
             return
 
         # ── Phase 1: render with quality gate + retry loop ──────────────────────────
@@ -3706,6 +4522,10 @@ async def _do_generate_month(
             try:
                 # Inject batch index so the variation engine can rotate hero/lifestyle/detail/angled
                 post_data["_batch_index"] = _batch_idx
+                # Stamp identity so the image cache key is post-unique. Without this,
+                # two posts that build the same prompt would share a cached image URL.
+                if not post_data.get("id"):
+                    post_data["id"] = str(item.id)
                 sab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else {}
                 lint, quality_gate, logo_ok = await _render_with_quality_gate(db, item, post_data, brand_dict, sab)
                 th = dict(item.theme) if isinstance(item.theme, dict) else {}
@@ -3715,6 +4535,8 @@ async def _do_generate_month(
                 cm["logo_required"] = has_brand_logo(brand_dict)
                 cm["logo_applied"] = logo_ok
                 cm["quality_failure_tags"] = _quality_failure_tags(quality_gate)
+                if post_data.get("background_mode_used"):
+                    cm["background_mode"] = post_data.get("background_mode_used")
                 requested_media_type = str(cm.get("requested_media_type") or "").lower()
                 if requested_media_type == "gif" and item.image_url:
                     gif_url = await create_loop_gif_from_image_url(item.image_url, item.topic or "post")
@@ -3762,8 +4584,35 @@ async def _do_generate_month(
                         rv.image_url = item.image_url
                         rv.image_urls = item.image_urls if isinstance(item.image_urls, list) else []
                     await db.commit()
+            except OpenAICapacityError as cap_err:
+                # OpenAI is rate-limited / over quota / having an outage.
+                # Per-image retries inside the render loop won't recover —
+                # bail out, persist a brand-level failure marker so the
+                # frontend banner can show "ChatGPT is busy, try again
+                # later", and clear the active_generation slot so the user
+                # can retry without waiting out the TTL.
+                logger.warning(
+                    "OpenAI capacity error during generation for brand %s "
+                    "(post %s, code=%s): %s",
+                    brand_id, getattr(item, "id", "?"), cap_err.code, cap_err,
+                )
+                await _record_capacity_failure(
+                    brand_id,
+                    code=cap_err.code,
+                    message=str(cap_err),
+                    month=int(month),
+                    year=int(year),
+                )
+                await _mark_generation_finished(brand_id, active_run_id)
+                return
             except Exception as e:
                 logger.warning(f"quality gate/render failed for post {item.id}: {e}")
+
+    # Generation finished cleanly (no early return inside the outer except
+    # blocks). Clear the in-flight guard so the user can re-trigger, and
+    # clear any prior capacity failure since the run completed.
+    await _mark_generation_finished(brand_id, active_run_id)
+    await _clear_capacity_failure(brand_id)
 
 
 def _brand_to_dict(brand: Brand) -> dict:
@@ -3816,7 +4665,7 @@ def _brand_to_dict(brand: Brand) -> dict:
     # brand_motifs, mission_statement, value_proposition, key_messages, etc.)
     # Individual column values above take priority over kit values.
     merged = {**kit, **base}
-    return apply_poster_lockup_defaults(apply_visual_system_defaults(merged))
+    return apply_visual_system_defaults(merged)
 
 
 def _content_item_to_post_dict(item: ContentItem) -> dict:
@@ -3855,6 +4704,8 @@ def _content_item_to_post_dict(item: ContentItem) -> dict:
         if v in ("real_people", "illustration", "abstract", "product"):
             vt = v
     return {
+        "id": str(item.id) if item.id is not None else "",
+        "date": item.scheduled_date.isoformat() if item.scheduled_date else "",
         "topic": item.topic,
         "caption": item.caption or "",
         "cta": (item.cta or "").strip(),

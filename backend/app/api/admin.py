@@ -29,7 +29,6 @@ from app.models.creative_engine import (
 )
 from app.services.ai_cost_service import cost_audit_snapshot
 from datetime import datetime, timezone, timedelta
-from app.core.security import hash_password
 from app.services.website_intelligence_service import sync_brand_website_intelligence
 from app.api.content import _do_generate_month, _brand_to_dict
 from app.api.brands import _canonical_taxonomy, _bootstrap_brand_templates
@@ -40,10 +39,10 @@ logger = logging.getLogger(__name__)
 # Estimate per post: ~1200 input tokens + 400 output tokens
 COST_PER_POST_USD = (1200 * 0.80 / 1_000_000) + (400 * 4.0 / 1_000_000)
 
-# OpenAI text (matches `TEXT_MODEL` in ai_service — gpt-4o): list prices USD per 1M tokens (approx.)
+# OpenAI text (matches `TEXT_MODEL` in ai_service — gpt-4.1): list prices USD per 1M tokens (approx.)
 # Heuristic: ~1200 input + 400 completion tokens per generated post (copy path).
-GPT4O_INPUT_USD_PER_M = 2.50
-GPT4O_OUTPUT_USD_PER_M = 10.00
+GPT4O_INPUT_USD_PER_M = 2.00
+GPT4O_OUTPUT_USD_PER_M = 8.00
 OPENAI_EST_INPUT_TOKENS_PER_POST = 1200
 OPENAI_EST_OUTPUT_TOKENS_PER_POST = 400
 COST_PER_POST_OPENAI_CHAT_USD = (
@@ -388,6 +387,23 @@ def _playbook_tree_payload(rows: list[DesignPlaybookIndustry]) -> list[dict]:
             }
         )
     return out
+
+
+@router.get("/metrics/{brand_id}")
+async def admin_brand_metrics(
+    brand_id: str,
+    _: User = Depends(require_admin),
+):
+    """PRD §14 — aggregated success-metrics summary for one brand.
+
+    Returns counters (image generations, used-without-edits, regenerated,
+    satisfaction up/down, alignment hits, language-style misses) plus
+    derived ratios (% used without edits, satisfaction score).
+    Counters are stored in the shared cache with a 30-day TTL.
+    """
+    from app.services.success_metrics_service import get_brand_metrics_summary
+    summary = get_brand_metrics_summary(brand_id)
+    return {"brand_id": brand_id, "summary": summary}
 
 
 @router.get("/design-playbook")
@@ -1283,7 +1299,7 @@ async def admin_stats(
         "estimated_openai_image_spend_usd": estimated_openai_image_spend_usd,
         "avg_openai_spend_per_workspace_usd": avg_openai_spend_per_workspace_usd,
         "posts_with_stored_image": posts_with_stored_image,
-        "openai_spend_model_note": "gpt-4o text (heuristic tokens/post) + flat est. per stored image",
+        "openai_spend_model_note": "gpt-4.1 text (heuristic tokens/post) + flat est. per stored image",
         "implied_mrr_kobo": implied_mrr_kobo,
         "implied_arr_kobo": implied_mrr_kobo * 12,
         "paying_workspace_count": paying_workspace_count,
@@ -1359,10 +1375,10 @@ async def admin_sales_sandbox_bootstrap(
         owner = User(
             full_name=owner_name or body.business_name.strip(),
             email=owner_email,
-            hashed_password=hash_password(secrets.token_urlsafe(16)),
             country_code=country_code,
             is_active=True,
             email_verified=True,  # admin-created accounts skip the verification flow
+            auth_provider="email_otp",
         )
         db.add(owner)
         await db.flush()
@@ -1497,10 +1513,10 @@ async def admin_adopt_workspace_owner(
         user = User(
             full_name=(body.full_name or email.split("@")[0]).strip()[:255] or "New User",
             email=email,
-            hashed_password=hash_password(secrets.token_urlsafe(16)),
             country_code=((body.country_code or "NG").strip().upper() or None),
             is_active=True,
             email_verified=True,  # admin-created accounts skip the verification flow
+            auth_provider="email_otp",
         )
         db.add(user)
         await db.flush()
@@ -1935,23 +1951,7 @@ async def admin_content_visual_debug(
         "logo_required": cc_meta.get("logo_required"),
         "logo_applied": cc_meta.get("logo_applied"),
         "art_brief": cc_meta.get("art_brief"),
-        "has_bannerbear_urls": isinstance(item.image_urls, list) and len(item.image_urls) > 0,
-        "bannerbear_template_config": {
-            "cover": bool(settings.BANNERBEAR_TEMPLATE_COVER),
-            "content": bool(settings.BANNERBEAR_TEMPLATE_CONTENT),
-            "quote": bool(settings.BANNERBEAR_TEMPLATE_QUOTE),
-            "hook": bool(getattr(settings, "BANNERBEAR_TEMPLATE_HOOK", "")),
-            "promo": bool(getattr(settings, "BANNERBEAR_TEMPLATE_PROMO", "")),
-            "edu": bool(getattr(settings, "BANNERBEAR_TEMPLATE_EDU", "")),
-            "testimonial": bool(getattr(settings, "BANNERBEAR_TEMPLATE_TESTIMONIAL", "")),
-            "hiring": bool(getattr(settings, "BANNERBEAR_TEMPLATE_HIRING", "")),
-            "text_poster": bool(getattr(settings, "BANNERBEAR_TEMPLATE_TEXT_POSTER", "")),
-            "product_hero": bool(getattr(settings, "BANNERBEAR_TEMPLATE_PRODUCT_HERO", "")),
-            "data_card": bool(getattr(settings, "BANNERBEAR_TEMPLATE_DATA_CARD", "")),
-            "announcement": bool(getattr(settings, "BANNERBEAR_TEMPLATE_ANNOUNCEMENT", "")),
-            "story_carousel": bool(getattr(settings, "BANNERBEAR_TEMPLATE_STORY_CAROUSEL", "")),
-            "illustration_editorial": bool(getattr(settings, "BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL", "")),
-        },
+        "has_image_urls": isinstance(item.image_urls, list) and len(item.image_urls) > 0,
     }
 
 

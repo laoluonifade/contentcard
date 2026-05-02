@@ -58,6 +58,34 @@ class Brand(Base):
     openai_vector_store_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
     brand_photos: Mapped[list | None] = mapped_column(JSON, default=list)
 
+    # In-flight monthly generation guard. Shape:
+    # {
+    #   "run_id": "uuid hex",          # idempotency token
+    #   "started_at": "ISO 8601 UTC",  # used by the startup sweeper
+    #   "month": int, "year": int,
+    #   "platforms": ["instagram", ...],
+    #   "user_id": "...",              # who triggered it
+    # }
+    # Set when /generate-month* kicks a background task. Cleared on
+    # success or failure inside _do_generate_month. The sweeper at app
+    # startup clears any entries older than ACTIVE_GENERATION_TTL_MIN
+    # (Render SIGTERMs the bg task on deploy and it never resumes).
+    active_generation: Mapped[dict | None] = mapped_column(JSON, default=None, nullable=True)
+
+    # Most recent OpenAI capacity / billing / outage failure for this brand.
+    # Shape:
+    # {
+    #   "code": "openai_busy" | "openai_billing" | "openai_outage",
+    #   "message": "Human-readable copy for the banner",
+    #   "occurred_at": "ISO 8601 UTC",
+    #   "month": int, "year": int,
+    # }
+    # Set when _do_generate_month catches OpenAICapacityError so the
+    # frontend banner can show "ChatGPT is busy — try again later"
+    # instead of the generic timeout. Cleared when the next generation
+    # for this brand starts cleanly.
+    last_generation_failure: Mapped[dict | None] = mapped_column(JSON, default=None, nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

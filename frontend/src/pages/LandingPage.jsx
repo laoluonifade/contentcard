@@ -1,330 +1,482 @@
-import { useEffect, useState } from 'react'
-import { ArrowRight, ChevronRight, Facebook, Instagram, Twitter } from 'lucide-react'
-import MarketingLayout from '../components/layout/MarketingLayout'
-import {
-  CtaBand,
-  MarketingContainer,
-  PrimaryCta,
-  SecondaryCta,
-  SectionHeader,
-  SurfaceSection,
-} from '../components/marketing/MarketingPrimitives'
-import { WhyTeamsSwitchShowcase } from '../components/marketing/AppDashboardMockups'
+import { useNavigate } from 'react-router-dom'
+import ShopifyIcon from '../components/ui/ShopifyIcon'
+import { LogoFull } from '../components/ui/Logo'
 
-function HeroPlatformCards() {
-  const [activeCard, setActiveCard] = useState(0)
-  const cards = [
-    {
-      platform: 'Instagram',
-      handle: '@juicyjunction_',
-      icon: Instagram,
-      image: '/marketing-examples/juicy-jollof.png',
-      caption:
-        'Dinner plans sorted. Fresh smoky jollof, grilled protein, and fast doorstep delivery. Tap to order now. #JuicyJunction #LagosFood',
-      status: 'Queued',
-      time: 'Today · 6:30 PM',
-      border: 'border-pink-200',
-    },
-    {
-      platform: 'X',
-      handle: '@uberlagos',
-      icon: Twitter,
-      image: '/marketing-examples/uber-ride.png',
-      caption:
-        'Beat evening traffic with smarter ETAs and safer pickups. Open Uber and get moving in minutes. #UberLagos #MoveBetter',
-      status: 'Ready',
-      time: 'Today · 7:00 PM',
-      border: 'border-slate-200',
-    },
-    {
-      platform: 'Facebook',
-      handle: 'Krispy Kreme NG',
-      icon: Facebook,
-      image: '/marketing-examples/krispy-fresh.png',
-      caption:
-        'Freshly glazed and ready for your team treat. Order a box today and share the joy in every bite.',
-      status: 'Scheduled',
-      time: 'Tomorrow · 9:00 AM',
-      border: 'border-blue-200',
-    },
-  ]
+// Ad-optimized landing page (ContentCard).
+// Multi-section, conversion-focused, e-commerce-first.
+//
+// Structure:
+//   1. Hero  — headline / subtext / primary CTA / trust strip / 3-slide carousel preview
+//   2. Instant Clarity  — "From product → post in seconds" + 3-step flow
+//   3. Output  — "What you get immediately" + 4 bullets
+//   4. Differentiation  — "This is not Canva"
+//   5. Use Case  — "Built for product businesses"
+//   6. Speed  — "Your first posts in under 30 seconds"
+//   7. Mid-page CTA
+//   8. Objection handling  — "Why brands switch"
+//   9. Final CTA
 
-  useEffect(() => {
-    const iv = setInterval(() => {
-      setActiveCard((prev) => (prev + 1) % cards.length)
-    }, 3000)
-    return () => clearInterval(iv)
-  }, [cards.length])
+const BRAND_TEAL = '#10A37F'
+const BRAND_TEAL_DARK = '#0d8f6e'
+const CREAM = '#F7F4EE'
+const INK = '#101820'
 
+// ── Tiny re-usable bits ──────────────────────────────────────────────────
+
+function PrimaryCTA({ label = 'Generate my first posts', onClick }) {
   return (
-    <div className="relative min-h-[330px] sm:min-h-[390px]">
-      {cards.map((card, idx) => {
-        const Icon = card.icon
-        const isActive = activeCard === idx
-        return (
-          <div
-            key={card.platform}
-            className={`absolute w-[82%] sm:w-[76%] rounded-2xl border ${card.border} bg-white shadow-[0_12px_34px_rgba(15,23,42,0.14)] overflow-hidden transition-all duration-700`}
-            style={{
-              top: `${idx * 48}px`,
-              left: `${idx * 9}%`,
-              transform: `translateY(${isActive ? '-8px' : '0px'}) rotate(${idx === 1 ? '-2.2deg' : idx === 2 ? '2.2deg' : '-1deg'}) scale(${isActive ? 1.02 : 1})`,
-              zIndex: isActive ? 50 : 30 - idx,
-              boxShadow: isActive ? '0 18px 45px rgba(16,185,129,0.25)' : undefined,
-            }}
-          >
-            <div className="px-3.5 py-2.5 border-b border-fog flex items-center justify-between bg-mist/60">
-              <div className="flex items-center gap-2">
-                <span className="w-7 h-7 rounded-full bg-surface border border-fog flex items-center justify-center text-ink/70">
-                  <Icon size={14} />
-                </span>
-                <div>
-                  <p className="text-xs font-semibold text-ink">{card.platform}</p>
-                  <p className="text-[10px] text-ink/45">{card.handle}</p>
-                </div>
-              </div>
-              <span className="text-[10px] rounded-full px-2 py-0.5 bg-brand-50 text-brand-700 font-semibold">{card.status}</span>
-            </div>
-            <img src={card.image} alt={`${card.platform} example post`} className="w-full h-36 sm:h-44 object-cover" />
-            <div className="px-3.5 py-2.5 border-t border-fog">
-              <p className="text-[10px] uppercase tracking-widest text-ink/45 font-semibold">Caption preview</p>
-              <p className="text-[11px] text-ink/70 mt-1 leading-relaxed">
-                {card.caption}
-              </p>
-              <p className="text-[10px] text-ink/45 mt-1.5">{card.time}</p>
-            </div>
-          </div>
-        )
-      })}
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center justify-center gap-3 font-semibold transition-colors"
+      style={{
+        background: BRAND_TEAL,
+        color: '#FFFFFF',
+        borderRadius: 999,
+        paddingTop: 22,
+        paddingBottom: 22,
+        paddingLeft: 36,
+        paddingRight: 36,
+        fontSize: 20,
+        minWidth: 360,
+        boxShadow: '0 12px 30px rgba(16, 163, 127, 0.35)',
+      }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = BRAND_TEAL_DARK)}
+      onMouseLeave={(e) => (e.currentTarget.style.background = BRAND_TEAL)}
+    >
+      <ShopifyIcon className="w-5 h-5" monochrome />
+      {label}
+    </button>
+  )
+}
+
+// ── Hero carousel preview ────────────────────────────────────────────────
+// Three Instagram-style cards fanned slightly so the eye reads them as a
+// carousel of posts the AI generates from one product.
+
+function ProductIllustration({ size = '50%' }) {
+  // Simple skincare-bottle silhouette. Realistic enough to read as "product"
+  // without committing to a specific category.
+  return (
+    <svg viewBox="0 0 100 140" width={size} aria-hidden="true">
+      <rect x="38" y="6" width="24" height="14" rx="3" fill="#D7CEBE" />
+      <rect x="30" y="22" width="40" height="100" rx="14" fill="#C8B49B" />
+      <rect x="34" y="62" width="32" height="22" rx="3" fill="#FFFFFF" />
+      <rect x="40" y="71" width="20" height="3" rx="1.5" fill="#C8B49B" />
+      <rect x="42" y="78" width="16" height="2" rx="1" fill="#C8B49B" />
+    </svg>
+  )
+}
+
+function PostCardChrome({ children, label }) {
+  // Square Instagram-feeling post card. The chrome at the top (avatar +
+  // handle + ⋯) makes it look like a real post, not an abstract poster.
+  return (
+    <div
+      style={{
+        aspectRatio: '1 / 1',
+        borderRadius: 18,
+        overflow: 'hidden',
+        boxShadow: '0 24px 60px rgba(16, 24, 32, 0.14), 0 2px 6px rgba(16, 24, 32, 0.05)',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div className="flex items-center gap-2 px-3 py-2" style={{ background: '#FFFFFF', borderBottom: '1px solid rgba(16, 24, 32, 0.06)' }}>
+        <div className="rounded-full" style={{ width: 24, height: 24, background: BRAND_TEAL }} />
+        <span className="font-semibold text-ink text-[11px]">@yourbrand</span>
+        <span className="ml-auto text-ink/35 text-[14px] leading-none">⋯</span>
+      </div>
+      <div className="flex-1 relative">{children}</div>
+      <div className="flex items-center gap-3 px-3 py-2 text-ink/55 text-[11px]" style={{ background: '#FFFFFF' }}>
+        <span>♡</span>
+        <span>💬</span>
+        <span>↗</span>
+        <span className="ml-auto font-semibold text-ink/40 text-[9px] uppercase tracking-widest">{label}</span>
+      </div>
     </div>
   )
 }
 
-export default function LandingPage() {
-  const [openFaqIdx, setOpenFaqIdx] = useState(0)
-  const metrics = [
-    ['2,000', 'free generations included with every workspace'],
-    ['3', 'platforms (Instagram, X, and Facebook) published from one calendar'],
-    ['<10 min', 'from sign-up to your first scheduled post'],
-  ]
-  const discoverExamples = [
-    {
-      brand: 'Juicy Junction',
-      platform: 'Instagram',
-      image: '/marketing-examples/juicy-wrap.png',
-      caption: 'Lunch hour campaign creative generated and scheduled in minutes.',
-    },
-    {
-      brand: 'Uber Lagos',
-      platform: 'X',
-      image: '/marketing-examples/uber-ride.png',
-      caption: 'City mobility promo designed with clear CTA and platform-ready format.',
-    },
-    {
-      brand: 'Krispy Kreme NG',
-      platform: 'Facebook',
-      image: '/marketing-examples/krispy-fresh.png',
-      caption: 'Offer-driven post with conversion-focused copy and timing controls.',
-    },
-    {
-      brand: 'Juicy Junction',
-      platform: 'Instagram',
-      image: '/marketing-examples/juicy-jollof.png',
-      caption: 'Seasonal food promo with strong visual hierarchy and brand consistency.',
-    },
-    {
-      brand: 'Nike Campaign',
-      platform: 'Instagram',
-      image: '/marketing-examples/nike-campaign.png',
-      caption: 'High-impact launch visual built for mobile-first social engagement.',
-    },
-    {
-      brand: 'Uber Lagos',
-      platform: 'Facebook',
-      image: '/marketing-examples/uber-ride.png',
-      caption: 'Route-aware campaign post adapted for broader audience targeting.',
-    },
-  ]
-  const faqs = [
-    {
-      q: 'How quickly can I start creating with ContentCard?',
-      a: 'Most teams ship their first scheduled post in under 10 minutes. Add your brand basics (name, voice, colours) and start generating right away.',
-    },
-    {
-      q: 'Which social platforms does ContentCard support?',
-      a: 'Instagram, X, and Facebook today, with ready-to-post formats, captions, and scheduling for each.',
-    },
-    {
-      q: 'Can I keep every post on-brand?',
-      a: 'Yes. ContentCard reads your brand kit (voice, visual rules, banned words) and applies it to every caption and visual we generate.',
-    },
-    {
-      q: 'Do I need a designer or a large team to use it?',
-      a: 'No. ContentCard is built for solo founders and lean social teams that need high-quality content without hiring extra design or social staff.',
-    },
-    {
-      q: 'Is ContentCard really free?',
-      a: 'Yes. Every workspace gets 2,000 free generations and full access to scheduling. No credit card required to start, no time-limited trial.',
-    },
-  ]
+function HeroCarouselPreview() {
+  // Three cards, fanned slightly. The middle card is the dominant one;
+  // side cards peek behind to suggest a carousel.
   return (
-    <MarketingLayout>
-      <section className="relative border-b border-fog overflow-hidden bg-[#f3f4f2]">
-        <div className="absolute inset-0 pointer-events-none">
-          <div className="absolute -right-16 top-12 w-[340px] h-[340px] rounded-full border border-ink/10" />
-          <div className="absolute right-24 top-28 w-[420px] h-[420px] rounded-full border border-ink/5 hidden lg:block" />
-        </div>
-        <MarketingContainer className="relative py-12 sm:py-16 lg:py-20">
-          <div className="grid lg:grid-cols-[0.92fr_1.08fr] gap-12 items-center">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-4">Free social media content generator and scheduler</p>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-semibold tracking-tight text-ink leading-[1.03] max-w-[14ch]">
-                Ship a month of on-brand posts before lunch.
-              </h1>
-              <p className="mt-5 text-lg text-ink/65 leading-relaxed max-w-[34ch]">
-                Generate, design, and schedule for Instagram, X, and Facebook from one dashboard. 2,000 free generations to get going. No credit card.
-              </p>
-              <div className="mt-7 flex flex-col sm:flex-row gap-3 max-w-[520px]">
-                <input
-                  type="email"
-                  placeholder="Enter your email address"
-                  className="h-12 sm:flex-1 rounded-xl border border-fog bg-white px-4 text-sm text-ink placeholder:text-ink/45 focus:outline-none focus:ring-2 focus:ring-brand-300/60"
-                />
-                <PrimaryCta to="/signup">
-                  Start free <ArrowRight size={14} className="ml-1" />
-                </PrimaryCta>
-              </div>
-            </div>
-            <div className="lg:pl-4">
-              <div className="relative">
-                <div className="absolute -top-8 -right-6 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
-                  <img src="/marketing-examples/meme-wow-badge.svg" alt="Meme wow sticker" className="w-full h-full rounded-2xl object-cover" />
-                </div>
-                <div className="absolute -bottom-6 -left-6 hidden md:block w-20 h-20 rounded-2xl border border-fog bg-white shadow-sm">
-                  <img src="/marketing-examples/cartoon-creator-mascot.svg" alt="Cartoon creator mascot" className="w-full h-full rounded-2xl object-cover" />
-                </div>
-                <HeroPlatformCards />
-              </div>
-            </div>
+    <div className="relative w-full" style={{ minHeight: 340 }}>
+      {/* Slide 3 — CTA, behind right */}
+      <div
+        className="absolute"
+        style={{
+          top: 18,
+          right: '6%',
+          width: 240,
+          transform: 'rotate(8deg)',
+          zIndex: 1,
+        }}
+      >
+        <PostCardChrome label="3 / 3 · Shop now">
+          <div
+            className="w-full h-full flex flex-col items-center justify-center text-center px-5"
+            style={{ background: BRAND_TEAL, color: '#FFFFFF' }}
+          >
+            <span className="text-[10px] font-bold uppercase tracking-widest opacity-80">contentcard</span>
+            <span
+              className="font-extrabold mt-3"
+              style={{ fontSize: 30, letterSpacing: -0.5, lineHeight: 1 }}
+            >
+              Glow up,<br />on tap.
+            </span>
+            <span
+              className="mt-4 text-[11px] font-bold inline-flex items-center gap-1"
+              style={{ background: '#FFFFFF', color: BRAND_TEAL, padding: '8px 14px', borderRadius: 999 }}
+            >
+              Shop now →
+            </span>
           </div>
-        </MarketingContainer>
-      </section>
+        </PostCardChrome>
+      </div>
 
-      <SurfaceSection className="bg-white border-b border-fog">
-        <MarketingContainer>
-          <SectionHeader
-            eyebrow="Examples"
-            title="See what real brands ship with ContentCard"
-            subtitle="Campaign-ready posts generated, designed, and scheduled in minutes, not days."
-          />
-          <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {discoverExamples.map((item, idx) => (
-              <article
-                key={`${item.brand}-${item.platform}-${idx}`}
-                className="rounded-3xl border border-fog bg-white overflow-hidden shadow-[0_14px_36px_rgba(15,23,42,0.08)]"
+      {/* Slide 1 — Hook, behind left */}
+      <div
+        className="absolute"
+        style={{
+          top: 18,
+          left: '6%',
+          width: 240,
+          transform: 'rotate(-8deg)',
+          zIndex: 1,
+        }}
+      >
+        <PostCardChrome label="1 / 3 · Hook">
+          <div
+            className="w-full h-full flex flex-col items-center justify-center text-center px-5"
+            style={{ background: '#F4E5DC', color: INK }}
+          >
+            <span
+              className="font-extrabold"
+              style={{ fontSize: 28, letterSpacing: -0.5, lineHeight: 1 }}
+            >
+              Skin<br />feeling<br />off?
+            </span>
+          </div>
+        </PostCardChrome>
+      </div>
+
+      {/* Slide 2 — Product benefit, in front and centred */}
+      <div
+        className="relative mx-auto"
+        style={{
+          width: 280,
+          transform: 'rotate(-2deg)',
+          zIndex: 2,
+          marginTop: 0,
+        }}
+      >
+        <PostCardChrome label="2 / 3 · Benefit">
+          <div className="w-full h-full flex flex-col" style={{ background: '#FFFFFF' }}>
+            <div className="px-4 pt-4">
+              <span
+                className="text-[9px] font-extrabold uppercase tracking-widest"
+                style={{
+                  background: BRAND_TEAL,
+                  color: '#FFFFFF',
+                  padding: '4px 8px',
+                  borderRadius: 999,
+                  letterSpacing: 1.2,
+                }}
               >
-                <img src={item.image} alt={`${item.brand} ${item.platform} post design`} className="w-full h-64 object-cover bg-mist/60" />
-                <div className="p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-base font-semibold text-ink">{item.brand}</p>
-                    <span className="rounded-full w-7 h-7 bg-brand-50 text-brand-700 border border-brand-100 inline-flex items-center justify-center">
-                      {item.platform === 'Instagram' ? (
-                        <Instagram size={13} />
-                      ) : item.platform === 'Facebook' ? (
-                        <Facebook size={13} />
-                      ) : (
-                        <Twitter size={13} />
-                      )}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-ink/65 leading-relaxed">{item.caption}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <section className="bg-gradient-to-b from-brand-700 via-brand-800 to-[#0f2a22] border-y border-brand-900 text-white">
-        <MarketingContainer className="py-14 sm:py-16">
-          <p className="text-3xl sm:text-4xl font-medium leading-tight max-w-3xl text-white/95">
-            Free should feel powerful, not crippled.
-          </p>
-          <div className="mt-10 grid sm:grid-cols-3 gap-6">
-            {metrics.map(([value, label]) => (
-              <div key={label} className="rounded-2xl border border-white/20 bg-white/10 p-5 backdrop-blur-sm">
-                <p className="text-5xl font-semibold tracking-tight text-emerald-200">{value}</p>
-                <p className="mt-1 text-white/75">{label}</p>
+                NEW
+              </span>
+              <div
+                className="font-extrabold mt-2"
+                style={{ fontSize: 22, letterSpacing: -0.5, lineHeight: 1.05, color: INK }}
+              >
+                Glow starts<br />here.
               </div>
-            ))}
+            </div>
+            <div className="flex-1 flex items-center justify-center" style={{ background: '#F4E5DC' }}>
+              <ProductIllustration size="48%" />
+            </div>
+            <div
+              className="flex items-center justify-between px-4 py-2"
+              style={{ background: '#FFFFFF', borderTop: '1px solid rgba(16, 24, 32, 0.06)' }}
+            >
+              <span className="font-extrabold text-ink" style={{ fontSize: 16, letterSpacing: -0.3 }}>
+                ₦12,000
+              </span>
+              <span
+                className="text-[10px] font-bold inline-flex items-center gap-1"
+                style={{
+                  background: INK,
+                  color: '#FFFFFF',
+                  padding: '6px 12px',
+                  borderRadius: 999,
+                }}
+              >
+                Shop →
+              </span>
+            </div>
           </div>
-        </MarketingContainer>
+        </PostCardChrome>
+      </div>
+    </div>
+  )
+}
+
+// ── Section primitives ───────────────────────────────────────────────────
+
+function SectionHeader({ eyebrow, title, sub }) {
+  return (
+    <div className="text-center max-w-3xl mx-auto mb-12">
+      {eyebrow && (
+        <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: BRAND_TEAL, letterSpacing: 2 }}>
+          {eyebrow}
+        </p>
+      )}
+      <h2
+        className="font-bold text-ink"
+        style={{
+          fontFamily: '"Inter", system-ui, sans-serif',
+          fontSize: 'clamp(36px, 5vw, 56px)',
+          lineHeight: 1.05,
+          letterSpacing: -1.2,
+        }}
+      >
+        {title}
+      </h2>
+      {sub && <p className="mt-4 text-ink/60 text-base sm:text-lg leading-relaxed">{sub}</p>}
+    </div>
+  )
+}
+
+function StepCard({ n, title, body }) {
+  return (
+    <div className="flex flex-col items-start text-left p-6 rounded-2xl border border-ink/10 bg-white">
+      <span className="text-[11px] font-bold uppercase tracking-widest text-ink/45 mb-3" style={{ letterSpacing: 2 }}>
+        Step {n}
+      </span>
+      <h3 className="font-bold text-ink text-lg leading-tight">{title}</h3>
+      <p className="mt-2 text-ink/60 text-sm leading-relaxed">{body}</p>
+    </div>
+  )
+}
+
+function BulletRow({ children }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span
+        className="flex-shrink-0 inline-flex items-center justify-center"
+        style={{ width: 24, height: 24, background: BRAND_TEAL, color: '#FFFFFF', borderRadius: 999, fontSize: 14, fontWeight: 800 }}
+      >
+        ✓
+      </span>
+      <span className="text-ink/80 text-base leading-relaxed">{children}</span>
+    </div>
+  )
+}
+
+// ── Page ─────────────────────────────────────────────────────────────────
+
+export default function LandingPage() {
+  const navigate = useNavigate()
+  const goSignup = () => navigate('/auth')
+
+  return (
+    <main className="relative w-full overflow-x-hidden" style={{ background: CREAM, color: INK }}>
+      {/* ── HERO ─────────────────────────────────────────────────────── */}
+      <section className="relative px-6 pt-12 pb-16 lg:pt-20 lg:pb-24">
+        <div className="max-w-6xl mx-auto">
+          <LogoFull size={32} />
+
+          <div className="mt-12 lg:mt-16 grid lg:grid-cols-2 gap-12 items-center">
+            <div className="text-left">
+              <h1
+                className="font-bold text-ink"
+                style={{
+                  fontFamily: '"Inter", system-ui, sans-serif',
+                  fontSize: 'clamp(48px, 7vw, 88px)',
+                  lineHeight: 0.98,
+                  letterSpacing: -2.5,
+                }}
+              >
+                Turn your store into daily content that drives sales.
+              </h1>
+              <p className="mt-6 text-ink/65 text-lg sm:text-xl leading-relaxed max-w-xl">
+                Connect your Shopify or Bumpa store. Get ready-to-post product content in seconds.
+              </p>
+              <div className="mt-10">
+                <PrimaryCTA onClick={goSignup} />
+              </div>
+              <p className="mt-4 text-ink/55 text-xs sm:text-sm">
+                No design skills needed · No blank pages · Works instantly
+              </p>
+            </div>
+
+            <div className="lg:pl-6">
+              <HeroCarouselPreview />
+            </div>
+          </div>
+        </div>
       </section>
 
-      <SurfaceSection className="border-b border-fog bg-white">
-        <MarketingContainer className="max-w-4xl text-center">
-          <p className="text-xs font-semibold uppercase tracking-widest text-brand-700 mb-6">From a customer</p>
-          <p className="text-3xl sm:text-4xl leading-tight text-ink/85" style={{ letterSpacing: '-0.01em' }}>
-            “Hours on a single post used to be normal. Now we ship a full week of content in under thirty minutes.”
-          </p>
-          <p className="mt-6 text-sm text-ink/60">
-            <strong className="text-ink">Amaka Eze</strong> · Founder, Fresh Basket Mart
-          </p>
-        </MarketingContainer>
-      </SurfaceSection>
-
-      <SurfaceSection className="bg-gradient-to-b from-white via-[#fcfcff] to-white border-b border-fog/80">
-        <MarketingContainer>
+      {/* ── INSTANT CLARITY ──────────────────────────────────────────── */}
+      <section className="px-6 py-20 lg:py-28">
+        <div className="max-w-5xl mx-auto">
           <SectionHeader
-            eyebrow="Why teams switch"
-            title="From slow content ops to one fast workflow."
-            subtitle="Generate, review, and schedule a month of posts without the hand-offs, the design back-and-forth, or the spreadsheet."
-            center
+            eyebrow="How it works"
+            title="From product → post in seconds."
           />
-          <div className="mt-10">
-            <WhyTeamsSwitchShowcase />
+          <div className="grid md:grid-cols-3 gap-4">
+            <StepCard
+              n={1}
+              title="Connect your store"
+              body="One-click Shopify or Bumpa connection. We pull your products instantly — names, photos, prices, descriptions."
+            />
+            <StepCard
+              n={2}
+              title="We generate your content"
+              body="Posts, captions, carousels — designed around your actual products, your colours, your brand voice."
+            />
+            <StepCard
+              n={3}
+              title="You post and sell"
+              body="Download or copy, paste into Instagram, Facebook, X, LinkedIn. Done."
+            />
           </div>
-        </MarketingContainer>
-      </SurfaceSection>
+        </div>
+      </section>
 
-      <SurfaceSection className="bg-white border-b border-fog">
-        <MarketingContainer className="max-w-5xl">
+      {/* ── OUTPUT (what you get) ────────────────────────────────────── */}
+      <section className="px-6 py-20 lg:py-28" style={{ background: '#FFFFFF' }}>
+        <div className="max-w-5xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+          <div>
+            <SectionHeader
+              eyebrow="What you get immediately"
+              title="Real posts. Ready to ship."
+            />
+            <div className="space-y-4 max-w-md">
+              <BulletRow>Scroll-stopping product posts</BulletRow>
+              <BulletRow>High-converting captions</BulletRow>
+              <BulletRow>Carousel designs that explain your product</BulletRow>
+              <BulletRow>A full content calendar — every day, planned</BulletRow>
+            </div>
+          </div>
+          <div>
+            <HeroCarouselPreview />
+          </div>
+        </div>
+      </section>
+
+      {/* ── DIFFERENTIATION ─────────────────────────────────────────── */}
+      <section className="px-6 py-20 lg:py-28">
+        <div className="max-w-4xl mx-auto text-center">
           <SectionHeader
-            eyebrow="FAQ"
-            title="Frequently asked questions"
-            subtitle="Everything you need to know before you start using ContentCard for free."
+            eyebrow="Not another design tool"
+            title="This is not Canva."
+            sub="Canva makes you design from scratch. ContentCard turns your store into the content."
           />
-          <div className="mt-8 space-y-3">
-            {faqs.map((item, idx) => (
-              <div key={item.q} className="rounded-2xl border border-fog bg-white p-5">
-                <button
-                  type="button"
-                  onClick={() => setOpenFaqIdx(idx)}
-                  className="w-full text-left flex items-center justify-between gap-4"
-                  aria-expanded={openFaqIdx === idx}
-                >
-                  <p className="text-base font-semibold text-ink">{item.q}</p>
-                  <span className={`text-ink/45 transition-transform text-xl leading-none ${openFaqIdx === idx ? 'rotate-45' : ''}`}>+</span>
-                </button>
-                {openFaqIdx === idx && (
-                  <p className="mt-3 text-sm text-ink/65 leading-relaxed">{item.a}</p>
-                )}
-              </div>
+          <div className="grid md:grid-cols-2 gap-4 mt-12 text-left">
+            <div className="p-6 rounded-2xl border border-ink/10 bg-white">
+              <p className="text-xs font-bold uppercase tracking-widest text-ink/45 mb-2" style={{ letterSpacing: 2 }}>Canva</p>
+              <p className="text-ink/75 text-base leading-relaxed">
+                Blank canvas. You pick a template, drag your product photo in, write the caption, design the layout, post it. Repeat tomorrow.
+              </p>
+            </div>
+            <div className="p-6 rounded-2xl text-white" style={{ background: BRAND_TEAL }}>
+              <p className="text-xs font-bold uppercase tracking-widest opacity-80 mb-2" style={{ letterSpacing: 2 }}>ContentCard</p>
+              <p className="text-base leading-relaxed">
+                Connect your store. We read your products and generate the post — design, caption, copy. You post.
+              </p>
+            </div>
+          </div>
+          <p className="mt-10 text-ink/65 text-base">
+            No templates. No guesswork. No starting from zero.
+          </p>
+        </div>
+      </section>
+
+      {/* ── USE CASE SNAPSHOT ────────────────────────────────────────── */}
+      <section className="px-6 py-20 lg:py-28" style={{ background: '#FFFFFF' }}>
+        <div className="max-w-4xl mx-auto text-center">
+          <SectionHeader
+            eyebrow="Built for product businesses"
+            title="If you have products, you have content."
+          />
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-8">
+            {['Skincare', 'Fashion', 'Food', 'Beauty', 'Digital products', 'Accessories', 'Home goods'].map((c) => (
+              <span
+                key={c}
+                className="text-sm font-semibold text-ink/75 px-4 py-2 rounded-full border border-ink/10 bg-white"
+              >
+                {c}
+              </span>
             ))}
           </div>
-        </MarketingContainer>
-      </SurfaceSection>
+        </div>
+      </section>
 
-      <SurfaceSection>
-        <MarketingContainer>
-          <CtaBand
-            title="Ready to ship your first month?"
-            body="Sign up, build your brand kit, and queue a full month of posts before lunch."
-            primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
-            secondary={<SecondaryCta to="/features">See features</SecondaryCta>}
+      {/* ── SPEED / VALUE TRIGGER ───────────────────────────────────── */}
+      <section className="px-6 py-20 lg:py-28">
+        <div className="max-w-4xl mx-auto text-center">
+          <SectionHeader
+            eyebrow="Speed"
+            title="Your first posts in under 30 seconds."
+            sub="No onboarding stress. No learning curve. Just connect and generate."
           />
-        </MarketingContainer>
-      </SurfaceSection>
-    </MarketingLayout>
+          <div className="mt-10 flex flex-col items-center">
+            <PrimaryCTA label="Generate my product posts" onClick={goSignup} />
+          </div>
+        </div>
+      </section>
+
+      {/* ── OBJECTION HANDLING ──────────────────────────────────────── */}
+      <section className="px-6 py-20 lg:py-28" style={{ background: '#FFFFFF' }}>
+        <div className="max-w-4xl mx-auto">
+          <SectionHeader
+            eyebrow="Why brands switch"
+            title="From scattered to scaled."
+          />
+          <div className="grid md:grid-cols-2 gap-4 mt-8">
+            <div className="p-6 rounded-2xl border border-ink/10 bg-white">
+              <p className="text-xs font-bold uppercase tracking-widest text-red-500 mb-2" style={{ letterSpacing: 2 }}>Stop</p>
+              <ul className="space-y-2 text-ink/75 text-base">
+                <li>· Spending hours designing</li>
+                <li>· Guessing what works</li>
+              </ul>
+            </div>
+            <div className="p-6 rounded-2xl border border-ink/10 bg-white">
+              <p className="text-xs font-bold uppercase tracking-widest mb-2" style={{ color: BRAND_TEAL, letterSpacing: 2 }}>Start</p>
+              <ul className="space-y-2 text-ink/75 text-base">
+                <li>· Posting consistently</li>
+                <li>· Driving product attention daily</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FINAL CTA ───────────────────────────────────────────────── */}
+      <section className="px-6 py-24 lg:py-32 text-center">
+        <h2
+          className="font-bold text-ink mx-auto"
+          style={{
+            fontFamily: '"Inter", system-ui, sans-serif',
+            fontSize: 'clamp(36px, 5vw, 64px)',
+            lineHeight: 1.05,
+            letterSpacing: -1.5,
+            maxWidth: 800,
+          }}
+        >
+          Start turning your products into content that sells.
+        </h2>
+        <div className="mt-10 flex flex-col items-center">
+          <PrimaryCTA onClick={goSignup} />
+          <p className="mt-6 text-ink/55 text-sm">
+            Already have an account?{' '}
+            <a href="/auth" className="font-semibold text-ink hover:underline">Sign in</a>
+          </p>
+        </div>
+      </section>
+    </main>
   )
 }

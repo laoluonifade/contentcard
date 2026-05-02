@@ -143,15 +143,46 @@ async def _fetch_shopify_products_with_retry(base_url: str, max_attempts: int = 
     raise last_exc if last_exc else RuntimeError("fetch failed")
 
 
+def _extract_rows_from_bumpa_payload(payload) -> list[dict]:
+    """Pull a list of product dicts out of any of the response shapes Bumpa
+    storefronts return.
+
+    Custom-domain Bumpa stores use Laravel pagination — the response is
+    `{"products": {"current_page": ..., "data": [...], "last_page": ..., ...}}`,
+    NOT a bare list. The original probe missed this and returned 0 products
+    for the most common variant. We now drill one level into pagination
+    objects and accept any of the keys Laravel + DRF + ad-hoc backends use.
+    """
+    if isinstance(payload, list):
+        return payload
+    if not isinstance(payload, dict):
+        return []
+    # Top-level wrapper keys Bumpa / its peers use
+    for key in ("products", "data", "items", "results"):
+        v = payload.get(key)
+        if isinstance(v, list):
+            return v
+        if isinstance(v, dict):
+            # Laravel-style pagination — drill into 'data' then accept the
+            # other paginator keys as a fallback.
+            for inner in ("data", "items", "results", "rows"):
+                rows = v.get(inner)
+                if isinstance(rows, list):
+                    return rows
+    return []
+
+
 async def _fetch_bumpa_products(base_url: str) -> list[dict]:
     """
     Try common Bumpa storefront product endpoints.
-    Response shapes vary; extractor handles dict/list roots.
+    Response shapes vary; extractor handles bare list / nested / paginated roots.
     """
     endpoints = (
+        # Custom-domain Bumpa (Next.js storefront — most common in production)
+        "storefront/products?limit=200",
+        # Older Bumpa subdomain shapes — kept for backwards compatibility
         "api/storefront/products?limit=200",
         "api/v1/storefront/products?limit=200",
-        "storefront/products?limit=200",
     )
     timeout = httpx.Timeout(12.0, connect=8.0)
     async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
@@ -162,16 +193,89 @@ async def _fetch_bumpa_products(base_url: str) -> list[dict]:
                 if res.status_code >= 400:
                     continue
                 payload = res.json()
-                if isinstance(payload, list):
-                    return payload
-                if isinstance(payload, dict):
-                    for key in ("products", "data", "items", "results"):
-                        rows = payload.get(key)
-                        if isinstance(rows, list):
-                            return rows
+                rows = _extract_rows_from_bumpa_payload(payload)
+                if rows:
+                    return rows
             except Exception:
                 continue
     return []
+
+
+# HTML fingerprints that reliably appear on Bumpa-hosted storefronts. We keep
+# the list narrow + lower-cased so a custom domain that bundles, say, Bumpa's
+# JS or links to Bumpa's CDN is recognised, but a random site that mentions
+# "bumpa" in a blog post isn't misclassified.
+_BUMPA_HTML_FINGERPRINTS: tuple[str, ...] = (
+    "mybumpa.com",
+    "cdn.bumpa",
+    "bumpa.app",
+    "bumpa.shop",
+    "getbumpa.com",
+    "powered by bumpa",
+    "data-bumpa",
+    'src="https://app.bumpa',
+    "salescabal.s3",
+)
+
+
+async def _looks_like_bumpa(base_url: str) -> bool:
+    """Heuristic check for Bumpa stores hosted on a custom domain.
+
+    Bumpa lets merchants point their own domain (e.g. benardsamuel.com.ng) at
+    a Bumpa-hosted storefront. The hostname check (`mybumpa.com` / `bumpa`)
+    fails for these, so we probe two cheap signals:
+
+      1. The storefront product API. Bumpa custom-domain stores still proxy
+         /storefront/products to their backend; a 200 with a recognisable
+         shape is conclusive.
+      2. Homepage HTML fingerprints — Bumpa CDN host, "Powered by Bumpa",
+         data-bumpa attributes, references to getbumpa.com / salescabal.s3
+         (Bumpa's product image bucket), etc.
+
+    Returns True on the first successful signal. Best-effort: any network
+    error → False (we just won't promote the platform_hint).
+    """
+    timeout = httpx.Timeout(10.0, connect=6.0)
+
+    # 1. Storefront API probe — if it answers with valid JSON, we're done.
+    #    Use the same endpoint list + extractor as the real fetcher so the
+    #    probe and the fetcher agree on what counts as "Bumpa".
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            for rel in ("storefront/products?limit=1", "api/storefront/products?limit=1"):
+                try:
+                    res = await client.get(
+                        urljoin(f"{base_url}/", rel),
+                        headers={"Accept": "application/json"},
+                    )
+                    if res.status_code != 200:
+                        continue
+                    try:
+                        payload = res.json()
+                    except Exception:
+                        continue
+                    if _extract_rows_from_bumpa_payload(payload):
+                        return True
+                except Exception:
+                    continue
+    except Exception:
+        pass
+
+    # 2. Homepage HTML fingerprint probe. We scan the first ~300 KB so we
+    #    pick up scripts/links in the head + early body without burning
+    #    bandwidth on huge product-listing pages.
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            res = await client.get(base_url, headers={"User-Agent": "ContentCardBot/1.0"})
+            if res.status_code == 200:
+                text = (res.text or "")[:300_000].lower()
+                for marker in _BUMPA_HTML_FINGERPRINTS:
+                    if marker in text:
+                        return True
+    except Exception:
+        pass
+
+    return False
 
 
 async def _fetch_bumpa_products_with_retry(base_url: str, max_attempts: int = 3) -> tuple[list[dict], int]:
@@ -227,6 +331,42 @@ def _extract_products_from_shopify_payload(base_url: str, products: list[dict]) 
     return entities
 
 
+_BUMPA_S3_BASE = "https://salescabal.s3.eu-west-3.amazonaws.com"
+
+
+def _bumpa_image_url(image_obj) -> str | None:
+    """Resolve a Bumpa product-image entry to an absolute URL.
+
+    Bumpa products ship images as objects shaped like::
+
+        {"name": "...", "path": "/stores/123/products/abc.jpeg",
+         "thumbnail_path": "/stores/123/products/tn-abc.jpeg"}
+
+    The path is relative to Bumpa's S3 bucket. Older payloads occasionally
+    include a bare URL string — handle both.
+    """
+    if isinstance(image_obj, str):
+        s = image_obj.strip()
+        if not s:
+            return None
+        if s.startswith("http://") or s.startswith("https://"):
+            return s
+        # Bare filename is useless without the path prefix; skip it.
+        if "/" not in s:
+            return None
+        return _BUMPA_S3_BASE + (s if s.startswith("/") else f"/{s}")
+    if isinstance(image_obj, dict):
+        for key in ("url", "src", "image_url"):
+            v = image_obj.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        for key in ("path", "thumbnail_path"):
+            v = image_obj.get(key)
+            if isinstance(v, str) and v.strip():
+                return _BUMPA_S3_BASE + (v if v.startswith("/") else f"/{v}")
+    return None
+
+
 def _extract_products_from_bumpa_payload(base_url: str, products: list[dict]) -> list[dict]:
     entities: list[dict] = []
     for p in products:
@@ -246,37 +386,54 @@ def _extract_products_from_bumpa_payload(base_url: str, products: list[dict]) ->
             str(p.get("url") or "").strip()
             or (urljoin(f"{base_url}/", f"product/{handle}") if handle else base_url)
         )
-        images = []
+        # Bumpa custom-domain stores embed product pages at /products/{slug}/{id}.
+        # Prefer that over the generic /product/{slug} fallback when we can.
+        if handle and product_id:
+            source_url = urljoin(f"{base_url}/", f"products/{handle}/{product_id}")
+        images: list[str] = []
         for key in ("images", "image_urls", "photos"):
             val = p.get(key)
             if isinstance(val, list):
-                images.extend([str(x).strip() for x in val if str(x).strip()])
-            elif isinstance(val, str) and val.strip():
-                images.append(val.strip())
-        image_single = str(p.get("image") or p.get("image_url") or "").strip()
-        if image_single:
-            images.append(image_single)
-        dedup_images = []
-        seen = set()
+                for item in val:
+                    url = _bumpa_image_url(item)
+                    if url:
+                        images.append(url)
+            elif val is not None:
+                url = _bumpa_image_url(val)
+                if url:
+                    images.append(url)
+        single = _bumpa_image_url(p.get("image") or p.get("image_url"))
+        if single:
+            images.append(single)
+        dedup_images: list[str] = []
+        seen: set[str] = set()
         for img in images:
             if img and img not in seen:
                 seen.add(img)
                 dedup_images.append(img)
 
         price = p.get("price") or p.get("selling_price") or p.get("amount")
-        compare_at = p.get("compare_at_price") or p.get("old_price")
-        currency = p.get("currency") or "NGN"
-        availability = p.get("availability") or p.get("status") or "unknown"
+        compare_at = p.get("compare_at_price") or p.get("old_price") or p.get("sales")
+        currency = p.get("currency") or p.get("currency_code") or "NGN"
+        # Bumpa returns availability either as a string ('in_stock') or as
+        # an integer status flag (1 = active, 0 = inactive). Normalise both.
+        raw_avail = p.get("availability")
+        if raw_avail is None:
+            status_val = p.get("status")
+            if isinstance(status_val, (int, bool)):
+                raw_avail = "in_stock" if int(status_val) == 1 else "out_of_stock"
+            else:
+                raw_avail = status_val or "unknown"
         attrs = {
             "bumpa_product_id": product_id,
             "vendor": p.get("vendor") or p.get("brand"),
-            "product_type": p.get("category") or p.get("product_type"),
+            "product_type": p.get("category") or p.get("product_type") or p.get("type"),
             "tags": p.get("tags"),
             "status": p.get("status"),
             "price": str(price) if price is not None else None,
             "compare_at_price": str(compare_at) if compare_at is not None else None,
             "currency": str(currency) if currency is not None else None,
-            "availability": str(availability) if availability is not None else "unknown",
+            "availability": str(raw_avail) if raw_avail is not None else "unknown",
             "images": dedup_images[:8],
             "source": "bumpa_api",
         }
@@ -1402,6 +1559,23 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
     chowdeck_vendor_id: str | None = None
     platform_hint = _normalize_platform_hint((cfg or {}).get("platform_hint"))
     host = (urlparse(source_url).hostname or "").lower()
+
+    # Fast path: if onboarding captured the user's sales channel, trust it.
+    # This wins over hostname / HTML probing because the user explicitly
+    # told us where they sell — a Bumpa store on a vanity domain
+    # (benardsamuel.com.ng) is recognised the same as a *.mybumpa.com URL.
+    if platform_hint == "auto":
+        kit = brand.brand_kit if isinstance(brand.brand_kit, dict) else {}
+        sales_channel = str(kit.get("sales_channel") or "").strip().lower()
+        sales_channel_to_platform = {
+            "bumpa": "bumpa",
+            "shopify": "shopify",
+            "chowdeck": "chowdeck",
+        }
+        if sales_channel in sales_channel_to_platform:
+            platform_hint = sales_channel_to_platform[sales_channel]
+            raw_payload["platform_from_sales_channel"] = sales_channel
+
     if platform_hint == "auto":
         if "chowdeck.com" in host:
             platform_hint = "chowdeck"
@@ -1409,6 +1583,18 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
             platform_hint = "shopify"
         elif "mybumpa.com" in host or "bumpa" in host:
             platform_hint = "bumpa"
+        else:
+            # Custom domain — most legitimate Bumpa stores point a vanity
+            # domain at Bumpa hosting (e.g. benardsamuel.com.ng → Bumpa).
+            # Probe the storefront API + homepage HTML before falling
+            # through to the generic non-Shopify scraper, which doesn't
+            # know the Bumpa endpoints.
+            try:
+                if await _looks_like_bumpa(source_url):
+                    platform_hint = "bumpa"
+                    raw_payload["bumpa_auto_detected"] = True
+            except Exception:
+                pass
     food_menu_hint = any(
         k in str((brand.industry or "") + " " + (getattr(brand, "sub_industry", "") or "") + " " + (brand.website or "")).lower()
         for k in ("food", "restaurant", "diner", "cafe", "beverage", "menu")

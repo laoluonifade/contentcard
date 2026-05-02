@@ -60,6 +60,13 @@ const useAppStore = create(
       generationStartedAt: null,
       generationPollCount: 0,
       generationProgress: null,
+      // Set when a generation finishes with a non-recoverable error so the
+      // UI can show a retry CTA on Home + Calendar. Cleared by retryGeneration
+      // and clearGenerationFailure.
+      generationFailure: null,  // { reason: string, month: number, year: number }
+      // Echo of the last generateMonth() args so retryGeneration() can re-run
+      // without the user retyping platform / month / topic / etc.
+      lastGenerationRequest: null,
       templates: [],
       templatePlaybookCatalog: null,
       trends: [],
@@ -148,6 +155,26 @@ const useAppStore = create(
 
       setActiveBrand: (id) => set({ activeBrandId: id }),
 
+      // Push a brand into the active workspace's brands list. Idempotent: a
+      // brand_id already in the list is left untouched (so the canonical
+      // record from a follow-up fetch isn't overwritten with a stub). Used
+      // by onboarding to release the overlay gate as soon as the brand is
+      // created, even if the subsequent fetchBrands refresh trips on a
+      // transient network blip.
+      addBrand: (brand) => {
+        if (!brand?.id) return
+        set((s) => {
+          if (s.brands.some((b) => b.id === brand.id)) {
+            return { activeBrandId: s.activeBrandId || brand.id, brandsLoaded: true }
+          }
+          return {
+            brands: [...s.brands, brand],
+            activeBrandId: s.activeBrandId || brand.id,
+            brandsLoaded: true,
+          }
+        })
+      },
+
       createBrand: async (data) => {
         const wsId = get().activeWorkspaceId
         if (!wsId) throw new Error('No active workspace')
@@ -184,12 +211,41 @@ const useAppStore = create(
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
+        // Remember the args so retryGeneration() can re-fire without the
+        // user re-entering anything. Same shape generateMonth was called
+        // with — we just spread it back in retryGeneration.
+        const requestSnapshot = {
+          month, year, platforms, format_mix, posts_per_week, topic_override,
+          template_id, include_holidays_in_content, generation_brief,
+          use_website_intelligence, only_new_changes, use_reference_research,
+          variant_count, confirm_duplicate, custom_plan, campaign_brief,
+        }
         set({
           generatingMonth: true,
           generationStartedAt: Date.now(),
           generationPollCount: 0,
           generationProgress: null,
+          generationFailure: null,
+          lastGenerationRequest: requestSnapshot,
         })
+
+        // Snapshot the existing post counts BEFORE the kickoff so the
+        // polling loop can tell "still has the previous batch" apart from
+        // "the new run has finished". Without this, /content/status
+        // returns the stale 7/7 from a prior generation on the very first
+        // poll and the loader exits in 3 seconds with a misleading
+        // success — exactly what the user reported.
+        let baseline = { with: 0, total: 0 }
+        try {
+          const status0 = await contentApi.getStatus(brandId, year, month)
+          baseline = {
+            with: Number(status0?.with_visuals ?? status0?.count ?? 0),
+            total: Number(status0?.total ?? 0),
+          }
+        } catch {
+          /* If the baseline probe fails, treat as zero — worst case
+             a brand-new month polls one extra cycle. */
+        }
         try {
           const reqV2 = {
             brand_id: brandId, month, year, platforms, format_mix,
@@ -226,17 +282,160 @@ const useAppStore = create(
               throw e
             }
           }
-          const count = await get()._pollForContent(brandId, month, year)
+          const count = await get()._pollForContent(brandId, month, year, baseline)
+          // Success path — clear failure if any, mark generation as complete.
+          set({ generationFailure: null })
           return count
+        } catch (err) {
+          // Capture failure for the UI banner. The user will see a retry CTA
+          // on Home + Calendar that calls retryGeneration() to re-fire the
+          // exact same request without re-typing.
+          const detail = err?.response?.data?.detail
+          const reason =
+            (typeof detail === 'string' && detail.trim()) ||
+            (detail && typeof detail === 'object' && (detail.message || detail.code)) ||
+            err?.message ||
+            'Generation failed. Please try again.'
+          set({
+            generationFailure: { reason: String(reason).slice(0, 400), month, year },
+          })
+          throw err
         } finally {
           set({ generatingMonth: false, generationStartedAt: null, generationProgress: null })
         }
       },
 
-      // Poll with exponential backoff: returns number of posts found
-      _pollForContent: async (brandId, month, year) => {
+      // Re-run the last generateMonth call with the same args. Used by the
+      // retry button on the Home + Calendar failure banners.
+      retryGeneration: async () => {
+        const last = get().lastGenerationRequest
+        if (!last) {
+          throw new Error('No previous generation to retry.')
+        }
+        set({ generationFailure: null })
+        return get().generateMonth(last)
+      },
+
+      clearGenerationFailure: () => set({ generationFailure: null }),
+
+      // Reattach the loader after a page refresh.
+      //
+      // /content/status now exposes `active_generation` when the backend
+      // has a run in flight on this brand for this month. If we're not
+      // already polling, we set generatingMonth=true and resume polling
+      // without re-firing generateMonthV2 — the backend's run is still
+      // working in the background.
+      //
+      // No-op if generatingMonth is already true (we're already polling),
+      // if no active brand, or if active_generation is missing/stale.
+      resumeActiveGenerationIfAny: async (month, year) => {
+        const brandId = get().activeBrandId
+        if (!brandId || !month || !year) return false
+        if (get().generatingMonth) return false
+        let status0
+        try {
+          status0 = await contentApi.getStatus(brandId, year, month)
+        } catch {
+          return false
+        }
+        const active = status0?.active_generation
+        if (!active || active.stale) return false
+        if (Number(active.month) !== Number(month) || Number(active.year) !== Number(year)) {
+          return false
+        }
+        const startedAtMs = (() => {
+          if (!active.started_at) return Date.now()
+          const t = Date.parse(active.started_at)
+          return Number.isFinite(t) ? t : Date.now()
+        })()
+        const baseline = {
+          with: Number(status0?.with_visuals ?? status0?.count ?? 0),
+          total: Number(status0?.total ?? 0),
+        }
+        set({
+          generatingMonth: true,
+          generationStartedAt: startedAtMs,
+          generationPollCount: 0,
+          generationProgress: baseline.total > 0 ? baseline : null,
+          generationFailure: null,
+        })
+        ;(async () => {
+          try {
+            await get()._pollForContent(brandId, month, year, baseline)
+            set({ generationFailure: null })
+          } catch (err) {
+            const detail = err?.response?.data?.detail
+            const reason =
+              (typeof detail === 'string' && detail.trim()) ||
+              (detail && typeof detail === 'object' && (detail.message || detail.code)) ||
+              err?.message ||
+              'Generation failed. Please try again.'
+            set({
+              generationFailure: { reason: String(reason).slice(0, 400), month, year },
+            })
+          } finally {
+            set({ generatingMonth: false, generationStartedAt: null, generationProgress: null })
+          }
+        })()
+        return true
+      },
+
+      // Surface a backend-recorded OpenAI capacity failure on the
+      // GenerationStatusBanner. /content/status returns
+      // `last_generation_failure: { code, message, occurred_at, month, year }`
+      // when the most recent run for this brand+month hit a 429 / billing /
+      // outage condition. We treat it as a one-shot dismissable failure
+      // identical to a live generation error so the same Retry CTA works.
+      checkLastGenerationFailure: async (month, year) => {
+        const brandId = get().activeBrandId
+        if (!brandId || !month || !year) return false
+        if (get().generatingMonth) return false
+        if (get().generationFailure) return false
+        let status
+        try {
+          status = await contentApi.getStatus(brandId, year, month)
+        } catch {
+          return false
+        }
+        const failure = status?.last_generation_failure
+        if (!failure || !failure.code) return false
+        if (Number(failure.month) !== Number(month) || Number(failure.year) !== Number(year)) {
+          return false
+        }
+        set({
+          generationFailure: {
+            code: String(failure.code),
+            reason: String(failure.message || 'ChatGPT had a problem during your last generation. Try again.').slice(0, 400),
+            month,
+            year,
+          },
+        })
+        return true
+      },
+
+      // Poll with exponential backoff. Returns number of posts found.
+      //
+      // Incremental: every time the server reports more visuals than we saw
+      // last poll, we re-fetch the month so newly-ready posts appear in the
+      // calendar grid + on the dashboard's "today" card without waiting for
+      // the whole batch to finish. The user sees their feed fill up live.
+      //
+      // `baseline` is the (with_visuals, total) snapshot taken just BEFORE
+      // the generation kickoff. The "ready" exit only fires when the new
+      // run has actually grown the count past this baseline, so a stale
+      // /content/status that still reports the previous batch's 7/7 can't
+      // dismiss the loader the moment polling starts.
+      _pollForContent: async (brandId, month, year, baseline = { with: 0, total: 0 }) => {
         const maxAttempts = 36
         const delays = [3000, 3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
+        let lastWithV = -1
+        const baselineWith = Number(baseline?.with || 0)
+        // Show the baseline immediately so the progress label doesn't read
+        // "0 of 0" before the first poll lands. The loop will overwrite it
+        // as soon as it gets a real status response.
+        if (baselineWith > 0) {
+          set({ generationProgress: { with: baselineWith, total: Number(baseline?.total || baselineWith) } })
+        }
 
         for (let i = 0; i < maxAttempts; i++) {
           const delay = delays[Math.min(i, delays.length - 1)]
@@ -253,18 +452,43 @@ const useAppStore = create(
                 ? { with: withV, total }
                 : { with: 0, total: 0 },
             })
-            if (status.ready && withV > 0) {
+            // Incremental refetch — any time a new post becomes visually
+            // ready, push the freshest list into contentByMonth so the UI
+            // shows it immediately. Skip when the count hasn't changed to
+            // avoid hammering the list endpoint.
+            if (withV > 0 && withV !== lastWithV) {
+              try {
+                await get().fetchMonthContent(month, year)
+              } catch {
+                /* best-effort; we'll try again next tick */
+              }
+              lastWithV = withV
+            }
+            // Don't trust "ready" until the count has actually GROWN past
+            // the baseline. A backend that hasn't yet picked up the new
+            // run will still report the previous batch as ready — exiting
+            // here would dismiss the loader without anything new being
+            // created. Wait until either the count grew, or the backend
+            // reports a strictly larger total (new posts queued).
+            const grewPastBaseline = withV > baselineWith || total > Number(baseline?.total || 0)
+            if (status.ready && withV > 0 && grewPastBaseline) {
               const items = await get().fetchMonthContent(month, year)
               return items.length
             }
           } catch (e) {
             if (e.message && !e.message.includes('fetch') && !e.message.includes('Network')) throw e
             const items = await get().fetchMonthContent(month, year)
-            if (items.length > 0) return items.length
+            if (items.length > baselineWith) return items.length
           }
         }
         const items = await get().fetchMonthContent(month, year)
-        if (items.length === 0) {
+        // Only the count matters for the "taking too long" message — if the
+        // batch hasn't grown the catalogue past the baseline we know the
+        // run hasn't actually delivered yet, even if the previous batch
+        // still has posts in it. Treat both "no posts at all" and "no
+        // growth past baseline" as a timeout so the user gets the
+        // friendly message + the failure banner with a Retry button.
+        if (items.length === 0 || items.length <= baselineWith) {
           throw new Error(
             'Generation is taking longer than expected. Finished posts will appear on the calendar automatically; check back in a minute.'
           )

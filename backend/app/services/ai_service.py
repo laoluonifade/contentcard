@@ -8,7 +8,6 @@ from collections import Counter
 import httpx
 from app.core.config import settings
 from app.services.art_brief_service import ARCHETYPE_IDS, infer_default_archetype
-from app.services.visual_tokens import poster_lockup_prompt_block
 from app.services.ai_cost_service import (
     build_fingerprint,
     cache_get,
@@ -42,6 +41,64 @@ def _sanitize_ai_mentions(text: str | None) -> str | None:
     if text is None or not isinstance(text, str):
         return text
     return text
+
+
+# Canned strategy / filler phrases the AI sometimes parrots from the brand
+# context block. These read as boilerplate to a human ("build trust, remove
+# money anxiety, show useful control, speed, or clarity"). Stripped from
+# captions / hooks / CTAs after generation so they never reach the user.
+_CANNED_STRATEGY_PHRASES = (
+    "build trust, remove money anxiety, and show useful control, speed, or clarity",
+    "build trust, remove money anxiety",
+    "show useful control, speed, or clarity",
+    "build trust, qualify leads, and make locations or properties feel desirable and credible",
+    "qualify leads and make locations or properties feel desirable and credible",
+    "explore our features",
+    "take the next step",
+    "make the next step",
+    "tap below",
+    "don't miss out",
+    "a fresh post",
+    "clear, useful, and easy to act on",
+)
+
+
+def _strip_canned_strategy_phrases(text: str | None) -> str | None:
+    if not text or not isinstance(text, str):
+        return text
+    out = text
+    for phrase in _CANNED_STRATEGY_PHRASES:
+        # Case-insensitive, swallow any neighbouring punctuation/space so we
+        # don't leave dangling commas or double spaces behind.
+        out = re.sub(
+            rf"[\s,.;:—\-]*\b{re.escape(phrase)}\b[\s,.;:—\-]*",
+            " ",
+            out,
+            flags=re.IGNORECASE,
+        )
+    out = re.sub(r"\s{2,}", " ", out).strip()
+    return out
+
+
+def _dedupe_consecutive_brand_name(text: str | None, brand_name: str | None) -> str | None:
+    """Collapse 'contentcard ContentCard' / 'BrandX brandx' patterns into a single mention.
+
+    The model sometimes echoes the brand name twice in adjacent words — once from
+    the brand context line ("Brand: contentcard") and once auto-capitalised
+    ("ContentCard"). Detect and collapse to one canonical form.
+    """
+    if not text or not isinstance(text, str) or not brand_name:
+        return text
+    name = brand_name.strip()
+    if not name:
+        return text
+    # Match the brand name (case-insensitive) followed by a small gap and
+    # another case-variant of itself. Keep the first occurrence verbatim.
+    pattern = re.compile(
+        rf"(\b{re.escape(name)}\b)([\s,]+)(\b{re.escape(name)}\b)",
+        flags=re.IGNORECASE,
+    )
+    return pattern.sub(r"\1", text)
 
 
 def _platform_key(platform: str | None) -> str:
@@ -181,7 +238,8 @@ def _strip_hashtags_from_caption(caption: str | None) -> tuple[str, list[str]]:
     return cleaned.strip(), [str(t).lstrip("#") for t in tags if str(t).strip()]
 
 
-def _sanitize_post_copy_fields(post: dict) -> dict:
+def _sanitize_post_copy_fields(post: dict, brand: dict | None = None) -> dict:
+    brand_name = (brand or {}).get("name") if isinstance(brand, dict) else None
     for key in (
         "caption",
         "cta",
@@ -193,14 +251,25 @@ def _sanitize_post_copy_fields(post: dict) -> dict:
     ):
         if key in post:
             v = _sanitize_ai_copy_dashes(post.get(key))
-            post[key] = _sanitize_ai_mentions(v)
+            v = _sanitize_ai_mentions(v)
+            # Strip canned strategy phrases the AI parrots from brand context
+            # (e.g. "Explore Our Features", "build trust, remove money anxiety").
+            # Caption / hook / cta are user-facing — boilerplate ruins them.
+            if key in ("caption", "cta", "content_idea", "topic"):
+                v = _strip_canned_strategy_phrases(v)
+            # Collapse "contentcard ContentCard" double-emit into one mention.
+            v = _dedupe_consecutive_brand_name(v, brand_name)
+            post[key] = v
     ma = post.get("message_architecture")
     if isinstance(ma, dict):
         out_ma = dict(ma)
         for mk in ("hook", "support", "evidence", "cta"):
             if mk in out_ma and out_ma[mk] is not None:
                 v = _sanitize_ai_copy_dashes(str(out_ma[mk]))
-                out_ma[mk] = _sanitize_ai_mentions(v)
+                v = _sanitize_ai_mentions(v)
+                v = _strip_canned_strategy_phrases(v)
+                v = _dedupe_consecutive_brand_name(v, brand_name)
+                out_ma[mk] = v
         post["message_architecture"] = out_ma
     return post
 
@@ -652,6 +721,22 @@ def _collect_post_quality_warnings(post: dict, words_to_avoid: list[str] | None 
 
 REQUIRED_POST_FIELDS = {"caption", "date", "format"}
 VALID_FORMATS = {"single", "carousel", "quote", "gif"}
+
+# Carousel posts are disabled until the carousel design system is rebuilt —
+# the AI's per-slide output is too inconsistent right now. Every post the
+# Brain emits is coerced to "single" downstream. The carousel rendering
+# pipeline (image_service._post_for_slide etc.) stays in place for re-enable.
+_CAROUSEL_ENABLED = False
+
+
+def _coerce_disabled_carousel(post: dict) -> None:
+    """If carousel posts are disabled, force this post to single-image."""
+    if _CAROUSEL_ENABLED:
+        return
+    if str(post.get("format") or "").lower() == "carousel":
+        post["format"] = "single"
+        post["slide_count"] = 1
+        post.pop("slide_blueprint", None)
 VALID_VISUAL_TYPES = {"real_people", "illustration", "abstract", "product"}
 VALID_VISUAL_ARCHETYPES = set(ARCHETYPE_IDS)
 VALID_LOGO_SAFE_ZONES = frozenset({"upper_left", "upper_right", "lower_left", "lower_right"})
@@ -915,6 +1000,18 @@ def _normalize_cta_raw(raw) -> str:
     return str(raw).strip()[:300]
 
 
+_BANNED_CTA_PHRASES = {
+    "explore our features",
+    "take the next step",
+    "make the next step",
+    "tap below",
+    "don't miss out",
+    "learn more",
+    "click here",
+    "get started",
+}
+
+
 def _default_cta_from_brand(brand: dict | None, post: dict | None = None) -> str:
     """
     Deterministic fallback when the model omits a CTA. Prefer website visit, then food order,
@@ -925,7 +1022,11 @@ def _default_cta_from_brand(brand: dict | None, post: dict | None = None) -> str
     industry = f"{b.get('industry') or ''} {b.get('sub_industry') or ''}".lower()
     website = str(b.get("website") or "").strip()
     cta_style = str(b.get("cta_style") or "").strip()
-    if 6 <= len(cta_style) <= 300:
+    # Reject the brand's saved cta_style if it's a banned filler phrase. The
+    # whole point of this audit was that "Explore Our Features" was getting
+    # stamped on every post; treating cta_style as guidance not text means we
+    # must not blindly return it.
+    if 6 <= len(cta_style) <= 300 and cta_style.lower().strip(" .!") not in _BANNED_CTA_PHRASES:
         return cta_style[:300]
     try:
         strategy = resolve_business_default_strategy(b)
@@ -1164,6 +1265,11 @@ VISUAL_DIRECTION_DESIGN_TOKENS = (
 
 
 def _industry_quality_playbook_block(industry: str | None) -> str:
+    # Experiment: when the playbook layer is off, do not inject industry-
+    # curated benchmark text. The brand kit is the only source of truth.
+    from app.core.config import settings as _settings
+    if not _settings.CONTENT_PLAYBOOK_ENABLED:
+        return ""
     bag = str(industry or "").lower()
     if "fin" in bag or "bank" in bag or "payment" in bag or "remittance" in bag:
         return (
@@ -1243,9 +1349,9 @@ def _hard_visual_type_rule(ips: str) -> str:
 
 
 def _coerce_visual_type_by_content_type(post: dict, brand: dict | None = None) -> str:
-    """
-    Route style by content intent so we do not default to generic people photos.
-    """
+    """No-op since the AI-only rip-out — visual_type is no longer enforced."""
+    return str(post.get("visual_type") or "").strip().lower()
+    # Legacy body kept below for reference but unreachable.
     ctype = str(post.get("content_type") or "").lower()
     topic = str(post.get("topic") or post.get("content_idea") or "").lower()
     bag = f"{ctype} {topic}"
@@ -1374,6 +1480,9 @@ def _apply_dynamic_layout_system(post: dict, brand: dict | None) -> None:
 
 
 def _apply_family_visual_defaults(post: dict) -> None:
+    # Experiment: when the playbook is off, do not force visual_type or
+    # visual_archetype based on the template family. The AI chose them.
+    return  # AI-only mode: archetype/visual_type are free-form, no defaults applied.
     fam = _detect_template_family_for_mix(post)
     current_vt = str(post.get("visual_type") or "").lower()
     current_arch = str(post.get("visual_archetype") or "").lower()
@@ -1731,7 +1840,6 @@ def _enforce_family_mix_requirements(valid: list[dict], brand: dict | None) -> l
 def _visual_system_prompt_block(brand: dict) -> str:
     _raw = brand.get("visual_system")
     vs = _raw if isinstance(_raw, dict) else {}
-    lockup_note = poster_lockup_prompt_block(brand)
     country_names = {
         "NG": "Nigeria",
         "GH": "Ghana",
@@ -1774,8 +1882,7 @@ def _visual_system_prompt_block(brand: dict) -> str:
     if not vs:
         return (
             "Visual tokens: derive from brand colours; vary visual_archetype across the month. "
-            f"{casting_line} "
-            f"{lockup_note}"
+            f"{casting_line}"
         )
     arch = vs.get("allowed_archetypes") or []
     motifs = vs.get("never_show_motifs") or []
@@ -1794,8 +1901,7 @@ def _visual_system_prompt_block(brand: dict) -> str:
         "Visual storytelling standard: each post must carry one narrative beat in-frame (hook, context, proof, and CTA/action cue), not isolated decoration. "
         "Use playful graphic accents only when they reinforce the core message module. "
         f"Choose logo_safe_zone where the final composited brand mark should sit; keep that quadrant visually calm in the generated art — the raster model must not draw the logo. "
-        f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}. "
-        f"{lockup_note}"
+        f"Never show motifs: {'; '.join(str(m) for m in motifs) if motifs else 'N/A'}."
     )
 
 
@@ -1843,6 +1949,7 @@ def _validate_posts(
         if fmt not in VALID_FORMATS:
             fmt = "single"
         post["format"] = fmt
+        _coerce_disabled_carousel(post)
 
         if assigned:
             post["content_type"] = str(assigned.get("content_type") or "")
@@ -1851,6 +1958,19 @@ def _validate_posts(
             if assigned_family:
                 post["template_family"] = assigned_family
                 post["force_template_family"] = assigned_family
+            # Carry the planner's per-post hints onto the post dict so
+            # downstream image generation (image_service) and the
+            # strategist see them explicitly instead of inferring from
+            # the free-text visual_direction.
+            visual_theme = str(assigned.get("visual_theme") or "").strip().lower()
+            if visual_theme:
+                post["visual_theme"] = visual_theme
+            holiday_name = str(assigned.get("holiday_name") or "").strip()
+            if holiday_name:
+                post["holiday_name"] = holiday_name
+                post["is_holiday_post"] = True
+            elif assigned.get("is_holiday_post"):
+                post["is_holiday_post"] = True
 
         # Coerce slide_count
         try:
@@ -1868,50 +1988,48 @@ def _validate_posts(
         post["caption"] = cleaned_caption
         raw_hashtags = post.get("hashtags") if isinstance(post.get("hashtags"), list) else []
         normalized_hashtags: list[str] = []
+        # Sanity bar for hashtags. The AI sometimes mashes the entire post topic
+        # into a single PascalCase mega-tag (e.g. #HowContentcardTurnsABriefIntoReadyPosts)
+        # or echoes the bare industry as a generic tag (#Technology). Filter both.
+        topic_signature = re.sub(r"[^a-z0-9]", "", str(post.get("topic") or post.get("content_idea") or "").lower())
+        idea_signature = re.sub(r"[^a-z0-9]", "", str(post.get("content_idea") or "").lower())
         for tag in [*raw_hashtags, *inline_hashtags]:
             clean = str(tag or "").strip().lstrip("#")
-            if clean:
-                normalized_hashtags.append(clean)
+            if not clean:
+                continue
+            # Drop tags > 30 chars or with > 4 PascalCase tokens — those are mega-tags.
+            if len(clean) > 30:
+                continue
+            pascal_tokens = re.findall(r"[A-Z][a-z0-9]*", clean)
+            if len(pascal_tokens) > 4:
+                continue
+            # Drop if the tag (alphanumeric only) matches the topic or content_idea
+            # exactly — that's the topic-as-hashtag mega-tag.
+            tag_sig = re.sub(r"[^a-z0-9]", "", clean.lower())
+            if tag_sig and tag_sig in (topic_signature, idea_signature):
+                continue
+            normalized_hashtags.append(clean)
         hashtag_limit = _platform_hashtag_limit(post.get("platform"))
         post["hashtags"] = list(dict.fromkeys(normalized_hashtags))[:hashtag_limit]
 
-        _br_vs = (brand or {}).get("visual_system")
-        vs = _br_vs if isinstance(_br_vs, dict) else {}
-        art_style_profile = str(vs.get("campaign_art_style_profile") or "balanced_social_ad").strip().lower()
-        if art_style_profile not in ("balanced_social_ad", "bold_illustration_offer", "minimal_premium_editorial", "product_cutout_collage"):
-            art_style_profile = "balanced_social_ad"
-        post["campaign_art_style_profile"] = art_style_profile
-        ips = str(vs.get("image_people_style") or "mixed").lower()
-        if ips not in ("real_people", "illustration", "cartoon", "mixed"):
-            ips = "mixed"
-        vt_ai = str(post.get("visual_type", "real_people")).lower()
-        if vt_ai not in VALID_VISUAL_TYPES:
-            vt_ai = "real_people"
-        if ips == "real_people":
-            post["visual_type"] = "real_people"
-        elif ips in ("illustration", "cartoon"):
-            post["visual_type"] = "illustration"
-        else:
-            post["visual_type"] = vt_ai
-        post["visual_type"] = _coerce_visual_type_by_content_type(post, brand)
-        _apply_family_visual_defaults(post)
+        # PRD §8.4 — verify caption uses the brand's chosen language style.
+        # Fire-and-forget metric; don't block the post on a miss.
+        try:
+            from app.services.success_metrics_service import validate_caption_language
+            validate_caption_language(
+                brand_id=str((brand or {}).get("id") or ""),
+                post_id=str(post.get("id") or post.get("topic") or ""),
+                caption=str(post.get("caption") or ""),
+                language_style=str((brand or {}).get("language_style") or "english"),
+            )
+        except Exception:
+            pass
 
-        # visual_archetype: layout family for VBS / art brief (PRD)
-        va = str(post.get("visual_archetype", "")).strip().lower()
-        if not va or va not in VALID_VISUAL_ARCHETYPES:
-            post["visual_archetype"] = infer_default_archetype(post["visual_type"])
-        else:
-            post["visual_archetype"] = va
-
-        vt = post["visual_type"]
-        if vt == "abstract" and post["visual_archetype"] not in ("pattern_headline", "flat_edu", "offer_pill_stack", "sticker_collage", "editorial_issue_card", "quote_editorial_sheet"):
-            post["visual_archetype"] = "pattern_headline"
-        elif vt == "product" and post["visual_archetype"] not in ("photo_hero", "flat_edu", "pattern_headline", "merchant_launch_cutout", "product_grid_offer", "co_brand_lockup", "offer_pill_stack"):
-            post["visual_archetype"] = "flat_edu"
-        elif vt == "illustration" and post["visual_archetype"] not in ("flat_edu", "pattern_headline", "pov_comic", "device_mockup_benefit", "editorial_issue_card", "quote_editorial_sheet", "sticker_collage", "co_brand_lockup"):
-            post["visual_archetype"] = "flat_edu"
-        elif vt == "real_people" and post["visual_archetype"] not in ("photo_hero", "portrait_story", "pov_comic", "co_brand_lockup", "editorial_issue_card"):
-            post["visual_archetype"] = "portrait_story"
+        # AI-only mode: visual_type and visual_archetype are no longer enforced.
+        # The AI describes its visual freely via visual_direction + image_prompt.
+        # We pass through whatever it returned (or empty) without coercion.
+        post["visual_type"] = str(post.get("visual_type") or "").strip().lower()
+        post["visual_archetype"] = str(post.get("visual_archetype") or "").strip()
 
         zone = str(post.get("logo_safe_zone", "")).strip().lower().replace(" ", "_")
         if zone not in VALID_LOGO_SAFE_ZONES:
@@ -1930,6 +2048,7 @@ def _validate_posts(
         if post["format"] in ("single", "gif", "quote") and any(t in topic_lc for t in TEASER_STYLE_WORDS):
             post["format"] = "carousel"
             post["slide_count"] = max(3, int(post.get("slide_count", 3)))
+        _coerce_disabled_carousel(post)
 
         # Truncate caption with a hard stop, but bias toward platform-native lengths via warnings/polish.
         caption = str(post.get("caption", ""))
@@ -1950,16 +2069,99 @@ def _validate_posts(
         _ensure_post_cta(post, brand)
         _align_post_creative_contract(post, brand)
         post["quality_warnings"] = _collect_post_quality_warnings(post, words_to_avoid=avoid)
-        valid.append(_sanitize_post_copy_fields(post))
+        valid.append(_sanitize_post_copy_fields(post, brand))
 
     valid = _apply_style_mix_targets(valid, brand)
     valid = _enforce_family_mix_requirements(valid, brand)
     valid = _enforce_design_mode_rotation(valid, brand)
+    valid = _flag_duplicate_posts(valid)
     for p in valid:
         _align_post_creative_contract(p, brand)
         p["quality_warnings"] = _collect_post_quality_warnings(p, words_to_avoid=avoid)
-        _sanitize_post_copy_fields(p)
+        _flag_hook_caption_opener_collision(p)
+        _sanitize_post_copy_fields(p, brand)
+        # Sanitize may have blanked a CTA that was a banned filler phrase
+        # (e.g. "Explore Our Features"). Refill from the brand-aware default,
+        # which now also refuses the same banned set.
+        _ensure_post_cta(p, brand)
     return valid
+
+
+_DEDUPE_FILLER = re.compile(
+    r"\b(the|a|an|to|of|for|with|from|on|in|at|by|and|or|but|is|are|be|will|your|our|my|how)\b",
+    re.IGNORECASE,
+)
+
+
+def _dedupe_signature(text: str) -> str:
+    """Canonicalise text for similarity matching: lowercase, strip filler, sort tokens."""
+    if not text:
+        return ""
+    s = re.sub(r"[^a-z0-9 ]", " ", str(text).lower())
+    s = _DEDUPE_FILLER.sub(" ", s)
+    tokens = [t for t in s.split() if len(t) >= 3]
+    if not tokens:
+        return ""
+    return " ".join(sorted(tokens))
+
+
+def _flag_hook_caption_opener_collision(post: dict) -> None:
+    """Tag the post when the on-image hook and the caption's first sentence are
+    near-identical. Adds 'hook_equals_caption_opener' to quality_warnings so
+    the regenerate flow can rewrite. We do not auto-fix the caption — the AI
+    is better at producing a fresh opener than a regex.
+    """
+    ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+    hook = str(ma.get("hook") or "").strip()
+    caption = str(post.get("caption") or "").strip()
+    if not hook or not caption:
+        return
+    first_line = caption.split("\n", 1)[0]
+    first_sentence = re.split(r"(?<=[.!?])\s+", first_line, maxsplit=1)[0]
+    if not first_sentence:
+        return
+    if _dedupe_signature(hook) and _dedupe_signature(hook) == _dedupe_signature(first_sentence):
+        warnings = list(post.get("quality_warnings") or [])
+        warnings.append("hook_equals_caption_opener")
+        post["quality_warnings"] = warnings
+
+
+def _flag_duplicate_posts(posts: list[dict]) -> list[dict]:
+    """Detect near-duplicate posts by hook + content_idea + caption-opener and tag them.
+
+    The AI is told via the prompt to never repeat hooks, but with the playbook
+    off and full freedom it will sometimes anchor on the same brand pillar
+    twice. Surface duplicates via quality_warnings so the user / regenerate
+    flow can rewrite them. A hard auto-rewrite would require another AI call
+    per dup — defer to the user for now.
+    """
+    if not posts:
+        return posts
+    seen_hooks: dict[str, int] = {}
+    seen_ideas: dict[str, int] = {}
+    seen_first_lines: dict[str, int] = {}
+    for idx, post in enumerate(posts):
+        ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+        hook_sig = _dedupe_signature(str(ma.get("hook") or ""))
+        idea_sig = _dedupe_signature(str(post.get("content_idea") or post.get("topic") or ""))
+        caption = str(post.get("caption") or "").strip()
+        first_line = caption.split("\n", 1)[0]
+        first_sig = _dedupe_signature(first_line[:90])
+        warnings = list(post.get("quality_warnings") or [])
+        if hook_sig and hook_sig in seen_hooks:
+            warnings.append(f"duplicate_hook:matches_post_{seen_hooks[hook_sig]}")
+        elif hook_sig:
+            seen_hooks[hook_sig] = idx
+        if idea_sig and idea_sig in seen_ideas:
+            warnings.append(f"duplicate_content_idea:matches_post_{seen_ideas[idea_sig]}")
+        elif idea_sig:
+            seen_ideas[idea_sig] = idx
+        if first_sig and first_sig in seen_first_lines:
+            warnings.append(f"duplicate_caption_opener:matches_post_{seen_first_lines[first_sig]}")
+        elif first_sig:
+            seen_first_lines[first_sig] = idx
+        post["quality_warnings"] = warnings
+    return posts
 
 
 # ── Core OpenAI chat wrapper ───────────────────────────────────────────────────
@@ -2008,9 +2210,23 @@ async def _openai_chat(
     payload: dict = {
         "model": model,
         "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
     }
+    # Reasoning-tier models (gpt-5.5*, o1*, o3*, o4*) require
+    # max_completion_tokens instead of max_tokens, default temperature=1, and
+    # may not accept arbitrary temperature / response_format. Detect by
+    # model-name prefix and adapt the payload accordingly. Without this,
+    # every chat call fails with a 400 Bad Request from OpenAI.
+    _model_lc = str(model or "").lower()
+    is_reasoning_model = _model_lc.startswith(("gpt-5.5", "gpt-5-", "o1", "o3", "o4"))
+    if is_reasoning_model:
+        payload["max_completion_tokens"] = max_tokens
+        # Reasoning models accept temperature=1 only; drop the override entirely
+        # so the API uses its default rather than 400-ing on unsupported values.
+        if abs(float(temperature) - 1.0) > 1e-6:
+            logger.debug("Dropping temperature=%s for reasoning model %s", temperature, model)
+    else:
+        payload["max_tokens"] = max_tokens
+        payload["temperature"] = temperature
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
 
@@ -2685,6 +2901,28 @@ def resolve_business_default_strategy(brand: dict | None) -> dict:
     if not family_mix:
         family_mix = ["text_poster", "testimonial", "announcement", "data_card"]
 
+    # Per-brand override: brand_kit.content_mix lets a brand bias the
+    # planner toward more product / promo / education / etc. without
+    # changing the underlying business shape. Values are weights — they
+    # don't need to sum to 1.0; _normalize_weight_map handles that.
+    overrides_kit = (brand or {}).get("brand_kit") if isinstance(brand, dict) else None
+    content_mix_override = (
+        overrides_kit.get("content_mix")
+        if isinstance(overrides_kit, dict) and isinstance(overrides_kit.get("content_mix"), dict)
+        else None
+    )
+    base_content_mix = _normalize_weight_map(
+        defaults.get("content_type_mix"),
+        {"education": 0.35, "proof": 0.25, "offer": 0.20, "community_or_engagement": 0.20},
+    )
+    if content_mix_override:
+        merged = {**base_content_mix, **{
+            str(k).strip().lower(): float(v)
+            for k, v in content_mix_override.items()
+            if isinstance(k, str) and isinstance(v, (int, float)) and v > 0
+        }}
+        base_content_mix = _normalize_weight_map(merged, base_content_mix)
+
     strategy = {
         "business_shape": shape,
         "secondary_shapes": secondary_shapes,
@@ -2693,7 +2931,7 @@ def resolve_business_default_strategy(brand: dict | None) -> dict:
         "content_pillars": pillars[:6],
         "content_goals": content_goals[:6],
         "funnel_stages": funnel_stages[:6],
-        "content_type_mix": _normalize_weight_map(defaults.get("content_type_mix"), {"education": 0.35, "proof": 0.25, "offer": 0.20, "community_or_engagement": 0.20}),
+        "content_type_mix": base_content_mix,
         "template_family_mix": family_mix,
         "post_format_mix": _normalize_weight_map(defaults.get("post_format_mix"), {"single": 0.65, "carousel": 0.30, "gif": 0.05}),
         "preferred_ctas": preferred_ctas[:6],
@@ -2718,16 +2956,21 @@ def _business_default_strategy_text(strategy: dict | None) -> str:
         return ""
     mix = strategy.get("content_type_mix") if isinstance(strategy.get("content_type_mix"), dict) else {}
     mix_text = ", ".join(f"{k} {int(v * 100)}%" for k, v in list(mix.items())[:8])
+    # Header makes it explicit that these are *guidance for what to write about*,
+    # not text to copy verbatim into captions. Without this header the AI was
+    # parroting phrases like "build trust, remove money anxiety, and show useful
+    # control, speed, or clarity" directly into post captions.
     return "\n".join(
         [
+            "(Guidance for the strategist — describes goals, NEVER copy these phrases verbatim into caption / hook / CTA / hashtags. Translate them into brand-specific language.)",
             f"Business shape: {strategy.get('business_shape')}",
-            f"Default conversion objective: {strategy.get('conversion_objective')}",
+            f"Conversion objective (use as guidance, do not quote): {strategy.get('conversion_objective')}",
             f"Default pillars: {', '.join(strategy.get('content_pillars') or [])}",
             f"Default content type mix: {mix_text}",
             f"Default template families: {', '.join(strategy.get('template_family_mix') or [])}",
-            f"Default CTA style: {strategy.get('default_cta_style')}",
-            f"Proof strategy: {strategy.get('proof_strategy')}",
-            f"Visual behavior: {strategy.get('visual_behavior')}",
+            f"CTA style guidance (do NOT copy literally — use as TONE direction): {strategy.get('default_cta_style')}",
+            f"Proof strategy (guidance, do not quote): {strategy.get('proof_strategy')}",
+            f"Visual behavior (guidance, do not quote): {strategy.get('visual_behavior')}",
         ]
     )
 
@@ -3048,6 +3291,7 @@ def _build_design_mix_schedule(
     format_mix: str,
     seed_key: str,
     platform: str | None = None,
+    holiday_dates: dict[str, str] | None = None,
 ) -> list[dict]:
     if not posting_dates:
         return []
@@ -3071,6 +3315,7 @@ def _build_design_mix_schedule(
         if single_only:
             for row in hydrated:
                 row["post_type"] = "single"
+        _annotate_visuals_and_holidays(hydrated, rng=rng, holiday_dates=holiday_dates)
         return hydrated
 
     selected_formats = _weighted_key_schedule(strategy.get("post_format_mix"), len(posting_dates), rng)
@@ -3102,11 +3347,120 @@ def _build_design_mix_schedule(
             }
         )
         recent_families.append(fam)
-    return _hydrate_strategy_onto_plan(plan, strategy, platform=platform)
+    hydrated = _hydrate_strategy_onto_plan(plan, strategy, platform=platform)
+    _annotate_visuals_and_holidays(hydrated, rng=rng, holiday_dates=holiday_dates)
+    return hydrated
+
+
+# ── Per-post visual themes ─────────────────────────────────────────────────────
+#
+# Picked deterministically per content_type so the AI gets an explicit hint of
+# what visual approach this post should lean on (vs. inferring it from the
+# free-text visual_direction). Themes:
+#
+#   product_hero  — single product, clean background, hero composition
+#   lifestyle     — product or scene in a real-world setting
+#   flatlay       — top-down arrangement of items / props
+#   collage       — multiple products composed together (bundle / set)
+#   abstract      — typography-led / pattern-led, no product hero
+#   editorial     — magazine-style scene with mood + light, broader story
+#
+# Image service uses these to bias the gpt-image-1 prompt; strategist uses
+# them as an explicit input alongside content_type / post_type.
+
+_THEMES_BY_CONTENT_TYPE: dict[str, tuple[str, ...]] = {
+    "product_spotlight": ("product_hero", "lifestyle", "flatlay"),
+    "product":           ("product_hero", "lifestyle", "flatlay"),
+    "promotional":       ("collage", "product_hero", "editorial"),
+    "promo":             ("collage", "product_hero"),
+    "offer":             ("collage", "product_hero"),
+    "bundle":            ("collage", "flatlay"),
+    "social_proof":      ("lifestyle", "abstract"),
+    "testimonial":       ("lifestyle", "abstract"),
+    "educational":       ("abstract", "flatlay", "editorial"),
+    "education":         ("abstract", "flatlay", "editorial"),
+    "engagement":        ("abstract", "lifestyle"),
+    "story":             ("lifestyle", "editorial"),
+    "behind_the_scenes": ("lifestyle", "editorial"),
+}
+
+_DEFAULT_THEMES: tuple[str, ...] = ("product_hero", "lifestyle", "abstract", "editorial")
+
+
+def _pick_visual_theme(content_type: str, idx: int) -> str:
+    """Deterministic visual theme for a plan row.
+
+    Rotates through the per-content-type theme tuple by `idx` so consecutive
+    posts of the same content_type don't all land on the same theme. Falls
+    back to a generic rotation when content_type isn't in the table.
+    """
+    key = (content_type or "").strip().lower().replace(" ", "_")
+    options = _THEMES_BY_CONTENT_TYPE.get(key)
+    if not options:
+        for token in key.split("_"):
+            if token in _THEMES_BY_CONTENT_TYPE:
+                options = _THEMES_BY_CONTENT_TYPE[token]
+                break
+    if not options:
+        options = _DEFAULT_THEMES
+    return options[idx % len(options)]
+
+
+def _annotate_visuals_and_holidays(
+    plan: list[dict],
+    *,
+    rng,  # random.Random — used for tie-breaking when a date is shared between holidays
+    holiday_dates: dict[str, str] | None,
+) -> None:
+    """Mutate plan rows in place: add visual_theme, is_holiday_post, holiday_name.
+
+    Holiday matching is exact on the YYYY-MM-DD date string. When a row falls
+    on a holiday, content_type is preserved (downstream copy generation honours
+    it as a hint), but the dedicated `holiday_name` field tells the AI to lead
+    with the moment, not the brand pitch.
+    """
+    holidays = holiday_dates or {}
+    for idx, row in enumerate(plan):
+        if not isinstance(row, dict):
+            continue
+        ct = str(row.get("content_type") or "")
+        row["visual_theme"] = _pick_visual_theme(ct, idx)
+        date_key = str(row.get("date") or "").strip()[:10]
+        holiday_name = holidays.get(date_key)
+        row["is_holiday_post"] = bool(holiday_name)
+        row["holiday_name"] = holiday_name or None
+
+
+def _extract_holiday_dates(holiday_context: str | None) -> dict[str, str]:
+    """Parse `- YYYY-MM-DD: Name (type)` lines out of build_month_holiday_context.
+
+    Returns {date: name}. Empty when no context block was supplied or the block
+    contains no parseable lines. Tolerant of leading whitespace and the optional
+    bullet prefix used by the existing renderer.
+    """
+    if not holiday_context:
+        return {}
+    import re as _re
+    out: dict[str, str] = {}
+    for raw in holiday_context.splitlines():
+        line = raw.strip()
+        if not line.startswith("-"):
+            continue
+        m = _re.match(r"-\s*(\d{4}-\d{2}-\d{2})\s*:\s*(.+?)(?:\s*\([^)]+\))?\s*$", line)
+        if m:
+            out[m.group(1)] = m.group(2).strip()
+    return out
 
 
 def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, seed_key: str) -> list[dict]:
     if not posting_dates:
+        return []
+    # Experiment: when CONTENT_PLAYBOOK_ENABLED is False, treat the brand as
+    # having no playbook so the planner falls through to the AI-driven path
+    # where OpenAI decides content_type/format/visual-direction from the brand
+    # kit alone.
+    from app.core.config import settings as _settings
+    if not _settings.CONTENT_PLAYBOOK_ENABLED:
         return []
     if not playbook:
         return []
@@ -3160,22 +3514,36 @@ def _build_playbook_schedule(posting_dates: list[str], playbook: dict | None, se
 
 
 def _playbook_assignment_text(plan: list[dict]) -> str:
-    return "\n".join(
-        [
-            (
-                f"• {row.get('date')}: content_type={row.get('content_type')} | "
-                f"template_family={row.get('template_family') or 'default'} | "
-                f"design_mode={row.get('design_mode') or 'editorial'} | "
-                f"post_type={row.get('post_type')} | slot_key={row.get('slot_key') or 'N/A'} | "
-                f"business_shape={row.get('business_shape') or 'inferred'} | "
-                f"pillar={row.get('content_pillar') or 'default'} | "
-                f"cta_hint={row.get('cta_style') or 'clear next step'} | "
-                f"proof={row.get('proof_strategy') or 'brand-specific proof'} | "
-                f"visual_direction={row.get('visual_direction')}"
-            )
-            for row in plan
-        ]
-    )
+    """Format the plan as instructions for the AI text generator.
+
+    Each row is rendered as a single line. Two newer fields surface here so
+    the model sees them explicitly rather than inferring from the free-text
+    visual_direction:
+
+      visual_theme    — product_hero | lifestyle | flatlay | collage |
+                        abstract | editorial. Drives composition & subject.
+      holiday         — non-empty name when the date falls on a public
+                        holiday/observance; the post MUST lead with the
+                        moment instead of the brand's usual pitch.
+    """
+    lines: list[str] = []
+    for row in plan:
+        holiday = str(row.get("holiday_name") or "").strip()
+        holiday_seg = f" | HOLIDAY={holiday} (lead with the moment, not the brand pitch)" if holiday else ""
+        lines.append(
+            f"• {row.get('date')}: content_type={row.get('content_type')} | "
+            f"template_family={row.get('template_family') or 'default'} | "
+            f"design_mode={row.get('design_mode') or 'editorial'} | "
+            f"post_type={row.get('post_type')} | slot_key={row.get('slot_key') or 'N/A'} | "
+            f"visual_theme={row.get('visual_theme') or 'editorial'} | "
+            f"business_shape={row.get('business_shape') or 'inferred'} | "
+            f"pillar={row.get('content_pillar') or 'default'} | "
+            f"cta_hint={row.get('cta_style') or 'clear next step'} | "
+            f"proof={row.get('proof_strategy') or 'brand-specific proof'} | "
+            f"visual_direction={row.get('visual_direction')}"
+            f"{holiday_seg}"
+        )
+    return "\n".join(lines)
 
 
 def _unique_dates_per_platform_batch(
@@ -3266,7 +3634,7 @@ async def _generate_for_platform(
     topics_hint: str,
     posting_dates: list[str],
     words_to_avoid: list[str],
-    assistant_id: str | None = None,
+    vector_store_id: str | None = None,
     brand_dict: dict | None = None,
     planner_addon: str = "",
 ) -> list[dict]:
@@ -3276,32 +3644,38 @@ async def _generate_for_platform(
 
     fmt_pref = str(format_mix or "").strip().lower()
     single_only = any(k in fmt_pref for k in ("single_only", "single", "no_carousel", "single-post"))
-    playbook_plan = _build_design_mix_schedule(
-        posting_dates,
-        brand=brand_dict,
-        format_mix=format_mix,
-        seed_key=f"{month_name}{year}{platform}",
-        platform=platform,
-    )
     import random, hashlib
     seed = int(hashlib.md5(f"{month_name}{year}{platform}".encode()).hexdigest(), 16)
     rng = random.Random(seed)
-    if playbook_plan:
-        assignment_instructions = _playbook_assignment_text(playbook_plan)
-    else:
-        content_types = [
-            "Educational Tip", "Meme / Relatable Humour", "CTA / Promotion",
-            "Trending Moment", "Behind the Scenes", "Customer Testimonial",
-            "Hot Take", "Engagement Question", "Product Spotlight",
-            "Monday Motivation", "Founder Story", "Industry Insight",
-        ]
-        assigned_types = [content_types[rng.randint(0, len(content_types) - 1)] for _ in posting_dates]
-        assignment_instructions = "\n".join(
-            [
-                f"• {d}: content_type={t} | template_family=default | design_mode=editorial | post_type=single"
-                for d, t in zip(posting_dates, assigned_types)
-            ]
-        )
+    # AI-only mode: no playbook, no enum lists, no template_family, no visual_archetype.
+    # The model picks every dimension freely from BRAND CONTEXT for every posting date.
+    assignment_instructions = "\n".join(f"• {d}" for d in posting_dates)
+    assignment_header = (
+        "Posting dates for this month — produce one post per date. You decide content_type, "
+        "format, content_idea, message_architecture, and the entire visual treatment from "
+        "BRAND CONTEXT (audience, voice, value props, content goals, active campaigns) and from "
+        "any prior posts listed below. Diversify across the month — no two consecutive posts may "
+        "share the same content_type or visual treatment:"
+    )
+    assignment_contract = (
+        "The date list above is a delivery schedule, not a content contract:\n"
+        "• Choose content_type per date based on the brand kit and what would best serve the "
+        "audience that day (weekday vs weekend cadence, recency of topics, campaign moments).\n"
+        "• Pick format (single / carousel / quote / gif) based on whether the idea naturally needs "
+        "multi-step breakdown or motion.\n"
+        "• Maximum diversity is the goal: never repeat the same content_type, the same hook noun, "
+        "the same composition, or the same caption opener back-to-back.\n"
+        "• Each row above carries a visual_theme — honour it on the image_prompt:\n"
+        "    - product_hero  → single product, clean negative-space background, hero composition.\n"
+        "    - lifestyle     → product or scene in a real-world context with people or environment.\n"
+        "    - flatlay       → top-down arrangement of products, ingredients, or props.\n"
+        "    - collage       → two or more products composed together (bundle / set / 'complete the look').\n"
+        "    - abstract      → typography-led or pattern-led, no product hero, message takes the frame.\n"
+        "    - editorial     → magazine-style scene with mood, light, and a broader brand story beat.\n"
+        "• Each row may carry HOLIDAY=Name. When present, that post MUST lead with the holiday "
+        "moment (acknowledgment / celebration / brand-tying), not the brand's usual pitch — and the "
+        "image headline + visual must read as that occasion, not a generic promo with the date."
+    )
 
     platform_notes = {
         "instagram": "Instagram square 1:1",
@@ -3319,45 +3693,15 @@ async def _generate_for_platform(
     business_strategy_text = _business_default_strategy_text(business_strategy)
     business_copy_bias = _business_platform_copy_bias(brand_dict, platform, business_strategy)
 
-    _vs_raw = (brand_dict or {}).get("visual_system")
-    _vs_dict = _vs_raw if isinstance(_vs_raw, dict) else {}
-    ips = str(_vs_dict.get("image_people_style") or "mixed")
-    ips = ips.lower() if ips in ("real_people", "illustration", "cartoon", "mixed") else "mixed"
-    if ips == "real_people":
-        img_style_rules = (
-            "• ALWAYS name the brand ({bn}) and use its exact primary + secondary colours from VISUAL IDENTITY\n"
-            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
-            "• ALWAYS use imagery_style, lighting_style, design_style, and brand_motifs from VISUAL IDENTITY\n"
-            "• People are the default subject style: photoreal campaign/documentary humans with authentic local casting, natural skin texture, realistic hands, true facial anatomy, and candid expressions\n"
-            "• Avoid plastic AI faces, duplicated faces, malformed hands, and generic smiling stock-pose crowds\n"
-            "• Add real-camera authenticity: natural micro-contrast, slight lens falloff or grain where appropriate, believable shadows, and non-perfect staging\n"
-            "• Many posts should have zero people: use product, environment, macro detail, hands-at-work, or abstract texture when the idea allows\n"
-            "• NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", or \"modern design\""
-        ).format(bn=brand_name)
-    elif ips == "illustration":
-        img_style_rules = (
-            f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
-            "• image_prompt may use premium 2D illustration, flat brand graphics, or tasteful vector-adjacent art; keep it on-brand, not childish\n"
-            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
-            "• People may be illustrated (stylised but professional), not photoreal stock\n"
-            "• NEVER use generic AI-art clichés"
-        )
-    elif ips == "cartoon":
-        img_style_rules = (
-            f"• ALWAYS name the brand ({brand_name}) and use its exact primary + secondary colours\n"
-            "• image_prompt should use premium cartoon/comic illustration: strong shape language, clean linework, modern editorial composition\n"
-            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
-            "• Characters, if used, should be stylised and expressive, but not childish clip-art\n"
-            "• NEVER use generic low-quality sticker-pack aesthetics"
-        )
-    else:
-        img_style_rules = (
-            f"• ALWAYS name the brand ({brand_name}) and honour VISUAL IDENTITY colours and motifs\n"
-            "• Vary the month: mix photoreal (with or without people), premium illustration, abstract texture, and product or still-life heroes\n"
-            "• Pick visual_type per post; do not default to crowds or smiling models — lean abstract/product when the topic is not human-centric\n"
-            "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark; reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
-            "• NEVER generic stock or clichéd \"AI slop\""
-        )
+    img_style_rules = (
+        f"• ALWAYS name the brand ({brand_name}) and honour every signal in VISUAL IDENTITY (colours, imagery_style, lighting_style, design_style, brand_motifs)\n"
+        "• You decide the visual treatment per post (photoreal, illustrated, abstract, product still-life, mixed) based on what the post idea calls for. Vary across the month.\n"
+        "• image_prompt must NEVER ask the image model to draw a logo, wordmark, or trademark — reserve logo_safe_zone as calm negative space (the real logo is composited after generation)\n"
+        "• image_prompt MUST direct the AI to render the on-image headline + CTA crisply (sharp Latin glyphs, exact spelling, single geometric sans-serif, 8-10% safe margin from every edge, never garble letters, never invent extra copy beyond message_architecture)\n"
+        "• When humans appear, use authentic local casting, real skin texture, realistic hands, true facial anatomy, candid expressions; avoid plastic AI faces and stock-pose crowds\n"
+        "• Many posts should have zero people — lean product, environment, macro detail, hands-at-work, or abstract texture when the idea allows\n"
+        "• NEVER use generic phrases like \"vibrant colours\", \"dramatic lighting\", \"modern design\", or other AI-art clichés"
+    )
 
     brand_system = f"""You are a world-class social media strategist and creative director working exclusively for {brand_name}. Today is {today.isoformat()}.
 
@@ -3386,7 +3730,22 @@ When writing captions:
 • Custom brand note for {platform}: {brand_platform_style_note}
 • Use specific buyer language, proof, product detail, use-case detail, or offer detail, not generic motivational filler"""
 
-    quality_playbook = _industry_quality_playbook_block(industry)
+
+    # Pull the holiday block out of planner_addon so it lands at the top of
+    # the brief as a priority constraint (instead of buried inside USER /
+    # STRATEGIST ADD-ONS where the model treats it as side context).
+    _addon_text = planner_addon.strip()
+    _holiday_priority_block = ""
+    _holiday_marker = "=== PUBLIC HOLIDAYS"
+    if _holiday_marker in _addon_text:
+        _h_idx = _addon_text.find(_holiday_marker)
+        _next = _addon_text.find("===", _h_idx + len(_holiday_marker))
+        if _next == -1:
+            _holiday_priority_block = _addon_text[_h_idx:].strip()
+            _addon_text = _addon_text[:_h_idx].strip()
+        else:
+            _holiday_priority_block = _addon_text[_h_idx:_next].strip()
+            _addon_text = (_addon_text[:_h_idx].rstrip() + "\n\n" + _addon_text[_next:].lstrip()).strip()
 
     creative_brief = f"""Generate {n} complete, high-quality {platform} posts for {month_name} {year}.
 
@@ -3394,82 +3753,87 @@ Platform: {platform} ({platform_format})
 Format preference: {format_mix}
 {topics_hint}
 
+{_holiday_priority_block}
+
 Business default strategy:
 {business_strategy_text}
 
-Assign one post to each date using this exact assignment map:
+{assignment_header}
 {assignment_instructions}
 
-Treat the assignment map as a creative contract, not a loose hint:
-• Keep content_type exactly as assigned.
-• Treat business_shape, pillar, cta_hint, and proof in the assignment map as commercial strategy instructions for copy, message_architecture, and visual_direction.
-• Preserve each visual_direction's core scene idea and composition logic, expand it only with sharper brand-specific detail.
-• If slot_key is present, stay recognisably within that slot's concept family instead of inventing a totally different frame.
-• If a slot says carousel, build a truly carousel-native idea, not a single-post caption forced into slides.
+{assignment_contract}
 
 For EACH post return ALL these fields:
 
-1. content_type: exactly as assigned above
+1. content_type: short string YOU choose for this post (e.g. educational, promotional, social_proof, story, engagement, product_spotlight, behind_the_scenes, founder_story, industry_insight). Must vary across the month — no two consecutive posts share the same content_type.
 2. content_idea: punchy post title, max 8 words
 3. description: 2-3 sentences: what this post achieves, why this angle, who it speaks to
-4. caption: full ready-to-post caption, max {platform_caption_limit} words, platform-native, NO hashtags inside the caption body
-5. cta: REQUIRED non-empty string, standalone imperative, max 12 words. Must ask for ONE clear action: order food or book a table, visit the website or tap link in bio, or engage (comment, DM, save, share). Never omit, never use placeholders.
-6. hashtags: array of 0-{platform_hashtag_limit} relevant hashtag strings WITHOUT the # symbol
-7. visual_direction: 4-7 sentences as a single design brief. MUST include all: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) where the final composited brand mark will sit (logo_safe_zone): keep that quadrant calmer in the generated art — never instruct drawing a fake logo in the raster, (f) two sentences that quote the on-card copy using these exact prefixes so layout and raster stay aligned: Headline for layout: \"...hook...\" and Subhead for layout: \"...support...\" where the quoted strings are identical to message_architecture.hook and message_architecture.support from field 16, (g) one sentence that ties this post to strategy_note and the first content goal in BRAND CONTEXT so the scene advances commercial strategy, not random decoration. Plan composition so headline and subcopy read before the caption (leave headline-safe negative space when the scene is busy).
-8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, audience, and calm negative space in logo_safe_zone for post-production logo only. Must NOT ask for readable letters, numbers, prices, hashtags, titles, or watermarks and must NOT ask the raster model to paint any logo, wordmark, or trademark. On-image story copy belongs in message_architecture only.
-{_image_prompt_ending_for_style(ips)}
+4. caption: full ready-to-post caption, max {platform_caption_limit} words, platform-native, NO hashtags inside the caption body. The caption MUST satisfy ALL these caption rules:
+   • First line is a scroll-stopping hook with a specific noun pulled from BRAND CONTEXT (product name, audience pain, ritual, ingredient, proof point, offer mechanic) — never a generic "ship consistent content" / "get started" opener
+   • Sounds like {platform} copy, not cross-posted: {platform_guide}
+   • Reflects the brand's writing style, tone tags, and language (English / Pidgin / etc.) — read BRAND CONTEXT and match
+   • Industry conversion angle: {industry_conversion_guide}
+   • Business-shape copy bias: {business_copy_bias}
+   • Custom platform style note for {platform}: {brand_platform_style_note}
+   • If a customer review / social-proof quote exists in BRAND CONTEXT, weave a real detail in (do not invent quotes)
+   • NEVER use filler phrases: "A fresh post", "clear, useful, and easy to act on", "Explore our features", "Take the next step", "Make the next step", "Tap below", "Don't miss out"
+   • NEVER reuse the same opener structure between two posts in this batch — vary verb, tense, and rhythm
+   • NEVER use long dash, en dash, or two hyphens in a row as punctuation; use commas / periods / parentheses
+   • If the topic is a generic slot label, infer a concrete publishable angle from BRAND CONTEXT before writing
+   • Not the same caption shape as any other post on this date list — vary length, structure, and angle every post
+   • NEVER name the brand twice in one sentence or in two consecutive sentences. Mention it at most once per caption, and only when it adds meaning.
+   • NEVER name the audience twice in the same sentence (e.g. "For small businesses, BrandX empowers small businesses by..." is forbidden).
+   • The caption's first sentence must NOT match message_architecture.hook verbatim or near-verbatim. The hook is the on-image headline; the caption opener must advance the idea (specifics, context, stat, story beat), not restate it.
+   • NEVER quote text from BRAND CONTEXT that is labelled as guidance (e.g. lines marked "do NOT copy literally", "do not quote", or "guidance for the strategist"). Translate guidance into brand-native, post-specific language.
+5. cta: REQUIRED non-empty string, unique to this post, standalone imperative, max 12 words. Must ask for ONE clear action specific to THIS post's content_type and goal — never the same generic CTA on every post. Examples: "Tap the link in bio to grab the July menu," / "Reply with the spice level you'd pick," / "DM us for a sample shoot," / "Save this and try it tomorrow morning." Use brand cta_style only as TONE direction, never copied verbatim. Never use banned filler ("Explore Our Features", "Take the next step", "Get started", "Learn more", "Click here").
+6. hashtags: array of 0-{platform_hashtag_limit} relevant hashtag strings WITHOUT the # symbol. Each hashtag is a real social-tag (max 30 chars, max 3 PascalCase words). NEVER mash the post topic / content_idea / hook into a single mega-hashtag (forbidden examples: #HowContentcardTurnsABriefIntoReadyPosts, #ProductSpotlightForSmallBusinesses). NEVER include the bare industry as a generic tag (#Technology, #Business). Prefer audience-relevant niche tags, location tags, and 1-2 brand tags.
+7. visual_direction: 4-7 sentences as a single design brief. MUST include: (a) focal subject, (b) layered foreground/midground/background depth, (c) specific props or product context, (d) lighting and material texture, (e) two sentences quoting on-card copy using these exact prefixes so the image and the layout stay aligned: Headline for layout: "...hook..." and Subhead for layout: "...support..." where the quoted strings are identical to message_architecture.hook and message_architecture.support from field 12, (f) one sentence tying this post to a content goal in BRAND CONTEXT so the scene advances commercial strategy, not random decoration. Reserve the logo_safe_zone quadrant as calmer negative space for the post-production logo lockup — do NOT instruct drawing a logo into the raster.
+8. image_prompt: campaign-ready prompt for the image model. Must reference brand name ({brand_name}), brand colours, imagery_style, lighting_style, brand_motifs, and audience. The AI is the only renderer, so the prompt MUST direct it to render the on-image headline and CTA crisply (sharp Latin glyphs, exact spelling, single geometric sans-serif, 8-10% safe margin from every edge, never garble letters, never invent extra copy). Must NOT ask the model to paint any logo, wordmark, or trademark — reserve logo_safe_zone as calm negative space for the post-production logo lockup only.
 9. image_prompt_explanation: 2 sentences: why this visual was chosen
-10. visual_type: {_visual_type_rule_for_style(ips)}
-11. visual_archetype: one of: "photo_hero", "flat_edu", "pattern_headline", "pov_comic", "portrait_story", "co_brand_lockup", "offer_pill_stack", "device_mockup_benefit", "editorial_issue_card", "quote_editorial_sheet", "merchant_launch_cutout", "sticker_collage", "product_grid_offer"; must align with content_type, template_family, visual_type, and campaign system
-12. format: must match post_type assignment (single->"single" or "gif", carousel->"carousel")
-13. slide_count: 1 for single or gif, 2-5 for carousel
-14. date: posting date in YYYY-MM-DD format exactly as listed above
-15. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
-16. message_architecture: REQUIRED object for the on-image typography layout (rendered as headline and subcopy on the final graphic, before people read the caption). String fields:
+10. format: choose single, carousel, quote, or gif based on whether the idea naturally needs multi-step breakdown or motion
+11. slide_count: 1 for single / gif / quote, 2-5 for carousel
+12. date: posting date in YYYY-MM-DD format exactly from the list above
+13. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
+14. message_architecture: REQUIRED object for the on-image typography layout (rendered as headline and subcopy on the final graphic, before people read the caption). String fields:
     - hook: 3-10 words, scroll-stopping headline; may be seasonal, cheeky, or celebratory when USER / STRATEGIST add-ons mention a holiday or moment. Must feel like ad copy, not a dry calendar label alone.
-    - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim.
+    - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim. The caption's first sentence must NOT match the hook verbatim either — they sit next to each other and reading the same line twice is a fail. The caption opener should advance the idea (add specifics, set context, drop a stat) rather than restate the hook.
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
-17. template_family: exactly as assigned above. Must be one of promo, text_poster, data_card, testimonial, announcement, illustration_editorial, edu, story_carousel, product_hero, co_brand_offer, merchant_launch, offer_pill_campaign, device_mockup_benefit, editorial_issue_card, or seasonal_pattern_promo.
-18. layout_family: short string naming the overall campaign system, such as conversion_banner, offer_pill_system, co_brand_launch_system, issue_editorial_system, ui_benefit_system, or merchant_onboarding_announcement.
-19. component_pack: array of 3-6 specific reusable modules the final design should visibly use, such as partner_lockup, offer_pill, issue_chip, device_mockup, cutout_product_frame, stat_module, qa_body, seasonal_motif, utility_icon_set.
-20. slide_blueprint: array naming the role of each slide in order. For singles return ["cover"]. For carousels use roles like cover, insight, proof, qa, ui_proof, benefit_detail, quote, close, cta.
-21. campaign_modules: object with any extra structured modules needed by the design. Use simple keys like partner_lockup, issue_label, location_chip, offer_module, cta_pill, device_mockup, product_frame_shape, seasonal_motif, co_brand_context.
+15. slide_blueprint: REQUIRED ONLY when format=carousel. Array of exactly slide_count entries, each describing ONE slide. Every slide must advance the story — NEVER repeat the same headline or restage the same scene. Use the standard carousel storytelling arc: hook -> problem/tension -> insight or proof -> how/what -> close/CTA (compress or expand to fit slide_count). Each entry has the shape:
+    {{
+      "slide_number": 1-based index,
+      "role": one short label (hook / problem / insight / proof / how / story / contrast / cta) — your choice per slide,
+      "headline": 2-8 words, the on-image headline for THIS slide ONLY. MUST differ from every other slide's headline. The slide-1 headline can match message_architecture.hook; slide-2+ headlines must be fresh.
+      "support": 8-25 words, on-image body copy for THIS slide. Pushes the story forward — never restates the headline.
+      "image_brief": 2-3 sentences describing the visual for THIS slide. Each slide's visual MUST be a different scene, not a re-render of the cover with a new colour. Vary subject, angle, props, palette per slide while staying on brand. Reference brand colors, imagery_style, lighting_style.
+    }}
+    Set slide_blueprint to [] for non-carousel formats.
 
 HARD RULES:
-• Every post MUST have a non-empty "cta" string (see field 5); if unsure, default to "Visit our site via the link in bio." adapted to brand voice and website if known
-• If no explicit selected template or design playbook overrides it, follow BUSINESS DEFAULT STRATEGY for the content pillar, conversion objective, CTA, proof cue, visual behavior, and platform-native copy tone.
-• Each post must feel distinctly different; vary tone, angle, format, and style
+• If a "PUBLIC HOLIDAYS & OBSERVANCES THIS MONTH (PRIORITY)" section appears above, holidays OVERRIDE every other content_type / scheduling decision for the dates listed. Any posting date matching a holiday MUST be a holiday-themed post (or a tasteful cultural acknowledgement when the brand industry calls for restraint). Do NOT skip a holiday in favour of a generic content_type for that date. The on-image headline + visual must reflect the holiday, not bury it in the corner.
+• Every post MUST have a non-empty "cta" string (see field 5), unique per post.
+• Each post must feel distinctly different; vary tone, angle, format, visual treatment, and rhythm.
+• ZERO duplicate hooks, content_ideas, or caption openers across the month. Two posts that anchor on the same brand pillar must approach it from different angles (different verb, different audience segment, different proof type, different time-of-day, different rhetorical move). Reusing the same noun phrase in two hooks is a fail.
+• Before writing each post, scan the prior posts in this batch AND every row in the "PRIOR PUBLISHED POSTS" section (if present) — confirm your hook noun, verb, content_idea, hero scene, prop cluster, camera framing, and caption opener do not repeat. If they do, rewrite the post from a different angle. Cross-month duplicates are the most visible failure of this generator.
 • Captions must be tailored to {platform}, not generic cross-post copy. The same idea should sound different on Instagram, Facebook, Twitter/X, and LinkedIn.
 • Every caption must sound like it belongs to this business and industry. Use concrete proof, product specifics, pain-point language, offer mechanics, occasion cues, or use-case detail whenever the brand context supports it.
-• Fix prior system weaknesses: avoid repeating the same centered-text layout, avoid repeating gradient-heavy backgrounds, avoid overusing flat illustration style, and avoid template-looking sameness
-• Rotate design mode across posts and do not repeat consecutively: editorial, product hero, lifestyle, abstract, ui_saas
-• Treat template_family as the strongest layout instruction in the batch. If template_family=text_poster, data_card, announcement, edu, or testimonial, the final concept must read as a designed social graphic, not a hero photo with copy added later.
-• Treat layout_family and component_pack as mandatory structural instructions, not decorative suggestions. The final design must visibly express those modules.
-• Include human/lifestyle context in some posts (especially mixed mode), not only abstract or illustration outputs
-• Vary typography behavior between posts: change alignment, scale contrast, and structure (stacked, split, overlay)
-• If a draft visual direction resembles a previous pattern in this batch, rewrite it to be clearly different before returning
-• When USER / STRATEGIST add-ons include the section "PRIOR RECENT POSTS", never reuse the same hero dish, same monochrome studio backdrop, or same prop cluster described there—each new post must use an obviously different raster scene while staying on brand
-• NEVER use words from the words_to_avoid list
-• NEVER produce generic AI-sounding captions
-• If format is "single", "gif", or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next"
-• Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely
-• For carousel outputs, slide_blueprint must create genuine role variation across slides; do not repeat one poster layout with only the copy changed
-• When the idea is a merchant launch, partnership, price drop, promo, or seasonal offer, prefer modular campaign design with co-brand lockups, offer pills, CTA chips, cutout products, merchant badges, and issue or location chips where relevant
-• Use "gif" for selected high-energy moments (product reveal, testimonial proof pulse, quick before/after) when motion would improve scroll-stopping impact, without requiring full video
-• topic must equal content_idea exactly
-• CRITICAL: each date in the assignment map must appear exactly once in your JSON for this platform — never return two posts with the same "date" value
-{_hard_visual_type_rule(ips)}
-• image_prompt must never ask for text, titles, captions, prices, currency, hashtags, or watermarks, or for any drawn logo or wordmark; reserve logo_safe_zone only
-• message_architecture carries every headline, subhead, and CTA line meant to be read on the graphic; the raster image stays photo or illustration only
-• visual_direction must include the literal prefix Headline for layout: with quoted copy matching message_architecture.hook exactly; when message_architecture.support is non-empty, also include Subhead for layout: with quoted support matching exactly; when strategy_note or content goals exist in BRAND CONTEXT, include one strategy bridge sentence; field 7 and field 16 must never contradict each other
-• visual_direction should plan final logo lockup placement and breathing room for compositing after generation, not an in-model logo
-• Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign
-• If assignment map includes visual_direction text, use that exact direction and only expand with tactical composition detail, never change meaning
-• Ensure monthly composition variety: include at least one product/device hero, one lifestyle context scene, one abstract/graphic metaphor, and one trust-proof frame where batch size allows
-• Ensure monthly family variety: include multiple layout families across the batch, and never let photo-led hero cards dominate more than a third of posts
-• Realism QA for human photos: reject and rewrite prompts that would likely create uncanny outputs (waxy skin, duplicated faces, malformed hands, doll-like eyes, over-airbrushed complexion, impossible lighting reflections)
-• Prefer believable editorial camera realism over synthetic polish: natural skin pores, realistic texture, grounded shadows, and candid body language
+• Vary the visual treatment month-to-month: mix photoreal scenes, premium illustration, abstract texture/typography, and product-led still life. Never default every post to the same look.
+• Vary typography behavior between posts: change alignment, scale contrast, and structure (stacked, split, overlay).
+• If a draft visual direction resembles a previous pattern in this batch, rewrite it to be clearly different before returning.
+• NEVER use words from the words_to_avoid list.
+• NEVER produce generic AI-sounding captions.
+• If format is "single", "gif", or "quote", make it a complete standalone post, never teaser phrasing like "inside", "part 1", "swipe", "thread", or "coming next".
+• Use "carousel" only when the idea naturally needs multi-step breakdown, list, or narrative progression; body slides must elaborate the same topic concretely with genuine role variation.
+• When format=carousel: slide_blueprint is REQUIRED with slide_count distinct entries. Every slide tells a different beat of the story (e.g. hook, problem, insight, proof, CTA). Every slide MUST have a different headline AND a different image scene. Re-rendering the cover slide with a colour swap on slides 2-N is the most common carousel failure — do not do it. The reader must be able to swipe through and read a coherent narrative, not the same poster four times.
+• Use "gif" for selected high-energy moments (product reveal, testimonial proof pulse, quick before/after) when motion would improve scroll-stopping impact, without requiring full video.
+• topic must equal content_idea exactly.
+• CRITICAL: each date in the schedule above must appear exactly once in your JSON for this platform — never return two posts with the same "date" value.
+• image_prompt must direct the AI image renderer to draw on-image text (headline + CTA from message_architecture) crisply with no garbled letters; reserve logo_safe_zone for the post-production logo lockup only — never paint a logo into the raster.
+• message_architecture carries every headline, subhead, and CTA line meant to be read on the graphic. The image renders all of that copy directly.
+• visual_direction must include the literal prefix Headline for layout: with quoted copy matching message_architecture.hook exactly; when message_architecture.support is non-empty, also include Subhead for layout: with quoted support matching exactly; field 7 and field 14 must never contradict each other.
+• Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign.
+• Realism QA for human photos: reject and rewrite prompts that would likely create uncanny outputs (waxy skin, duplicated faces, malformed hands, doll-like eyes, over-airbrushed complexion, impossible lighting reflections).
+• Prefer believable editorial camera realism over synthetic polish: natural skin pores, realistic texture, grounded shadows, and candid body language.
 
 Return a JSON object with a single key "posts" containing the array:
 {{"posts": [{{...}}, {{...}}]}}"""
@@ -3481,10 +3845,8 @@ Return a JSON object with a single key "posts" containing the array:
             "- Do not return carousel format in this run.\n"
         )
 
-    if planner_addon.strip():
-        creative_brief += f"\n\n=== USER / STRATEGIST ADD-ONS ===\n{planner_addon.strip()}\n"
-    if quality_playbook.strip():
-        creative_brief += f"\n\n=== BENCHMARK QUALITY PLAYBOOK ===\n{quality_playbook}\n"
+    if _addon_text:
+        creative_brief += f"\n\n=== USER / STRATEGIST ADD-ONS ===\n{_addon_text}\n"
 
     max_attempts = 2 if settings.AI_COST_OPTIMIZATION_ENABLED else 3
     last_error = None
@@ -3492,8 +3854,9 @@ Return a JSON object with a single key "posts" containing the array:
         try:
             raw = None
 
-            if assistant_id and attempt == 0:
-                # Attempt 1: OpenAI Assistants API with Vector Store + inline context
+            if vector_store_id and attempt == 0:
+                # Attempt 1: OpenAI Responses API with file_search bound to the
+                # brand's vector store (replaces the deprecated Assistants API)
                 brief_with_context = (
                     f"=== BRAND CONTEXT (primary reference) ===\n"
                     f"{brand_ctx}\n\n"
@@ -3501,11 +3864,11 @@ Return a JSON object with a single key "posts" containing the array:
                     f"{creative_brief}"
                 )
                 try:
-                    from app.services.openai_assistant_service import generate_with_assistant
-                    raw = await generate_with_assistant(assistant_id, brief_with_context)
-                    logger.info(f"Assistant responded (attempt {attempt + 1}), first 200: {raw[:200]}")
+                    from app.services.openai_assistant_service import generate_with_brand_memory
+                    raw = await generate_with_brand_memory(vector_store_id, brief_with_context)
+                    logger.info(f"Brand-memory responded (attempt {attempt + 1}), first 200: {raw[:200]}")
                 except Exception as e:
-                    logger.warning(f"Assistant failed: {e}; using chat completions")
+                    logger.warning(f"Brand-memory failed: {e}; using chat completions")
                     raw = None
 
             if raw is None:
@@ -3537,17 +3900,19 @@ Return a JSON object with a single key "posts" containing the array:
             if not isinstance(posts, list) or len(posts) == 0:
                 raise ValueError("posts array is empty or not a list")
 
-            posts = _enforce_playbook_assignments(posts, playbook_plan)
+            # No playbook plan exists in AI-only mode — pass None so the
+            # legacy enforce/validate helpers no-op rather than NameError.
+            posts = _enforce_playbook_assignments(posts, None)
             validated = _validate_posts(
                 posts,
                 words_to_avoid=words_to_avoid,
                 brand=brand_dict,
-                playbook_plan=playbook_plan,
+                playbook_plan=None,
             )
             if len(validated) == 0:
                 raise ValueError("All posts failed validation")
 
-            validated = _unique_dates_per_platform_batch(validated, posting_dates, playbook_plan)
+            validated = _unique_dates_per_platform_batch(validated, posting_dates, None)
             if len(validated) == 0:
                 raise ValueError("All posts dropped during unique-date dedupe")
 
@@ -3877,11 +4242,12 @@ async def _generate_for_platform(
     topics_hint: str,
     posting_dates: list[str],
     words_to_avoid: list[str],
-    assistant_id: str | None = None,
+    vector_store_id: str | None = None,
     brand_dict: dict | None = None,
     planner_addon: str = "",
     campaign_brief: dict | None = None,
     posts_per_week: int = 3,
+    holiday_dates: dict[str, str] | None = None,
 ) -> list[dict]:
     business_strategy = resolve_business_default_strategy(brand_dict)
     playbook_plan = _build_design_mix_schedule(
@@ -3890,6 +4256,7 @@ async def _generate_for_platform(
         format_mix=format_mix,
         seed_key=f"{month_name}{year}{platform}",
         platform=platform,
+        holiday_dates=holiday_dates,
     )
     assignment_instructions = _playbook_assignment_text(playbook_plan) if playbook_plan else "\n".join(
         [
@@ -3936,7 +4303,7 @@ async def _generate_for_platform(
         topics_hint=topics_hint,
         posting_dates=posting_dates,
         words_to_avoid=words_to_avoid,
-        assistant_id=assistant_id,
+        vector_store_id=vector_store_id,
         brand_dict=brand_dict,
         planner_addon="\n\n".join([x for x in staged_addons if x and str(x).strip()]),
     )
@@ -3965,8 +4332,6 @@ async def _generate_for_platform(
             post["qa_polish"] = qa_meta
     return validated or drafted
 
-
-# ── Monthly plan ───────────────────────────────────────────────────────────────
 
 async def generate_monthly_plan(
     brand: dict,
@@ -4090,6 +4455,19 @@ Good examples (follow this pattern): {_fmt(brand.get('good_examples'))}
 Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
 """.strip()
 
+    # Category-driven design cues (layout / visual focus / colour mood / text
+    # balance). Adapts the brand's outputs to the visual norms of its
+    # category without overriding brand-specific colours or tone.
+    try:
+        from app.services.category_design_cues import get_category_cues, cues_as_text
+        _cues_block = cues_as_text(
+            get_category_cues(brand.get("industry"), brand.get("sub_industry"))
+        )
+        if _cues_block:
+            brand_ctx = f"{brand_ctx}\n\n{_cues_block}"
+    except Exception:  # never let a cue lookup break generation
+        pass
+
     topics_hint = ""
     if topic_override:
         topics_hint = f"Focus primarily on this topic: {topic_override}"
@@ -4097,12 +4475,35 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
         topics_hint += f"\nRotate through these topics: {', '.join(template_topics)}"
 
     posting_dates = _get_posting_dates(year, month, posts_per_week)
-    logger.info(f"Generating {len(posting_dates)} posts for {len(platforms)} platform(s) in {month_name} {year}")
 
-    assistant_id = brand.get("openai_assistant_id")
+    # Vector store ID drives the Responses API brand-memory path.
+    # The legacy openai_assistant_id field is no longer used (Assistants
+    # API was EOL'd by OpenAI Aug 2026).
+    vector_store_id = brand.get("openai_vector_store_id")
 
     addon_parts = [x.strip() for x in (holiday_context, generation_brief) if x and str(x).strip()]
     planner_addon = "\n\n".join(addon_parts)
+
+    # Extract structured date → holiday-name pairs out of the (already prose)
+    # holiday_context block so the planner can mark exact-date matches as
+    # is_holiday_post and the AI sees the moment explicitly per row.
+    holiday_dates = _extract_holiday_dates(holiday_context)
+
+    # Holidays add to the cadence — they don't replace it. When the user opts
+    # in to holiday-aware planning we make sure every holiday in the month
+    # gets its own slot, on top of the weekly cadence the user picked. If a
+    # holiday already happens to fall on a cadence date, that date stays as
+    # one slot (the planner will mark it is_holiday_post and the AI is told
+    # to lead with the moment).
+    if holiday_dates:
+        existing = set(posting_dates)
+        extras = [d for d in holiday_dates.keys() if d not in existing]
+        if extras:
+            posting_dates = sorted([*posting_dates, *extras])
+    logger.info(
+        "Generating %d posts (incl. %d holiday extras) for %d platform(s) in %s %s",
+        len(posting_dates), len(holiday_dates), len(platforms), month_name, year,
+    )
 
     all_posts = []
     for platform in platforms:
@@ -4112,11 +4513,12 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
                 month_name, year, platform,
                 format_mix, topics_hint, posting_dates,
                 words_to_avoid=words_to_avoid,
-                assistant_id=assistant_id,
+                vector_store_id=vector_store_id,
                 brand_dict=brand,
                 planner_addon=planner_addon,
                 campaign_brief=campaign_brief,
                 posts_per_week=posts_per_week,
+                holiday_dates=holiday_dates,
             )
             all_posts.extend(posts)
         except Exception as e:
@@ -4146,6 +4548,9 @@ def _brand_campaign_brief_from_profile(brand: dict, topic: str | None = None, de
 
 
 def _caption_playbook_summary(brand: dict | None) -> str:
+    from app.core.config import settings as _settings
+    if not _settings.CONTENT_PLAYBOOK_ENABLED:
+        return "Brand-kit-only mode — no playbook constraints; choose voice and structure from the brand kit."
     playbook = _playbook_from_brand(brand)
     if not playbook:
         return "No playbook selected."
@@ -4219,7 +4624,14 @@ Structured campaign brief:
 {_campaign_brief_text(brief) or 'none'}
 
 Playbook context:
-{_caption_playbook_summary(brand)}""".strip()
+{_caption_playbook_summary(brand)}
+
+Caption quality bar:
+- First sentence MUST contain a specific noun from this brand kit (a product name, audience pain, ritual, ingredient, neighbourhood, occasion, proof point, or offer mechanic). Generic openers ("Welcome to…", "Take the next step", "A fresh post", "Stay consistent") are forbidden.
+- Echo the brand's exact writing style, tone tags, and language. Match how this brand actually talks, not a generic content-writer voice.
+- If a real customer quote / review is in the brand profile, weave one concrete detail in. Do not invent quotes.
+- Vary opener structure post-to-post (verb, tense, rhythm). Reusing the same shape is a fail.
+- Caption must do real commercial work: name the buyer, the trigger, and the next step — not aesthetic vibes.""".strip()
 
 
 async def _generate_caption_with_structured_brief(

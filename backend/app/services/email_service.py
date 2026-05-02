@@ -5,9 +5,9 @@ All HTML templates use inline styles so they render correctly in Gmail,
 Outlook, Apple Mail, and other major clients.
 
 Usage:
-    from app.services.email_service import send_password_reset, send_team_invite, send_welcome
+    from app.services.email_service import send_otp_code, send_team_invite, send_welcome
 
-    await send_password_reset(to="user@example.com", reset_url="https://...", name="Ada")
+    await send_otp_code(to="user@example.com", code="123456")
     await send_team_invite(to="new@example.com", invite_url="...", workspace_name="Acme", ...)
     await send_welcome(to="user@example.com", name="Ada")
 
@@ -136,68 +136,35 @@ def _shell(preview: str, body_html: str) -> str:
 </html>"""
 
 
-# ── Template: Password reset ───────────────────────────────────────────────────
+# ── Template: Sign-in OTP code ────────────────────────────────────────────────
 
-def render_password_reset(reset_url: str, name: str | None = None) -> tuple[str, str]:
-    """Return (subject, html)."""
-    first = name.split()[0] if name else None
-    greeting = f"Hi {first}," if first else "Hi there,"
+def render_otp_code(code: str, ttl_minutes: int = 10) -> tuple[str, str]:
+    """Return (subject, html) for the email-OTP sign-in code."""
     body = f"""
     <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
-      letter-spacing:-0.025em;">Reset your password</h1>
+      letter-spacing:-0.025em;">Your sign-in code</h1>
     <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
-      {greeting}</p>
-    <p style="margin:0 0 30px;font-size:15px;color:{_TEXT};line-height:1.75;">
-      We received a request to reset the password on your ContentCard account.
-      Click the button below — this link expires in <strong>30&nbsp;minutes</strong>.
-    </p>
-    <div style="text-align:center;margin-bottom:30px;">
-      {_btn("Reset my password", reset_url)}
+      Enter this code in the ContentCard tab you just opened.</p>
+    <div style="text-align:center;margin:0 0 26px;">
+      <div style="display:inline-block;background:{_LIGHT_GREEN};
+        border:1px solid {_GREEN};border-radius:12px;
+        padding:18px 32px;font-family:ui-monospace,Menlo,Consolas,monospace;
+        font-size:34px;font-weight:800;letter-spacing:8px;color:{_TEXT};">
+        {code}
+      </div>
     </div>
+    <p style="margin:0 0 8px;font-size:14px;color:{_TEXT};line-height:1.6;text-align:center;">
+      This code expires in <strong>{ttl_minutes}&nbsp;minutes</strong>.
+    </p>
     {_divider()}
     <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
-      If you didn't request this, you can safely ignore this email — your
-      password won't change.<br><br>
-      Having trouble with the button? Paste this URL into your browser:<br>
-      <a href="{reset_url}" style="color:{_GREEN};word-break:break-all;">{reset_url}</a>
+      Didn't ask for this? You can safely ignore this email — without the code,
+      nobody can sign in to your account.
     </p>"""
     return (
-        "Reset your ContentCard password",
+        f"Your ContentCard sign-in code: {code}",
         _shell(
-            "Click to reset your ContentCard password. Link expires in 30 minutes.",
-            body,
-        ),
-    )
-
-
-# ── Template: Email verification ──────────────────────────────────────────────
-
-def render_email_verification(verify_url: str, name: str | None = None) -> tuple[str, str]:
-    """Return (subject, html)."""
-    first = name.split()[0] if name else None
-    greeting = f"Hi {first}," if first else "Hi there,"
-    body = f"""
-    <h1 style="margin:0 0 6px;font-size:23px;font-weight:800;color:{_TEXT};
-      letter-spacing:-0.025em;">Verify your email</h1>
-    <p style="margin:0 0 26px;font-size:14px;color:{_MUTED};line-height:1.5;">
-      {greeting}</p>
-    <p style="margin:0 0 30px;font-size:15px;color:{_TEXT};line-height:1.75;">
-      Welcome to ContentCard! Please confirm your email so we know it's really you.
-      Click the button below — this link expires in <strong>24&nbsp;hours</strong>.
-    </p>
-    <div style="text-align:center;margin-bottom:30px;">
-      {_btn("Verify my email", verify_url)}
-    </div>
-    {_divider()}
-    <p style="margin:0;font-size:13px;color:{_MUTED};line-height:1.7;">
-      If you didn't create a ContentCard account, you can safely ignore this email.<br><br>
-      Having trouble with the button? Paste this URL into your browser:<br>
-      <a href="{verify_url}" style="color:{_GREEN};word-break:break-all;">{verify_url}</a>
-    </p>"""
-    return (
-        "Verify your ContentCard email",
-        _shell(
-            "Click to verify your ContentCard email. Link expires in 24 hours.",
+            f"Your ContentCard sign-in code is {code}. Expires in {ttl_minutes} minutes.",
             body,
         ),
     )
@@ -434,8 +401,7 @@ async def send_email(to: str, subject: str, html: str) -> None:
 # Categories that ALWAYS send regardless of user preferences. Verification,
 # password reset, and billing-failure notices are non-negotiable transactional.
 TRANSACTIONAL_KINDS: frozenset[str] = frozenset({
-    "email_verification",
-    "password_reset",
+    "otp_login",
     "welcome",
     "team_invite",
     # Phase 2 — billing notices are non-negotiable transactional. A failed
@@ -989,21 +955,12 @@ def render_autopilot_publish_failed_digest(
 
 # ── Convenience helpers ────────────────────────────────────────────────────────
 
-async def send_password_reset(
+async def send_otp_code(
     to: str,
-    reset_url: str,
-    name: str | None = None,
+    code: str,
+    ttl_minutes: int = 10,
 ) -> None:
-    subject, html = render_password_reset(reset_url, name)
-    await send_email(to, subject, html)
-
-
-async def send_email_verification(
-    to: str,
-    verify_url: str,
-    name: str | None = None,
-) -> None:
-    subject, html = render_email_verification(verify_url, name)
+    subject, html = render_otp_code(code, ttl_minutes=ttl_minutes)
     await send_email(to, subject, html)
 
 

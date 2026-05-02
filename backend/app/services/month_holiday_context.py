@@ -62,9 +62,15 @@ async def build_month_holiday_context(
     lines = [f"- {h['date']}: {h['name']} ({h.get('type', 'global')})" for h in in_month]
     cc_note = f"User country (for local relevance): {country_code}." if country_code else ""
     return (
-        f"=== PUBLIC HOLIDAYS & OBSERVANCES THIS MONTH ===\n"
+        f"=== PUBLIC HOLIDAYS & OBSERVANCES THIS MONTH (PRIORITY) ===\n"
         f"{cc_note}\n"
-        "The following dates fall in this calendar month. Naturally weave at least several of these "
-        "into post topics, angles, or CTAs where appropriate (respect the brand industry and guardrails).\n"
+        "These dates take priority over any other content_type assignment.\n"
+        "RULES:\n"
+        "1. If a posting date in your schedule falls ON one of the dates listed below, that post MUST be a holiday-themed post — celebrate, acknowledge, or tie the brand's offering to the holiday. The holiday overrides whatever content_type you would otherwise have picked for that date.\n"
+        "2. If a posting date falls within 2 days BEFORE a listed holiday, you may run a teaser / countdown / preparation post for it.\n"
+        "3. The on-image headline + visual must reflect the holiday (e.g. \"Happy Workers' Day\" with celebratory composition), not a generic brand promo with the date in the corner.\n"
+        "4. Respect the brand industry and guardrails — never force a holiday tie-in that would be tonally off (e.g. a SaaS brand on a religious observance should be respectful, not promotional).\n"
+        "5. Use the listed date EXACTLY as the post date. Do not move a holiday to a non-holiday date.\n"
+        "Holidays in this month:\n"
         + "\n".join(lines)
     )

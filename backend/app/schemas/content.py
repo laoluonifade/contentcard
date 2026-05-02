@@ -120,6 +120,46 @@ class BulkDeleteContentRequest(BaseModel):
     content_ids: list[str]
 
 
+class GenerateContentRequest(BaseModel):
+    """PRD §11.1 — POST /generate-content body.
+
+    Single-shot image generation: backend fetches the Brand Kit, runs the
+    Strategist + Prompt Builder + Image pipeline, returns the image URL.
+    No carousel format here — single, quote, gif only.
+    """
+    brand_id: str
+    user_prompt: str = ""
+    platform: ContentPlatform = ContentPlatform.INSTAGRAM
+    format: str = "single"  # single | quote | gif
+
+
+class GenerateContentResponse(BaseModel):
+    image_url: str
+    strategy: dict  # strategist output (objective, scene, composition, etc.)
+    prompt: str     # final text prompt sent to gpt-image-1
+
+
+class ContentFeedbackRequest(BaseModel):
+    """PRD §14 user satisfaction signal — thumbs up/down on a generated post."""
+    rating: str  # "up" | "down"
+    note: str | None = None  # optional free-text reason for downvote
+
+
+class RedistributeMonthDatesRequest(BaseModel):
+    """Spread the remaining posts in a month evenly across its weekdays."""
+
+    brand_id: str
+    month: int
+    year: int
+    platform: ContentPlatform | None = None  # None = all platforms in the month
+
+
+class RedistributeMonthDatesResponse(BaseModel):
+    updated: int
+    skipped_published: int
+    schedule: list[dict]  # [{id, platform, scheduled_date}]
+
+
 class GeneratePhotoCaption(BaseModel):
     brand_id: str
     description: str
@@ -254,7 +294,10 @@ class ContentOut(BaseModel):
         return None
 
     @computed_field
-    def slide_blueprint(self) -> list[str] | None:
+    def slide_blueprint(self) -> list[dict] | None:
+        """Per-slide narrative blueprint for carousels.
+        Each entry: {slide_number, role, headline, support, image_brief}.
+        Empty / None for non-carousel posts."""
         t = self.theme
         if isinstance(t, dict):
             cm = t.get("cc_meta")

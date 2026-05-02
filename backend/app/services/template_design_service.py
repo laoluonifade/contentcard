@@ -5,7 +5,6 @@ from typing import Any
 from app.models.brand import Brand
 from app.models.template import ContentTemplate, TemplateCategory, TemplateRecurrence
 from app.services.image_service import finalize_rendered_urls_with_logo, generate_post_image
-from app.services.visual_tokens import apply_poster_lockup_defaults
 
 
 def infer_business_type(brand: Brand) -> str:
@@ -418,7 +417,7 @@ def _pick_playbook_direction(template: ContentTemplate, playbook: dict | None) -
 
 def _brand_to_prompt_dict(brand: Brand) -> dict[str, Any]:
     kit = brand.brand_kit or {}
-    return apply_poster_lockup_defaults({
+    return {
         **kit,
         "name": brand.name,
         "industry": brand.industry,
@@ -432,7 +431,7 @@ def _brand_to_prompt_dict(brand: Brand) -> dict[str, Any]:
         "brand_font": brand.brand_font,
         "design_style": brand.design_style or "bold",
         "logo_url": brand.logo_url,
-    })
+    }
 
 
 def build_template_design_spec(
@@ -590,13 +589,18 @@ async def generate_template_preview(
     playbook: dict | None = None,
 ) -> tuple[list[str], bool, dict[str, Any]]:
     spec = build_template_design_spec(template, brand, playbook=playbook)
+    # Carousel format is disabled at the AI Brain layer (ai_service._CAROUSEL_ENABLED).
+    # Mirror that here so template-preview generations also stay single-image
+    # while the carousel design system is being rebuilt.
+    from app.services.ai_service import _CAROUSEL_ENABLED
+    _is_carousel = _CAROUSEL_ENABLED and str(spec.get("playbook_post_type") or "") == "carousel"
     post = {
         "topic": template.name,
         "content_idea": template.name,
         "description": template.description or "",
         "platform": (template.platforms or ["instagram"])[0],
-        "format": "carousel" if str(spec.get("playbook_post_type") or "") == "carousel" else "single",
-        "slide_count": 4 if str(spec.get("playbook_post_type") or "") == "carousel" else 1,
+        "format": "carousel" if _is_carousel else "single",
+        "slide_count": 4 if _is_carousel else 1,
         "visual_type": spec.get("visual_type") or "illustration",
         "visual_archetype": spec.get("visual_archetype") or "flat_edu",
         "visual_direction": spec["visual_direction"],

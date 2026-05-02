@@ -10,17 +10,86 @@ from collections import deque
 import httpx
 from app.core.config import settings
 from app.services.ai_cost_service import cache_get, cache_set, telemetry_record, CallTelemetry, estimate_cost_usd
-from app.services.visual_tokens import poster_lockup_mode_enabled
 
 logger = logging.getLogger(__name__)
 
 # Bump this whenever image prompt logic or design system changes significantly.
 # It is included in the cache key so existing cached image URLs are invalidated
 # automatically on deploy without needing to flush any external store.
-_IMAGE_PROMPT_VERSION = "v6"
+_IMAGE_PROMPT_VERSION = "v7"
+
+# ── Brand-driven design prompt ───────────────────────────────────────────────
+# The brand kit is the only design system. We pass the brand's identity data
+# (name, industry, target audience, tone, colours, typography, photography
+# style, logo, words to avoid) and the post's copy (topic, headline, body,
+# CTA, hashtags), and ask the AI to design a social-media post that uses that
+# brand identity as the design language. No hardcoded design styles, no
+# layout variant rotations, no canned creative-direction references — just
+# the brand's own guidelines + the post copy.
+
+
+# Permanent app-badge / store-badge ban. Regardless of brand setting, the AI
+# is forbidden from drawing App Store / Google Play / Play Store badges, "Get
+# it on" pills, download buttons, or any iOS/Android trademark. Real assets
+# are composited later, never AI-rendered.
+_PERMANENT_APP_BADGE_BAN = (
+    "PERMANENT BAN — never include App Store badges, Google Play badges, "
+    "Play Store badges, \"Available on the App Store\" pills, \"Get it on Google Play\" "
+    "pills, Apple or Google trademark wordmarks, download buttons, install pills, "
+    "or any iOS/Android storefront install graphic. The AI must NEVER draw these. "
+    "If the post is genuinely about app installation, the user composites real "
+    "trademark-licensed badge assets afterwards — your job here is to leave the "
+    "composition clean. "
+)
 
 IMAGES_API_URL      = "https://api.openai.com/v1/images/generations"
 IMAGES_EDIT_API_URL = "https://api.openai.com/v1/images/edits"
+
+
+class OpenAICapacityError(Exception):
+    """OpenAI returned a transient capacity / billing / outage error.
+
+    Raised by the image-generation paths when the underlying HTTP call
+    fails with a status that the user (not the system) can resolve:
+    quota exhaustion, billing problems, rate limiting, or upstream
+    outages. The caller in api/content uses this to surface a specific
+    "ChatGPT is busy — try again later" failure instead of the generic
+    "generation failed" message.
+    """
+    def __init__(self, code: str, message: str, status_code: int | None = None):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
+
+def _classify_openai_capacity_error(exc: Exception) -> OpenAICapacityError | None:
+    """Return an OpenAICapacityError if `exc` describes a capacity/billing/outage condition.
+
+    Detects:
+      - 429 Too Many Requests (rate limit)
+      - 402 Payment Required (billing) / `insufficient_quota` body
+      - 503 / 502 / 504 (upstream outage)
+      - httpx.ConnectError / ReadTimeout (network down)
+    Anything else returns None — the caller should treat it as a normal
+    failure and let the existing telemetry path handle it.
+    """
+    status_code: int | None = None
+    body_text = ""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status_code = exc.response.status_code
+        try:
+            body_text = exc.response.text or ""
+        except Exception:
+            body_text = ""
+    if status_code == 429:
+        return OpenAICapacityError("openai_busy", "ChatGPT is rate-limited right now.", status_code)
+    if status_code == 402 or "insufficient_quota" in body_text.lower():
+        return OpenAICapacityError("openai_billing", "ChatGPT account is over quota or unfunded.", status_code)
+    if status_code in (502, 503, 504):
+        return OpenAICapacityError("openai_outage", "ChatGPT is having an outage right now.", status_code)
+    if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout)):
+        return OpenAICapacityError("openai_outage", "Couldn't reach ChatGPT — network or upstream issue.", None)
+    return None
 
 PLATFORM_FORMAT = {
     "instagram": "square Instagram post 1:1 (1080×1080)",
@@ -199,6 +268,157 @@ def _human_casting_note(brand: dict) -> str:
     )
 
 
+async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
+    """PRD §3 pipeline: Brand Kit + User Input → Strategist → Prompt Builder → text prompt.
+
+    Internal canonical input assembly (PRD §6.1):
+        user_prompt = post.image_prompt OR content_idea OR topic OR description
+        platform    = post.platform
+        format      = post.format
+        brand_kit   = brand
+    The Strategist receives this canonical shape regardless of which
+    upstream code path constructed the post (month-generation, prep-execute,
+    /generate-content endpoint, regenerate-visual). PRD §6.1 satisfied
+    internally — different upstream callers all converge here.
+
+    Cache key (PRD §13.a / §13.b):
+        (brand_id, post.id, user_prompt[:300], platform, format,
+         variation_axis, qg_retry_count, regenerate_token)
+    - Re-renders of the SAME post always hit cache (cheap retry / preview).
+    - Different posts on the calendar always miss (variation engine ensures
+      they get different directions; PRD §10).
+    - Quality-gate retries advance variation_axis + qg_retry_count, naturally
+      busting the cache so the next attempt gets a fresh direction (PRD §12.c).
+
+    Falls back to the legacy template prompt if the strategist call
+    fails entirely (PRD §12: missing BK → minimal fallback).
+    """
+    from app.services.strategist_service import call_strategist, pick_variation_axis
+    from app.services.prompt_builder_service import build_image_prompt as build_prompt_from_strategy
+
+    user_prompt = (
+        str(post.get("image_prompt") or "").strip()
+        or str(post.get("content_idea") or "").strip()
+        or str(post.get("topic") or "").strip()
+        or str(post.get("description") or "").strip()
+    )
+    platform = str(post.get("platform") or "instagram").lower()
+    fmt = str(post.get("format") or "single").lower()
+    brand_id = str(brand.get("id") or "")
+    post_id = str(post.get("id") or post.get("topic") or "default")
+
+    # PRD §12.c: on a quality-gate retry, advance the variation axis so
+    # the next attempt explicitly varies on a different dimension.
+    qg_retry_count = int(post.get("quality_gate_retry") or 0) if str(post.get("quality_gate_retry") or "").isdigit() else 0
+    variation_axis = pick_variation_axis(brand_id, post_id, retry=qg_retry_count)
+
+    # ── Two-layer strategist cache ────────────────────────────────────────
+    # PRD §13.a — per-post cache: re-renders of the SAME post always reuse
+    # the same direction (cheap retry / preview).
+    # PRD §13.b — cross-post prompt-similarity cache: two posts with the
+    # same brand + similar user_prompt + same platform/format/axis can
+    # share strategy across the calendar within a short TTL. Saves money
+    # and reduces variance in user-pasted prompts. Per-post key is checked
+    # first (full fidelity for retries); prompt key is fallback.
+    strategy_cache_key = hashlib.sha256(
+        (
+            f"strategy|{brand_id}|{post_id}|{platform}|{fmt}|"
+            f"{user_prompt[:300]}|{variation_axis}|qg{qg_retry_count}|"
+            f"{post.get('regenerate_token', '')}"
+        ).encode("utf-8")
+    ).hexdigest()
+    prompt_similarity_key = hashlib.sha256(
+        (
+            f"prompt_sim|{brand_id}|{platform}|{fmt}|{variation_axis}|"
+            f"{user_prompt[:200].strip().lower()}"
+        ).encode("utf-8")
+    ).hexdigest()
+
+    strategy = cache_get("strategist_output", strategy_cache_key)
+    if not isinstance(strategy, dict) or not strategy.get("scene"):
+        # Only consult prompt-similarity cache when there's NO retry pressure
+        # (qg_retry_count == 0). Retries explicitly want a fresh direction.
+        if qg_retry_count == 0:
+            similar = cache_get("strategist_prompt_sim", prompt_similarity_key)
+            if isinstance(similar, dict) and similar.get("scene"):
+                strategy = similar
+
+    if not isinstance(strategy, dict) or not strategy.get("scene"):
+        try:
+            strategy = await call_strategist(
+                brand_kit=brand,
+                user_prompt=user_prompt,
+                platform=platform,
+                format=fmt,
+                variation_axis=variation_axis,
+                visual_theme=str(post.get("visual_theme") or "").strip().lower() or None,
+                holiday_name=str(post.get("holiday_name") or "").strip() or None,
+            )
+        except Exception as e:
+            logger.warning("Strategist call failed (%s); falling back to legacy prompt builder", e)
+            return _build_image_prompt(post, brand)
+        if isinstance(strategy, dict) and strategy.get("scene"):
+            cache_set("strategist_output", strategy_cache_key, strategy, ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
+            # Cross-post prompt-similarity cache uses a SHORTER TTL — we
+            # want similar requests within the same session to share work,
+            # but we don't want every brand to ship the identical strategy
+            # forever for the same prompt.
+            cache_set("strategist_prompt_sim", prompt_similarity_key, strategy, ttl_sec=3600)
+
+    try:
+        prompt_text = build_prompt_from_strategy(
+            strategy=strategy,
+            brand_kit=brand,
+            platform=platform,
+        )
+    except Exception as e:
+        logger.warning("Prompt builder failed (%s); falling back to legacy prompt", e)
+        return _build_image_prompt(post, brand)
+
+    # Telemetry: record this generation's strategy + alignment signal (PRD §14).
+    try:
+        from app.services.success_metrics_service import (
+            record_image_generation,
+            record_strategy_similarity_fire_and_forget,
+        )
+        record_image_generation(
+            brand_id=brand_id,
+            post_id=post_id,
+            platform=platform,
+            format=fmt,
+            variation_axis=variation_axis,
+            strategy=strategy,
+            prompt=prompt_text,
+            image_url=None,  # url not known at prompt-build time
+            brand_kit=brand,
+        )
+        # PRD §14.c — fire the similarity score in background; we don't want
+        # to add embedding latency to every render's hot path.
+        record_strategy_similarity_fire_and_forget(
+            brand_id=brand_id,
+            post_id=post_id,
+            strategy=strategy,
+        )
+    except Exception:
+        pass
+
+    # Phase A — expose the structured strategy on the post dict so callers
+    # (api/content._render_with_quality_gate) can persist it onto
+    # ContentItem.theme.cc_meta.strategy. The frontend layout engine reads
+    # post_type / layout / components / use_product_image from there.
+    try:
+        if isinstance(strategy, dict):
+            post["strategist_output"] = strategy
+            post["post_type"] = str(strategy.get("post_type") or "").strip().lower() or post.get("post_type")
+            post["layout_family"] = str(strategy.get("layout") or "").strip().lower() or post.get("layout_family")
+            post["component_pack"] = list(strategy.get("components") or [])
+            post["use_product_image"] = bool(strategy.get("use_product_image"))
+    except Exception:
+        pass
+
+    return prompt_text
+
+
 def _build_image_prompt(post: dict, brand: dict) -> str:
     """
     Build a campaign-ready visual prompt for DALL-E.
@@ -242,6 +462,7 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     # negative-prompt bundle even when the brand's free-form label drifts.
     from app.services import visual_strategy as _vs
     _strategy_obj = _vs.VisualStrategy.from_dict(post.get("visual_strategy") if isinstance(post.get("visual_strategy"), dict) else None)
+    _strategy_obj = _vs.align_with_archetype(_strategy_obj, ab)
     _ct_for_strategy = content_type_slot or content_type
     strategy_block = _vs.render_strategy_constraints(_strategy_obj, _ct_for_strategy) if _strategy_obj else ""
     # Content-type art direction (slot key wins over the free-form label).
@@ -404,21 +625,23 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         or ""
     ).strip()
     website_source_note = f"Website source context: {website_source_url}." if website_source_url else ""
-    # Text-only image APIs cannot receive the real logo file; asking for "the logo" makes models hallucinate marks.
-    # The true logo is composited in post via burn_logo_into_image_url — only reserve calm space here.
-    zone_words = logo_safe_zone.replace("_", " ")
-    if has_brand_logo(brand):
-        logo_note = (
-            f"Do not draw any logo, wordmark, trademark, favicon, or watermarks for {brand_name} or any other brand. "
-            f"Keep the {zone_words} corner visually calmer (open negative space, simpler background) so the real brand mark "
-            "can be added in post-production only. Never invent a fake logo or stylised brand symbol. "
-            "Generic interface glyphs, arrows, chips, feature icons, and abstract badges are allowed when the campaign layout needs them."
-        )
-    else:
-        logo_note = (
-            "Do not draw logos, wordmarks, trademarks, or watermarks; leave corners uncluttered. "
-            "Generic interface glyphs, arrows, chips, feature icons, and abstract badges are allowed when the campaign layout needs them."
-        )
+    # NO brand identity in the rendered design. The AI is forbidden from
+    # rendering the brand name, brand logo, brand wordmark, brand monogram,
+    # tagline, website URL, or any brand-identification element. The user
+    # composites their real logo afterwards (or doesn't — the design speaks
+    # for itself through brand colours and typography). Removes a whole
+    # category of "fake AI wordmark" failures.
+    logo_note = (
+        f"BRAND IDENTITY POLICY: do NOT render the brand name \"{brand_name}\", any "
+        "wordmark, monogram, brand-mark glyph, fake corporate logo, made-up trademark "
+        "symbol, tagline, slogan, website URL, social handle, or any other brand-"
+        "identification text in the design. The brand identity is communicated through "
+        "the brand's colour palette and typographic style only — never as a written "
+        "name or stamped logo. Leave any corner that would have held a logo cleanly "
+        "empty (the user composites their real logo afterwards if they want one). "
+        "If you draw a fake brand name or wordmark, that is a render failure."
+    )
+
     brand_photos = brand.get("brand_photos") or []
     brand_photo_note = ""
     if isinstance(brand_photos, list) and brand_photos:
@@ -604,52 +827,73 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             "and modern geometric brand accents. Keep compositions premium, clean, and ad-grade."
         )
 
-    # Hard negative constraints — appended to every prompt regardless of input
-    _no_fake_logo = "No company logos, wordmarks, trademark symbols, invented brand marks, or watermarks. "
-    if vt == "abstract":
-        negative = (
-            _no_fake_logo
-            + "No text, no words, no letters, no watermarks, "
-            "no human figures, no faces, no hands as subject, no typography, no captions, "
-            "no stock office crowds, no illustrated characters. "
-            "Abstract colour, light, texture, pattern, or materials only."
-        )
-    elif vt == "product":
-        negative = (
-            _no_fake_logo
-            + "No text, no words, no letters, no watermarks, "
-            "no readable packaging claims, no subtitles, no typography, no captions, "
-            "no cartoon, no illustration, no CGI toy look. "
-            "Photoreal product, food, ingredients, or objects only; if hands appear they are secondary to the product."
-        )
-    elif vt == "illustration":
-        negative = (
-            _no_fake_logo
-            + "No text, no words, no letters, no watermarks, "
-            "no photorealistic humans, no synthetic photo faces, no stock portrait photography, "
-            "no 3D renders pretending to be photos, no typography, no captions, "
-            "no childish clip-art, no meme aesthetics. "
-            "Use cohesive premium illustration, flat brand graphics, or tasteful vector-adjacent art only."
-        )
-    else:
-        negative = (
-            _no_fake_logo
-            + "No text, no words, no letters, no watermarks, "
-            "no overlays, no graphic design elements, no illustration, no 3D render, "
-            "no CGI, no cartoon, no anime, no vector art, no stylised characters, no claymation, "
-            "no synthetic faces, no typography, no captions, "
-            "no unrealistic lighting, "
-            "no floating objects. "
-            "Do not default to random smiling models; only include people when the scene truly needs them, "
-            "and then they must be photoreal documentary or advertising photography, never illustrated or toy-like."
-        )
-    if not allow_structured_graphics:
-        negative += " No UI elements, no badges, no icons, no borders, no frames, no cards, no dashboard mockups, no interface panels."
-    else:
-        negative += " Structured graphic modules are allowed, but keep them premium, minimal, and non-textual."
+    # Hard negative constraints — appended to every prompt regardless of input.
+    # The brand's OWN wordmark IS allowed (the logo_note above covers that).
+    # Otherwise we forbid (a) other brands' logos and trademark marks, (b) the
+    # generic "AI photograph" defaults that shipped before — stock-smiling
+    # people, gradient blobs, fake corporate stock, AI-uncanny faces.
+    negative = (
+        "No invented or third-party company logos, no fake trademark symbols, no watermarks. "
+        "Do not default to a generic photograph of a smiling stock person — this is a "
+        "designed poster, not a photo. If people appear, they should support the design as "
+        "an editorial element, not be the whole canvas. "
+        "No AI-uncanny faces, no plastic skin, no malformed hands, no synthetic doll-like "
+        "eyes, no over-rendered beauty-filter look. "
+        "No random sparkles, swooshes, gradient blobs, or decorative noise filling space. "
+        "Avoid generic Canva-template energy: centred-stack-on-pastel-blob, smiling stock "
+        "person with phone, big rainbow gradient backdrop. "
+    )
     extra_never = ab.get("negative_motifs") or []
     if extra_never:
         negative += " Avoid specifically: " + "; ".join(str(x) for x in extra_never[:10] if x) + "."
+
+    # ── AI-only renderer ─────────────────────────────────────────────────────
+    # Bannerbear was removed — the AI is the only renderer in the pipeline
+    # and it MUST draw the headline and CTA itself. Strip the no-text
+    # negatives that would otherwise prevent that, and append a positive
+    # typography directive with the exact strings to render.
+    if True:
+        for phrase in (
+            "No text, no words, no letters, no watermarks, ",
+            "no typography, no captions, ",
+            "no typography, no captions,",
+            " still no readable text in-image.",
+        ):
+            negative = negative.replace(phrase, "")
+        ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+        headline = (
+            str(ma.get("hook") or post.get("topic") or content_idea or "").strip()
+            if not ai_image_prompt
+            else str(post.get("topic") or content_idea or "").strip()
+        )
+        cta_text = str(post.get("cta") or "").strip()
+        type_directive_bits = [
+            "TYPOGRAPHY MANDATE (you are the ONLY text renderer in the pipeline; this is critical):",
+            (
+                "Render every letter sharp, fully formed, kerned, anti-aliased, and unambiguously readable as English alphabet. "
+                "Each character must be a real Latin glyph — never a partial, doubled, mirrored, or alien shape. "
+                "Words must be spelled exactly as given; do not extend, abbreviate, or duplicate them. "
+                "If you cannot render a word legibly at the planned size, choose a larger size and shorter line, never garbled letters."
+            ),
+        ]
+        if headline:
+            type_directive_bits.append(
+                f"Headline (render VERBATIM — exact spelling, exact word order, no additions): \"{headline[:120]}\". "
+                "Lay it out on at most two lines, dominant hierarchy, generous breathing room around it."
+            )
+        if cta_text:
+            type_directive_bits.append(
+                f"CTA pill / button (render VERBATIM): \"{cta_text[:60]}\". "
+                "Smaller than the headline, high contrast against its background, rounded-rectangle pill or rectangular chip — one element only."
+            )
+        type_directive_bits.append(
+            "Use a single clean modern geometric sans-serif (think Inter / Söhne / Aktiv Grotesk feel) for both headline and CTA. "
+            "Keep all text inside an 8–10% safe margin from every canvas edge — never clip letterforms at the edge. "
+            "Do NOT invent additional sentences, taglines, prices, percentages, hashtags, URLs, or social handles beyond what is given here. "
+            "Do NOT render placeholder lorem-ipsum, fake logo wordmarks, or repeated decorative letter strings. "
+            "If anything beyond the strings above appears as text, that is a render failure."
+        )
+        negative = " ".join(type_directive_bits) + " " + negative
     ref_urls = (brand.get("visual_system") or {}).get("reference_urls") or []
     if ref_urls and (brand.get("visual_system") or {}).get("reference_rights_attested"):
         negative += (
@@ -693,82 +937,45 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         cleaned = re.sub(r"\s+", " ", cleaned).strip()
         return cleaned
 
+    # Brand-driven design prompt. The brand kit (above, via brand_context_block,
+    # logo_note, etc.) IS the design system. We just ask the AI to design a
+    # social-media post — typography, brand colours, structured composition —
+    # using that brand identity as the language.
     if ai_image_prompt and len(ai_image_prompt) > 50:
         ai_image_prompt = _strip_logo_instructions(ai_image_prompt)
-        # AI-generated prompt is primary; append brand enforcement and negatives
-        if vt == "abstract":
-            style_close = "Premium abstract campaign art; colour and material-led, zero people."
-            cam_line = "Execution: large calm areas and intentional texture; avoid busy detail in every corner."
-        elif vt == "product":
-            style_close = "Photoreal product and still-life campaign; tactile and credible."
-            cam_line = "Camera: macro or 50–100mm product photography, controlled studio or natural light, sharp hero subject."
-        elif vt == "illustration":
-            style_close = "Premium illustrated brand key visual; cohesive shapes and colour, never stock photo."
-            cam_line = "Illustration execution: crisp edges, intentional colour blocking, print-quality vector-adjacent finish."
-        else:
-            style_close = "Photoreal editorial photograph; topic-led subjects (people, product, place, or detail), never generic illustration."
-            cam_line = (
-                "Camera: Canon EOS R5, 35–85mm, shallow or medium depth of field; subject chosen to match the post idea. "
-                "If people are present, cast 1–3 believable people with natural skin texture, realistic hands, true facial anatomy, "
-                "documentary energy, and no synthetic gloss."
-            )
         prompt = (
-            f"{ai_image_prompt}\n\n"
-            f"Brand context: {brand_name} ({industry}). "
-            f"Color palette: {color_str}. Tone: {tone_str}. "
-            f"{audience_note} {cultural_note} {casting_note} {motif_note} {msg_note} "
-            f"{product_grounding_note} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} {structured_module_note}\n"
-            f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
-            f"{cam_line} "
-            f"{lighting}. {format_note} "
-            f"{style_close} "
+            f"Design a social-media post for {brand_name} ({industry}). "
+            f"This is a designed POSTER / BRANDED GRAPHIC — typography on brand colours, "
+            f"structured composition, in-house brand-design quality. NOT a generic photograph. "
+            f"Use the brand's identity below as the design language.\n\n"
+            f"Brand context: {brand_name} — {industry}. "
+            f"Brand colours (use as palette, do not invent new ones): {color_str}. "
+            f"Brand tone: {tone_str}. "
+            f"{audience_note} {cultural_note} {motif_note} {msg_note} "
+            f"{product_grounding_note} {website_source_note} {brand_photo_note} {logo_note} {carousel_richness_note} {structured_module_note}\n\n"
+            f"Post brief: {ai_image_prompt}\n"
+            f"Platform: {platform_note}. "
             f"{negative}"
         )
         if qg_notes:
             prompt += f"\nQuality gate correction: {qg_notes}"
         if qg_retry > 0:
-            prompt += " Retry mode: cleaner composition, fewer objects, stronger focal hierarchy, campaign-grade realism."
+            prompt += " Retry mode: cleaner composition, stronger focal hierarchy, more on-brand."
     else:
-        if vt == "abstract":
-            opener = f"Premium abstract visual for {brand_name}, a {industry} brand."
-            cam_block = "Execution: colour fields, light gradients, material macro, or geometric rhythm; no people."
-            style_close = "Museum-quality abstract still, not stock photo of humans."
-        elif vt == "product":
-            opener = f"Photoreal product-led photograph for {brand_name}, a {industry} brand."
-            cam_block = (
-                "Camera: product or lifestyle product shot, controlled lighting, tactile surfaces, believable context props. "
-                "Hero is the product or offer, not a random person."
-            )
-            style_close = "High-end commercial still life or lifestyle product photography."
-        elif vt == "illustration":
-            opener = f"Premium brand illustration for {brand_name}, a {industry} brand."
-            cam_block = "Execution: cohesive illustrated scene with intentional colour hierarchy and modern brand-graphic polish."
-            style_close = "High-end illustrated campaign key visual; not stock photography."
-        else:
-            opener = f"Photorealistic editorial photograph for {brand_name}, a {industry} brand."
-            cam_block = (
-                "Camera: Canon EOS R5, 35–85mm lens, depth of field chosen for the subject (product, place, detail, or people). "
-                "Environment and talent must match the post idea; avoid default anonymous office crowds. "
-                "If people appear: authentic local casting, natural wardrobe styling, realistic hands, realistic skin microtexture, "
-                "true facial proportions, and candid body language."
-            )
-            style_close = ""
         prompt = (
-            f"{opener} "
-            f"Scene naturally relates to: {content_idea}. "
+            f"Design a social-media post for {brand_name}, a {industry} brand. "
+            f"This is a designed POSTER / BRANDED GRAPHIC — typography on brand colours, "
+            f"structured composition, in-house brand-design quality. NOT a generic photograph. "
+            f"Use the brand's identity below as the design language.\n\n"
+            f"Brand context: {brand_name} — {industry}. "
+            f"Brand colours (use as palette, do not invent new ones): {color_str}. "
+            f"Brand tone: {tone_str}. "
+            f"{audience_note} {cultural_note} {motif_note} {imagery_note} {msg_note} "
+            f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {logo_note} {carousel_richness_note} {structured_module_note}\n\n"
+            f"Post topic: {content_idea}. "
             f"{f'Post goal: {description} ' if description else ''}"
-            f"{f'Visual direction: {visual_direction} ' if visual_direction else ''}"
-            f"Mood: {tone_str}. Color palette: {color_str}. "
-            f"{audience_note} {cultural_note} {casting_note} {motif_note} {imagery_note} {msg_note} "
-            f"{product_grounding_note} {food_specific_guardrail} {website_source_note} {brand_photo_note} {industry_art_direction} {logo_note} {carousel_richness_note} {structured_module_note} "
-            f"{f'Content-type art direction — {content_type}: {_ct_design} ' if _ct_design else ''}"
-            "Creative standard: emulate high-performing social campaign craft with clear module hierarchy (headline/offer/proof/cta), "
-            "bold but disciplined color blocking, and storytelling props that support the claim. "
-            "Illustration or graphic accents must reinforce the message narrative, never act as random decoration. "
+            f"{f'Visual direction (treat as suggestion, not constraint): {visual_direction} ' if visual_direction else ''}"
             f"{f'Strategy context: {strategy_note} ' if strategy_note else ''}"
-            f"{cam_block} "
-            f"{lighting}. {format_note} "
-            f"{style_close} "
             f"Platform: {platform_note}. "
             f"{negative}"
         )
@@ -778,7 +985,17 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
             prompt += " Retry mode: cleaner composition, fewer objects, stronger focal hierarchy, campaign-grade realism."
 
     edge_guard = (
-        " Composition guard (always): treat the full square as intentional campaign art with roughly eight to ten percent "
+        " This is a SOCIAL MEDIA POST DESIGN — a designed poster / branded graphic, "
+        "not a generic photograph. Use the brand kit (brand name, colours, typography, "
+        "tone, target audience) above as the design language. Lay out the headline, "
+        "supporting copy, and CTA as typography on the canvas — clean hierarchy, brand "
+        "colours, structured composition. Photography or illustration may appear if it "
+        "supports the message, but it is the supporting element, not the whole canvas. "
+        "Treat the canvas like an in-house brand designer would: clear focal moment, "
+        "intentional whitespace, restrained palette, designed for the brand's actual "
+        "audience. "
+        + _PERMANENT_APP_BADGE_BAN
+        + "Composition guard (always): treat the full square as intentional campaign art with roughly eight to ten percent "
         "clear breathing room between every important subject edge and the canvas border—never flush-bleed faces, food rims, "
         "or packaging to the frame line. If any people appear (including soft background talent), show complete heads with "
         "visible forehead-to-chin clearance and generous headroom; never crop through foreheads, eyes, mouths, or necks at "
@@ -796,7 +1013,45 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
     else:
         prompt = f"{prompt.strip()}{edge_guard}"
 
+    # AI is the only text renderer — strip the no-text language sprinkled
+    # throughout the strategy_block / format_note / negatives so it does not
+    # contradict the positive typography directive that requires the AI to
+    # render the headline + CTA itself.
+    prompt = _strip_no_text_phrases(prompt)
+
     return prompt.strip()
+
+
+_NO_TEXT_PHRASE_PATTERNS = [
+    # \b at the END of "text" / "words" / etc. is critical — without it the
+    # regex eats "textures" into "ures" and "wordmark" into "mark".
+    re.compile(r"\bno text\b,?\s*", re.IGNORECASE),
+    re.compile(r"\bno words\b,?\s*", re.IGNORECASE),
+    re.compile(r"\bno letters\b,?\s*", re.IGNORECASE),
+    re.compile(r"\bno typography\b,?\s*", re.IGNORECASE),
+    re.compile(r"\bno captions\b,?\s*", re.IGNORECASE),
+    re.compile(r"\bno typography in the frame\.?", re.IGNORECASE),
+    re.compile(r"\bno typography, titles, or UI in the frame\.?", re.IGNORECASE),
+    re.compile(r"\bno words or lettering in the image\.?", re.IGNORECASE),
+    re.compile(r"\bno readable text in-image\.?", re.IGNORECASE),
+    re.compile(r"\bno letters?\s+in[- ]?the[- ]?image\.?", re.IGNORECASE),
+    re.compile(r"\bno readable packaging claims,?\s*", re.IGNORECASE),
+    re.compile(r"\bno subtitles,?\s*", re.IGNORECASE),
+    re.compile(r"render NO readable text,?\s*[^.]*\.", re.IGNORECASE),
+    re.compile(r"do NOT (?:render|draw) readable [^.]*\.", re.IGNORECASE),
+    re.compile(r"the headline and CTA are composited on top by the layout layer\.?", re.IGNORECASE),
+    re.compile(r"the layout layer adds all copy\.?", re.IGNORECASE),
+]
+
+
+def _strip_no_text_phrases(text: str) -> str:
+    out = text
+    for pat in _NO_TEXT_PHRASE_PATTERNS:
+        out = pat.sub("", out)
+    out = re.sub(r"\s{2,}", " ", out)
+    out = re.sub(r"\s+,", ",", out)
+    out = re.sub(r",\s*,", ",", out)
+    return out.strip()
 
 
 def _is_svg_bytes(data: bytes, filename_hint: str = "") -> bool:
@@ -1232,7 +1487,7 @@ async def burn_logo_into_image_url(image_url: str, brand: dict, post: dict | Non
     """
     vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
     logo_url = _resolve_logo_url(brand)
-    if not image_url or not logo_url or not poster_lockup_mode_enabled(brand, "logo", post):
+    if not image_url or not logo_url:
         return None
     ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
     # Lockup consistency: prefer brand-level visual_system placement over per-post variation.
@@ -1269,8 +1524,6 @@ async def _burn_logo_with_cached_bytes(
 ) -> str | None:
     if not image_url or not logo_bytes:
         return None
-    if not poster_lockup_mode_enabled(brand, "logo", post):
-        return None
     vs = brand.get("visual_system") if isinstance(brand.get("visual_system"), dict) else {}
     ab = (post or {}).get("art_brief") if isinstance((post or {}).get("art_brief"), dict) else {}
     placement = str(vs.get("logo_placement") or ab.get("logo_placement") or "bottom_right")
@@ -1298,8 +1551,6 @@ async def finalize_rendered_urls_with_logo(urls: list[str], brand: dict, post: d
     if not urls:
         return [], True
     if not has_brand_logo(brand):
-        return urls, True
-    if not poster_lockup_mode_enabled(brand, "logo", post):
         return urls, True
     out: list[str] = []
     all_applied = True
@@ -1399,11 +1650,152 @@ async def _fetch_and_prepare_product_png(url: str) -> bytes | None:
         return None
 
 
+async def _generate_with_product_collage(
+    product_pngs: list[bytes],
+    prompt: str,
+    topic: str,
+    n: int = 1,
+    *,
+    upload_uid: str | None = None,
+) -> list[str]:
+    """Multi-product collage variant of `_generate_with_product_edits`.
+
+    Sends multiple product PNGs to gpt-image-1 /edits using the `image[]`
+    repeat-key form so the model receives every product simultaneously and
+    composes them into a single tasteful arrangement (bundle / 'complete the
+    look' / set). Falls back to [] if the API fails — the caller should then
+    retry with the single-product path or text-only generation.
+    """
+    if not product_pngs:
+        return []
+    files: list[tuple[str, tuple[str, bytes, str]]] = [
+        ("image[]", (f"product-{idx}.png", png, "image/png"))
+        for idx, png in enumerate(product_pngs[:4])  # cap at 4 to keep prompts coherent
+    ]
+    try:
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=240) as client:
+            resp = await client.post(
+                IMAGES_EDIT_API_URL,
+                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                files=files,
+                data={
+                    "model": "gpt-image-1",
+                    "prompt": prompt,
+                    "n": str(n),
+                    "size": "1024x1024",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        items = data.get("data", [])
+        urls: list[str] = []
+        for idx, item in enumerate(items):
+            if item.get("b64_json"):
+                image_bytes = base64.b64decode(item["b64_json"])
+            elif item.get("url"):
+                async with httpx.AsyncClient(timeout=30) as dl:
+                    dl_resp = await dl.get(item["url"])
+                    if dl_resp.status_code != 200:
+                        continue
+                    image_bytes = dl_resp.content
+            else:
+                continue
+            _unique = f"{idx}-{(upload_uid or uuid.uuid4().hex)[:20]}-{uuid.uuid4().hex[:8]}"
+            permanent_url = await _upload_to_cloudinary(
+                image_bytes, f"{topic}-collage", idx, public_suffix=_unique
+            )
+            if permanent_url:
+                urls.append(permanent_url)
+
+        latency = (time.perf_counter() - start) * 1000.0
+        logger.info(
+            "product-collage: %d/%d images from %d source products for '%s' (%.0f ms)",
+            len(urls), n, len(product_pngs), topic, latency,
+        )
+        telemetry_record(CallTelemetry(
+            endpoint_name="image_edit",
+            model="gpt-image-1",
+            input_tokens=max(1, len(prompt) // 4),
+            output_tokens=0,
+            estimated_cost_usd=estimate_cost_usd("gpt-image-1", max(1, len(prompt) // 4), 0),
+            latency_ms=latency,
+            cache_hit=False,
+            retries=0,
+            success=bool(urls),
+            failure_reason=None if urls else "no_urls",
+        ))
+        return urls
+    except Exception as exc:
+        capacity_err = _classify_openai_capacity_error(exc)
+        logger.error("Product collage generation failed for '%s': %s", topic, exc)
+        telemetry_record(CallTelemetry(
+            endpoint_name="image_edit",
+            model="gpt-image-1",
+            input_tokens=0,
+            output_tokens=0,
+            estimated_cost_usd=0.0,
+            latency_ms=0.0,
+            cache_hit=False,
+            retries=0,
+            success=False,
+            failure_reason=(capacity_err.code if capacity_err else str(exc)[:200]),
+        ))
+        if capacity_err is not None:
+            raise capacity_err from exc
+        return []
+
+
+def _build_product_collage_prompt(
+    base_edit_prompt: str,
+    product_titles: list[str] | None,
+    visual_theme: str | None,
+    is_bundle: bool,
+    tone_str: str,
+) -> str:
+    """Wrap a single-product edit prompt with multi-product composition rules.
+
+    Keeps the underlying brand / tone / scene instructions intact and prepends
+    a clear directive: arrange every supplied product image into one frame.
+    """
+    titles = [t for t in (product_titles or []) if isinstance(t, str) and t.strip()]
+    titles_clause = (
+        "Featured products in this composition: " + ", ".join(titles[:4]) + "."
+        if titles else
+        "Featured products in this composition: every product image attached must appear."
+    )
+    bundle_clause = (
+        "This is a BUNDLE / SET post: arrange all products together as one offer "
+        "(stacked, grouped, or paired) so the viewer reads them as one purchase, not separate posts."
+        if is_bundle else
+        "Compose all products into a single tasteful arrangement (collage / set / 'complete the look') "
+        "with consistent lighting and brand-aware styling — no jarring scale jumps, no floating cutouts."
+    )
+    theme_hint = ""
+    if visual_theme == "flatlay":
+        theme_hint = "Use a top-down flatlay composition with breathing space and clean spacing between items."
+    elif visual_theme == "lifestyle":
+        theme_hint = "Place the products in a real-world lifestyle context (table, hands, environment) so the bundle feels lived-in."
+    elif visual_theme == "editorial":
+        theme_hint = "Treat the arrangement as a magazine still-life: directional light, intentional shadows, considered composition."
+    return (
+        f"MULTI-PRODUCT COMPOSITION DIRECTIVE\n"
+        f"{titles_clause}\n"
+        f"{bundle_clause}\n"
+        f"{theme_hint}\n"
+        f"Brand tone: {tone_str}.\n\n"
+        f"Underlying scene + design instructions follow:\n{base_edit_prompt}"
+    ).strip()
+
+
 async def _generate_with_product_edits(
     product_png: bytes,
     prompt: str,
     topic: str,
     n: int = 1,
+    *,
+    upload_uid: str | None = None,
 ) -> list[str]:
     """
     Call gpt-image-1 /edits endpoint with an actual product PNG and a
@@ -1444,7 +1836,10 @@ async def _generate_with_product_edits(
             else:
                 continue
 
-            permanent_url = await _upload_to_cloudinary(image_bytes, f"{topic}-edit", idx)
+            _edit_unique = f"{idx}-{(upload_uid or uuid.uuid4().hex)[:20]}-{uuid.uuid4().hex[:8]}"
+            permanent_url = await _upload_to_cloudinary(
+                image_bytes, f"{topic}-edit", idx, public_suffix=_edit_unique
+            )
             if permanent_url:
                 urls.append(permanent_url)
 
@@ -1468,6 +1863,7 @@ async def _generate_with_product_edits(
         return urls
 
     except Exception as exc:
+        capacity_err = _classify_openai_capacity_error(exc)
         logger.error("Product edits generation failed for '%s': %s", topic, exc)
         telemetry_record(CallTelemetry(
             endpoint_name="image_edit",
@@ -1479,24 +1875,334 @@ async def _generate_with_product_edits(
             cache_hit=False,
             retries=0,
             success=False,
-            failure_reason=str(exc)[:200],
+            failure_reason=(capacity_err.code if capacity_err else str(exc)[:200]),
         ))
+        if capacity_err is not None:
+            raise capacity_err from exc
         return []
+
+
+def _post_for_slide(base_post: dict, slide: dict, slide_number: int, total: int) -> dict:
+    """Clone the post dict with slide-specific overrides so _build_image_prompt
+    produces a prompt focused on a single slide of the carousel.
+
+    Critically, this includes a CAROUSEL SYSTEM LOCK header that ties every
+    slide to a shared visual system (palette, typography, spacing, logo
+    placement, geometric vocabulary) so the deck reads as one campaign, not
+    five disconnected posters.
+    """
+    out = dict(base_post)
+    headline = str(slide.get("headline") or "").strip()
+    support = str(slide.get("support") or "").strip()
+    image_brief = str(slide.get("image_brief") or "").strip()
+    role = str(slide.get("role") or "").strip()
+
+    # Override message_architecture so the TYPOGRAPHY MANDATE block injects
+    # this slide's headline + support, not the post-level cover text.
+    base_ma = dict(base_post.get("message_architecture") or {})
+    if headline:
+        base_ma["hook"] = headline[:120]
+    if support:
+        base_ma["support"] = support[:240]
+    out["message_architecture"] = base_ma
+
+    # Topic / content_idea drive the visual prompt body. Override so each
+    # slide's image_brief is what the model sees, not the cover idea repeated.
+    if image_brief:
+        out["topic"] = (headline[:80] or out.get("topic") or "")
+        out["content_idea"] = headline[:80] or out.get("content_idea") or ""
+
+        carousel_system_lock = (
+            f"CAROUSEL SYSTEM LOCK — this is slide {slide_number} of {total} in ONE "
+            "campaign. Every slide in this deck shares the SAME visual system: same "
+            "colour palette ratios, same typeface, same headline weight and tracking, "
+            "same logo lockup position, same edge margins, same minimal geometric "
+            "vocabulary. This slide must look like the same designer made all the "
+            "other slides — never introduce a new colour, a new font, a new shape "
+            "language, or a new compositional grid that the rest of the deck wouldn't "
+            "use. Variation between slides comes from the photography or hero subject, "
+            "not from the design system. "
+            f"Slide role: {role or 'narrative beat'}. "
+            f"Visual brief for THIS slide only (a distinct scene from the other slides): "
+            f"{image_brief}"
+        )
+        out["image_prompt"] = carousel_system_lock
+
+    # Force the cache key to differ per slide so each call gets its own image
+    # rather than colliding on the cover-prompt hash.
+    out["_slide_index"] = slide_number
+    return out
+
+
+async def _render_one_image(
+    *, prompt: str, model: str, topic: str, slide_idx: int, brand_id: str, post_id: str,
+) -> str | None:
+    """Issue ONE image-generation request and return the Cloudinary URL.
+
+    Used by the carousel per-slide loop. Caches per-slide so re-tries of the
+    same slide reuse the previous render.
+    """
+    cache_key = hashlib.sha256(
+        (
+            f"{_IMAGE_PROMPT_VERSION}|slide|{model}|{prompt}|"
+            f"{brand_id}|{post_id}|{slide_idx}"
+        ).encode("utf-8")
+    ).hexdigest()
+    cached = cache_get("openai_image", cache_key)
+    if isinstance(cached, list) and cached:
+        return str(cached[0])
+
+    try:
+        async with httpx.AsyncClient(timeout=120) as client:
+            payload: dict = {
+                "model": model,
+                "prompt": prompt,
+                "n": 1,
+                "size": "1024x1024",
+            }
+            if model == "gpt-image-1":
+                payload["quality"] = "high"
+            else:
+                payload["quality"] = "hd"
+                payload["response_format"] = "url"
+            resp = await client.post(
+                IMAGES_API_URL,
+                headers={
+                    "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+            resp.raise_for_status()
+            items = resp.json().get("data", [])
+            if not items:
+                return None
+            item = items[0]
+            if "b64_json" in item and item["b64_json"]:
+                image_bytes = base64.b64decode(item["b64_json"])
+            elif "url" in item and item["url"]:
+                img_resp = await client.get(item["url"])
+                if img_resp.status_code != 200:
+                    return None
+                image_bytes = img_resp.content
+            else:
+                return None
+            # Unique per-(post, slide) suffix so Cloudinary cannot return a
+            # previously-uploaded slide from a different post that happened to
+            # share the same topic + slide_idx.
+            _post_id_for_upload = str(post_id or "").replace("-", "")[:12]
+            _brand_id_for_upload = str(brand_id or "").replace("-", "")[:8]
+            _slide_unique = f"{slide_idx}-{_post_id_for_upload}-{_brand_id_for_upload}-{uuid.uuid4().hex[:8]}"
+            permanent_url = await _upload_to_cloudinary(
+                image_bytes, f"{topic}-slide{slide_idx}", slide_idx, public_suffix=_slide_unique
+            )
+            if permanent_url:
+                cache_set("openai_image", cache_key, [permanent_url], ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
+            return permanent_url
+    except Exception as e:
+        capacity_err = _classify_openai_capacity_error(e)
+        if capacity_err is not None:
+            logger.warning(
+                "Carousel slide %d render hit OpenAI capacity (%s) for '%s': %s",
+                slide_idx, capacity_err.code, topic, e,
+            )
+            raise capacity_err from e
+        logger.warning("Carousel slide %d render failed for '%s': %s", slide_idx, topic, e)
+        return None
+
+
+async def _generate_carousel_frames(
+    *, post: dict, brand: dict, blueprint: list[dict], model: str, topic: str,
+) -> list[str]:
+    """Render N distinct frames in parallel — one per slide_blueprint entry.
+
+    Each frame uses a slide-specific prompt built from the per-slide
+    headline / support / image_brief. asyncio.gather runs them concurrently
+    so the user does not wait N×latency.
+    """
+    import asyncio as _asyncio
+    total = len(blueprint)
+
+    async def _one(slide_idx: int, slide: dict) -> str | None:
+        slide_post = _post_for_slide(post, slide, slide_idx + 1, total)
+        slide_prompt = await _build_brand_aware_prompt(slide_post, brand)
+        return await _render_one_image(
+            prompt=slide_prompt,
+            model=model,
+            topic=topic,
+            slide_idx=slide_idx + 1,
+            brand_id=str(brand.get("id") or ""),
+            post_id=str(post.get("id") or ""),
+        )
+
+    results = await _asyncio.gather(*[_one(i, s) for i, s in enumerate(blueprint)])
+    urls = [u for u in results if u]
+    logger.info(
+        "Carousel: rendered %d/%d slides for '%s' via per-slide path",
+        len(urls), total, topic,
+    )
+    return urls
+
+
+def _select_background_mode(post: dict, post_index: int, has_product: bool) -> str:
+    """Pick a background mode for this post so the calendar isn't seven
+    near-identical product hero shots.
+
+    Modes:
+      - "product_hero"   — current product-edit path (requires has_product)
+      - "color_block"    — locally-rendered flat brand-colour panel
+      - "gradient_panel" — locally-rendered brand colour gradient
+
+    Selection biases by content_type:
+      - promotional / launch / sale / bundle → product_hero (need to see it)
+      - quote / inspiration / affirmation     → color_block + gradient
+      - seasonal / holiday / moment           → gradient + color_block
+      - community / engagement / story        → mix of all three
+      - everything else                       → rotate evenly
+
+    Honours an explicit `cc_meta.use_product_image: true` from the
+    strategist as a force toward product_hero (when product_image_urls
+    are available); a strategist-confirmed product post should always
+    show the product.
+    """
+    content_type = str(post.get("content_type") or "").lower()
+    explicit_use_product = bool(post.get("use_product_image"))
+    if explicit_use_product and has_product:
+        return "product_hero"
+    if has_product and any(
+        k in content_type
+        for k in ("promo", "launch", "offer", "sale", "upsell", "bundle", "new_product")
+    ):
+        return "product_hero"
+    if any(k in content_type for k in ("quote", "inspiration", "motivation", "affirmation")):
+        return ["color_block", "gradient_panel"][post_index % 2]
+    if any(k in content_type for k in ("seasonal", "holiday", "moment")):
+        return ["gradient_panel", "color_block", "product_hero" if has_product else "color_block"][post_index % 3]
+    if any(k in content_type for k in ("community", "engagement", "user_generated", "ugc", "story")):
+        rotation = ["color_block", "gradient_panel"]
+        if has_product:
+            rotation.append("product_hero")
+        return rotation[post_index % len(rotation)]
+    rotation = ["color_block", "gradient_panel"]
+    if has_product:
+        rotation.append("product_hero")
+    return rotation[post_index % len(rotation)]
+
+
+def _render_color_block_png(brand: dict) -> bytes:
+    """1080×1080 flat brand-primary fill. Cheap, deterministic, no OpenAI call."""
+    from PIL import Image
+    colors = [c for c in (brand.get("brand_colors") or []) if isinstance(c, str) and c.strip()]
+    primary = colors[0] if colors else "#168C5A"
+    rgb = _hex_to_rgb_tuple(primary)
+    img = Image.new("RGB", (1024, 1024), rgb)
+    out = io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def _render_gradient_panel_png(brand: dict) -> bytes:
+    """1080×1080 vertical gradient between the brand's primary and a
+    contrasting secondary. Falls back to a primary→darker-primary ramp
+    when only one brand colour is set so the result still feels brand-on."""
+    from PIL import Image
+    colors = [c for c in (brand.get("brand_colors") or []) if isinstance(c, str) and c.strip()]
+    primary = colors[0] if colors else "#168C5A"
+    secondary = colors[1] if len(colors) > 1 else _shift_hex(primary, -0.45)
+    p_rgb = _hex_to_rgb_tuple(primary)
+    s_rgb = _hex_to_rgb_tuple(secondary)
+    h = 1024
+    strip = Image.new("RGB", (1, h))
+    pixels = strip.load()
+    for y in range(h):
+        t = y / max(1, h - 1)
+        pixels[0, y] = (
+            int(p_rgb[0] * (1 - t) + s_rgb[0] * t),
+            int(p_rgb[1] * (1 - t) + s_rgb[1] * t),
+            int(p_rgb[2] * (1 - t) + s_rgb[2] * t),
+        )
+    img = strip.resize((1024, 1024))
+    out = io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def _hex_to_rgb_tuple(hex_str: str) -> tuple[int, int, int]:
+    h = (hex_str or "#000000").lstrip("#")
+    if len(h) < 6:
+        h = h.ljust(6, "0")
+    try:
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except ValueError:
+        return (22, 140, 90)
+
+
+def _shift_hex(hex_str: str, amount: float) -> str:
+    """Lighten (positive amount) or darken (negative) a hex colour by 0..1."""
+    r, g, b = _hex_to_rgb_tuple(hex_str)
+    if amount >= 0:
+        r = int(r + (255 - r) * amount)
+        g = int(g + (255 - g) * amount)
+        b = int(b + (255 - b) * amount)
+    else:
+        f = 1 + amount
+        r = int(r * f)
+        g = int(g * f)
+        b = int(b * f)
+    r = max(0, min(255, r))
+    g = max(0, min(255, g))
+    b = max(0, min(255, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+async def _render_local_background(
+    *, mode: str, brand: dict, post: dict, topic: str
+) -> str | None:
+    """Render a locally-built background (color block / gradient) and
+    upload it to Cloudinary so the calendar canvas has a deterministic,
+    brand-coloured backdrop without burning an OpenAI image call.
+
+    Returns None when Cloudinary isn't configured or upload fails — the
+    caller should fall through to the next mode (currently the text-only
+    OpenAI path).
+    """
+    try:
+        if mode == "color_block":
+            png = _render_color_block_png(brand)
+            label = "color"
+        elif mode == "gradient_panel":
+            png = _render_gradient_panel_png(brand)
+            label = "gradient"
+        else:
+            return None
+        post_id_part = str(post.get("id") or "").replace("-", "")[:12]
+        brand_id_part = str(brand.get("id") or "").replace("-", "")[:8]
+        suffix = f"{label}-{post_id_part}-{brand_id_part}-{uuid.uuid4().hex[:8]}"
+        return await _upload_to_cloudinary(png, f"{topic}-{label}", 0, public_suffix=suffix)
+    except Exception as exc:
+        logger.warning("Local background render (%s) failed for '%s': %s", mode, topic, exc)
+        return None
 
 
 async def generate_post_image(post: dict, brand: dict) -> list[str]:
     """
     Generate background image(s) for a post using settings.IMAGE_MODEL.
 
-    When the post contains product_image_urls, the pipeline switches to the
-    gpt-image-1 /edits endpoint so the model SEES the actual product instead
-    of inventing a generic substitute.  The product image is cleaned (flat
-    background removed) before sending.  If the edits path fails for any
-    reason, the function falls back to the standard text-only /generations path.
+    Picks a per-post background mode (product_hero / color_block /
+    gradient_panel) so the same product photo doesn't dominate every
+    post in the month. Color block + gradient modes render locally
+    (no OpenAI call) — the brand's colours form the backdrop and the
+    layout engine paints the structured headline / CTA / badge on top.
+
+    When the strategist explicitly requests use_product_image OR the
+    post is a launch / sale / bundle, mode falls back to product_hero
+    so the product stays visible. Carousels skip mode selection entirely
+    and render frame-by-frame via the existing per-slide path.
 
     The post dict is mutated to add:
-      post["visual_strategy_used"]    — e.g. "food_hero"
-      post["composition_description"] — human-readable composition summary
+      post["visual_strategy_used"]      — e.g. "food_hero"
+      post["composition_description"]   — human-readable composition summary
+      post["background_mode_used"]      — selected background mode
 
     Returns a list of permanent Cloudinary URLs.
     Returns an empty list on failure or when OpenAI is not configured.
@@ -1515,6 +2221,14 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
     n = max(1, min(10, settings.IMAGE_COUNT))
     if settings.AI_IMAGE_VARIANT_MIN_MODE:
         n = 1
+    # AI is the only frame producer — carousel posts request one frame per slide.
+    if str(post.get("format") or "").lower() == "carousel":
+        try:
+            requested_slides = int(post.get("slide_count") or 0)
+        except (TypeError, ValueError):
+            requested_slides = 0
+        if requested_slides > 0:
+            n = max(n, min(10, requested_slides))
     model = settings.IMAGE_MODEL
 
     # ── Product-edit path ────────────────────────────────────────────────────
@@ -1523,6 +2237,37 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
         if isinstance(post.get("product_image_urls"), list)
         else []
     )
+
+    # ── Background-mode dispatch ─────────────────────────────────────────────
+    # Pick a per-post mode so the calendar isn't seven product hero shots.
+    # Carousels skip this dispatch entirely (per-slide rendering happens
+    # later in this function and needs every slide to share one visual
+    # system; mixing locally-rendered colour blocks with AI photos in a
+    # carousel would look broken).
+    is_carousel = str(post.get("format") or "").lower() == "carousel"
+    if not is_carousel:
+        bg_mode = _select_background_mode(
+            post,
+            int(post.get("_batch_index", 0)),
+            has_product=bool(product_image_urls),
+        )
+        post["background_mode_used"] = bg_mode
+        if bg_mode in ("color_block", "gradient_panel"):
+            local_url = await _render_local_background(
+                mode=bg_mode, brand=brand, post=post, topic=topic,
+            )
+            if local_url:
+                logger.info(
+                    "Background mode %s for '%s': locally rendered (no OpenAI call)",
+                    bg_mode, topic,
+                )
+                return [local_url]
+            # Local render failed (Cloudinary not configured?) — fall through
+            # to the normal AI path so the post still gets a background.
+            logger.warning(
+                "Local %s render failed for '%s'; falling back to AI generation",
+                bg_mode, topic,
+            )
 
     if product_image_urls and model == "gpt-image-1":
         # Classify product to select visual strategy
@@ -1559,7 +2304,9 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
         edit_cache_key = hashlib.sha256(
             (
                 f"{_IMAGE_PROMPT_VERSION}|edit|{n}|{edit_prompt[:500]}|"
-                f"{product_url_sig}|{brand.get('id', '')}"
+                f"{product_url_sig}|{brand.get('id', '')}|"
+                f"{post.get('id', '')}|{post.get('date', '')}|"
+                f"{post.get('regenerate_token', '')}|{post.get('quality_gate_retry', '')}"
             ).encode("utf-8")
         ).hexdigest()
         cached = cache_get("openai_image", edit_cache_key)
@@ -1567,7 +2314,54 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
             logger.info("product-edits: cache hit for '%s'", topic)
             return [str(u) for u in cached if str(u).strip()]
 
-        # Try each product URL until one prepares successfully
+        # Multi-product collage path: when the planner attached 2+ product
+        # images and the post is a bundle / promo / collage theme, fetch every
+        # product PNG up to 4 and submit them all to gpt-image-1 /edits so the
+        # model composes them into one frame instead of picking one.
+        post_visual_theme = str(post.get("visual_theme") or "").strip().lower()
+        post_content_type = str(post.get("content_type") or "").strip().lower()
+        wants_collage = (
+            len(product_image_urls) >= 2 and (
+                post_visual_theme == "collage"
+                or any(k in post_content_type for k in ("promotional", "promo", "offer", "bundle", "upsell"))
+            )
+        )
+        bundled_titles = post.get("bundled_product_titles")
+        if not isinstance(bundled_titles, list):
+            bundled_titles = []
+
+        if wants_collage:
+            collage_pngs: list[bytes] = []
+            for purl in product_image_urls[:4]:
+                png = await _fetch_and_prepare_product_png(purl)
+                if png:
+                    collage_pngs.append(png)
+            if len(collage_pngs) >= 2:
+                tone_str_for_collage = ", ".join(
+                    [str(t).strip() for t in (brand.get("tone_tags") or []) if str(t).strip()]
+                ) or "premium, modern, confident"
+                collage_prompt = _build_product_collage_prompt(
+                    edit_prompt,
+                    product_titles=bundled_titles,
+                    visual_theme=post_visual_theme or None,
+                    is_bundle=any(k in post_content_type for k in ("bundle", "upsell")),
+                    tone_str=tone_str_for_collage,
+                )
+                _post_id_for_edits = str(post.get("id") or "").replace("-", "")[:12]
+                _brand_id_for_edits = str(brand.get("id") or "").replace("-", "")[:8]
+                _edits_uid = f"{_post_id_for_edits}-{_brand_id_for_edits}"
+                collage_urls = await _generate_with_product_collage(
+                    collage_pngs, collage_prompt, topic, n, upload_uid=_edits_uid,
+                )
+                if collage_urls:
+                    cache_set("openai_image", edit_cache_key, collage_urls,
+                              ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
+                    return collage_urls
+                logger.warning(
+                    "Product collage failed for '%s'; falling back to single-product path", topic
+                )
+
+        # Single-product edit path: try each URL until one prepares successfully.
         product_png: bytes | None = None
         for purl in product_image_urls[:3]:
             product_png = await _fetch_and_prepare_product_png(purl)
@@ -1575,7 +2369,12 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                 break
 
         if product_png:
-            edit_urls = await _generate_with_product_edits(product_png, edit_prompt, topic, n)
+            _post_id_for_edits = str(post.get("id") or "").replace("-", "")[:12]
+            _brand_id_for_edits = str(brand.get("id") or "").replace("-", "")[:8]
+            _edits_uid = f"{_post_id_for_edits}-{_brand_id_for_edits}"
+            edit_urls = await _generate_with_product_edits(
+                product_png, edit_prompt, topic, n, upload_uid=_edits_uid,
+            )
             if edit_urls:
                 cache_set("openai_image", edit_cache_key, edit_urls,
                           ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
@@ -1589,13 +2388,33 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                 "No product PNG prepared for '%s'; falling back to text-only generation", topic
             )
 
+    # ── Carousel per-slide path ──────────────────────────────────────────────
+    # When format=carousel AND the AI returned a slide_blueprint with N
+    # entries, build N distinct prompts (one per slide) and request them
+    # in parallel. The legacy n=N-on-one-prompt path produced N near-
+    # duplicate frames showing the same headline on every slide.
+    raw_blueprint = post.get("slide_blueprint")
+    blueprint = raw_blueprint if isinstance(raw_blueprint, list) else []
+    blueprint = [b for b in blueprint if isinstance(b, dict)]
+    if str(post.get("format") or "").lower() == "carousel" and len(blueprint) >= 2:
+        slides_to_render = blueprint[:max(1, min(10, n))]
+        per_slide_urls = await _generate_carousel_frames(
+            post=post, brand=brand, blueprint=slides_to_render, model=model, topic=topic,
+        )
+        if per_slide_urls:
+            return per_slide_urls
+        logger.warning("Carousel per-slide path returned no urls for '%s'; falling back to single-prompt path", topic)
+
     # ── Text-only path (standard generations) ────────────────────────────────
     # Also used as fallback when the edits path fails.
-    prompt = _build_image_prompt(post, brand)
+    # PRD §3 pipeline: Brand Kit + User Input → Strategist → Prompt Builder → Image.
+    # We route through the new strategist + deterministic prompt builder.
+    prompt = await _build_brand_aware_prompt(post, brand)
     cache_key = hashlib.sha256(
         (
             f"{_IMAGE_PROMPT_VERSION}|{model}|{n}|{prompt}|{post.get('platform','')}|{post.get('format','')}|"
-            f"{post.get('content_type','')}|{post.get('date','')}|{brand.get('id','')}|{brand.get('name','')}"
+            f"{post.get('content_type','')}|{post.get('date','')}|{brand.get('id','')}|{brand.get('name','')}|"
+            f"{post.get('id','')}|{post.get('regenerate_token','')}|{post.get('quality_gate_retry','')}"
         ).encode("utf-8")
     ).hexdigest()
     cached_urls = cache_get("openai_image", cache_key)
@@ -1660,7 +2479,18 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                     logger.warning(f"Image {idx} had neither b64_json nor url; skipping")
                     continue
 
-                permanent_url = await _upload_to_cloudinary(image_bytes, topic, idx)
+                # Append a unique per-(post, idx) suffix to the public_id so
+                # Cloudinary cannot return a previously-uploaded image when two
+                # posts share a similar topic. Without this, public_id is just
+                # safe_topic[:40] + idx, and `overwrite=False` causes Cloudinary
+                # to return the prior URL on collision instead of saving new bytes.
+                _post_id_for_upload = str(post.get("id") or "").replace("-", "")[:12]
+                _brand_id_for_upload = str(brand.get("id") or "").replace("-", "")[:8]
+                _retry_for_upload = str(post.get("quality_gate_retry") or "0")
+                _unique_suffix = f"{idx}-{_post_id_for_upload}-{_brand_id_for_upload}-r{_retry_for_upload}-{uuid.uuid4().hex[:8]}"
+                permanent_url = await _upload_to_cloudinary(
+                    image_bytes, topic, idx, public_suffix=_unique_suffix
+                )
                 if permanent_url:
                     urls.append(permanent_url)
                     logger.info(f"Image {idx} stored at Cloudinary: {permanent_url}")
@@ -1687,6 +2517,7 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
             return urls
 
     except Exception as e:
+        capacity_err = _classify_openai_capacity_error(e)
         logger.error(f"Image generation failed for '{topic}' ({model}): {e}")
         telemetry_record(
             CallTelemetry(
@@ -1699,7 +2530,9 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
                 cache_hit=False,
                 retries=0,
                 success=False,
-                failure_reason=type(e).__name__,
+                failure_reason=(capacity_err.code if capacity_err else type(e).__name__),
             )
         )
+        if capacity_err is not None:
+            raise capacity_err from e
         return []

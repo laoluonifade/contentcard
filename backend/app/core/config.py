@@ -33,21 +33,9 @@ class Settings(BaseSettings):
     # When True, logo upload also requests Cloudinary AI background removal (paid add-on). Local edge-based stripping always runs first.
     CLOUDINARY_LOGO_AI_BG_REMOVAL: bool = False
 
-    BANNERBEAR_API_KEY: str = ""
-    BANNERBEAR_TEMPLATE_COVER: str = ""
-    BANNERBEAR_TEMPLATE_CONTENT: str = ""
-    BANNERBEAR_TEMPLATE_QUOTE: str = ""
-    BANNERBEAR_TEMPLATE_HOOK: str = ""
-    BANNERBEAR_TEMPLATE_PROMO: str = ""
-    BANNERBEAR_TEMPLATE_EDU: str = ""
-    BANNERBEAR_TEMPLATE_TESTIMONIAL: str = ""
-    BANNERBEAR_TEMPLATE_HIRING: str = ""
-    BANNERBEAR_TEMPLATE_TEXT_POSTER: str = ""
-    BANNERBEAR_TEMPLATE_PRODUCT_HERO: str = ""
-    BANNERBEAR_TEMPLATE_DATA_CARD: str = ""
-    BANNERBEAR_TEMPLATE_ANNOUNCEMENT: str = ""
-    BANNERBEAR_TEMPLATE_STORY_CAROUSEL: str = ""
-    BANNERBEAR_TEMPLATE_ILLUSTRATION_EDITORIAL: str = ""
+    # Bannerbear was removed entirely — the AI generates the full visual
+    # (background + headline + CTA + layout) and Cloudinary stamps the real
+    # uploaded brand logo on top via burn_logo_into_image_url.
 
     FREE_TRIAL_DAYS: int = 14
     FRONTEND_URL: str = "http://localhost:5173"
@@ -67,7 +55,20 @@ class Settings(BaseSettings):
     AI_IMAGE_VARIANT_MIN_MODE: bool = True
     AI_HIGH_QUALITY_FINAL_ONLY: bool = True
 
-    OPENAI_HIGH_QUALITY_MODEL: str = "gpt-4o"
+    # Experiment: when False, the brand's design playbook (industry-curated
+    # content_type rotation, visual-direction slots, template-depth gate)
+    # is bypassed entirely. The model decides content_type, format, and
+    # visual direction for every post from the brand kit alone. Flip back
+    # to True to restore the curated rotation.
+    CONTENT_PLAYBOOK_ENABLED: bool = False
+
+    # Model tier confirmed available on the user's OpenAI account (per the
+    # Assistants screen dropdown): gpt-4.1, gpt-4.1-mini, gpt-4.1-nano,
+    # gpt-4o, gpt-4o-mini, o1, o3-mini. gpt-5.5 / gpt-5.5-pro are NOT on
+    # this tier — earlier attempts to use them returned 404 from OpenAI.
+    # gpt-4.1 is the strongest chat-completions model on this tier and
+    # matches the architecture spec ("Brain → GPT-4.1").
+    OPENAI_HIGH_QUALITY_MODEL: str = "gpt-4.1"
     OPENAI_LOW_COST_MODEL: str = "gpt-4o-mini"
 
     AI_MAX_OUTPUT_TOKENS_DEFAULT: int = 2000
@@ -76,6 +77,7 @@ class Settings(BaseSettings):
     AI_MONTHLY_PLAN_MAX_OUTPUT_TOKENS: int = 9000
     AI_CAPTION_MAX_OUTPUT_TOKENS: int = 900
     AI_TRENDS_MAX_OUTPUT_TOKENS: int = 1500
+    AI_STRATEGIST_MAX_OUTPUT_TOKENS: int = 1100
 
     AI_MAX_INPUT_CHARS_PER_MESSAGE: int = 12000
     AI_MAX_INPUT_CHARS_TOTAL: int = 70000
@@ -89,8 +91,9 @@ class Settings(BaseSettings):
     # Rough cost modelling for telemetry (USD / 1K tokens)
     AI_LOW_COST_MODEL_INPUT_PER_1K_USD: float = 0.00015
     AI_LOW_COST_MODEL_OUTPUT_PER_1K_USD: float = 0.0006
-    AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.005
-    AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.015
+    # gpt-4.1 list price (per OpenAI): $2.00/1M input, $8.00/1M output.
+    AI_HIGH_QUALITY_MODEL_INPUT_PER_1K_USD: float = 0.002
+    AI_HIGH_QUALITY_MODEL_OUTPUT_PER_1K_USD: float = 0.008
 
     SOCIAL_AUTOPILOT_GLOBAL_KILL_SWITCH: bool = False
     SOCIAL_AUTOPILOT_MIN_QUALITY_SCORE: float = 0.66

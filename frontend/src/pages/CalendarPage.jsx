@@ -1,17 +1,16 @@
-import { useState, useEffect, useRef, useMemo, Component } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, Check, Plus, Layers, Zap, ExternalLink, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import { contentApi, holidaysApi, socialApi, uploadApi } from '../api'
 import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
-import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 import { buildCampaignBrief } from '../utils/campaignBrief'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
-import GenerationPlanModal from '../components/ui/GenerationPlanModal'
 import PaymentModal from '../components/ui/PaymentModal'
+import GenerationStatusBanner from '../components/dashboard/GenerationStatusBanner'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const MAX_GENERATION_MONTHS_AHEAD = 3
@@ -21,14 +20,6 @@ const PLATFORMS = [
   { id: 'twitter',   label: 'Twitter/X', color: '#1DA1F2' },
   { id: 'linkedin',  label: 'LinkedIn',  color: '#0A66C2' },
 ]
-
-const PREP_ASSISTANT_MIN_KEY = 'contentcard.ui.prepAssistantMinimized'
-const PREP_CHAT_CACHE_PREFIX = 'contentcard.calendar.prepChat'
-
-function prepChatCacheKey(userId, brandId, month, year) {
-  if (!userId || !brandId || !month || !year) return ''
-  return `${PREP_CHAT_CACHE_PREFIX}:${userId}:${brandId}:${year}-${month}`
-}
 
 /** Session flag so "Finishing designs" survives full page reload while async renders finish. */
 const VISUAL_PENDING_SESSION_PREFIX = 'contentcard.calendar.visualPending'
@@ -183,6 +174,20 @@ function fmtDate(str) {
   return new Date(y,m-1,d).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'})
 }
 
+// Convert internal archetype slugs (photo_hero, device_mockup_benefit, "product hero")
+// into human-readable labels for the post modal. Free-form values from the AI
+// (since playbook went off) just get title-cased.
+function humanizeArchetype(slug) {
+  if (!slug) return ''
+  return String(slug)
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map(w => w ? w[0].toUpperCase() + w.slice(1) : '')
+    .join(' ')
+}
+
 function isDateInCurrentWeek(isoDate) {
   if (!isoDate) return false
   const now = new Date()
@@ -199,7 +204,7 @@ function isDateInCurrentWeek(isoDate) {
 
 function formatArchetypeLabel(id) {
   if (!id) return ''
-  return String(id).replace(/_/g, ' ')
+  return humanizeArchetype(id)
 }
 
 function weekdayFromIso(isoDate) {
@@ -210,52 +215,6 @@ function weekdayFromIso(isoDate) {
 
 function recommendationForPlatform(platform) {
   return PLATFORM_POST_WINDOWS[platform] || { best: 'Weekdays, midday', backup: 'Early evening', tz: 'Local time' }
-}
-
-class GenerationPlanErrorBoundary extends Component {
-  constructor(props) {
-    super(props)
-    this.state = { hasError: false }
-  }
-
-  static getDerivedStateFromError() {
-    return { hasError: true }
-  }
-
-  componentDidUpdate(prevProps) {
-    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
-      this.setState({ hasError: false })
-    }
-  }
-
-  componentDidCatch(error) {
-    console.error('Generation plan modal crashed', error)
-  }
-
-  render() {
-    if (!this.state.hasError) return this.props.children
-
-    return (
-      <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-        <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-lg p-6 space-y-4">
-          <div>
-            <h3 className="text-ink font-semibold text-base">Couldn&apos;t open the review step</h3>
-            <p className="text-ink/45 text-sm mt-1">
-              Something in the generation plan failed to render. Go back to settings and try again.
-            </p>
-          </div>
-          <div className="flex flex-wrap justify-end gap-2">
-            <button type="button" onClick={this.props.onBack} className="btn-secondary px-4 py-2 text-sm">
-              Back to settings
-            </button>
-            <button type="button" onClick={this.props.onClose} className="btn-primary px-4 py-2 text-sm">
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
 }
 
 function toIsoDate(y, m, d) {
@@ -370,279 +329,6 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
   )
 }
 
-function CalendarPrepBody({
-  messages,
-  prepSending,
-  prepInput,
-  setPrepInput,
-  onSend,
-  scrollRef,
-  onPickChoice,
-  onExecuteDesignIntent,
-  prepExecuteBusy,
-  activeBrandId,
-  onUploadAsset,
-  prepUploadingAsset,
-  prepQuestionAnswers,
-  onQuestionPick,
-  onQuestionUpload,
-  onRunCta,
-  usedCtaKeys,
-  ctaBusy,
-  generatingMonth,
-  prepServiceDown,
-}) {
-  return (
-    <div className="flex flex-col flex-1 min-h-0">
-      {/* ── Message list ── */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-[200px] max-h-[42vh]">
-
-        {/* Empty state hint */}
-        {!messages.length && (
-          <div className="flex flex-col items-center justify-center gap-2 py-4 text-center">
-            <div className="w-8 h-8 rounded-xl bg-brand-500/10 flex items-center justify-center">
-              <Sparkles size={14} className="text-brand-500" />
-            </div>
-            <p className="text-ink/40 text-[11px] leading-relaxed max-w-[200px]">
-              Brief the AI, review the month plan, then generate when it looks right.
-            </p>
-          </div>
-        )}
-
-        {messages.map((m, i) => (
-          <div key={i}>
-            {/* User bubble — right-aligned dark */}
-            {m.role === 'user' ? (
-              <div className="flex justify-end">
-                <div className="max-w-[85%] bg-slate-900 text-white rounded-2xl rounded-tr-sm px-3 py-2 text-xs leading-relaxed">
-                  {m.content}
-                </div>
-              </div>
-            ) : (
-              /* Assistant bubble — left-aligned with avatar */
-              <div className="flex items-start gap-2">
-                <div className="w-5 h-5 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <Sparkles size={9} className="text-white" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="bg-mist border border-fog rounded-2xl rounded-tl-sm px-3 py-2 text-xs leading-relaxed text-ink">
-                    <p className="whitespace-pre-wrap">{m.content}</p>
-
-                    {/* Choice chips */}
-                    {Array.isArray(m.choices) && m.choices.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 mt-2 pt-2 border-t border-fog/70">
-                        {m.choices.map((ch) => (
-                          <button
-                            key={ch.id}
-                            type="button"
-                            onClick={() => onPickChoice(ch)}
-                            className="text-[11px] px-2 py-1 rounded-lg border border-fog bg-surface text-ink/70 hover:border-ink/20 hover:text-ink transition-colors"
-                          >
-                            {ch.label}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Structured questions */}
-                    {!generatingMonth && Array.isArray(m.questions) && m.questions.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-fog/70 space-y-2">
-                        {m.questions.map((q) => {
-                          const answer = prepQuestionAnswers?.[q.id] || {}
-                          if (q.input_type === 'upload') {
-                            const accept =
-                              q.accept === 'image' ? 'image/*'
-                              : q.accept === 'recording' ? 'video/mp4,video/webm,video/quicktime'
-                              : 'image/*,video/mp4,video/webm,video/quicktime'
-                            return (
-                              <div key={q.id} className="rounded-lg border border-fog bg-surface px-2 py-2">
-                                <p className="text-[11px] font-semibold text-ink/70 mb-1">{q.prompt}</p>
-                                <div className="flex gap-1.5 mb-1.5">
-                                  <select
-                                    value={answer.asset_type || ''}
-                                    onChange={(e) => onQuestionPick(q, e.target.value, true)}
-                                    className="h-7 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
-                                  >
-                                    <option value="">Choose upload type…</option>
-                                    {(q.accept === 'image' ? ['Screenshot'] : q.accept === 'recording' ? ['Screen recording'] : ['Screenshot', 'Screen recording']).map((opt) => (
-                                      <option key={opt} value={opt}>{opt}</option>
-                                    ))}
-                                  </select>
-                                </div>
-                                <input
-                                  type="file"
-                                  accept={accept}
-                                  disabled={prepUploadingAsset || !answer.asset_type}
-                                  onChange={(e) => onQuestionUpload(q, e.target.files?.[0] || null, answer.asset_type)}
-                                  className="block w-full text-[11px] text-ink/60 file:mr-2 file:rounded-md file:border file:border-fog file:bg-surface file:px-2.5 file:py-1 file:text-[11px] file:font-semibold file:text-ink/70"
-                                />
-                              </div>
-                            )
-                          }
-                          return (
-                            <div key={q.id} className="rounded-lg border border-fog bg-surface px-2 py-2">
-                              <p className="text-[11px] font-semibold text-ink/70 mb-1">{q.prompt}</p>
-                              {(q.options || []).length > 0 ? (
-                                <select
-                                  value={answer.value || ''}
-                                  onChange={(e) => onQuestionPick(q, e.target.value)}
-                                  className="w-full h-8 rounded-md border border-fog bg-surface px-2 text-[11px] text-ink/70"
-                                >
-                                  <option value="">Select answer…</option>
-                                  {(q.options || []).map((opt) => (
-                                    <option key={opt} value={opt}>{opt}</option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <textarea
-                                  value={answer.value || ''}
-                                  onChange={(e) => onQuestionPick(q, e.target.value)}
-                                  placeholder="Type your answer…"
-                                  rows={2}
-                                  className="w-full rounded-md border border-fog bg-surface px-2 py-1.5 text-[11px] text-ink/70 resize-none focus:outline-none focus:ring-1 focus:ring-brand-400/50"
-                                />
-                              )}
-                            </div>
-                          )
-                        })}
-                      </div>
-                    )}
-
-                    {/* Generate CTA — shown only when the plan is explicitly ready */}
-                    {m.cta?.action === 'start_generation' && (() => {
-                      const ctaKey = String(i)
-                      const isUsed = usedCtaKeys?.has(ctaKey)
-                      const busy = Boolean(isUsed || ctaBusy || generatingMonth || prepServiceDown)
-                      if (isUsed) return (
-                        <p className="mt-2 pt-2 border-t border-fog/70 text-[10px] text-ink/35 italic">Generation started ✓</p>
-                      )
-                      if (prepServiceDown) return null
-                      return (
-                        <div className="mt-2 pt-2 border-t border-fog/70">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() => onRunCta(m.cta || { action: 'start_generation' }, ctaKey)}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 text-white text-[11px] font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors"
-                          >
-                            <Zap size={10} />
-                            {generatingMonth ? 'Generating…' : (m.cta?.label || 'Approve plan and generate')}
-                          </button>
-                          <p className="mt-1 text-[10px] text-ink/35">Review the plan above first, then launch generation.</p>
-                        </div>
-                      )
-                    })()}
-
-                    {/* Design refresh intent */}
-                    {m.design_intent?.action === 'regenerate_visuals' && (
-                      <div className="mt-2 pt-2 border-t border-fog/70 space-y-1.5">
-                        <button
-                          type="button"
-                          disabled={prepExecuteBusy}
-                          onClick={() => onExecuteDesignIntent(m.design_intent)}
-                          className="text-[11px] px-2.5 py-1.5 rounded-lg bg-slate-900 text-white font-semibold hover:bg-slate-800 disabled:opacity-40"
-                        >
-                          {prepExecuteBusy ? 'Running…' : 'Run design refresh'}
-                        </button>
-                        <p className="text-ink/30 text-[10px] leading-snug">
-                          {m.design_intent?.scope === 'selected'
-                            ? 'Uses posts you tick in Select mode (or pick month to refresh all).'
-                            : 'Refreshes visuals for every post in this month (up to 15 at a time).'}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-
-        {/* Typing indicator — three bouncing dots */}
-        {prepSending && (
-          <div className="flex items-start gap-2">
-            <div className="w-5 h-5 rounded-full bg-brand-500 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <Sparkles size={9} className="text-white" />
-            </div>
-            <div className="bg-mist border border-fog rounded-2xl rounded-tl-sm px-3 py-2.5 flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-ink/30 animate-bounce [animation-delay:0ms]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-ink/30 animate-bounce [animation-delay:150ms]" />
-              <span className="w-1.5 h-1.5 rounded-full bg-ink/30 animate-bounce [animation-delay:300ms]" />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Input bar ── */}
-      <div className="px-3 py-2.5 border-t border-fog bg-surface/80 space-y-2">
-        {/* File attach (compact) */}
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-ink/50 hover:text-ink transition-colors">
-            <input
-              type="file"
-              accept="image/*,video/mp4,video/webm,video/quicktime"
-              disabled={!activeBrandId || prepSending || prepUploadingAsset || prepServiceDown}
-              onChange={(e) => onUploadAsset(e.target.files?.[0] || null)}
-              className="hidden"
-            />
-            <span className="px-2 py-1 rounded-lg border border-fog bg-surface text-[11px] font-medium hover:border-ink/20">
-              {prepUploadingAsset ? 'Uploading…' : '+ Attach'}
-            </span>
-          </label>
-          <span className="text-ink/25 text-[10px]">screenshot or recording</span>
-        </div>
-
-        {/* Message input + Send + Generate */}
-        <div className="flex items-end gap-1.5 bg-mist border border-fog rounded-xl px-3 py-2 focus-within:border-brand-400/50 transition-all">
-          <textarea
-            value={prepInput}
-            onChange={(e) => setPrepInput(e.target.value)}
-            rows={1}
-            placeholder={generatingMonth ? 'Generating…' : 'Chat or say "generate my posts"…'}
-            className="flex-1 resize-none bg-transparent text-xs text-ink placeholder:text-ink/35 focus:outline-none leading-relaxed min-h-[18px] max-h-[80px] disabled:opacity-50"
-            disabled={!activeBrandId || prepSending || prepServiceDown}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend() }
-            }}
-          />
-          <button
-            type="button"
-            onClick={onSend}
-            disabled={!activeBrandId || prepSending || !prepInput.trim() || prepServiceDown}
-            className="w-6 h-6 flex-shrink-0 rounded-lg bg-slate-900 text-white flex items-center justify-center hover:bg-slate-800 disabled:bg-fog disabled:text-ink/30 transition-colors"
-          >
-            <Send size={11} />
-          </button>
-        </div>
-
-        {/* Generate button — always visible for manual runs */}
-        <button
-          type="button"
-          onClick={() => onRunCta({ action: 'start_generation' }, '')}
-          disabled={!activeBrandId || generatingMonth || ctaBusy || prepServiceDown}
-          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 disabled:opacity-40 transition-colors"
-        >
-          <Zap size={11} />
-          {generatingMonth ? 'Generating…' : 'Generate with current brief'}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function splitPrepAssistantMessage(content) {
-  const text = String(content || '').trim()
-  if (!text) return []
-  const numbered = text.match(/(?:^|\n)\s*\d+\.\s+[^\n]+/g)
-  if (numbered && numbered.length >= 2) {
-    return numbered
-      .map((row) => row.replace(/^\s+/, '').trim())
-      .filter(Boolean)
-      .slice(0, 6)
-  }
-  return [text]
-}
-
 export default function CalendarPage() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
@@ -651,13 +337,14 @@ export default function CalendarPage() {
     activeWorkspaceId,
     brands,
     brandsLoaded,
-    templates,
     fetchMonthContent,
     generateMonth,
     generatingMonth,
     generationStartedAt,
     generationPollCount,
     generationProgress,
+    resumeActiveGenerationIfAny,
+    checkLastGenerationFailure,
   } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
@@ -675,44 +362,12 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true)
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
-  const [prepMessages, setPrepMessages] = useState([])
-  const [prepInput, setPrepInput] = useState('')
-  const [prepSending, setPrepSending] = useState(false)
-  const [prepExecuteBusy, setPrepExecuteBusy] = useState(false)
-  const [prepUploadingAsset, setPrepUploadingAsset] = useState(false)
-  const [prepServiceDown, setPrepServiceDown] = useState(false)
-  const [prepQuestionAnswers, setPrepQuestionAnswers] = useState({})
-  const [prepCtaBusy, setPrepCtaBusy] = useState(false)
-  const [usedPrepCtaKeys, setUsedPrepCtaKeys] = useState(() => new Set())
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
   const [generationBaseline, setGenerationBaseline] = useState({ with: 0, total: 0 })
   /** Last /content/status snapshot when resuming after reload (strict server counts). */
   const [renderStatusPoll, setRenderStatusPoll] = useState(null)
-  const [prepMinimized, setPrepMinimized] = useState(() => {
-    try {
-      const persisted = localStorage.getItem(PREP_ASSISTANT_MIN_KEY)
-      // Keep the side assistant collapsed by default to reduce visual noise.
-      return persisted == null ? true : persisted === '1'
-    } catch {
-      return true
-    }
-  })
-  const setPrepMinimizedPersist = (v) => {
-    setPrepMinimized(v)
-    try {
-      localStorage.setItem(PREP_ASSISTANT_MIN_KEY, v ? '1' : '0')
-    } catch {
-      /* ignore */
-    }
-  }
   const [includeHolidays, setIncludeHolidays] = useState(true)
   const [monthHolidays, setMonthHolidays] = useState([])
-  const prepScrollAsideRef = useRef(null)
-  const prepScrollMobileRef = useRef(null)
-  const prepGenUpdateBusyRef = useRef(false)
-  const prepCtaInFlightRef = useRef(false)
-  const PREP_SERVICE_DOWN_MESSAGE =
-    'Your social media manager is temporarily unavailable right now. Please contact support and try again shortly.'
 
   const flattenErrorText = (err) => {
     const detail = err?.response?.data?.detail
@@ -739,32 +394,16 @@ export default function CalendarPage() {
     )
   }
 
-  const appendPrepServiceDownNotice = () => {
-    setPrepMinimizedPersist(false)
-    setPrepMessages((pm) => {
-      const last = pm[pm.length - 1]
-      if (last?.role === 'assistant' && String(last?.content || '') === PREP_SERVICE_DOWN_MESSAGE) {
-        return pm
-      }
-      return [
-        ...pm,
-        { role: 'assistant', content: PREP_SERVICE_DOWN_MESSAGE, choices: [], questions: [], cta: null, design_intent: null },
-      ]
-    })
-  }
-  const lastPrepGenPollRef = useRef(0)
   const [modal, setModal]   = useState(null)
   const [slideIdx, setSlideIdx] = useState(0)
   const [editCaption, setEditCaption]   = useState('')
   const [editHashtags, setEditHashtags] = useState([])
   const [filterPlat, setFilterPlat] = useState('all')
   const [showGenPanel, setShowGenPanel] = useState(false)
-  const [showPlanModal, setShowPlanModal] = useState(false)
   const [markingPosted, setMarkingPosted] = useState(false)
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
-  const [genTemplateId, setGenTemplateId] = useState(null)
   const [layoutMode, setLayoutMode] = useState('grid')
   const [cardUpsellToast, setCardUpsellToast] = useState(null)
   const [showCardModal, setShowCardModal] = useState(false)
@@ -773,10 +412,6 @@ export default function CalendarPage() {
   const cardRef = useRef(null)
   const monthsAhead = ((year - now.getFullYear()) * 12) + (month - (now.getMonth() + 1))
   const generationLockedForMonth = monthsAhead > MAX_GENERATION_MONTHS_AHEAD
-  const activeTemplates = useMemo(
-    () => (Array.isArray(templates) ? templates.filter((t) => t && t.is_active) : []),
-    [templates]
-  )
   useEffect(() => {
     if (!activeBrandId) {
       setPosts([])
@@ -801,74 +436,25 @@ export default function CalendarPage() {
     }
   }, [activeBrandId, month, year])
 
+  // Reset month-scoped UI state when the user navigates between months or
+  // brands. Generation baselines persist via the backend response.
   useEffect(() => {
-    const cacheKey = prepChatCacheKey(user?.id, activeBrandId, month, year)
-    let restored = false
-    if (cacheKey) {
-      try {
-        const raw = localStorage.getItem(cacheKey)
-        if (raw) {
-          const parsed = JSON.parse(raw)
-          const nextMsgs = Array.isArray(parsed?.messages) ? parsed.messages.slice(-60) : []
-          const nextAnswers = parsed?.prepQuestionAnswers && typeof parsed.prepQuestionAnswers === 'object'
-            ? parsed.prepQuestionAnswers
-            : {}
-          const usedKeysArr = Array.isArray(parsed?.usedPrepCtaKeys) ? parsed.usedPrepCtaKeys : []
-          const nextBaseline = parsed?.generationBaseline && typeof parsed.generationBaseline === 'object'
-            ? {
-                with: Number(parsed.generationBaseline.with || 0),
-                total: Number(parsed.generationBaseline.total || 0),
-              }
-            : { with: 0, total: 0 }
-          setPrepMessages(nextMsgs)
-          setPrepQuestionAnswers(nextAnswers)
-          setUsedPrepCtaKeys(new Set(usedKeysArr.map((v) => String(v))))
-          setGenerationBaseline(nextBaseline)
-          restored = true
-        }
-      } catch {
-        /* ignore invalid cache */
-      }
-    }
-    if (!restored) {
-      setPrepMessages([])
-      setPrepQuestionAnswers({})
-      setUsedPrepCtaKeys(new Set())
-      setGenerationBaseline({ with: 0, total: 0 })
-    }
-    setPrepCtaBusy(false)
+    setGenerationBaseline({ with: 0, total: 0 })
     setSelectedIds(new Set())
     setSelectMode(false)
     setSelectedDate('')
   }, [month, year, activeBrandId, user?.id])
 
+  // Reattach the loader if a run is in flight for the month we just
+  // navigated to, and surface any stored OpenAI capacity failure so the
+  // banner shows the right state without re-firing generation. Both
+  // helpers no-op when nothing's relevant.
   useEffect(() => {
-    const cacheKey = prepChatCacheKey(user?.id, activeBrandId, month, year)
-    if (!cacheKey) return
-    try {
-      localStorage.setItem(
-        cacheKey,
-        JSON.stringify({
-          messages: prepMessages.slice(-60),
-          prepQuestionAnswers,
-          usedPrepCtaKeys: Array.from(usedPrepCtaKeys || []),
-          generationBaseline,
-          updatedAt: Date.now(),
-        })
-      )
-    } catch {
-      /* ignore storage errors */
-    }
-  }, [
-    user?.id,
-    activeBrandId,
-    month,
-    year,
-    prepMessages,
-    prepQuestionAnswers,
-    usedPrepCtaKeys,
-    generationBaseline,
-  ])
+    if (!activeBrandId) return
+    resumeActiveGenerationIfAny(month, year)
+    checkLastGenerationFailure(month, year)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeBrandId, month, year])
 
   const lastRenderStatusSigRef = useRef('')
 
@@ -944,8 +530,7 @@ export default function CalendarPage() {
 
   useEffect(() => {
     if (generatingMonth && showGenPanel) setShowGenPanel(false)
-    if (generatingMonth && showPlanModal) setShowPlanModal(false)
-  }, [generatingMonth, showGenPanel, showPlanModal])
+  }, [generatingMonth, showGenPanel])
 
   useEffect(() => {
     if (!showGenPanel || !activeBrandId) return
@@ -960,12 +545,6 @@ export default function CalendarPage() {
       })
       .catch(() => setMonthHolidays([]))
   }, [showGenPanel, year, month, activeBrandId])
-
-  useEffect(() => {
-    ;[prepScrollAsideRef.current, prepScrollMobileRef.current].forEach((el) => {
-      if (el) el.scrollTop = el.scrollHeight
-    })
-  }, [prepMessages, prepSending])
 
   useEffect(() => {
     if (modal) {
@@ -994,6 +573,65 @@ export default function CalendarPage() {
     if (m<1){m=12;y--} if (m>12){m=1;y++}
     setMonth(m); setYear(y); setModal(null)
     setSearchParams({ m, y }, { replace: true })
+  }
+
+  const swipeStartRef = useRef(null)
+  const onCalendarTouchStart = (e) => {
+    const t = e.touches?.[0]
+    if (!t) return
+    swipeStartRef.current = { x: t.clientX, y: t.clientY, t: Date.now() }
+  }
+  const onCalendarTouchEnd = (e) => {
+    const start = swipeStartRef.current
+    swipeStartRef.current = null
+    if (!start) return
+    const t = e.changedTouches?.[0]
+    if (!t) return
+    const dx = t.clientX - start.x
+    const dy = t.clientY - start.y
+    const dt = Date.now() - start.t
+    if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy) || dt > 600) return
+    shiftMonth(dx < 0 ? 1 : -1)
+  }
+
+  const copyPostCaption = (post) => {
+    if (!post) return
+    const text = fullPostCaptionText(post.caption || '', post.hashtags || [])
+    navigator.clipboard?.writeText(text)
+    toast('Caption copied!')
+  }
+
+  const downloadPostImage = async (post) => {
+    const url = (post?.image_urls?.[0]) || post?.image_url
+    if (!url) {
+      toast('No image to download yet', 'error')
+      return
+    }
+    const filename = `${post.platform || 'post'}-${post.scheduled_date || 'image'}.png`
+    try {
+      const resp = await fetch(url)
+      if (!resp.ok) throw new Error(`Status ${resp.status}`)
+      const blob = await resp.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = filename
+      a.rel = 'noopener'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(href), 5000)
+      toast('Image downloaded')
+    } catch {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.target = '_blank'
+      a.rel = 'noopener'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    }
   }
 
   const totalSlides = Math.max(1, modal?.slide_count||1)
@@ -1079,9 +717,32 @@ export default function CalendarPage() {
       setSelectMode(false)
       const items = await fetchMonthContent(month, year)
       setPosts(items)
-      toast('Posts deleted')
+      toast('Posts deleted — calendar rebalanced')
     } catch {
       toast('Delete failed', 'error')
+    }
+  }
+
+  const rebalanceMonth = async () => {
+    if (!activeBrandId) return
+    if (!posts.length) {
+      toast('No posts to rebalance', 'info')
+      return
+    }
+    try {
+      const platform = filterPlat === 'all' ? null : filterPlat
+      const result = await contentApi.redistributeDates({
+        brand_id: activeBrandId,
+        month,
+        year,
+        platform,
+      })
+      const items = await fetchMonthContent(month, year)
+      setPosts(items)
+      const n = result?.updated || 0
+      toast(n ? `Rebalanced ${n} post${n === 1 ? '' : 's'}` : 'Calendar already balanced')
+    } catch (e) {
+      toast(e.response?.data?.detail || 'Rebalance failed', 'error')
     }
   }
 
@@ -1119,262 +780,11 @@ export default function CalendarPage() {
     }
   }
 
-  const sendPrepWithText = async (rawText) => {
-    const txt = String(rawText || '').trim()
-    if (!txt || prepSending) return
-    if (!activeBrandId) return
-    const next = [...prepMessages, { role: 'user', content: txt }]
-    setPrepMessages(next)
-    setPrepInput('')
-    setPrepSending(true)
-    try {
-      const data = await contentApi.generationPrepChat({
-        brand_id: activeBrandId,
-        month,
-        year,
-        messages: next,
-      })
-      setPrepServiceDown(false)
-      const chunks = splitPrepAssistantMessage(data.message || '')
-      const assistantRows = chunks.map((content, idx) => ({
-        role: 'assistant',
-        content,
-        choices: idx === chunks.length - 1 ? (data.choices || []) : [],
-        questions: idx === chunks.length - 1 ? (data.questions || []) : [],
-        cta: idx === chunks.length - 1 ? (data.cta || null) : null,
-        design_intent: idx === chunks.length - 1 ? (data.design_intent || null) : null,
-      }))
-      setPrepMessages([...next, ...assistantRows])
-
-    } catch (e) {
-      if (isAiCapacityError(e)) {
-        setPrepServiceDown(true)
-        appendPrepServiceDownNotice()
-        toast(PREP_SERVICE_DOWN_MESSAGE, 'error')
-      } else {
-        setPrepMessages((pm) => pm.slice(0, -1))
-        toast(e.response?.data?.detail || 'Prep chat failed', 'error')
-      }
-    } finally {
-      setPrepSending(false)
-    }
-  }
-
-  const sendPrep = () => sendPrepWithText(prepInput)
-
-  const uploadPrepAsset = async (file) => {
-    if (!file || !activeBrandId || prepUploadingAsset) return
-    const isVideo = String(file.type || '').startsWith('video/')
-    if (isVideo) {
-      const durationOk = await new Promise((resolve) => {
-        try {
-          const v = document.createElement('video')
-          v.preload = 'metadata'
-          v.onloadedmetadata = () => {
-            URL.revokeObjectURL(v.src)
-            resolve((v.duration || 0) <= 60)
-          }
-          v.onerror = () => resolve(true)
-          v.src = URL.createObjectURL(file)
-        } catch {
-          resolve(true)
-        }
-      })
-      if (!durationOk) {
-        toast('Screen recording must be 60 seconds or less.', 'error')
-        return
-      }
-    }
-    setPrepUploadingAsset(true)
-    try {
-      const res = await uploadApi.prepAsset(file, isVideo ? 'recording' : 'screenshot')
-      const kind = res?.kind || (isVideo ? 'recording' : 'screenshot')
-      const url = String(res?.url || '').trim()
-      if (!url) throw new Error('No uploaded URL returned')
-      const msg = `Attached ${kind}: ${url}`
-      await sendPrepWithText(msg)
-    } catch (e) {
-      toast(e.response?.data?.detail || e.message || 'Upload failed', 'error')
-    } finally {
-      setPrepUploadingAsset(false)
-    }
-  }
-
-  const answerPrepQuestion = async (question, value, isAssetType = false) => {
-    if (!question?.id || !value) return
-    const qid = String(question.id)
-    if (isAssetType) {
-      setPrepQuestionAnswers((prev) => ({
-        ...prev,
-        [qid]: { ...(prev[qid] || {}), asset_type: value },
-      }))
-      return
-    }
-    setPrepQuestionAnswers((prev) => ({
-      ...prev,
-      [qid]: { ...(prev[qid] || {}), value },
-    }))
-    await sendPrepWithText(`Answer: ${value}`)
-  }
-
-  const uploadPrepAssetForQuestion = async (question, file, assetType) => {
-    if (!question || !file || !assetType || prepUploadingAsset || !activeBrandId) return
-    const normalizedType = String(assetType).toLowerCase().includes('record') ? 'recording' : 'screenshot'
-    setPrepUploadingAsset(true)
-    try {
-      const res = await uploadApi.prepAsset(file, normalizedType)
-      const url = String(res?.url || '').trim()
-      if (!url) throw new Error('No uploaded URL returned')
-      await sendPrepWithText(`Uploaded ${normalizedType}: ${url}`)
-      setPrepQuestionAnswers((prev) => ({
-        ...prev,
-        [question.id]: { ...(prev[question.id] || {}), uploaded_url: url, asset_type: assetType },
-      }))
-    } catch (e) {
-      toast(e.response?.data?.detail || e.message || 'Upload failed', 'error')
-    } finally {
-      setPrepUploadingAsset(false)
-    }
-  }
-
-  const runPrepCtaAction = async (cta, ctaKey) => {
-    if (!cta || cta.action !== 'start_generation') return
-    const key = String(ctaKey ?? '')
-    if (generatingMonth || prepCtaBusy || prepCtaInFlightRef.current || (key && usedPrepCtaKeys.has(key))) {
-      return
-    }
-    prepCtaInFlightRef.current = true
-    if (key) {
-      // Lock immediately to prevent rapid double-click races before state repaint.
-      setUsedPrepCtaKeys((prev) => new Set(prev).add(key))
-    }
-    setPrepCtaBusy(true)
-    try {
-      const started = await handleGenerate()
-      if (!started && key) {
-        // If generation did not actually start, unlock this action so user can retry once issue is fixed.
-        setUsedPrepCtaKeys((prev) => {
-          const next = new Set(prev)
-          next.delete(key)
-          return next
-        })
-      }
-    } finally {
-      setPrepCtaBusy(false)
-      prepCtaInFlightRef.current = false
-    }
-  }
-
-  const requestPrepGenerationUpdate = async (kind, extra = {}) => {
-    if (!activeBrandId || prepGenUpdateBusyRef.current) return
-    prepGenUpdateBusyRef.current = true
-    try {
-      const ready = Number(generationProgress?.with || 0)
-      const total = Number(generationProgress?.total || 0)
-      const brandPhotoCount = Array.isArray(activeBrand?.brand_photos) ? activeBrand.brand_photos.length : 0
-      const hasWebsite = !!String(activeBrand?.website || '').trim()
-      const systemPrompt = [
-        `SYSTEM UPDATE (${kind}) for active generation.`,
-        `Month: ${MONTHS[month - 1]} ${year}.`,
-        `Platform: ${genPlatform}.`,
-        `Generation poll: ${generationPollCount}.`,
-        `Ready posts: ${ready}/${total}.`,
-        `Brand photos available: ${brandPhotoCount}.`,
-        `Website present: ${hasWebsite ? 'yes' : 'no'}.`,
-        'Please respond in 1-3 short bullets:',
-        '1) current generation status in plain language',
-        '2) next best user action while generation continues',
-        'Do not ask for uploads while generation is already in progress.',
-      ].join('\n')
-      const next = [...prepMessages, { role: 'user', content: systemPrompt }]
-      const data = await contentApi.generationPrepChat({
-        brand_id: activeBrandId,
-        month,
-        year,
-        messages: next,
-      })
-      setPrepServiceDown(false)
-      const chunks = splitPrepAssistantMessage(data.message || '')
-      const assistantRows = chunks.map((content, idx) => ({
-        role: 'assistant',
-        content,
-        choices: idx === chunks.length - 1 ? (data.choices || []) : [],
-        questions: idx === chunks.length - 1 ? (data.questions || []) : [],
-        cta: idx === chunks.length - 1 ? (data.cta || null) : null,
-        design_intent: idx === chunks.length - 1 ? (data.design_intent || null) : null,
-        meta: { kind: 'generation_status' },
-        extra,
-      }))
-      setPrepMessages((pm) => [...pm, ...assistantRows])
-    } catch (e) {
-      if (isAiCapacityError(e)) {
-        setPrepServiceDown(true)
-      }
-      // Non-blocking: generation should continue even if prep status update fails.
-    } finally {
-      prepGenUpdateBusyRef.current = false
-    }
-  }
-
-  const executePrepDesignIntent = async (intent) => {
-    if (!intent || intent.action !== 'regenerate_visuals' || !activeBrandId) return
-    let ids = []
-    if (intent.scope === 'selected') {
-      ids = [...selectedIds]
-      if (!ids.length) {
-        toast('Select posts on the calendar first (tap Select, then each post).', 'error')
-        return
-      }
-    } else if (intent.scope === 'month') {
-      ids = posts.map((p) => p.id)
-      if (!ids.length) {
-        toast('No posts in this month yet.', 'error')
-        return
-      }
-    } else {
-      toast('Ask the assistant to refresh selected posts or the full month.', 'error')
-      return
-    }
-    const capped = ids.slice(0, 15)
-    if (ids.length > 15) {
-      if (!confirm(`We can only regenerate 15 posts at a time. Want to start with the first 15 of your ${ids.length}?`)) return
-    }
-    setPrepExecuteBusy(true)
-    try {
-      const res = await contentApi.prepExecuteVisual({
-        brand_id: activeBrandId,
-        month,
-        year,
-        content_ids: capped,
-        mode: 'same_archetype',
-      })
-      const ok = (res.updated_ids || []).length
-      const bad = (res.errors || []).length
-      const items = await fetchMonthContent(month, year)
-      setPosts(items)
-      if (bad) {
-        toast(`Updated ${ok} post(s); ${bad} could not be refreshed.`, 'error')
-      } else {
-        toast(ok ? `Design refresh completed for ${ok} post(s).` : 'No posts were updated.')
-      }
-    } catch (e) {
-      toast(e.response?.data?.detail || 'Design refresh failed', 'error')
-    } finally {
-      setPrepExecuteBusy(false)
-    }
-  }
-
   const runGenerate = async (confirmDuplicate, customPlan = null) => {
-    const generation_brief =
-      prepMessages.length > 0
-        ? prepMessages
-            .map((m) => `${m.role}: ${typeof m.content === 'string' ? m.content : ''}`)
-            .join('\n')
-            .slice(0, 12000)
-        : null
+    const generation_brief = null
     const campaign_brief = buildCampaignBrief({
       brand: activeBrand,
-      messages: prepMessages,
+      messages: [],
       topicOverride: genTopic.trim() || null,
       platform: genPlatform,
       monthLabel: `${MONTHS[month - 1]} ${year}`,
@@ -1386,7 +796,6 @@ export default function CalendarPage() {
       format_mix: 'mixed',
       posts_per_week: genPPW,
       topic_override: genTopic.trim() || null,
-      template_id: genTemplateId || null,
       include_holidays_in_content: includeHolidays,
       generation_brief,
       campaign_brief,
@@ -1417,27 +826,18 @@ export default function CalendarPage() {
       toast('Choose a platform first', 'error')
       return false
     }
-    // Open plan modal — actual generation fires after user reviews/edits the plan
+    // No preview step — fire generation immediately. The AI plans + writes +
+    // renders the whole month from the brand kit in one shot.
     setShowGenPanel(false)
-    setShowPlanModal(true)
-    return true
+    return runGenerationFlow(null)
   }
 
-  const handlePlanConfirmed = async (customPlan) => {
+  const runGenerationFlow = async (customPlan) => {
     try {
-      setShowPlanModal(false)
       setGenerationBaseline({
         with: posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length,
         total: posts.length,
       })
-      setPrepMessages((pm) => [
-        ...pm,
-        {
-          role: 'assistant',
-          content: `Started generating ${MONTHS[month - 1]} ${year} for ${genPlatform}. I will share live progress here and ask for screenshots or clarifications if I need them.`,
-          meta: { kind: 'generation_kickoff' },
-        },
-      ])
       const before = platformReadyCounts(posts, genPlatform)
       try {
         await runGenerate(false, customPlan)
@@ -1470,8 +870,6 @@ export default function CalendarPage() {
           }
           setRenderStatusPoll(null)
           toast(`${platformLabel} generation is done. Posts are ready with finished designs.`)
-          setPrepMinimizedPersist(false)
-          await requestPrepGenerationUpdate('completed', { platformLabel, before, after })
         } else {
           try {
             if (vpKey) sessionStorage.setItem(vpKey, '1')
@@ -1479,20 +877,20 @@ export default function CalendarPage() {
             /* ignore */
           }
           toast(`${platformLabel} generation started. New posts will appear once rendering finishes.`)
-          setPrepMinimizedPersist(false)
-          await requestPrepGenerationUpdate('in_progress', { platformLabel, before, after })
         }
       } finally {
         setLoading(false)
       }
       return true
     } catch (err) {
-      setShowPlanModal(true)
+      // Re-open the generation panel so the user can adjust settings and retry.
+      setShowGenPanel(true)
       const d = err.response?.data?.detail
       if (isAiCapacityError(err)) {
-        setPrepServiceDown(true)
-        appendPrepServiceDownNotice()
-        toast(PREP_SERVICE_DOWN_MESSAGE, 'error')
+        toast(
+          'Your social media manager is temporarily unavailable right now. Please contact support and try again shortly.',
+          'error',
+        )
         return false
       }
       if (d && typeof d === 'object' && d.code === 'CARD_REQUIRED_FOR_BONUS') {
@@ -1517,17 +915,6 @@ export default function CalendarPage() {
     }
   }
 
-  useEffect(() => {
-    if (!generatingMonth || !activeBrandId) {
-      lastPrepGenPollRef.current = 0
-      return
-    }
-    if (generationPollCount <= 0) return
-    const shouldEmit = generationPollCount === 1 || generationPollCount - lastPrepGenPollRef.current >= 3
-    if (!shouldEmit) return
-    lastPrepGenPollRef.current = generationPollCount
-    requestPrepGenerationUpdate('poll')
-  }, [generatingMonth, generationPollCount, generationProgress?.with, generationProgress?.total, activeBrandId])
 
   const scopedPosts = thisWeekOnly ? posts.filter((p) => isDateInCurrentWeek(p.scheduled_date)) : posts
   const filtered = filterPlat==='all' ? scopedPosts : scopedPosts.filter(p=>p.platform===filterPlat)
@@ -1553,20 +940,15 @@ export default function CalendarPage() {
   const postCountLabel = loading ? 'Loading…' : `${posts.length} post${posts.length === 1 ? '' : 's'}`
   const withVisuals = posts.filter((p) => (p.image_urls && p.image_urls.length) || p.image_url).length
   const pendingVisuals = Math.max(0, posts.length - withVisuals)
-  const finishingBannerActive =
-    generatingMonth ||
-    Boolean(renderStatusPoll && !renderStatusPoll.ready && Number(renderStatusPoll.total) > 0)
-  const prog = generationProgress
-  const finishingReady = generatingMonth
-    ? Number(prog?.with ?? 0)
-    : Number(renderStatusPoll?.with_visuals ?? 0)
-  const finishingTotal = generatingMonth
-    ? Number(prog?.total ?? 0)
-    : Number(renderStatusPoll?.total ?? 0)
-  const showFinishingCounts = finishingBannerActive && finishingTotal > 0
 
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
+
+      {/* Live generation status — appears whenever a month is generating
+          OR a generation just failed and hasn't been dismissed. */}
+      <div className="mb-4">
+        <GenerationStatusBanner />
+      </div>
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
@@ -1628,28 +1010,6 @@ export default function CalendarPage() {
         </div>
       )}
 
-      {finishingBannerActive && (
-        <div className="mb-4 rounded-xl border border-fog bg-mist px-4 py-3 text-sm text-ink/70">
-          {showFinishingCounts ? (
-            <>
-              Finishing designs… <strong className="text-ink">{finishingReady}</strong> of{' '}
-              <strong className="text-ink">{finishingTotal}</strong> posts have finished visuals.
-              This page refreshes automatically when they are all done. You do not need to reload manually.
-            </>
-          ) : (
-            <>
-              Generation is running. Posts will appear here automatically once captions and images are finished
-              (poll #{generationPollCount}).
-            </>
-          )}
-          {(generationElapsedSec >= 45 || renderStatusPoll) && (
-            <p className="mt-2 text-xs text-ink/55">
-              Rendering can take longer than usual. Check back in about a minute; this calendar updates automatically as visuals finish.
-            </p>
-          )}
-        </div>
-      )}
-
       {!loading && posts.length > 0 && (
         <div className="mb-3 rounded-xl border border-fog bg-mist/30 px-3 py-2 flex flex-wrap items-center gap-2 text-[11px] text-ink/60">
           <span className="inline-flex items-center gap-1.5">
@@ -1668,53 +1028,7 @@ export default function CalendarPage() {
         </div>
       )}
 
-      <div
-        className={`lg:grid lg:gap-6 lg:items-start ${
-          prepMinimized ? 'lg:grid-cols-[minmax(0,1fr)_52px]' : 'lg:grid-cols-[minmax(0,1fr)_300px]'
-        }`}
-      >
-      <div className="min-w-0">
-
-      <details
-        className="lg:hidden mb-4 border border-fog rounded-2xl bg-surface overflow-hidden group"
-        open={!prepMinimized}
-        onToggle={(e) => setPrepMinimizedPersist(!e.currentTarget.open)}
-        >
-        <summary className="list-none cursor-pointer px-4 py-3 flex items-center gap-2 border-b border-fog bg-surface [&::-webkit-details-marker]:hidden">
-          <MessageSquare size={16} className="text-ink/40 flex-shrink-0" />
-          <div className="min-w-0">
-            <p className="text-ink text-sm font-semibold">Your social media manager</p>
-            <p className="text-ink/35 text-[10px] leading-snug">
-              {`Q&A, quick replies, and design refresh for ${MONTHS[month - 1]} before you generate.`}
-            </p>
-          </div>
-          <span className="ml-auto text-ink/25 text-xs group-open:rotate-180 transition-transform">▾</span>
-        </summary>
-        <div className="flex flex-col max-h-[70vh] border-t border-fog">
-          <CalendarPrepBody
-            messages={prepMessages}
-            prepSending={prepSending}
-            prepInput={prepInput}
-            setPrepInput={setPrepInput}
-            onSend={sendPrep}
-            scrollRef={prepScrollMobileRef}
-            onPickChoice={(ch) => sendPrepWithText(ch.label)}
-            onExecuteDesignIntent={executePrepDesignIntent}
-            prepExecuteBusy={prepExecuteBusy}
-            activeBrandId={activeBrandId}
-            onUploadAsset={uploadPrepAsset}
-            prepUploadingAsset={prepUploadingAsset}
-            prepQuestionAnswers={prepQuestionAnswers}
-            onQuestionPick={answerPrepQuestion}
-            onQuestionUpload={uploadPrepAssetForQuestion}
-            onRunCta={runPrepCtaAction}
-            usedCtaKeys={usedPrepCtaKeys}
-            ctaBusy={prepCtaBusy}
-            generatingMonth={generatingMonth}
-            prepServiceDown={prepServiceDown}
-          />
-        </div>
-      </details>
+      <div>
 
       {/* Platform filter */}
       {posts.length > 0 && !selectMode && (
@@ -1736,6 +1050,14 @@ export default function CalendarPage() {
               className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
             >
               Regenerate visuals ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
+            </button>
+            <button
+              type="button"
+              onClick={rebalanceMonth}
+              title="Spread the month's remaining posts evenly across weekdays"
+              className="text-xs px-3 py-2 rounded-xl border border-fog text-ink/60 hover:bg-mist font-medium"
+            >
+              Rebalance dates ({filterPlat === 'all' ? 'all' : PLATFORMS.find((p) => p.id === filterPlat)?.label || filterPlat})
             </button>
           </div>
         </details>
@@ -1851,17 +1173,22 @@ export default function CalendarPage() {
       )}
 
       {!loading && posts.length > 0 && layoutMode === 'month' && (
-        <div className="mb-8 rounded-2xl border border-fog bg-surface p-3 lg:p-4">
-          <div className="grid grid-cols-7 gap-2 mb-2">
+        <div className="mb-8 rounded-2xl border border-fog bg-surface p-2 sm:p-3 lg:p-4">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label) => (
-              <div key={label} className="px-2 py-1 text-[11px] font-semibold text-ink/40 uppercase tracking-wide">
-                {label}
+              <div key={label} className="px-1 sm:px-2 py-1 text-[10px] sm:text-[11px] font-semibold text-ink/40 uppercase tracking-wide text-center sm:text-left">
+                <span className="sm:hidden">{label.slice(0, 1)}</span>
+                <span className="hidden sm:inline">{label}</span>
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-2">
+          <div
+            className="grid grid-cols-7 gap-1 sm:gap-2 touch-pan-y select-none"
+            onTouchStart={onCalendarTouchStart}
+            onTouchEnd={onCalendarTouchEnd}
+          >
             {calendarCells.map((cell, idx) => {
-              if (!cell) return <div key={`empty-${idx}`} className="min-h-[108px] rounded-xl border border-transparent bg-transparent" />
+              if (!cell) return <div key={`empty-${idx}`} className="min-h-[64px] sm:min-h-[108px] rounded-lg sm:rounded-xl border border-transparent bg-transparent" />
               const dayPosts = postsByDate[cell.iso] || []
               const isToday = cell.iso === toIsoDate(now.getFullYear(), now.getMonth() + 1, now.getDate())
               const isActive = selectedDate === cell.iso
@@ -1871,6 +1198,7 @@ export default function CalendarPage() {
                   key={cell.iso}
                   role="button"
                   tabIndex={0}
+                  aria-label={`${fmtDate(cell.iso)}, ${dayPosts.length} post${dayPosts.length === 1 ? '' : 's'}`}
                   onClick={() => setSelectedDate((cur) => (cur === cell.iso ? '' : cell.iso))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -1878,19 +1206,31 @@ export default function CalendarPage() {
                       setSelectedDate((cur) => (cur === cell.iso ? '' : cell.iso))
                     }
                   }}
-                  className={`min-h-[108px] rounded-xl border p-2 text-left transition-colors cursor-pointer ${
-                    isActive ? 'border-slate-900 bg-mist' : 'border-fog hover:border-ink/20 bg-surface'
+                  className={`min-h-[64px] sm:min-h-[108px] rounded-lg sm:rounded-xl border p-1.5 sm:p-2 text-left transition-colors cursor-pointer active:bg-mist ${
+                    isActive ? 'border-slate-900 bg-mist ring-2 ring-slate-900/10' : 'border-fog hover:border-ink/20 bg-surface'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`text-xs font-semibold ${isToday ? 'text-brand-600' : 'text-ink/65'}`}>{cell.day}</span>
+                    <span className={`text-xs sm:text-sm font-semibold ${isToday ? 'text-brand-600' : 'text-ink/65'}`}>{cell.day}</span>
                     {!!dayPosts.length && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-900 text-white">
+                      <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-full bg-slate-900 text-white leading-none">
                         {dayPosts.length}
                       </span>
                     )}
                   </div>
-                  <div className="mt-2 space-y-1">
+                  {/* Mobile: dot indicators only */}
+                  <div className="sm:hidden mt-1 flex flex-wrap gap-0.5">
+                    {dayPosts.slice(0, 4).map((post) => (
+                      <span
+                        key={post.id}
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ background: PLATFORMS.find((p) => p.id === post.platform)?.color || '#94a3b8' }}
+                        aria-hidden="true"
+                      />
+                    ))}
+                  </div>
+                  {/* Tablet/Desktop: text previews */}
+                  <div className="hidden sm:block mt-2 space-y-1">
                     {topPreview.map((post) => (
                       <button
                         key={post.id}
@@ -1912,9 +1252,10 @@ export default function CalendarPage() {
               )
             })}
           </div>
+          <p className="sm:hidden mt-2 text-[10px] text-ink/35 text-center">Swipe left or right to change month · Tap a date to view content</p>
           {selectedDate && (
             <div className="mt-4 rounded-xl border border-fog bg-mist/40 p-3">
-              <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center justify-between gap-2 mb-3">
                 <p className="text-sm font-semibold text-ink">
                   Plan for {fmtDate(selectedDate)}
                 </p>
@@ -1925,18 +1266,61 @@ export default function CalendarPage() {
               {(postsByDate[selectedDate] || []).length === 0 ? (
                 <p className="text-xs text-ink/45">No scheduled posts on this day yet.</p>
               ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {(postsByDate[selectedDate] || []).map((post) => (
-                    <button
-                      type="button"
-                      key={post.id}
-                      onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
-                      className="rounded-lg border border-fog bg-surface px-2.5 py-2 text-left hover:border-ink/20"
-                    >
-                      <p className="text-[11px] text-ink/45 capitalize">{post.platform}</p>
-                      <p className="text-xs text-ink font-medium truncate mt-0.5">{post.content_idea || post.topic}</p>
-                    </button>
-                  ))}
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {(postsByDate[selectedDate] || []).map((post) => {
+                    const postImg = (post?.image_urls?.[0]) || post?.image_url || ''
+                    return (
+                      <div
+                        key={post.id}
+                        className="rounded-xl border border-fog bg-surface overflow-hidden flex flex-col"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
+                          className="text-left p-3 flex items-start gap-3 active:bg-mist transition-colors"
+                        >
+                          {postImg ? (
+                            <img
+                              src={postImg}
+                              alt={post.topic || ''}
+                              className="w-14 h-14 rounded-lg object-cover bg-mist flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-14 h-14 rounded-lg bg-mist flex items-center justify-center text-ink/30 flex-shrink-0">
+                              {PLATFORM_LOGO[post.platform]}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] text-ink/45 capitalize">{post.platform}</p>
+                            <p className="text-sm text-ink font-medium line-clamp-2 mt-0.5">{post.content_idea || post.topic}</p>
+                          </div>
+                        </button>
+                        <div className="grid grid-cols-2 gap-1.5 px-3 pb-3">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              copyPostCaption(post)
+                            }}
+                            className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl border border-fog bg-mist text-ink/80 text-xs font-medium active:bg-fog hover:bg-fog/60"
+                          >
+                            <Copy size={14} /> Copy caption
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              downloadPostImage(post)
+                            }}
+                            disabled={!postImg}
+                            className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 text-white text-xs font-medium active:bg-slate-800 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Download size={14} /> Download
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -1986,107 +1370,32 @@ export default function CalendarPage() {
 
       </div>
 
-      <aside className="hidden lg:flex flex-col border border-fog rounded-2xl bg-surface overflow-hidden mt-6 lg:mt-0 sticky top-6 max-h-[calc(100vh-5rem)]">
-        {prepMinimized ? (
-          <button
-            type="button"
-            onClick={() => setPrepMinimizedPersist(false)}
-            className="flex flex-col items-center gap-3 py-5 px-1 flex-1 min-h-[min(240px,50vh)] hover:bg-mist/40 transition-colors rounded-2xl"
-            title="Expand your social media manager"
-            aria-expanded="false"
-          >
-            <MessageSquare size={20} className="text-brand-600 shrink-0" />
-            <span
-              className="text-[10px] font-bold text-ink/50 uppercase tracking-widest"
-              style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
-            >
-              Prep
-            </span>
-          </button>
-        ) : (
-          <>
-            <div className="px-3 py-3 border-b border-fog flex items-start gap-2">
-              <MessageSquare size={16} className="text-ink/40 shrink-0 mt-0.5" />
-              <div className="min-w-0 flex-1">
-                <p className="text-ink text-sm font-semibold">Your social media manager</p>
-                <p className="text-ink/35 text-[10px] leading-snug">
-                  {`Ask questions or share updates before you generate ${MONTHS[month - 1]}.`}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPrepMinimizedPersist(true)}
-                className="p-2 rounded-lg text-ink/35 hover:text-ink hover:bg-mist/80 transition-colors shrink-0"
-                title="Minimize your social media manager"
-                aria-label="Minimize your social media manager"
-              >
-                <PanelRightClose size={18} />
-              </button>
-            </div>
-            <div className="flex flex-col flex-1 min-h-0">
-              <CalendarPrepBody
-                messages={prepMessages}
-                prepSending={prepSending}
-                prepInput={prepInput}
-                setPrepInput={setPrepInput}
-                onSend={sendPrep}
-                scrollRef={prepScrollAsideRef}
-                onPickChoice={(ch) => sendPrepWithText(ch.label)}
-                onExecuteDesignIntent={executePrepDesignIntent}
-                prepExecuteBusy={prepExecuteBusy}
-                activeBrandId={activeBrandId}
-                onUploadAsset={uploadPrepAsset}
-                prepUploadingAsset={prepUploadingAsset}
-                prepQuestionAnswers={prepQuestionAnswers}
-                onQuestionPick={answerPrepQuestion}
-                onQuestionUpload={uploadPrepAssetForQuestion}
-                onRunCta={runPrepCtaAction}
-                usedCtaKeys={usedPrepCtaKeys}
-                ctaBusy={prepCtaBusy}
-                generatingMonth={generatingMonth}
-                prepServiceDown={prepServiceDown}
-              />
-            </div>
-          </>
-        )}
-      </aside>
-
-      </div>
-
       {/* ── Generate panel ── */}
       {showGenPanel && (
         <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
           onClick={e=>e.target===e.currentTarget&&setShowGenPanel(false)}>
-          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-6 space-y-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-ink font-semibold">Generate {MONTHS[month-1]} {year}</h3>
+          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-y-auto pb-[max(env(safe-area-inset-bottom),1rem)] sm:pb-6">
+            {/* Mobile drag handle */}
+            <div className="sm:hidden sticky top-0 z-10 bg-surface pt-2 pb-1 flex justify-center">
+              <span className="block w-10 h-1.5 rounded-full bg-fog" aria-hidden="true" />
+            </div>
+            <div className="px-5 sm:px-6 pt-3 sm:pt-6 pb-2 flex items-start justify-between gap-3 bg-surface">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-ink font-semibold text-base">Generate {MONTHS[month-1]} {year}</h3>
                 <p className="text-ink/40 text-xs mt-0.5">This will create a full month of on-brand content</p>
                 {generationLockedForMonth && (
                   <p className="text-ink/35 text-[11px] mt-1">This month is not available yet. You can generate up to 3 months ahead.</p>
                 )}
               </div>
-              <button onClick={()=>setShowGenPanel(false)} className="text-ink/30 hover:text-ink p-1.5 -mr-1 transition-colors"><X size={18}/></button>
+              <button
+                onClick={()=>setShowGenPanel(false)}
+                className="min-w-11 min-h-11 inline-flex items-center justify-center rounded-full text-ink/45 hover:text-ink hover:bg-mist transition-colors flex-shrink-0"
+                aria-label="Close"
+              >
+                <X size={20}/>
+              </button>
             </div>
-
-            {/* Brand readiness check */}
-            {activeBrand && !isBrandReady(activeBrand) && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5">
-                <div className="flex items-start gap-2.5">
-                  <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-amber-800 text-xs font-semibold mb-1">Complete your brand kit first</p>
-                    <p className="text-amber-700 text-[11px] mb-2">
-                      Missing: {getMissingFields(activeBrand).map(f => f.label).join(', ')}
-                    </p>
-                    <button onClick={() => { setShowGenPanel(false); navigate('/dashboard/brand-kit') }}
-                      className="text-[11px] font-semibold text-amber-800 hover:text-amber-900 flex items-center gap-1 transition-colors">
-                      Go to Brand Kit <ArrowRight size={10} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+            <div className="px-5 sm:px-6 pb-2 space-y-5">
 
             <div>
               <p className="label mb-2">Platform</p>
@@ -2098,7 +1407,7 @@ export default function CalendarPage() {
                   { id:'linkedin',  label:'LinkedIn'  },
                 ].map(pl=>(
                   <button key={pl.id} onClick={()=>setGenPlatform(pl.id)}
-                    className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${
+                    className={`flex flex-col items-center gap-1.5 p-3 min-h-16 rounded-xl border transition-all active:bg-mist ${
                       genPlatform===pl.id ? 'border-ink bg-mist' : 'border-fog hover:border-ink/20'
                     }`}>
                     <span className="text-ink/50">{PLATFORM_LOGO[pl.id]}</span>
@@ -2106,6 +1415,7 @@ export default function CalendarPage() {
                   </button>
                 ))}
               </div>
+              <p className="text-ink/30 text-[11px] mt-1.5">Default selected · tap to change</p>
             </div>
 
             <div>
@@ -2113,45 +1423,23 @@ export default function CalendarPage() {
               <div className="flex gap-2">
                 {[1,2,3,4,5].map(n=>(
                   <button key={n} onClick={()=>setGenPPW(n)}
-                    className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                    className={`flex-1 min-h-11 py-3 rounded-xl border text-sm font-medium transition-all active:bg-mist ${
                       genPPW===n ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'
                     }`}>
                     {n}×
                   </button>
                 ))}
               </div>
-              <p className="text-ink/30 text-[11px] mt-1.5">≈ {Math.round(genPPW * 4.3)} posts total</p>
             </div>
 
             <div>
               <p className="label mb-2">Focus topic <span className="text-ink/20 font-normal normal-case tracking-normal">(optional)</span></p>
               <input value={genTopic} onChange={e=>setGenTopic(e.target.value)}
                 placeholder="Leave blank for varied topics"
-                className="input"/>
+                inputMode="text"
+                className="input min-h-12 text-base sm:text-sm"/>
             </div>
 
-            {activeTemplates.length > 0 && (
-              <div>
-                <p className="label mb-2">Playbook template <span className="text-ink/20 font-normal normal-case tracking-normal">(optional)</span></p>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    onClick={() => setGenTemplateId(null)}
-                    className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all ${!genTemplateId ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}
-                  >
-                    Auto
-                  </button>
-                  {activeTemplates.slice(0, 6).map(t => (
-                    <button
-                      key={t.id}
-                      onClick={() => setGenTemplateId(t.id)}
-                      className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all truncate max-w-[120px] ${genTemplateId === t.id ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}
-                    >
-                      {t.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <div className="rounded-xl border border-fog bg-mist/50 p-3 space-y-2">
               <label className="flex items-start gap-2 cursor-pointer">
@@ -2166,7 +1454,7 @@ export default function CalendarPage() {
                   {user?.country_code
                     ? ` (using your profile country ${String(user.country_code).toUpperCase()}). `
                     : ' (add your country in Account settings for local holidays). '}
-                  The planner weaves relevant dates into posts unless you uncheck this.
+                  When on, every holiday gets its own post on top of your weekly cadence. Uncheck for cadence-only.
                 </span>
               </label>
               {monthHolidays.length > 0 && (
@@ -2181,70 +1469,103 @@ export default function CalendarPage() {
               {includeHolidays && monthHolidays.length === 0 && (
                 <p className="text-[11px] text-ink/35">No listed holidays fall in this month for your region.</p>
               )}
+              {includeHolidays && monthHolidays.length > 0 && (
+                <p className="text-[11px] text-brand-600 font-medium">
+                  + {monthHolidays.length} holiday post{monthHolidays.length === 1 ? '' : 's'} added on top of your weekly cadence.
+                </p>
+              )}
             </div>
 
-            <button onClick={handleGenerate} disabled={generatingMonth || generationLockedForMonth || (activeBrand && !isBrandReady(activeBrand))}
-              className="btn-primary w-full justify-center py-3 disabled:opacity-50 disabled:cursor-not-allowed">
+            {/* Prominent total — the user needs to know exactly how many posts
+                they're about to create, with holidays counted in. */}
+            {(() => {
+              const weekly = Math.round(genPPW * 4.3)
+              const extras = includeHolidays ? monthHolidays.length : 0
+              const total = weekly + extras
+              return (
+                <div className="rounded-xl border border-ink/10 bg-ink/[0.03] px-4 py-3 flex items-baseline justify-between gap-3">
+                  <span className="text-xs font-semibold uppercase tracking-widest text-ink/60">Total posts</span>
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-2xl font-bold text-ink leading-none">≈ {total}</span>
+                    <span className="text-[11px] text-ink/45 leading-none whitespace-nowrap">
+                      {extras > 0 ? `${weekly} weekly + ${extras} holiday` : `${weekly} weekly`}
+                    </span>
+                  </span>
+                </div>
+              )
+            })()}
+
+            <button onClick={handleGenerate} disabled={generatingMonth || generationLockedForMonth}
+              className="btn-primary w-full justify-center py-4 sm:py-3 text-sm font-semibold min-h-12 disabled:opacity-50 disabled:cursor-not-allowed">
               {generatingMonth
                 ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
                     {generationPollCount < 1 ? 'Starting…' : generationPollCount < 3 ? 'Writing captions…' : generationPollCount < 7 ? 'Crafting posts…' : 'Almost done…'}</>
                 : <><Zap size={15}/>Review &amp; Generate {MONTHS[month-1]} →</>}
             </button>
+            </div>
           </div>
         </div>
       )}
-
-      {/* ── Generation plan modal ── */}
-      {showPlanModal && (
-        <GenerationPlanErrorBoundary
-          resetKey={`${month}-${year}-${genPlatform}-${genPPW}-${genTemplateId || 'auto'}`}
-          onBack={() => { setShowPlanModal(false); setShowGenPanel(true) }}
-          onClose={() => setShowPlanModal(false)}
-        >
-          <GenerationPlanModal
-            month={month}
-            year={year}
-            platform={genPlatform}
-            postsPerWeek={genPPW}
-            templateId={genTemplateId}
-            templates={activeTemplates}
-            brand={activeBrand}
-            workspaceId={activeWorkspaceId}
-            onConfirm={handlePlanConfirmed}
-            onBack={() => { setShowPlanModal(false); setShowGenPanel(true) }}
-            onClose={() => setShowPlanModal(false)}
-          />
-        </GenerationPlanErrorBoundary>
-      )}
-
       {/* ── Post modal ── */}
       {modal && (
         <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
           onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl max-h-[94vh] overflow-y-auto">
+          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[94vh] overflow-y-auto pb-[max(env(safe-area-inset-bottom),0px)]">
+
+            {/* Mobile drag handle */}
+            <div className="sm:hidden sticky top-0 z-20 bg-surface pt-2 pb-1 flex justify-center">
+              <span className="block w-10 h-1.5 rounded-full bg-fog" aria-hidden="true" />
+            </div>
 
             {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-fog sticky top-0 bg-surface z-10">
-              <div>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-fog sticky top-3 sm:top-0 bg-surface z-10">
+              <div className="min-w-0 flex-1 pr-3">
                 <p className="text-ink/40 text-xs mb-0.5 capitalize">
                   {modal.platform} · {fmtDate(modal.scheduled_date)}
                   {modal.content_type && <span className="ml-2 font-medium text-ink/50">{modal.content_type}</span>}
+                  {totalSlides > 1 && (
+                    <span className="ml-2 font-medium text-ink/40">
+                      Slide {slideIdx + 1}/{totalSlides}
+                      {(() => {
+                        const slide = Array.isArray(modal.slide_blueprint) ? modal.slide_blueprint[slideIdx] : null
+                        const role = slide && typeof slide === 'object' ? String(slide.role || '').trim() : ''
+                        return role ? <span className="ml-1 text-ink/30">· {role}</span> : null
+                      })()}
+                    </span>
+                  )}
                 </p>
-                <p className="text-ink font-semibold text-sm truncate max-w-[380px]">{modal.content_idea || modal.topic}</p>
+                {(() => {
+                  const slide = totalSlides > 1 && Array.isArray(modal.slide_blueprint) ? modal.slide_blueprint[slideIdx] : null
+                  const slideHeadline = slide && typeof slide === 'object' ? String(slide.headline || '').trim() : ''
+                  const slideBody = slide && typeof slide === 'object' ? String(slide.support || '').trim() : ''
+                  const headlineToShow = slideHeadline || modal.content_idea || modal.topic
+                  return (
+                    <>
+                      <p className="text-ink font-semibold text-sm truncate">{headlineToShow}</p>
+                      {slideBody && (
+                        <p className="text-ink/55 text-xs mt-0.5 line-clamp-2">{slideBody}</p>
+                      )}
+                    </>
+                  )
+                })()}
                 {modal.visual_archetype && (
-                  <p className="text-ink/35 text-[10px] mt-1 font-mono">Layout: {modal.visual_archetype}</p>
+                  <p className="text-ink/35 text-[10px] mt-1">Layout: {humanizeArchetype(modal.visual_archetype)}</p>
                 )}
               </div>
-              <button onClick={()=>setModal(null)} className="text-ink/30 hover:text-ink p-1.5 transition-colors -mr-1">
-                <X size={20}/>
+              <button
+                onClick={()=>setModal(null)}
+                className="min-w-11 min-h-11 inline-flex items-center justify-center rounded-full text-ink/45 hover:text-ink hover:bg-mist transition-colors flex-shrink-0 -mr-2"
+                aria-label="Close"
+              >
+                <X size={22}/>
               </button>
             </div>
 
             <div className="p-5">
-              <div className="grid sm:grid-cols-[auto_1fr] gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-[300px_minmax(0,1fr)] gap-6">
 
                 {/* Left: image + actions */}
-                <div className="flex flex-col items-center gap-3">
+                <div className="flex flex-col items-center gap-3 md:w-[300px]">
                   <PostCard ref={cardRef} post={modal} brand={activeBrand} size={280} slideIndex={slideIdx}/>
 
                   {/* Slide navigation */}
@@ -2271,18 +1592,18 @@ export default function CalendarPage() {
                   {/* Action buttons */}
                   <div className="flex gap-2 w-full">
                     <button onClick={copyCaption}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 btn-primary text-xs">
-                      <Copy size={12}/> Copy caption
+                      className="flex-1 flex items-center justify-center gap-1.5 py-3 min-h-12 btn-primary text-sm font-semibold">
+                      <Copy size={14}/> Copy caption
                     </button>
                     {totalSlides > 1 ? (
                       <button onClick={downloadAll}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 btn-secondary text-xs">
-                        <Download size={12}/> Download all
+                        className="flex-1 flex items-center justify-center gap-1.5 py-3 min-h-12 btn-secondary text-sm font-semibold">
+                        <Download size={14}/> Download all
                       </button>
                     ) : (
                       <button onClick={downloadSlide}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 btn-secondary text-xs">
-                        <Download size={12}/> Download
+                        className="flex-1 flex items-center justify-center gap-1.5 py-3 min-h-12 btn-secondary text-sm font-semibold">
+                        <Download size={14}/> Download image
                       </button>
                     )}
                   </div>
@@ -2290,6 +1611,32 @@ export default function CalendarPage() {
                     Auto-publish is not available for every network. Copy your caption, save images above, then open a
                     composer to paste.
                   </p>
+                  <div className="flex items-center justify-center gap-2 w-full">
+                    <span className="text-ink/40 text-[11px]">How does this look?</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await contentApi.feedback(modal.id, { rating: 'up' })
+                          toast('Thanks!')
+                        } catch { /* fire-and-forget */ }
+                      }}
+                      className="px-2 py-1 rounded-lg border border-fog text-ink/60 hover:border-brand-300 hover:text-ink text-xs"
+                      aria-label="Thumbs up"
+                    >👍</button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const note = window.prompt('What was off about this design? (optional)') || ''
+                        try {
+                          await contentApi.feedback(modal.id, { rating: 'down', note })
+                          toast('Thanks — noted')
+                        } catch { /* fire-and-forget */ }
+                      }}
+                      className="px-2 py-1 rounded-lg border border-fog text-ink/60 hover:border-brand-300 hover:text-ink text-xs"
+                      aria-label="Thumbs down"
+                    >👎</button>
+                  </div>
                   <div className="flex flex-wrap gap-2 w-full justify-center">
                     <button
                       type="button"

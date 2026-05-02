@@ -95,6 +95,13 @@ def _resolve_logo_placement(post: dict[str, Any], arch: str, brand: dict[str, An
 def _coerce_archetype(post: dict[str, Any], allowed: list[str]) -> str:
     raw = post.get("visual_archetype")
     a = (raw or "").strip().lower()
+    # Experiment: when the playbook layer is disabled, accept whatever the AI
+    # returned as the archetype (or fall back to a permissive inference). The
+    # visual is described freely via visual_direction + image_prompt, not by
+    # forcing one of 13 enum slots.
+    from app.core.config import settings
+    if not settings.CONTENT_PLAYBOOK_ENABLED:
+        return a or _infer_archetype(str(post.get("visual_type", "real_people")))
     if a in ARCHETYPE_IDS and a in allowed:
         return a
     if a in ARCHETYPE_IDS:

@@ -5,13 +5,8 @@ import useAuthStore from './stores/authStore'
 import { getPostAuthPath } from './utils/authFlow'
 
 import LandingPage          from './pages/LandingPage'
-import LoginPage            from './pages/LoginPage'
-import SignupPage           from './pages/SignupPage'
-import OnboardingPage       from './pages/OnboardingPage'
+import AuthPage             from './pages/AuthPage'
 import AcceptInvite         from './pages/AcceptInvite'
-import ForgotPasswordPage   from './pages/ForgotPasswordPage'
-import ResetPasswordPage    from './pages/ResetPasswordPage'
-import VerifyEmailPage      from './pages/VerifyEmailPage'
 import FeaturesPage         from './pages/FeaturesPage'
 import PricingPage          from './pages/PricingPage'
 import EnterprisePage       from './pages/EnterprisePage'
@@ -28,19 +23,14 @@ import DashboardPage        from './pages/DashboardPage'
 import CalendarPage         from './pages/CalendarPage'
 import GeneratePage         from './pages/GeneratePage'
 import BrandKitPage         from './pages/BrandKitPage'
-import TemplatesPage        from './pages/TemplatesPage'
+import ProductsPage         from './pages/ProductsPage'
 import SettingsPage         from './pages/SettingsPage'
 import BillingPage          from './pages/BillingPage'
 import DirectoryPage        from './pages/DirectoryPage'
-import MemesPage            from './pages/MemesPage'
 import SocialAutopilotPage  from './pages/SocialAutopilotPage'
 import DesignEditorPage     from './pages/DesignEditorPage'
 import AnalyticsPage        from './pages/AnalyticsPage'
 import InboxPage            from './pages/InboxPage'
-import AIWorkspacePage      from './pages/AIWorkspacePage'
-import ShopifyAuthCallbackPage from './pages/ShopifyAuthCallbackPage'
-import ShopifyOnboardingCompletionPage from './pages/ShopifyOnboardingCompletionPage'
-import ShopifyPostSignupDecisionPage from './pages/ShopifyPostSignupDecisionPage'
 
 // Admin
 import AdminLogin           from './pages/AdminLogin'
@@ -69,7 +59,7 @@ function AuthGateFallback() {
   )
 }
 
-function RouteGate({ children, requireAuth, redirectAuthed = '/dashboard/calendar', redirectUnauthed = '/login' }) {
+function RouteGate({ children, requireAuth, redirectAuthed = '/dashboard/calendar', redirectUnauthed = '/auth' }) {
   const {
     token,
     user,
@@ -91,14 +81,12 @@ function RouteGate({ children, requireAuth, redirectAuthed = '/dashboard/calenda
     return <AuthGateFallback />
   }
 
-  const shouldResumeOnboarding =
-    isAuthenticated &&
-    user?.onboarding_completed === false &&
-    !new Set(['/onboarding', '/shopify/complete-onboarding', '/shopify/decision', '/shopify/callback']).has(location.pathname)
-
   if (requireAuth) {
-    if (!isAuthenticated) return <Navigate to={redirectUnauthed} replace />
-    if (shouldResumeOnboarding) return <Navigate to="/onboarding" replace />
+    if (!isAuthenticated) {
+      const next = `${location.pathname}${location.search || ''}`
+      const target = next && next !== '/' ? `${redirectUnauthed}?next=${encodeURIComponent(next)}` : redirectUnauthed
+      return <Navigate to={target} replace />
+    }
     return children
   }
 
@@ -106,7 +94,7 @@ function RouteGate({ children, requireAuth, redirectAuthed = '/dashboard/calenda
 }
 
 function PrivateRoute({ children }) {
-  return <RouteGate requireAuth redirectUnauthed="/login">{children}</RouteGate>
+  return <RouteGate requireAuth>{children}</RouteGate>
 }
 
 function GuestRoute({ children }) {
@@ -119,7 +107,7 @@ function AdminRoute({ children }) {
 }
 
 function AuthOnlyDashRoute({ children }) {
-  return <RouteGate requireAuth redirectUnauthed="/login">{children}</RouteGate>
+  return <RouteGate requireAuth>{children}</RouteGate>
 }
 
 export default function App() {
@@ -144,33 +132,26 @@ export default function App() {
         <Route path="/pitch-deck"            element={<PitchDeckPage />} />
         <Route path="/product-guide"         element={<ProductGuidePage />} />
 
-        {/* Auth */}
-        <Route path="/login"                 element={<GuestRoute><LoginPage /></GuestRoute>} />
-        <Route path="/signup"                element={<GuestRoute><SignupPage /></GuestRoute>} />
-        <Route path="/forgot-password"       element={<ForgotPasswordPage />} />
-        <Route path="/reset-password"        element={<ResetPasswordPage />} />
-        <Route path="/verify-email"          element={<VerifyEmailPage />} />
+        {/* Auth — single email-OTP flow used for both sign-in and sign-up */}
+        <Route path="/auth"                  element={<GuestRoute><AuthPage /></GuestRoute>} />
+        {/* Legacy URLs redirect to the unified auth page so old links don't 404 */}
+        <Route path="/login"                 element={<Navigate to="/auth" replace />} />
+        <Route path="/signup"                element={<Navigate to="/auth" replace />} />
         <Route path="/accept-invite"         element={<AcceptInvite />} />
-        <Route path="/onboarding"            element={<PrivateRoute><OnboardingPage /></PrivateRoute>} />
-        <Route path="/shopify/callback"      element={<ShopifyAuthCallbackPage />} />
-        <Route path="/shopify/complete-onboarding" element={<PrivateRoute><ShopifyOnboardingCompletionPage /></PrivateRoute>} />
-        <Route path="/shopify/decision"      element={<PrivateRoute><ShopifyPostSignupDecisionPage /></PrivateRoute>} />
 
-        {/* Dashboard — auth required for every route. */}
+        {/* Dashboard — auth required for every route. Onboarding renders as
+            an in-app overlay from DashboardLayout, not as a separate route. */}
         <Route path="/dashboard" element={<DashboardLayout />}>
           <Route index             element={<AuthOnlyDashRoute><DashboardPage /></AuthOnlyDashRoute>} />
           <Route path="generate"   element={<AuthOnlyDashRoute><GeneratePage /></AuthOnlyDashRoute>} />
           <Route path="calendar"   element={<AuthOnlyDashRoute><CalendarPage /></AuthOnlyDashRoute>} />
-          <Route path="templates"  element={<AuthOnlyDashRoute><TemplatesPage /></AuthOnlyDashRoute>} />
           <Route path="brand-kit"  element={<AuthOnlyDashRoute><BrandKitPage /></AuthOnlyDashRoute>} />
+          <Route path="products"   element={<AuthOnlyDashRoute><ProductsPage /></AuthOnlyDashRoute>} />
           <Route path="settings"   element={<AuthOnlyDashRoute><SettingsPage /></AuthOnlyDashRoute>} />
           <Route path="billing"    element={<AuthOnlyDashRoute><BillingPage /></AuthOnlyDashRoute>} />
           <Route path="directory"  element={<AuthOnlyDashRoute><DirectoryPage /></AuthOnlyDashRoute>} />
-          <Route path="memes"      element={<AuthOnlyDashRoute><MemesPage /></AuthOnlyDashRoute>} />
           <Route path="social"     element={<AuthOnlyDashRoute><SocialAutopilotPage /></AuthOnlyDashRoute>} />
           <Route path="calendar/editor/:contentId" element={<AuthOnlyDashRoute><DesignEditorPage /></AuthOnlyDashRoute>} />
-          <Route path="assistant"  element={<AuthOnlyDashRoute><AIWorkspacePage /></AuthOnlyDashRoute>} />
-          <Route path="ai"         element={<AuthOnlyDashRoute><AIWorkspacePage /></AuthOnlyDashRoute>} />
           <Route path="inbox"      element={<AuthOnlyDashRoute><InboxPage /></AuthOnlyDashRoute>} />
           <Route path="analytics"  element={<AuthOnlyDashRoute><AnalyticsPage /></AuthOnlyDashRoute>} />
         </Route>

@@ -67,11 +67,10 @@ class InviteCreated(InviteOut):
 
 
 class AcceptInviteRequest(BaseModel):
-    full_name: str
-    password: str
-    phone: str | None = None
-    # Required when accepting a link-only invite (synthetic placeholder email on the row).
-    email: EmailStr | None = None
+    # The invitee is already authenticated (signed in via OTP). Optional fields
+    # let the accept screen surface a "what should we call you?" input on first
+    # accept and persist it to the user profile.
+    full_name: str | None = None
 
 
 class RoleUpdateRequest(BaseModel):
