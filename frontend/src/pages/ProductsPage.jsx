@@ -152,7 +152,10 @@ export default function ProductsPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-4">
-      <div className="flex items-start justify-between gap-3 mb-4">
+      {/* Header — title + helper text on top, action row underneath on
+          mobile so the title doesn't get squeezed by the buttons; reverts
+          to a single inline row from sm: where there's room. */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-ink">Products</h1>
           <p className="text-ink/45 text-sm mt-1">
@@ -160,19 +163,19 @@ export default function ProductsPage() {
             We use these for product-led posts.
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:flex-shrink-0">
           <button
             type="button"
             onClick={refreshFromWebsite}
             disabled={websiteSyncing || !brand?.website}
-            className="px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+            className="flex-1 sm:flex-initial px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50 whitespace-nowrap"
           >
             {websiteSyncing ? 'Refreshing…' : 'Refresh from website'}
           </button>
           <button
             type="button"
             onClick={openAddModal}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold transition-colors"
+            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold transition-colors whitespace-nowrap"
           >
             <Plus size={14} />
             Add product
