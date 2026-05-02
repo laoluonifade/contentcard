@@ -4122,6 +4122,47 @@ async def _do_generate_month(
                         "product_image_url": pinned_image_url,
                         "product_image_urls": [pinned_image_url],
                     }
+                # Multi-product attachment for bundle / promo / collage posts.
+                # The text generator may have planned a "complete the look" or
+                # "bundle of three" angle and we need to mirror that on the
+                # image side: surface 2-3 distinct product images so the image
+                # service can lay them out as a collage instead of picking one.
+                visual_theme = str(post.get("visual_theme") or "").strip().lower()
+                content_type_l = str(post.get("content_type") or "").strip().lower()
+                wants_multi_product = (
+                    visual_theme == "collage"
+                    or any(k in content_type_l for k in ("promotional", "promo", "offer", "bundle", "upsell"))
+                )
+                if (
+                    wants_multi_product
+                    and len(brand_product_grounding_pool) >= 2
+                    and product_ctx
+                ):
+                    primary_url = product_ctx.get("product_image_url")
+                    extras: list[str] = []
+                    extra_titles: list[str] = []
+                    # Walk the pool starting at the next round-robin index so
+                    # consecutive bundle posts don't pick the same companions.
+                    for offset in range(1, len(brand_product_grounding_pool)):
+                        candidate = brand_product_grounding_pool[(product_img_idx + offset) % len(brand_product_grounding_pool)]
+                        c_url = candidate.get("product_image_url")
+                        if not c_url or c_url == primary_url or c_url in extras:
+                            continue
+                        extras.append(c_url)
+                        if candidate.get("entity_title"):
+                            extra_titles.append(str(candidate.get("entity_title")))
+                        if len(extras) >= 2:
+                            break
+                    if extras:
+                        merged_urls = ([primary_url] if primary_url else []) + extras
+                        product_ctx = {
+                            **(product_ctx or {}),
+                            "product_image_urls": merged_urls,
+                            "bundled_product_titles": extra_titles,
+                        }
+                        # Bump idx so the next bundle post starts from a different cursor.
+                        product_img_idx += len(extras)
+
                 if product_ctx:
                     enriched.update(product_ctx)
                 if isinstance(matched_op, dict):
@@ -4131,12 +4172,16 @@ async def _do_generate_month(
                     "art_brief": sab,
                     "visual_lint": None,
                     "visual_type": post.get("visual_type"),
+                    "visual_theme": post.get("visual_theme"),
+                    "is_holiday_post": bool(post.get("is_holiday_post")),
+                    "holiday_name": post.get("holiday_name"),
                     "template_family": "default",
                     "template_contract": template_contract if template_contract else None,
                     "message_architecture": post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else None,
                     "website_grounding": matched_op if isinstance(matched_op, dict) else None,
                     "product_image_url": product_ctx.get("product_image_url") if product_ctx else None,
                     "product_image_urls": product_ctx.get("product_image_urls") if product_ctx else None,
+                    "bundled_product_titles": product_ctx.get("bundled_product_titles") if product_ctx else None,
                     "website_grounding_gate": _website_grounding_gate(
                         matched_op if isinstance(matched_op, dict) else None,
                         post,

@@ -409,6 +409,39 @@ def _validate_product_handling(
     ))
 
 
+VISUAL_THEME_DIRECTIVES: dict[str, str] = {
+    "product_hero": (
+        "VISUAL THEME = product_hero. The composition is a single product taking the frame, "
+        "clean negative-space background, hero-shot lighting. Headlines sit beside the product, "
+        "never on it."
+    ),
+    "lifestyle": (
+        "VISUAL THEME = lifestyle. The product (or brand moment) sits inside a real-world "
+        "context — hands, environment, candid usage. Casting must feel local and real, never "
+        "stock-photo plastic."
+    ),
+    "flatlay": (
+        "VISUAL THEME = flatlay. Top-down arrangement of products + props with intentional spacing "
+        "and breathing room. Light from a consistent direction; props support the product, never "
+        "compete with it."
+    ),
+    "collage": (
+        "VISUAL THEME = collage. Two or more products composed together as a single offer "
+        "(bundle / set / 'complete the look'). Consistent lighting + scale across all items, "
+        "no jarring scale jumps, no floating cutouts that look pasted."
+    ),
+    "abstract": (
+        "VISUAL THEME = abstract. Typography or pattern leads the frame. Either no product or a "
+        "tiny crop / motif. The message takes the visual. Strong colour blocking + bold geometric "
+        "type are encouraged."
+    ),
+    "editorial": (
+        "VISUAL THEME = editorial. Magazine-style still-life or scene with directional light, "
+        "intentional shadow, considered composition. Lean into mood and brand story over hard sell."
+    ),
+}
+
+
 async def call_strategist(
     *,
     brand_kit: dict[str, Any],
@@ -416,6 +449,8 @@ async def call_strategist(
     platform: str,
     format: str,
     variation_axis: str | None = None,
+    visual_theme: str | None = None,
+    holiday_name: str | None = None,
 ) -> dict[str, Any]:
     """Convert (brand_kit + user intent) → structured creative direction JSON.
 
@@ -460,13 +495,30 @@ async def call_strategist(
     except Exception:
         cues_block = ""
 
+    theme_line = ""
+    theme_key = (visual_theme or "").strip().lower()
+    if theme_key in VISUAL_THEME_DIRECTIVES:
+        theme_line = f"\n{VISUAL_THEME_DIRECTIVES[theme_key]}"
+    elif theme_key:
+        theme_line = f"\nVISUAL THEME (planner hint, honour it): {theme_key}"
+
+    holiday_line = ""
+    if holiday_name and holiday_name.strip():
+        holiday_line = (
+            f"\nHOLIDAY: This post falls on {holiday_name.strip()}. Lead with the moment "
+            "(acknowledgment / celebration / brand-tying), not the brand's usual pitch. Headline + "
+            "scene must read as that occasion, not a generic promo with the date in the corner."
+        )
+
     user_message = (
         f"BRAND KIT:\n{summary}\n\n"
         + (f"{cues_block}\n\n" if cues_block else "")
         + f"USER PROMPT (interpret, do not echo): {user_prompt_clean}\n"
         f"PLATFORM: {platform}\n"
         f"REQUESTED FORMAT: {format}\n"
-        f"{variation_line}\n\n"
+        f"{variation_line}"
+        f"{theme_line}"
+        f"{holiday_line}\n\n"
         "Return the strategy JSON now."
     )
 
