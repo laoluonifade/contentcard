@@ -159,6 +159,12 @@ export const workspaceApi = {
     api.delete(`/workspaces/${wsId}/members/${memberId}`).then(r => r.data),
 }
 
+// ─── Onboarding ─────────────────────────────────────────────────
+export const onboardingApi = {
+  quickStart: (wsId, data) =>
+    api.post(`/workspaces/${wsId}/onboarding/quick-start`, data).then((r) => r.data),
+}
+
 // ─── Invites ────────────────────────────────────────────────────
 export const inviteApi = {
   send:       (wsId, data) => api.post(`/workspaces/${wsId}/invites`, data).then(r => r.data),
