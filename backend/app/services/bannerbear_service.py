@@ -107,6 +107,28 @@ def _background_image_modification(image_url: str) -> dict:
     }
 
 
+def _product_image_modifications(image_url: str | None) -> list[dict]:
+    """Replace any product_image layer placeholder text/art so users never see
+    a literal "No product image" placeholder in proof previews. When a real
+    product image is provided we centre-crop it; when missing, we hide the
+    layer entirely instead of leaking template chrome.
+    """
+    target_layers = ("product_image", "product", "hero_product", "product_photo")
+    mods: list[dict] = []
+    url = (image_url or "").strip()
+    for layer in target_layers:
+        if url:
+            mods.append({
+                "name": layer,
+                "image_url": url,
+                "fill_type": "fit",
+                "disable_smart_crop": True,
+            })
+        else:
+            mods.append({"name": layer, "hide": True})
+    return mods
+
+
 def _family_prefers_graphic_system(family: str) -> bool:
     return str(family or "").strip().lower() in TEXT_FIRST_FAMILIES
 
@@ -452,6 +474,7 @@ def _cover_mods(
             subtitle = "Swipe for details"
     hlimit = _copy_limit(fam, "headline", 68)
     headline = _stack_headline_for_safe_area(headline, hlimit)
+    product_image_url = str((post_data or {}).get("product_image_url") or "").strip() or None
     mods = [
         {"name": "headline",   "text": headline},
         {"name": "subtitle",   "text": subtitle},
@@ -462,6 +485,10 @@ def _cover_mods(
     # The template must have a layer named "background_image" for this to apply.
     if background_image_url:
         mods.append(_background_image_modification(background_image_url))
+    # Always send product_image modifications. When a product image is supplied
+    # we render it; when not, we hide the layer so users never see the literal
+    # "No product image" placeholder text from the template canvas.
+    mods.extend(_product_image_modifications(product_image_url))
     return mods
 
 
