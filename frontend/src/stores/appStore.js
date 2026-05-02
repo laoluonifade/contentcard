@@ -60,6 +60,13 @@ const useAppStore = create(
       generationStartedAt: null,
       generationPollCount: 0,
       generationProgress: null,
+      // Set when a generation finishes with a non-recoverable error so the
+      // UI can show a retry CTA on Home + Calendar. Cleared by retryGeneration
+      // and clearGenerationFailure.
+      generationFailure: null,  // { reason: string, month: number, year: number }
+      // Echo of the last generateMonth() args so retryGeneration() can re-run
+      // without the user retyping platform / month / topic / etc.
+      lastGenerationRequest: null,
       templates: [],
       templatePlaybookCatalog: null,
       trends: [],
@@ -204,11 +211,22 @@ const useAppStore = create(
       }) => {
         const brandId = get().activeBrandId
         if (!brandId) throw new Error('No active brand selected')
+        // Remember the args so retryGeneration() can re-fire without the
+        // user re-entering anything. Same shape generateMonth was called
+        // with — we just spread it back in retryGeneration.
+        const requestSnapshot = {
+          month, year, platforms, format_mix, posts_per_week, topic_override,
+          template_id, include_holidays_in_content, generation_brief,
+          use_website_intelligence, only_new_changes, use_reference_research,
+          variant_count, confirm_duplicate, custom_plan, campaign_brief,
+        }
         set({
           generatingMonth: true,
           generationStartedAt: Date.now(),
           generationPollCount: 0,
           generationProgress: null,
+          generationFailure: null,
+          lastGenerationRequest: requestSnapshot,
         })
         try {
           const reqV2 = {
@@ -247,16 +265,51 @@ const useAppStore = create(
             }
           }
           const count = await get()._pollForContent(brandId, month, year)
+          // Success path — clear failure if any, mark generation as complete.
+          set({ generationFailure: null })
           return count
+        } catch (err) {
+          // Capture failure for the UI banner. The user will see a retry CTA
+          // on Home + Calendar that calls retryGeneration() to re-fire the
+          // exact same request without re-typing.
+          const detail = err?.response?.data?.detail
+          const reason =
+            (typeof detail === 'string' && detail.trim()) ||
+            (detail && typeof detail === 'object' && (detail.message || detail.code)) ||
+            err?.message ||
+            'Generation failed. Please try again.'
+          set({
+            generationFailure: { reason: String(reason).slice(0, 400), month, year },
+          })
+          throw err
         } finally {
           set({ generatingMonth: false, generationStartedAt: null, generationProgress: null })
         }
       },
 
-      // Poll with exponential backoff: returns number of posts found
+      // Re-run the last generateMonth call with the same args. Used by the
+      // retry button on the Home + Calendar failure banners.
+      retryGeneration: async () => {
+        const last = get().lastGenerationRequest
+        if (!last) {
+          throw new Error('No previous generation to retry.')
+        }
+        set({ generationFailure: null })
+        return get().generateMonth(last)
+      },
+
+      clearGenerationFailure: () => set({ generationFailure: null }),
+
+      // Poll with exponential backoff. Returns number of posts found.
+      //
+      // Incremental: every time the server reports more visuals than we saw
+      // last poll, we re-fetch the month so newly-ready posts appear in the
+      // calendar grid + on the dashboard's "today" card without waiting for
+      // the whole batch to finish. The user sees their feed fill up live.
       _pollForContent: async (brandId, month, year) => {
         const maxAttempts = 36
         const delays = [3000, 3000, 4000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000]
+        let lastWithV = -1
 
         for (let i = 0; i < maxAttempts; i++) {
           const delay = delays[Math.min(i, delays.length - 1)]
@@ -273,6 +326,18 @@ const useAppStore = create(
                 ? { with: withV, total }
                 : { with: 0, total: 0 },
             })
+            // Incremental refetch — any time a new post becomes visually
+            // ready, push the freshest list into contentByMonth so the UI
+            // shows it immediately. Skip when the count hasn't changed to
+            // avoid hammering the list endpoint.
+            if (withV > 0 && withV !== lastWithV) {
+              try {
+                await get().fetchMonthContent(month, year)
+              } catch {
+                /* best-effort; we'll try again next tick */
+              }
+              lastWithV = withV
+            }
             if (status.ready && withV > 0) {
               const items = await get().fetchMonthContent(month, year)
               return items.length

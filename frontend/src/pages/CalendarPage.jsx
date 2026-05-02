@@ -10,6 +10,7 @@ import { brandVisualBlockReason } from '../lib/brandVisualValidate'
 import { buildCampaignBrief } from '../utils/campaignBrief'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
 import PaymentModal from '../components/ui/PaymentModal'
+import GenerationStatusBanner from '../components/dashboard/GenerationStatusBanner'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const MAX_GENERATION_MONTHS_AHEAD = 3
@@ -1610,6 +1611,12 @@ export default function CalendarPage() {
 
   return (
     <div className="p-4 lg:p-8 max-w-7xl mx-auto pb-24 lg:pb-8">
+
+      {/* Live generation status — appears whenever a month is generating
+          OR a generation just failed and hasn't been dismissed. */}
+      <div className="mb-4">
+        <GenerationStatusBanner />
+      </div>
 
       {/* Header */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
