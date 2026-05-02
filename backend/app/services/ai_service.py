@@ -4473,7 +4473,6 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
         topics_hint += f"\nRotate through these topics: {', '.join(template_topics)}"
 
     posting_dates = _get_posting_dates(year, month, posts_per_week)
-    logger.info(f"Generating {len(posting_dates)} posts for {len(platforms)} platform(s) in {month_name} {year}")
 
     # Vector store ID drives the Responses API brand-memory path.
     # The legacy openai_assistant_id field is no longer used (Assistants
@@ -4487,6 +4486,22 @@ Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
     # holiday_context block so the planner can mark exact-date matches as
     # is_holiday_post and the AI sees the moment explicitly per row.
     holiday_dates = _extract_holiday_dates(holiday_context)
+
+    # Holidays add to the cadence — they don't replace it. When the user opts
+    # in to holiday-aware planning we make sure every holiday in the month
+    # gets its own slot, on top of the weekly cadence the user picked. If a
+    # holiday already happens to fall on a cadence date, that date stays as
+    # one slot (the planner will mark it is_holiday_post and the AI is told
+    # to lead with the moment).
+    if holiday_dates:
+        existing = set(posting_dates)
+        extras = [d for d in holiday_dates.keys() if d not in existing]
+        if extras:
+            posting_dates = sorted([*posting_dates, *extras])
+    logger.info(
+        "Generating %d posts (incl. %d holiday extras) for %d platform(s) in %s %s",
+        len(posting_dates), len(holiday_dates), len(platforms), month_name, year,
+    )
 
     all_posts = []
     for platform in platforms:

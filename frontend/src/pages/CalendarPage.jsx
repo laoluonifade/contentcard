@@ -2233,7 +2233,6 @@ export default function CalendarPage() {
                   </button>
                 ))}
               </div>
-              <p className="text-ink/30 text-[11px] mt-1.5">≈ {Math.round(genPPW * 4.3)} posts total</p>
             </div>
 
             <div>
@@ -2280,7 +2279,7 @@ export default function CalendarPage() {
                   {user?.country_code
                     ? ` (using your profile country ${String(user.country_code).toUpperCase()}). `
                     : ' (add your country in Account settings for local holidays). '}
-                  The planner weaves relevant dates into posts unless you uncheck this.
+                  When on, every holiday gets its own post on top of your weekly cadence. Uncheck for cadence-only.
                 </span>
               </label>
               {monthHolidays.length > 0 && (
@@ -2295,7 +2294,31 @@ export default function CalendarPage() {
               {includeHolidays && monthHolidays.length === 0 && (
                 <p className="text-[11px] text-ink/35">No listed holidays fall in this month for your region.</p>
               )}
+              {includeHolidays && monthHolidays.length > 0 && (
+                <p className="text-[11px] text-brand-600 font-medium">
+                  + {monthHolidays.length} holiday post{monthHolidays.length === 1 ? '' : 's'} added on top of your weekly cadence.
+                </p>
+              )}
             </div>
+
+            {/* Prominent total — the user needs to know exactly how many posts
+                they're about to create, with holidays counted in. */}
+            {(() => {
+              const weekly = Math.round(genPPW * 4.3)
+              const extras = includeHolidays ? monthHolidays.length : 0
+              const total = weekly + extras
+              return (
+                <div className="rounded-xl border border-ink/10 bg-ink/[0.03] px-4 py-3 flex items-baseline justify-between gap-3">
+                  <span className="text-xs font-semibold uppercase tracking-widest text-ink/60">Total posts</span>
+                  <span className="flex items-baseline gap-2">
+                    <span className="text-2xl font-bold text-ink leading-none">≈ {total}</span>
+                    <span className="text-[11px] text-ink/45 leading-none whitespace-nowrap">
+                      {extras > 0 ? `${weekly} weekly + ${extras} holiday` : `${weekly} weekly`}
+                    </span>
+                  </span>
+                </div>
+              )
+            })()}
 
             <button onClick={handleGenerate} disabled={generatingMonth || generationLockedForMonth}
               className="btn-primary w-full justify-center py-4 sm:py-3 text-sm font-semibold min-h-12 disabled:opacity-50 disabled:cursor-not-allowed">

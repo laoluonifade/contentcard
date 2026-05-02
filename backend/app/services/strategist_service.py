@@ -109,14 +109,23 @@ ALLOWED_CONTENT_TYPES: frozenset[str] = frozenset({
     "behind_the_scenes",
 })
 
-# Content types where the scene SHOULD lead with people / culture / story
-# rather than a product, even if the brand has products. PRD §8.3.
+# Content types that can lead with people / culture / story / education
+# rather than a product, even if the brand has products. PRD §8.3 +
+# content-mix relaxation: these posts still serve sales by building
+# trust, demand, and engagement — they just don't need to hard-sell
+# a specific SKU in the frame.
 _NON_PRODUCT_CONTENT_TYPES: frozenset[str] = frozenset({
     "testimonial",
     "story_or_culture",
     "community_or_engagement",
     "announcement",
     "proof",
+    "behind_the_scenes",
+    "education",
+    "objection_handling",
+    "comparison_or_benefit",
+    "seasonal_or_moment",
+    "meme",
 })
 
 
@@ -150,10 +159,20 @@ Hard rules:
 3. Localize. Reflect the brand's actual market — never default to generic
    Western stock-photo aesthetics.
 4. Vary intentionally per the supplied `variation_axis`.
-5. PRODUCT-FIRST. If the brand has products, the post MUST sell one specifically.
-   `scene` and `components` lead with the product unless `post_type` is `social_proof`.
+5. CONTENT MIX. A healthy calendar mixes types. Lean on the supplied
+   `content_type` and `post_type` to decide the angle:
+     - product_spotlight / offer_discount → product takes the frame; price + CTA explicit.
+     - social_proof / testimonial / proof → real customer or review takes the frame; product supports it.
+     - lifestyle_use / community_or_engagement / story_or_culture / behind_the_scenes
+       → the moment / person / story leads; product is supporting (or absent
+       when the post is purely engagement). These posts still drive sales by
+       building trust and demand — never force a hard product hero on them.
+     - education / objection_handling / comparison_or_benefit → information
+       leads (a how-to, a number, a comparison). The product appears only
+       where it strengthens the lesson, not as the headline.
+   Don't default every post to product_spotlight. Vary across the calendar.
 6. NON-NEGOTIABLES — every output must enable: clear hierarchy, breathing space,
-   product used properly, CTA always present, no clutter.
+   sensible product use when one is featured, CTA always present, no clutter.
 
 POST TYPES — pick exactly one:
 - product_spotlight  — single product as hero (default for product-led posts)
