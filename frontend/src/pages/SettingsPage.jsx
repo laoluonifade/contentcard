@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Check, Sun, Trash2, AlertTriangle, Bell, Mail, Images, ArrowRight } from 'lucide-react'
+import { Check, Sun, Trash2, AlertTriangle, Bell, Mail, Images, ArrowRight, LogOut } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { authApi, workspaceApi, inviteApi } from '../api'
@@ -25,8 +25,18 @@ const ROLES = ['admin','editor','viewer','approver']
 
 const inputCls = "w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all text-sm"
 
+function clearVisitorSession() {
+  try {
+    localStorage.removeItem('contentcard-auth')
+    localStorage.removeItem('contentcard-app')
+    localStorage.removeItem('contentcard.signup.quickFillWebsite')
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function SettingsPage() {
-  const { user, updateUser, fetchMe, deleteAccount } = useAuthStore()
+  const { user, updateUser, fetchMe, deleteAccount, logout } = useAuthStore()
   const {
     activeWorkspace,
     activeWorkspaceId,
@@ -262,6 +272,22 @@ export default function SettingsPage() {
     toast("Coming soon. We'll ping you when it's ready.")
   }
 
+  const handleSignOut = () => {
+    try {
+      const prefix = 'contentcard.calendar.prepChat:'
+      for (let i = localStorage.length - 1; i >= 0; i -= 1) {
+        const key = localStorage.key(i)
+        if (key && key.startsWith(prefix)) localStorage.removeItem(key)
+      }
+    } catch {
+      /* ignore */
+    }
+    clearVisitorSession()
+    logout()
+    toast('Signed out', 'success')
+    navigate('/auth')
+  }
+
   const handleDeleteAccount = async () => {
     if (deleteConfirmText !== 'DELETE') {
       toast("Type DELETE (in capitals) to confirm you really want to delete your account.", 'error')
@@ -345,6 +371,21 @@ export default function SettingsPage() {
                   </button>
                 </div>
               </div>
+              <div className="bg-surface border border-fog rounded-2xl p-6 mt-4 flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-ink font-bold text-sm mb-0.5">Sign out</h3>
+                  <p className="text-ink/40 text-xs">End this session on this device.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="flex items-center gap-2 px-4 py-2.5 border border-fog hover:border-ink/30 hover:bg-mist text-ink text-sm font-semibold rounded-xl transition-colors flex-shrink-0"
+                >
+                  <LogOut size={14} />
+                  Sign out
+                </button>
+              </div>
+
               <div className="bg-surface border border-rose-200 rounded-2xl p-6 mt-4">
                 <div className="flex items-start gap-3 mb-4">
                   <div className="w-8 h-8 rounded-lg bg-rose-50 flex items-center justify-center flex-shrink-0 mt-0.5">
