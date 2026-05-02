@@ -1400,6 +1400,97 @@ async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand
     return True
 
 
+def _synthesize_fallback_strategy(post_data: dict, brand_dict: dict) -> dict:
+    """Minimum-viable strategy for posts where the strategist call failed,
+    rate-limited, or returned empty components.
+
+    Without this fallback the saved post has `cc_meta.components = []`,
+    `postHasStructuredLayout(post)` returns False on the frontend, and
+    PostCard renders the raw AI image with NO overlay — no headline, no
+    CTA, no holiday badge. That's how a Workers' Day food post ends up
+    looking like a stock food photo: the layout engine never fires.
+
+    This synthesizer guarantees every saved post has at minimum a
+    Headline + CTAButton drawn on top of the AI image, plus a Badge
+    when the post is for a public holiday.
+    """
+    raw_headline = (
+        str(post_data.get("content_idea") or "").strip()
+        or str(post_data.get("topic") or "").strip()
+        or "Today on the menu"
+    )
+    # Cap to ~8 words — the canvas Headline component overflows if the
+    # text is much longer than that on a 1080×1080 canvas.
+    headline_words = raw_headline.split()
+    if len(headline_words) > 8:
+        raw_headline = " ".join(headline_words[:8])
+
+    # CTA leans on the brand's industry / sub-industry. Falls back to a
+    # generic 'Shop now' for unknown categories so the post still has
+    # an action.
+    industry = str(brand_dict.get("industry") or "").lower()
+    sub_industry = str(brand_dict.get("sub_industry") or "").lower()
+
+    def _has(*needles: str) -> bool:
+        haystack = f"{industry} {sub_industry}"
+        return any(n in haystack for n in needles)
+
+    if _has("food", "restaurant", "kitchen", "bakery", "cafe", "drinks", "smoothie", "juice", "grocery"):
+        cta_text = "Order now"
+    elif _has("course", "ebook", "template", "software"):
+        cta_text = "Get instant access"
+    elif _has("fashion", "streetwear", "luxury", "footwear"):
+        cta_text = "Shop the drop"
+    elif _has("beauty", "skincare", "makeup", "fragrance", "wellness", "supplement"):
+        cta_text = "Shop now"
+    else:
+        cta_text = "Shop now"
+
+    holiday_name = str(post_data.get("holiday_name") or "").strip()
+    is_holiday = bool(post_data.get("is_holiday_post")) or bool(holiday_name)
+
+    components: list[dict] = []
+    if holiday_name:
+        # Loud at-a-glance badge so the post reads as a holiday post even
+        # before the user processes the headline.
+        components.append({
+            "type": "Badge",
+            "content": holiday_name.upper()[:24],
+        })
+    components.append({"type": "Headline", "content": raw_headline})
+    if post_data.get("product_image_url"):
+        components.append({"type": "ProductImage", "content": "primary"})
+    components.append({"type": "CTAButton", "content": cta_text})
+
+    # Map visual_theme + content_type onto the strategist's enum so the
+    # canvas layout engine has a recognised layout to dispatch on.
+    visual_theme = str(post_data.get("visual_theme") or "").strip().lower()
+    content_type = str(post_data.get("content_type") or "").strip().lower()
+
+    if is_holiday or visual_theme == "collage" or any(
+        k in content_type for k in ("promo", "offer", "bundle", "upsell")
+    ):
+        post_type = "offer_discount"
+        layout = "offer_card"
+    elif "testimonial" in content_type or "proof" in content_type:
+        post_type = "social_proof"
+        layout = "split"
+    elif visual_theme in ("lifestyle", "editorial"):
+        post_type = "lifestyle_use"
+        layout = "lifestyle_overlay"
+    else:
+        post_type = "product_spotlight"
+        layout = "centered_product"
+
+    return {
+        "post_type": post_type,
+        "layout": layout,
+        "components": components,
+        "use_product_image": bool(post_data.get("product_image_url")),
+        "_source": "fallback_synthesizer",
+    }
+
+
 async def _render_with_quality_gate(
     db: AsyncSession,
     item: ContentItem,
@@ -1454,15 +1545,57 @@ async def _render_with_quality_gate(
         # Phase A — persist the strategist output (post_type / layout /
         # components / use_product_image) onto theme.cc_meta so the
         # frontend layout engine can render the design from these fields.
+        #
+        # When the strategist call failed, was rate-limited, or returned
+        # an empty components array, synthesize a minimum-viable strategy
+        # so the canvas overlay always has at least a Headline + CTAButton
+        # (and a holiday Badge when applicable). Without this fallback,
+        # PostCard renders the raw AI image with no overlay — which is how
+        # holiday posts end up looking like a stock food photo.
         strategist_out = render_post.get("strategist_output")
+        existing_pack = render_post.get("component_pack")
+        needs_fallback = (
+            not isinstance(strategist_out, dict)
+            or not strategist_out.get("components")
+            or not isinstance(existing_pack, list)
+            or len(existing_pack) == 0
+        )
+        if needs_fallback:
+            fallback = _synthesize_fallback_strategy(render_post, brand_dict)
+            # Merge: if the strategist gave us SOME fields (e.g. scene,
+            # color_strategy) preserve them and only swap in our headline /
+            # CTA / layout where we have something better.
+            merged = dict(strategist_out) if isinstance(strategist_out, dict) else {}
+            merged["components"] = fallback["components"]
+            merged.setdefault("post_type", fallback["post_type"])
+            merged.setdefault("layout", fallback["layout"])
+            merged.setdefault("use_product_image", fallback["use_product_image"])
+            merged["_fallback_applied"] = True
+            strategist_out = merged
+            render_post["strategist_output"] = merged
+            render_post["component_pack"] = list(fallback["components"])
+            render_post["post_type"] = render_post.get("post_type") or fallback["post_type"]
+            render_post["layout_family"] = render_post.get("layout_family") or fallback["layout"]
+            render_post.setdefault("use_product_image", fallback["use_product_image"])
+            logger.info(
+                "Applied fallback design strategy for post %s (industry=%s, holiday=%s)",
+                getattr(item, "id", "?"),
+                brand_dict.get("industry"),
+                bool(render_post.get("holiday_name")),
+            )
+
         if isinstance(strategist_out, dict):
             theme_curr = dict(item.theme) if isinstance(item.theme, dict) else {}
             cc_meta = dict(theme_curr.get("cc_meta") or {})
             cc_meta["strategy"] = strategist_out
-            cc_meta["post_type"] = render_post.get("post_type")
-            cc_meta["layout"] = render_post.get("layout_family")
-            cc_meta["components"] = render_post.get("component_pack")
-            cc_meta["use_product_image"] = render_post.get("use_product_image")
+            cc_meta["post_type"] = render_post.get("post_type") or strategist_out.get("post_type")
+            cc_meta["layout"] = render_post.get("layout_family") or strategist_out.get("layout")
+            cc_meta["components"] = render_post.get("component_pack") or strategist_out.get("components") or []
+            cc_meta["use_product_image"] = (
+                render_post.get("use_product_image")
+                if render_post.get("use_product_image") is not None
+                else strategist_out.get("use_product_image")
+            )
             theme_curr["cc_meta"] = cc_meta
             item.theme = theme_curr
 
