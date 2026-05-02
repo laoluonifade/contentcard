@@ -16,7 +16,6 @@ import {
   pickContrastingForeground,
   rrect,
   sampleAverageLuminance,
-  setFont,
   wrapText,
 } from './postDesignSystem'
 
@@ -52,19 +51,16 @@ async function drawProductImage(ctx, ds, _content, bounds, brand) {
     }
   }
 
-  // Placeholder: rounded rectangle in brand-neutral with subtle hatch.
+  // No product available: leave the slot as quiet negative space so the
+  // proof never reads as a half-baked design. We draw a soft tinted card
+  // (so the layout still has visual weight) but never the literal
+  // "No product image" placeholder text — that's a debug affordance, not
+  // something users should ever see in a finished proof.
   ctx.shadowColor = 'transparent'
   ctx.shadowBlur = 0
-  ctx.fillStyle = alpha(ds.palette.ink, 0.06)
+  ctx.fillStyle = alpha(ds.palette.ink, 0.04)
   rrect(ctx, x, y, w, h, 24)
   ctx.fill()
-  ctx.fillStyle = alpha(ds.palette.ink, 0.45)
-  setFont(ctx, { fontSize: 22, weight: 500 }, ds.fontFamily)
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  ctx.fillText('No product image', x + w / 2, y + h / 2)
-  ctx.textAlign = 'left'
-  ctx.textBaseline = 'alphabetic'
   ctx.restore()
 }
 
