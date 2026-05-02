@@ -27,6 +27,7 @@ from app.api.auth import router as auth_router
 from app.api.workspaces import router as ws_router
 from app.api.teams import router as teams_router, accept_router
 from app.api.brands import router as brands_router
+from app.api.onboarding import router as onboarding_router
 from app.api.content import router as content_router
 from app.api.templates import router as templates_router
 from app.api.billing import router as billing_router
@@ -338,6 +339,7 @@ app.include_router(ws_router, prefix="/api/v1")
 app.include_router(teams_router, prefix="/api/v1")
 app.include_router(accept_router, prefix="/api/v1")
 app.include_router(brands_router, prefix="/api/v1")
+app.include_router(onboarding_router, prefix="/api/v1")
 app.include_router(content_router, prefix="/api/v1")
 app.include_router(templates_router, prefix="/api/v1")
 app.include_router(billing_router, prefix="/api/v1")
