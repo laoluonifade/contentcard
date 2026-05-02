@@ -4,6 +4,10 @@ from pydantic import BaseModel
 class OnboardingQuickStartRequest(BaseModel):
     business_name: str
     product_url: str
+    # Where the user sells (e.g. 'shopify', 'chowdeck', 'own_website',
+    # 'bumpa', 'selar', 'others'). Stored on brand_kit.sales_channel so
+    # downstream tooling can adapt copy/CTA tone per platform.
+    sales_channel: str | None = None
     # Parent category. Required so we can apply category-driven design cues
     # immediately rather than waiting on async website inference.
     # See category_design_cues.supported_categories() for the canonical list.
@@ -13,8 +17,11 @@ class OnboardingQuickStartRequest(BaseModel):
     # playbook to pick a more specific template family.
     sub_category: str | None = None
     logo_url: str | None = None
-    primary_platform: str | None = None  # instagram | facebook | twitter | linkedin | tiktok
-    primary_goal: str | None = None  # sales | engagement | awareness
+    # Hex colors auto-extracted from the uploaded logo (or set manually).
+    brand_colors: list[str] | None = None
+    # Multi-select: users can pick more than one platform / goal.
+    primary_platforms: list[str] | None = None  # any subset of supported platforms
+    primary_goals: list[str] | None = None  # any subset of supported goals
 
 
 class OnboardingQuickStartResponse(BaseModel):

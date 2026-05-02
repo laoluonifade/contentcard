@@ -1,13 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, Check, Plus, Layers, Zap, AlertCircle, ArrowRight, MessageSquare, Send, ExternalLink, PanelRightClose, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Copy, Download, Trash2, X, Check, Plus, Layers, Zap, MessageSquare, Send, ExternalLink, PanelRightClose, BarChart3, Sparkles, CalendarDays, Wand2 } from 'lucide-react'
 import useAppStore from '../stores/appStore'
 import useAuthStore from '../stores/authStore'
 import { toast } from '../components/ui/Toast'
 import { contentApi, holidaysApi, socialApi, uploadApi } from '../api'
 import PostCard from '../components/ui/PostCard'
 import { brandVisualBlockReason } from '../lib/brandVisualValidate'
-import { getMissingFields, isBrandReady } from '../utils/brandReadiness'
 import { buildCampaignBrief } from '../utils/campaignBrief'
 import { fullPostCaptionText, twitterIntentUrl } from '../lib/socialCompose'
 import PaymentModal from '../components/ui/PaymentModal'
@@ -2201,25 +2200,6 @@ export default function CalendarPage() {
             </div>
             <div className="px-5 sm:px-6 pb-2 space-y-5">
 
-            {/* Brand readiness check */}
-            {activeBrand && !isBrandReady(activeBrand) && (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3.5">
-                <div className="flex items-start gap-2.5">
-                  <AlertCircle size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-amber-800 text-xs font-semibold mb-1">Complete your brand kit first</p>
-                    <p className="text-amber-700 text-[11px] mb-2">
-                      Missing: {getMissingFields(activeBrand).map(f => f.label).join(', ')}
-                    </p>
-                    <button onClick={() => { setShowGenPanel(false); navigate('/dashboard/brand-kit') }}
-                      className="text-[11px] font-semibold text-amber-800 hover:text-amber-900 flex items-center gap-1 transition-colors">
-                      Go to Brand Kit <ArrowRight size={10} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <div>
               <p className="label mb-2">Platform</p>
               <div className="grid grid-cols-4 gap-2">
@@ -2317,7 +2297,7 @@ export default function CalendarPage() {
               )}
             </div>
 
-            <button onClick={handleGenerate} disabled={generatingMonth || generationLockedForMonth || (activeBrand && !isBrandReady(activeBrand))}
+            <button onClick={handleGenerate} disabled={generatingMonth || generationLockedForMonth}
               className="btn-primary w-full justify-center py-4 sm:py-3 text-sm font-semibold min-h-12 disabled:opacity-50 disabled:cursor-not-allowed">
               {generatingMonth
                 ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>

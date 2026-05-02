@@ -23,6 +23,7 @@ the chained pipeline finishes.
 """
 
 import logging
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -46,6 +47,7 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/onboarding", tags=["onboar
 
 SUPPORTED_PLATFORMS = {"instagram", "facebook", "twitter", "linkedin", "tiktok"}
 SUPPORTED_GOALS = {"sales", "engagement", "awareness"}
+SUPPORTED_SALES_CHANNELS = {"shopify", "chowdeck", "own_website", "bumpa", "selar", "others"}
 
 # Sensible neutral defaults that let generation pass the readiness gate
 # even before the website sync has had a chance to enrich the brand. The
@@ -231,19 +233,51 @@ async def quick_start(
     if not website:
         raise HTTPException(status_code=422, detail="Add the URL where you sell so we can pull your products.")
 
-    primary_platform = (body.primary_platform or "").strip().lower() or None
-    if primary_platform and primary_platform not in SUPPORTED_PLATFORMS:
+    def _normalize_set(values: list[str] | None, allowed: set[str], field: str) -> list[str]:
+        if not values:
+            return []
+        seen: list[str] = []
+        for raw in values:
+            v = (raw or "").strip().lower()
+            if not v:
+                continue
+            if v not in allowed:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"{field} entries must each be one of: {', '.join(sorted(allowed))}",
+                )
+            if v not in seen:
+                seen.append(v)
+        return seen
+
+    primary_platforms = _normalize_set(body.primary_platforms, SUPPORTED_PLATFORMS, "primary_platforms")
+    primary_goals = _normalize_set(body.primary_goals, SUPPORTED_GOALS, "primary_goals")
+    primary_platform = primary_platforms[0] if primary_platforms else None
+
+    sales_channel = (body.sales_channel or "").strip().lower() or None
+    if sales_channel and sales_channel not in SUPPORTED_SALES_CHANNELS:
         raise HTTPException(
             status_code=422,
-            detail=f"primary_platform must be one of: {', '.join(sorted(SUPPORTED_PLATFORMS))}",
-        )
-    primary_goal = (body.primary_goal or "").strip().lower() or None
-    if primary_goal and primary_goal not in SUPPORTED_GOALS:
-        raise HTTPException(
-            status_code=422,
-            detail=f"primary_goal must be one of: {', '.join(sorted(SUPPORTED_GOALS))}",
+            detail=f"sales_channel must be one of: {', '.join(sorted(SUPPORTED_SALES_CHANNELS))}",
         )
     logo_url = (body.logo_url or "").strip() or None
+
+    # Brand colors come from client-side logo extraction. Accept any well-formed
+    # hex; cap at 5 so we don't get a flood from a noisy extractor.
+    brand_colors: list[str] = []
+    for raw in (body.brand_colors or []):
+        v = (raw or "").strip()
+        if not v:
+            continue
+        if not v.startswith("#"):
+            v = f"#{v}"
+        if not re.fullmatch(r"#[0-9a-fA-F]{6}", v):
+            continue
+        v = v.upper()
+        if v not in brand_colors:
+            brand_colors.append(v)
+        if len(brand_colors) >= 5:
+            break
 
     # Category drives the design-cues table. Stored on `brand.industry` so the
     # rest of the pipeline (BUSINESS_SHAPE classifier, design playbook,
@@ -281,10 +315,14 @@ async def quick_start(
         )
 
     kit: dict = {"onboarding_source": "quick_start"}
-    if primary_platform:
-        kit["primary_platform"] = primary_platform
-    if primary_goal:
-        kit["primary_goal"] = primary_goal
+    if primary_platforms:
+        kit["primary_platforms"] = primary_platforms
+        kit["primary_platform"] = primary_platforms[0]
+    if primary_goals:
+        kit["primary_goals"] = primary_goals
+        kit["primary_goal"] = primary_goals[0]
+    if sales_channel:
+        kit["sales_channel"] = sales_channel
     if category:
         kit["onboarding_category"] = category
     if sub_category:
@@ -295,6 +333,7 @@ async def quick_start(
         name=business_name,
         website=website,
         logo_url=logo_url,
+        brand_colors=brand_colors or None,
         industry=category,
         sub_industry=sub_category,
         brand_kit=kit,

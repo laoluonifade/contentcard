@@ -1569,62 +1569,6 @@ async def _get_brand_and_check_access(
     return brand
 
 
-# ── Brand readiness check ───────────────────────────────────────────
-
-def _validate_brand_readiness(brand: Brand) -> list[str]:
-    """
-    Returns human-readable labels for required fields that are missing.
-    Empty list means the brand is ready to generate content.
-    """
-    kit = brand.brand_kit or {}
-    missing = []
-
-    if not (brand.description or '').strip():
-        missing.append("Brand description (Basics tab)")
-
-    if not (brand.pain_point or '').strip():
-        missing.append("Customer pain point (Audience tab)")
-
-    if not (brand.target_audience or '').strip():
-        missing.append("Target audience (Audience tab)")
-
-    if not brand.tone_tags or len(brand.tone_tags) == 0:
-        missing.append("Tone tags (Voice tab)")
-
-    if not (brand.language_style or '').strip():
-        missing.append("Language style (Voice tab)")
-
-    ws = str(kit.get('writing_style') or '').strip()
-    if not ws:
-        missing.append("Writing style (Voice tab)")
-
-    vp = str(kit.get('value_proposition') or '').strip()
-    if not vp:
-        missing.append("Value proposition (Identity tab)")
-
-    km = kit.get('key_messages') or []
-    if not km or (isinstance(km, list) and len(km) == 0) or (isinstance(km, str) and not km.strip()):
-        missing.append("Key messages (Identity tab)")
-
-    cta_style = str(kit.get('cta_style') or '').strip()
-    if not cta_style:
-        missing.append("CTA style (Identity tab)")
-
-    has_palette = bool(brand.brand_colors and len([c for c in brand.brand_colors if str(c).strip()]) >= 2)
-    vs = kit.get("visual_system") if isinstance(kit.get("visual_system"), dict) else {}
-    has_visual_tokens = all(str(vs.get(k) or "").strip() for k in ("primary_hex", "secondary_hex", "accent_hex"))
-    if not (has_palette or has_visual_tokens):
-        missing.append("Brand colors or visual system palette (Visual tab)")
-
-    if not (brand.design_style or '').strip():
-        missing.append("Design style (Visual tab)")
-
-    if not (brand.guidelines or '').strip():
-        missing.append("Guidelines / guardrails (Rules tab)")
-
-    return missing
-
-
 # ── Literal routes FIRST — before any /{param} routes ─────────────
 
 @router.post("/generate-month", status_code=202)
@@ -1671,13 +1615,6 @@ async def generate_month(
             brand_id=brand.id,
             month=body.month,
             year=body.year,
-        )
-
-    missing = _validate_brand_readiness(brand)
-    if missing:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Your brand kit is incomplete. Fill in these fields before generating: {', '.join(missing)}",
         )
 
     existing_counts = await _counts_by_platform_month(brand.id, body.month, body.year, db)
