@@ -79,6 +79,7 @@ async function renderCenteredProduct(ctx, ds, post, brand, components, imageUrl)
   maybeDrawBrandLogo(ctx, ds, brand)
 
   const headline = findComponent(components, 'Headline')
+  const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
   const product = findComponent(components, 'ProductImage')
   const price = findComponent(components, 'PriceTag')
   const cta = findComponent(components, 'CTAButton')
@@ -94,7 +95,20 @@ async function renderCenteredProduct(ctx, ds, post, brand, components, imageUrl)
       x: ds.spacing.pad,
       y: 110,
       w: W - ds.spacing.pad * 2,
-      h: 220,
+      h: subhead ? 180 : 220,
+    }, brand)
+  }
+
+  // Optional subhead under the headline — carries the supporting line / value
+  // prop from message_architecture.support so text-only fallbacks aren't
+  // just Badge + Headline + CTA over a quiet middle.
+  if (subhead) {
+    const opts = { align: 'center', ...(subhead.opts || {}) }
+    await drawComponent(ctx, ds, { ...subhead, opts }, {
+      x: ds.spacing.pad,
+      y: 300,
+      w: W - ds.spacing.pad * 2,
+      h: 60,
     }, brand)
   }
 
@@ -231,6 +245,7 @@ async function renderOfferCard(ctx, ds, post, brand, components, imageUrl) {
 
   const badge = findComponent(components, 'Badge')
   const headline = findComponent(components, 'Headline')
+  const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
   const cta = findComponent(components, 'CTAButton')
   const product = findComponent(components, 'ProductImage')
 
@@ -245,15 +260,31 @@ async function renderOfferCard(ctx, ds, post, brand, components, imageUrl) {
     }, brand)
   }
 
-  // Big offer headline center — override colour to white-on-primary
+  // Big offer headline center — override colour to white-on-primary. When a
+  // subhead is present we shrink the headline band so the supporting line
+  // has room beneath it.
   if (headline) {
+    const headlineOpts = { align: 'center', verticalAnchor: 'middle', colour: inkColour, ...(headline.opts || {}) }
     await drawComponent(
       ctx,
       ds,
-      { ...headline, opts: { align: 'center', verticalAnchor: 'middle', colour: inkColour } },
-      { x: ds.spacing.pad, y: 280, w: W - ds.spacing.pad * 2, h: 380 },
+      { ...headline, opts: headlineOpts },
+      { x: ds.spacing.pad, y: 280, w: W - ds.spacing.pad * 2, h: subhead ? 280 : 380 },
       brand,
     )
+  }
+
+  // Optional subhead beneath the offer headline (e.g. "Today only" /
+  // "Free delivery on orders over ₦5000"). Inherits inverse ink so it
+  // stays readable on the brand-primary fill.
+  if (subhead) {
+    const subheadOpts = { align: 'center', colour: inkColour, ...(subhead.opts || {}) }
+    await drawComponent(ctx, ds, { ...subhead, opts: subheadOpts }, {
+      x: ds.spacing.pad,
+      y: 600,
+      w: W - ds.spacing.pad * 2,
+      h: 80,
+    }, brand)
   }
 
   // Small product cameo bottom-right
@@ -302,24 +333,33 @@ async function renderLifestyleOverlay(ctx, ds, post, brand, components, imageUrl
   maybeDrawBrandLogo(ctx, ds, brand)
 
   const headline = findComponent(components, 'Headline')
+  const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
   const cta = findComponent(components, 'CTAButton')
 
   if (headline) {
+    const opts = { align: 'left', verticalAnchor: 'top', colour: '#FFFFFF', ...(headline.opts || {}) }
     await drawComponent(
       ctx,
       ds,
-      {
-        ...headline,
-        opts: { align: 'left', verticalAnchor: 'top', colour: '#FFFFFF' },
-      },
+      { ...headline, opts },
       {
         x: ds.spacing.pad,
         y: H - 380,
         w: W - ds.spacing.pad * 2,
-        h: 200,
+        h: subhead ? 160 : 200,
       },
       brand,
     )
+  }
+
+  if (subhead) {
+    const opts = { align: 'left', colour: 'rgba(255, 255, 255, 0.85)', ...(subhead.opts || {}) }
+    await drawComponent(ctx, ds, { ...subhead, opts }, {
+      x: ds.spacing.pad,
+      y: H - 210,
+      w: W - ds.spacing.pad * 2,
+      h: 60,
+    }, brand)
   }
 
   if (cta) {
@@ -341,6 +381,31 @@ const LAYOUT_RENDERERS = {
   lifestyle_overlay: renderLifestyleOverlay,
 }
 
+// Legacy archetype slugs that pre-date the Phase-A layout engine. The
+// strategist still writes these into cc_meta.visual_archetype for analytics
+// even though they aren't real layout names. We map each one to its closest
+// real renderer so a post that has only the legacy slug (and no explicit
+// cc_meta.layout) still dispatches to a sensible design instead of always
+// landing on the default centered_product.
+const ARCHETYPE_TO_LAYOUT = {
+  // POV / lifestyle scenes — full-bleed photo with the headline lower-third.
+  pov_comic: 'lifestyle_overlay',
+  portrait_story: 'lifestyle_overlay',
+  photo_hero: 'lifestyle_overlay',
+  // Loud typography over a brand-color flood — the offer-card style.
+  pattern_headline: 'offer_card',
+  quote_editorial_sheet: 'offer_card',
+  // Educational / clean text-first cards align with centered_product (the
+  // strongest hierarchy renderer in the engine today).
+  flat_edu: 'centered_product',
+  device_mockup_benefit: 'centered_product',
+  editorial_issue_card: 'centered_product',
+  // Co-brand / merchant launches read like a split design (text + product).
+  co_brand_lockup: 'split',
+  merchant_launch_cutout: 'split',
+  product_grid_offer: 'split',
+}
+
 // Default layout when the strategy is missing or has an unknown layout.
 const DEFAULT_LAYOUT = 'centered_product'
 
@@ -350,7 +415,15 @@ function readStrategy(post) {
   const theme = post.theme && typeof post.theme === 'object' ? post.theme : {}
   const cm = theme.cc_meta && typeof theme.cc_meta === 'object' ? theme.cc_meta : {}
   // Prefer the explicit fields stored by Phase A backend
-  const layout = String(cm.layout || cm.strategy?.layout || '').toLowerCase()
+  let layout = String(cm.layout || cm.strategy?.layout || '').toLowerCase()
+  // Fall back to the legacy archetype slug if no layout was set, or if the
+  // layout name isn't recognised by the engine. Without this, every legacy
+  // post lands on centered_product regardless of intent.
+  if (!layout || !LAYOUT_RENDERERS[layout]) {
+    const archetype = String(cm.visual_archetype || cm.strategy?.visual_archetype || '').toLowerCase()
+    const remapped = ARCHETYPE_TO_LAYOUT[archetype]
+    if (remapped) layout = remapped
+  }
   const components = Array.isArray(cm.components)
     ? cm.components
     : Array.isArray(cm.strategy?.components) ? cm.strategy.components : []
