@@ -152,9 +152,9 @@ export default function LoginPage() {
               color: '#101820',
             }}
           >
-            Stop guessing
+            Daily content
             <br />
-            what to post.
+            that sells.
           </h2>
           <p className="text-ink/55 text-sm leading-relaxed">
             Your Shopify catalogue, on-brand and ready to post — every day.
