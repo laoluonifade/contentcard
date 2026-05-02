@@ -617,7 +617,6 @@ export default function CalendarPage() {
     activeWorkspaceId,
     brands,
     brandsLoaded,
-    templates,
     fetchMonthContent,
     generateMonth,
     generatingMonth,
@@ -731,7 +730,6 @@ export default function CalendarPage() {
   const [genPlatform, setGenPlatform]   = useState('instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
-  const [genTemplateId, setGenTemplateId] = useState(null)
   const [layoutMode, setLayoutMode] = useState('month')
   const [cardUpsellToast, setCardUpsellToast] = useState(null)
   const [showCardModal, setShowCardModal] = useState(false)
@@ -740,10 +738,6 @@ export default function CalendarPage() {
   const cardRef = useRef(null)
   const monthsAhead = ((year - now.getFullYear()) * 12) + (month - (now.getMonth() + 1))
   const generationLockedForMonth = monthsAhead > MAX_GENERATION_MONTHS_AHEAD
-  const activeTemplates = useMemo(
-    () => (Array.isArray(templates) ? templates.filter((t) => t && t.is_active) : []),
-    [templates]
-  )
   useEffect(() => {
     if (!activeBrandId) {
       setPosts([])
@@ -1434,7 +1428,6 @@ export default function CalendarPage() {
       format_mix: 'mixed',
       posts_per_week: genPPW,
       topic_override: genTopic.trim() || null,
-      template_id: genTemplateId || null,
       include_holidays_in_content: includeHolidays,
       generation_brief,
       campaign_brief,
@@ -2243,28 +2236,6 @@ export default function CalendarPage() {
                 className="input min-h-12 text-base sm:text-sm"/>
             </div>
 
-            {activeTemplates.length > 0 && (
-              <div>
-                <p className="label mb-2">Playbook template <span className="text-ink/20 font-normal normal-case tracking-normal">(optional)</span></p>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    onClick={() => setGenTemplateId(null)}
-                    className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all ${!genTemplateId ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}
-                  >
-                    Auto
-                  </button>
-                  {activeTemplates.slice(0, 6).map(t => (
-                    <button
-                      key={t.id}
-                      onClick={() => setGenTemplateId(t.id)}
-                      className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-all truncate max-w-[120px] ${genTemplateId === t.id ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'}`}
-                    >
-                      {t.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
 
             <div className="rounded-xl border border-fog bg-mist/50 p-3 space-y-2">
               <label className="flex items-start gap-2 cursor-pointer">
