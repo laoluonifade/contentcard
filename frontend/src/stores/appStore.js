@@ -148,6 +148,26 @@ const useAppStore = create(
 
       setActiveBrand: (id) => set({ activeBrandId: id }),
 
+      // Push a brand into the active workspace's brands list. Idempotent: a
+      // brand_id already in the list is left untouched (so the canonical
+      // record from a follow-up fetch isn't overwritten with a stub). Used
+      // by onboarding to release the overlay gate as soon as the brand is
+      // created, even if the subsequent fetchBrands refresh trips on a
+      // transient network blip.
+      addBrand: (brand) => {
+        if (!brand?.id) return
+        set((s) => {
+          if (s.brands.some((b) => b.id === brand.id)) {
+            return { activeBrandId: s.activeBrandId || brand.id, brandsLoaded: true }
+          }
+          return {
+            brands: [...s.brands, brand],
+            activeBrandId: s.activeBrandId || brand.id,
+            brandsLoaded: true,
+          }
+        })
+      },
+
       createBrand: async (data) => {
         const wsId = get().activeWorkspaceId
         if (!wsId) throw new Error('No active workspace')
