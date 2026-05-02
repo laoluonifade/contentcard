@@ -201,6 +201,56 @@ function drawWrapped(ctx, text, x, y, maxWidth, lineHeight, maxLines = 99) {
   return y + lines.length * lineHeight
 }
 
+// ── Pixel sampling for auto-contrast text overlays ────────────────────────
+//
+// Samples the average luminance of the pixels currently inside the rect,
+// returning a number in 0..1 (0 = pure black, 1 = pure white). Used by
+// drawHeadline to decide whether to render text in light or dark ink, and
+// whether to drop a soft scrim behind it.
+//
+// Returns 0.5 (neutral) when getImageData fails — typically because the
+// canvas was tainted by a non-CORS image. PostCard loads images with
+// crossOrigin='anonymous' so this should rarely happen in production.
+
+function sampleAverageLuminance(ctx, x, y, w, h) {
+  const sx = Math.max(0, Math.floor(x))
+  const sy = Math.max(0, Math.floor(y))
+  const sw = Math.max(1, Math.floor(w))
+  const sh = Math.max(1, Math.floor(h))
+  let data
+  try {
+    data = ctx.getImageData(sx, sy, sw, sh).data
+  } catch {
+    return 0.5
+  }
+  // Stride through every ~16th pixel to keep this cheap for the
+  // 1080×1080 canvas. The headline rect is typically ~950×220px =
+  // ~210k pixels; sampling every 16th still gives ~13k samples, well
+  // beyond statistical noise for an average.
+  const step = 16 * 4
+  let sum = 0
+  let count = 0
+  for (let i = 0; i < data.length; i += step) {
+    const r = data[i]
+    const g = data[i + 1]
+    const b = data[i + 2]
+    sum += (r * 299 + g * 587 + b * 114) / 1000
+    count += 1
+  }
+  if (count === 0) return 0.5
+  return Math.max(0, Math.min(1, (sum / count) / 255))
+}
+
+// Pick a foreground colour that contrasts the sampled luminance.
+// Bias toward white on dark, ink on light, with a comfortable margin
+// either side of the 50% midline so we don't flip-flop on near-neutral
+// backgrounds.
+function pickContrastingForeground(luminance, palette) {
+  const inkColour = palette?.ink || '#101820'
+  return luminance < 0.55 ? '#FFFFFF' : inkColour
+}
+
+
 function loadImage(url) {
   return new Promise((resolve, reject) => {
     const img = new Image()
@@ -226,4 +276,6 @@ export {
   wrapText,
   drawWrapped,
   loadImage,
+  sampleAverageLuminance,
+  pickContrastingForeground,
 }
