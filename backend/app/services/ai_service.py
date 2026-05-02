@@ -4455,6 +4455,17 @@ Good examples (follow this pattern): {_fmt(brand.get('good_examples'))}
 Bad examples (NEVER write like this): {_fmt(brand.get('bad_examples'))}
 """.strip()
 
+    # Category-driven design cues (layout / visual focus / colour mood / text
+    # balance). Adapts the brand's outputs to the visual norms of its
+    # category without overriding brand-specific colours or tone.
+    try:
+        from app.services.category_design_cues import get_category_cues, cues_as_text
+        _cues_block = cues_as_text(get_category_cues(brand.get("industry")))
+        if _cues_block:
+            brand_ctx = f"{brand_ctx}\n\n{_cues_block}"
+    except Exception:  # never let a cue lookup break generation
+        pass
+
     topics_hint = ""
     if topic_override:
         topics_hint = f"Focus primarily on this topic: {topic_override}"

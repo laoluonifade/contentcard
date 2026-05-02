@@ -4,6 +4,10 @@ from pydantic import BaseModel
 class OnboardingQuickStartRequest(BaseModel):
     business_name: str
     product_url: str
+    # Parent category. Required so we can apply category-driven design cues
+    # immediately rather than waiting on async website inference.
+    # See category_design_cues.supported_categories() for the canonical list.
+    category: str | None = None
     logo_url: str | None = None
     primary_platform: str | None = None  # instagram | facebook | twitter | linkedin | tiktok
     primary_goal: str | None = None  # sales | engagement | awareness

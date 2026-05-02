@@ -6,6 +6,7 @@ import { toast } from '../components/ui/Toast'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { onboardingApi, workspaceApi } from '../api'
+import { INDUSTRIES } from '../lib/industryTaxonomy'
 
 /*
  * Streamlined onboarding.
@@ -52,6 +53,7 @@ export default function OnboardingPage() {
   const [form, setForm] = useState({
     business_name: '',
     product_url: '',
+    category: '',
     logo_url: '',
     primary_platform: '',
     primary_goal: '',
@@ -68,6 +70,10 @@ export default function OnboardingPage() {
     }
     if (!isProbablyValidUrl(form.product_url)) {
       toast('Add a valid store URL so we can pull your products.', 'error')
+      return
+    }
+    if (!form.category) {
+      toast('Pick the category that fits your business.', 'error')
       return
     }
     setStep(2)
@@ -96,6 +102,7 @@ export default function OnboardingPage() {
       await onboardingApi.quickStart(wsId, {
         business_name: form.business_name.trim(),
         product_url: form.product_url.trim(),
+        category: form.category || null,
         logo_url: form.logo_url.trim() || null,
         primary_platform: form.primary_platform || null,
         primary_goal: form.primary_goal || null,
@@ -186,6 +193,24 @@ export default function OnboardingPage() {
                 />
                 <p className="text-xs text-ink/45 mt-2">
                   We&apos;ll scan your storefront for products, prices, and your visual style.
+                </p>
+              </div>
+
+              <div>
+                <label className="label">Category</label>
+                <select
+                  className="input cursor-pointer"
+                  value={form.category}
+                  onChange={(e) => set('category', e.target.value)}
+                >
+                  <option value="">Pick the closest fit…</option>
+                  {INDUSTRIES.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-ink/45 mt-2">
+                  Drives the visual direction — e.g. food posts lean appetite-warm,
+                  finance posts lean confident-neutral, fashion posts lean editorial.
                 </p>
               </div>
 

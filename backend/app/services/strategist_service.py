@@ -482,6 +482,19 @@ async def call_strategist(
         else "Variation axis: not specified — choose one and explain in `composition` how this design varies."
     )
 
+    # Category-driven design cues. Looked up from the brand's industry so the
+    # strategist combines the brand's tone/colours/voice with the visual norms
+    # of its category (layout emphasis, visual focus, colour mood, text balance,
+    # imagery style). Skipped silently if the lookup module isn't importable
+    # (e.g. during a tightly-mocked unit test).
+    cues_block = ""
+    try:
+        from app.services.category_design_cues import get_category_cues, cues_as_text
+        cues = get_category_cues(brand_kit.get("industry") if isinstance(brand_kit, dict) else None)
+        cues_block = cues_as_text(cues, label="CATEGORY DESIGN CUES (combine with brand tone + colours)")
+    except Exception:
+        cues_block = ""
+
     theme_line = ""
     theme_key = (visual_theme or "").strip().lower()
     if theme_key in VISUAL_THEME_DIRECTIVES:
@@ -499,7 +512,8 @@ async def call_strategist(
 
     user_message = (
         f"BRAND KIT:\n{summary}\n\n"
-        f"USER PROMPT (interpret, do not echo): {user_prompt_clean}\n"
+        + (f"{cues_block}\n\n" if cues_block else "")
+        + f"USER PROMPT (interpret, do not echo): {user_prompt_clean}\n"
         f"PLATFORM: {platform}\n"
         f"REQUESTED FORMAT: {format}\n"
         f"{variation_line}"

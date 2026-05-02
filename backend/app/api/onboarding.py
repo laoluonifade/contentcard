@@ -245,6 +245,22 @@ async def quick_start(
         )
     logo_url = (body.logo_url or "").strip() or None
 
+    # Category drives the design-cues table. Stored on `brand.industry` so the
+    # rest of the pipeline (BUSINESS_SHAPE classifier, design playbook,
+    # category cues lookup) can read it without a new column. Loose validation:
+    # we accept anything truthy and let category_design_cues fall back to the
+    # generic defaults when the value isn't in our supported list — that way
+    # signups don't fail on a typo while still benefiting from cues when the
+    # value lines up.
+    from app.services.category_design_cues import supported_categories
+    category = (body.category or "").strip() or None
+    if category and category not in supported_categories():
+        # Match case-insensitively before giving up so 'food & beverage' lands
+        # on 'Food & Beverage'.
+        cat_lower = category.lower()
+        match = next((c for c in supported_categories() if c.lower() == cat_lower), None)
+        category = match or category
+
     # If this workspace already has a brand, the user finished onboarding
     # earlier (or in another session). Don't silently double-create.
     existing = (
@@ -262,12 +278,15 @@ async def quick_start(
         kit["primary_platform"] = primary_platform
     if primary_goal:
         kit["primary_goal"] = primary_goal
+    if category:
+        kit["onboarding_category"] = category
 
     brand = Brand(
         workspace_id=workspace_id,
         name=business_name,
         website=website,
         logo_url=logo_url,
+        industry=category,
         brand_kit=kit,
     )
     _apply_quick_start_defaults(brand, business_name)
