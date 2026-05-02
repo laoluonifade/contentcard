@@ -1467,6 +1467,56 @@ async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand
     return True
 
 
+def _post_can_carry_without_image(cc_meta: dict | None) -> bool:
+    """A post can stand on the canvas without an AI image only when its
+    component overlay carries enough hierarchy on its own. Headline + CTA
+    is the floor for "looks like a half-baked design"; we need at least one
+    of these supporting slots beyond Headline + CTA to ship.
+
+    Returns True if the post has enough non-trivial components to render
+    a designed proof against a brand-color background.
+    """
+    cm = cc_meta if isinstance(cc_meta, dict) else {}
+    components = cm.get("components") if isinstance(cm.get("components"), list) else []
+    types = set()
+    for c in components:
+        if isinstance(c, dict):
+            t = str(c.get("type") or "").strip()
+            if t:
+                types.add(t)
+    rich_slots = {"Badge", "SubHead", "Subhead", "ReviewCard", "ProductImage", "PriceTag"}
+    return bool(types & rich_slots)
+
+
+def _maybe_mark_post_failed(item, cc_meta: dict | None) -> None:
+    """Mark `item.status = FAILED` when the render produced no usable design.
+
+    Trigger condition: no AI image (image_url + image_urls both empty) AND
+    the component overlay is too thin to carry the post on its own. The
+    frontend filters FAILED posts from the calendar grid so users see a
+    regenerate prompt instead of a green wall.
+
+    No-op when the post has any image or has rich components.
+    """
+    has_image = bool(getattr(item, "image_url", None)) or bool(getattr(item, "image_urls", None))
+    if has_image:
+        return
+    if _post_can_carry_without_image(cc_meta):
+        return
+    try:
+        item.status = ContentStatus.FAILED
+        logger.warning(
+            "Marked post %s as FAILED (brand=%s, topic=%r): no image and "
+            "component overlay too thin to ship.",
+            getattr(item, "id", "?"),
+            getattr(item, "brand_id", "?"),
+            str(getattr(item, "topic", "") or "")[:80],
+        )
+    except Exception as e:
+        # Don't let a status assignment error blow up the whole render loop.
+        logger.warning("Could not mark post %s failed: %s", getattr(item, "id", "?"), e)
+
+
 def _extract_offer_badge_text(post_data: dict) -> str | None:
     """Pull a short, loud offer string out of the post's message architecture
     or caption so an offer_discount post always has a visible value prop on
@@ -1617,6 +1667,30 @@ def _synthesize_fallback_strategy(post_data: dict, brand_dict: dict) -> dict:
         components.append({"type": "Badge", "content": badge_content})
 
     components.append({"type": "Headline", "content": raw_headline})
+
+    # SubHead: the supporting line under the headline. Without this, the
+    # canvas reads as Badge + Headline + CTA over a quiet middle band — a
+    # design with no value prop the user can act on. Pull from the message
+    # architecture's `support` line (the structured value prop the AI built
+    # upstream); fall back to a sentence-trimmed `description` so we always
+    # have *something* explanatory unless the post genuinely has nothing
+    # to say beyond its headline.
+    ma = post_data.get("message_architecture") if isinstance(post_data.get("message_architecture"), dict) else {}
+    subhead_src = (
+        str(ma.get("support") or "").strip()
+        or str(ma.get("evidence") or "").strip()
+        or str(post_data.get("description") or "").strip()
+    )
+    if subhead_src:
+        # Cap to one short sentence — a long subhead overwhelms the headline
+        # band and the canvas auto-fitter has to ellipsise lines anyway.
+        first_sentence = subhead_src.split(".")[0].strip()
+        if first_sentence and first_sentence != raw_headline:
+            words = first_sentence.split()
+            if len(words) > 14:
+                first_sentence = " ".join(words[:14]).rstrip(",;:") + "…"
+            components.append({"type": "SubHead", "content": first_sentence[:140]})
+
     if post_data.get("product_image_url"):
         components.append({"type": "ProductImage", "content": "primary"})
     components.append({"type": "CTAButton", "content": cta_text})
@@ -2423,6 +2497,11 @@ async def list_content(
         conditions.append(ContentItem.platform == platform)
     if status:
         conditions.append(ContentItem.status == status)
+    else:
+        # Hide FAILED posts from the calendar grid by default. Render produced
+        # nothing usable for these — the user sees a regenerate path through a
+        # separate endpoint. Callers can opt in by passing status=failed.
+        conditions.append(ContentItem.status != ContentStatus.FAILED)
     if month and year and not include_pending:
         conditions.append(
             or_(
@@ -4638,6 +4717,13 @@ async def _do_generate_month(
                     cm["issue_label"] = post_data.get("issue_label")
                 th["cc_meta"] = cm
                 item.theme = th
+                # Hard-block thin posts: when the AI image is missing AND the
+                # canvas overlay can't carry the post on its own (only headline +
+                # CTA, no badge / subhead / proof / product), there's no way to
+                # ship a designed proof. Mark the item as FAILED so the frontend
+                # surfaces a regenerate path instead of the user staring at a
+                # green wall and assuming the product is broken.
+                _maybe_mark_post_failed(item, cm)
                 await db.commit()
                 if variant_count > 1:
                     rv_rows = (

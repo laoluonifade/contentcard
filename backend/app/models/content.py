@@ -11,6 +11,12 @@ class ContentStatus(str, enum.Enum):
     READY = "ready"
     APPROVED = "approved"
     SCHEDULED = "scheduled"
+    # FAILED — set when the render pipeline could not produce a usable design
+    # (no AI image AND the component overlay is too thin to carry the post on
+    # its own, e.g. only Headline + CTAButton). The frontend filters these
+    # out of the calendar grid and surfaces a "regenerate" path instead of
+    # shipping a green wall.
+    FAILED = "failed"
 
 
 class ContentPlatform(str, enum.Enum):

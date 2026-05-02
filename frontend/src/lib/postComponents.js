@@ -201,6 +201,80 @@ function ellipsise(ctx, line, maxWidth) {
   return trimmed.length > 1 ? `${trimmed}…` : line
 }
 
+// ── SubHead ───────────────────────────────────────────────────────────────
+// Mid-weight supporting line under the headline. Carries the value prop /
+// proof line that doesn't fit in the headline (e.g. "Free delivery on orders
+// over ₦5000", "Made fresh, every day"). Auto-fits to bounds, supports the
+// same align / verticalAnchor / colour / autoContrast options as Headline,
+// but rendered at the smaller `ds.subhead` token size.
+//
+// Without this drawer, text-only fallback designs read as Badge + Headline +
+// CTA only, leaving a big quiet middle band on the canvas. The strategist
+// fallback now emits a SubHead with message_architecture.support so that
+// band carries the value prop a user can actually act on.
+
+function drawSubHead(ctx, ds, content, bounds, opts = {}) {
+  const align = opts.align || 'left'
+  const verticalAnchor = opts.verticalAnchor || 'top'
+  const text = String(content || '').trim()
+  if (!text) return
+
+  const minFontSize = Math.max(18, ds.subhead.fontSize * 0.6)
+  let fontSize = ds.subhead.fontSize
+  let lines = []
+  for (let i = 0; i < 10; i++) {
+    ctx.font = `${ds.subhead.weight} ${fontSize}px ${ds.fontFamily}`
+    lines = wrapText(ctx, text, bounds.w).slice(0, ds.subhead.maxLines)
+    const widest = lines.reduce(
+      (m, l) => Math.max(m, ctx.measureText(l).width),
+      0,
+    )
+    const totalHeight = lines.length * fontSize * ds.subhead.lineHeight
+    if (totalHeight <= bounds.h && widest <= bounds.w) break
+    if (fontSize <= minFontSize) {
+      lines = lines.map((l) => ellipsise(ctx, l, bounds.w))
+      break
+    }
+    fontSize = Math.max(fontSize * 0.9, minFontSize)
+  }
+
+  const autoContrast = opts.autoContrast !== false && !opts.colour
+  let chosenColour = opts.colour || ds.palette.ink
+  if (autoContrast) {
+    const sampleY = bounds.y
+    const sampleH = Math.min(bounds.h, lines.length * fontSize * ds.subhead.lineHeight)
+    const luminance = sampleAverageLuminance(ctx, bounds.x, sampleY, bounds.w, sampleH)
+    chosenColour = pickContrastingForeground(luminance, ds.palette)
+    // Subhead opacity is slightly muted so it sits below the headline in
+    // hierarchy without competing for attention.
+    chosenColour = chosenColour === '#FFFFFF'
+      ? 'rgba(255, 255, 255, 0.85)'
+      : 'rgba(0, 0, 0, 0.72)'
+  }
+
+  const lineHeight = fontSize * ds.subhead.lineHeight
+  const totalTextHeight = lines.length * lineHeight
+  const startY =
+    verticalAnchor === 'middle' ? bounds.y + (bounds.h - totalTextHeight) / 2 :
+    verticalAnchor === 'bottom' ? bounds.y + bounds.h - totalTextHeight :
+                                   bounds.y
+  const baseX =
+    align === 'center' ? bounds.x + bounds.w / 2 :
+    align === 'right'  ? bounds.x + bounds.w :
+                          bounds.x
+
+  ctx.save()
+  ctx.fillStyle = chosenColour
+  ctx.textAlign = align
+  ctx.textBaseline = 'top'
+  ctx.font = `${ds.subhead.weight} ${fontSize}px ${ds.fontFamily}`
+  lines.forEach((l, i) => ctx.fillText(l, baseX, startY + i * lineHeight))
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'alphabetic'
+  ctx.restore()
+}
+
+
 // ── PriceTag ──────────────────────────────────────────────────────────────
 // Pill with a price. Sits on a brand-accent background.
 
@@ -413,6 +487,9 @@ async function drawComponent(ctx, ds, component, bounds, brand) {
       return drawProductImage(ctx, ds, content, bounds, brand)
     case 'Headline':
       return drawHeadline(ctx, ds, content, bounds, component.opts || {})
+    case 'SubHead':
+    case 'Subhead':
+      return drawSubHead(ctx, ds, content, bounds, component.opts || {})
     case 'PriceTag':
       return drawPriceTag(ctx, ds, content, bounds, component.opts || {})
     case 'Badge':
@@ -429,6 +506,7 @@ async function drawComponent(ctx, ds, component, bounds, brand) {
 export {
   drawProductImage,
   drawHeadline,
+  drawSubHead,
   drawPriceTag,
   drawBadge,
   drawCTAButton,
