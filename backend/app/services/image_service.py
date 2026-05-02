@@ -1985,19 +1985,165 @@ async def _generate_carousel_frames(
     return urls
 
 
+def _select_background_mode(post: dict, post_index: int, has_product: bool) -> str:
+    """Pick a background mode for this post so the calendar isn't seven
+    near-identical product hero shots.
+
+    Modes:
+      - "product_hero"   — current product-edit path (requires has_product)
+      - "color_block"    — locally-rendered flat brand-colour panel
+      - "gradient_panel" — locally-rendered brand colour gradient
+
+    Selection biases by content_type:
+      - promotional / launch / sale / bundle → product_hero (need to see it)
+      - quote / inspiration / affirmation     → color_block + gradient
+      - seasonal / holiday / moment           → gradient + color_block
+      - community / engagement / story        → mix of all three
+      - everything else                       → rotate evenly
+
+    Honours an explicit `cc_meta.use_product_image: true` from the
+    strategist as a force toward product_hero (when product_image_urls
+    are available); a strategist-confirmed product post should always
+    show the product.
+    """
+    content_type = str(post.get("content_type") or "").lower()
+    explicit_use_product = bool(post.get("use_product_image"))
+    if explicit_use_product and has_product:
+        return "product_hero"
+    if has_product and any(
+        k in content_type
+        for k in ("promo", "launch", "offer", "sale", "upsell", "bundle", "new_product")
+    ):
+        return "product_hero"
+    if any(k in content_type for k in ("quote", "inspiration", "motivation", "affirmation")):
+        return ["color_block", "gradient_panel"][post_index % 2]
+    if any(k in content_type for k in ("seasonal", "holiday", "moment")):
+        return ["gradient_panel", "color_block", "product_hero" if has_product else "color_block"][post_index % 3]
+    if any(k in content_type for k in ("community", "engagement", "user_generated", "ugc", "story")):
+        rotation = ["color_block", "gradient_panel"]
+        if has_product:
+            rotation.append("product_hero")
+        return rotation[post_index % len(rotation)]
+    rotation = ["color_block", "gradient_panel"]
+    if has_product:
+        rotation.append("product_hero")
+    return rotation[post_index % len(rotation)]
+
+
+def _render_color_block_png(brand: dict) -> bytes:
+    """1080×1080 flat brand-primary fill. Cheap, deterministic, no OpenAI call."""
+    from PIL import Image
+    colors = [c for c in (brand.get("brand_colors") or []) if isinstance(c, str) and c.strip()]
+    primary = colors[0] if colors else "#168C5A"
+    rgb = _hex_to_rgb_tuple(primary)
+    img = Image.new("RGB", (1024, 1024), rgb)
+    out = io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def _render_gradient_panel_png(brand: dict) -> bytes:
+    """1080×1080 vertical gradient between the brand's primary and a
+    contrasting secondary. Falls back to a primary→darker-primary ramp
+    when only one brand colour is set so the result still feels brand-on."""
+    from PIL import Image
+    colors = [c for c in (brand.get("brand_colors") or []) if isinstance(c, str) and c.strip()]
+    primary = colors[0] if colors else "#168C5A"
+    secondary = colors[1] if len(colors) > 1 else _shift_hex(primary, -0.45)
+    p_rgb = _hex_to_rgb_tuple(primary)
+    s_rgb = _hex_to_rgb_tuple(secondary)
+    h = 1024
+    strip = Image.new("RGB", (1, h))
+    pixels = strip.load()
+    for y in range(h):
+        t = y / max(1, h - 1)
+        pixels[0, y] = (
+            int(p_rgb[0] * (1 - t) + s_rgb[0] * t),
+            int(p_rgb[1] * (1 - t) + s_rgb[1] * t),
+            int(p_rgb[2] * (1 - t) + s_rgb[2] * t),
+        )
+    img = strip.resize((1024, 1024))
+    out = io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def _hex_to_rgb_tuple(hex_str: str) -> tuple[int, int, int]:
+    h = (hex_str or "#000000").lstrip("#")
+    if len(h) < 6:
+        h = h.ljust(6, "0")
+    try:
+        return (int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
+    except ValueError:
+        return (22, 140, 90)
+
+
+def _shift_hex(hex_str: str, amount: float) -> str:
+    """Lighten (positive amount) or darken (negative) a hex colour by 0..1."""
+    r, g, b = _hex_to_rgb_tuple(hex_str)
+    if amount >= 0:
+        r = int(r + (255 - r) * amount)
+        g = int(g + (255 - g) * amount)
+        b = int(b + (255 - b) * amount)
+    else:
+        f = 1 + amount
+        r = int(r * f)
+        g = int(g * f)
+        b = int(b * f)
+    r = max(0, min(255, r))
+    g = max(0, min(255, g))
+    b = max(0, min(255, b))
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
+async def _render_local_background(
+    *, mode: str, brand: dict, post: dict, topic: str
+) -> str | None:
+    """Render a locally-built background (color block / gradient) and
+    upload it to Cloudinary so the calendar canvas has a deterministic,
+    brand-coloured backdrop without burning an OpenAI image call.
+
+    Returns None when Cloudinary isn't configured or upload fails — the
+    caller should fall through to the next mode (currently the text-only
+    OpenAI path).
+    """
+    try:
+        if mode == "color_block":
+            png = _render_color_block_png(brand)
+            label = "color"
+        elif mode == "gradient_panel":
+            png = _render_gradient_panel_png(brand)
+            label = "gradient"
+        else:
+            return None
+        post_id_part = str(post.get("id") or "").replace("-", "")[:12]
+        brand_id_part = str(brand.get("id") or "").replace("-", "")[:8]
+        suffix = f"{label}-{post_id_part}-{brand_id_part}-{uuid.uuid4().hex[:8]}"
+        return await _upload_to_cloudinary(png, f"{topic}-{label}", 0, public_suffix=suffix)
+    except Exception as exc:
+        logger.warning("Local background render (%s) failed for '%s': %s", mode, topic, exc)
+        return None
+
+
 async def generate_post_image(post: dict, brand: dict) -> list[str]:
     """
     Generate background image(s) for a post using settings.IMAGE_MODEL.
 
-    When the post contains product_image_urls, the pipeline switches to the
-    gpt-image-1 /edits endpoint so the model SEES the actual product instead
-    of inventing a generic substitute.  The product image is cleaned (flat
-    background removed) before sending.  If the edits path fails for any
-    reason, the function falls back to the standard text-only /generations path.
+    Picks a per-post background mode (product_hero / color_block /
+    gradient_panel) so the same product photo doesn't dominate every
+    post in the month. Color block + gradient modes render locally
+    (no OpenAI call) — the brand's colours form the backdrop and the
+    layout engine paints the structured headline / CTA / badge on top.
+
+    When the strategist explicitly requests use_product_image OR the
+    post is a launch / sale / bundle, mode falls back to product_hero
+    so the product stays visible. Carousels skip mode selection entirely
+    and render frame-by-frame via the existing per-slide path.
 
     The post dict is mutated to add:
-      post["visual_strategy_used"]    — e.g. "food_hero"
-      post["composition_description"] — human-readable composition summary
+      post["visual_strategy_used"]      — e.g. "food_hero"
+      post["composition_description"]   — human-readable composition summary
+      post["background_mode_used"]      — selected background mode
 
     Returns a list of permanent Cloudinary URLs.
     Returns an empty list on failure or when OpenAI is not configured.
@@ -2032,6 +2178,37 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
         if isinstance(post.get("product_image_urls"), list)
         else []
     )
+
+    # ── Background-mode dispatch ─────────────────────────────────────────────
+    # Pick a per-post mode so the calendar isn't seven product hero shots.
+    # Carousels skip this dispatch entirely (per-slide rendering happens
+    # later in this function and needs every slide to share one visual
+    # system; mixing locally-rendered colour blocks with AI photos in a
+    # carousel would look broken).
+    is_carousel = str(post.get("format") or "").lower() == "carousel"
+    if not is_carousel:
+        bg_mode = _select_background_mode(
+            post,
+            int(post.get("_batch_index", 0)),
+            has_product=bool(product_image_urls),
+        )
+        post["background_mode_used"] = bg_mode
+        if bg_mode in ("color_block", "gradient_panel"):
+            local_url = await _render_local_background(
+                mode=bg_mode, brand=brand, post=post, topic=topic,
+            )
+            if local_url:
+                logger.info(
+                    "Background mode %s for '%s': locally rendered (no OpenAI call)",
+                    bg_mode, topic,
+                )
+                return [local_url]
+            # Local render failed (Cloudinary not configured?) — fall through
+            # to the normal AI path so the post still gets a background.
+            logger.warning(
+                "Local %s render failed for '%s'; falling back to AI generation",
+                bg_mode, topic,
+            )
 
     if product_image_urls and model == "gpt-image-1":
         # Classify product to select visual strategy
