@@ -81,6 +81,7 @@ from app.services.billing_entitlements import (
 )
 from datetime import date, datetime, timedelta, timezone
 from calendar import month_name, monthrange
+import asyncio
 import logging
 import re
 from pydantic import BaseModel, Field
@@ -4706,6 +4707,13 @@ async def _do_generate_month(
             return
 
         # ── Phase 1: render with quality gate + retry loop ──────────────────────────
+        # Per-post timeout: a single post must never block the whole batch.
+        # The previous loop had no upper bound — a stuck OpenAI call or a
+        # silently-failing image retry chain could hold the worker for the
+        # full request budget, leaving the user staring at a half-finished
+        # calendar after 5 minutes and no error to act on. With this guard,
+        # one bad post times out and we move on to the next.
+        per_post_timeout_s = float(getattr(settings, "RENDER_PER_POST_TIMEOUT_S", 180))
         for _batch_idx, (item, post_data) in enumerate(saved_items):
             try:
                 # Inject batch index so the variation engine can rotate hero/lifestyle/detail/angled
@@ -4715,7 +4723,10 @@ async def _do_generate_month(
                 if not post_data.get("id"):
                     post_data["id"] = str(item.id)
                 sab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else {}
-                lint, quality_gate, logo_ok = await _render_with_quality_gate(db, item, post_data, brand_dict, sab)
+                lint, quality_gate, logo_ok = await asyncio.wait_for(
+                    _render_with_quality_gate(db, item, post_data, brand_dict, sab),
+                    timeout=per_post_timeout_s,
+                )
                 th = dict(item.theme) if isinstance(item.theme, dict) else {}
                 cm = dict(th.get("cc_meta") or {})
                 cm["visual_lint"] = lint
@@ -4772,6 +4783,27 @@ async def _do_generate_month(
                         rv.image_url = item.image_url
                         rv.image_urls = item.image_urls if isinstance(item.image_urls, list) else []
                     await db.commit()
+            except asyncio.TimeoutError:
+                # One post exceeded the per-post budget. Log loudly so ops
+                # can see which post / brand stalled, roll back any
+                # partial DB writes, and move on. The post is left as
+                # text-only (no image_urls); the frontend layout engine
+                # will paint the component overlay over a brand-color
+                # background instead of the user staring at an indefinite
+                # spinner.
+                logger.error(
+                    "Render exceeded %ss budget for post %s (brand=%s, "
+                    "topic=%r); skipping and continuing with next post.",
+                    per_post_timeout_s,
+                    getattr(item, "id", "?"),
+                    brand_id,
+                    str(post_data.get("topic") or "")[:80],
+                )
+                try:
+                    await db.rollback()
+                except Exception as rb_err:
+                    logger.warning("rollback after timeout failed for %s: %s", item.id, rb_err)
+                continue
             except OpenAICapacityError as cap_err:
                 # OpenAI is rate-limited / over quota / having an outage.
                 # Per-image retries inside the render loop won't recover —
