@@ -1472,6 +1472,23 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
     chowdeck_vendor_id: str | None = None
     platform_hint = _normalize_platform_hint((cfg or {}).get("platform_hint"))
     host = (urlparse(source_url).hostname or "").lower()
+
+    # Fast path: if onboarding captured the user's sales channel, trust it.
+    # This wins over hostname / HTML probing because the user explicitly
+    # told us where they sell — a Bumpa store on a vanity domain
+    # (benardsamuel.com.ng) is recognised the same as a *.mybumpa.com URL.
+    if platform_hint == "auto":
+        kit = brand.brand_kit if isinstance(brand.brand_kit, dict) else {}
+        sales_channel = str(kit.get("sales_channel") or "").strip().lower()
+        sales_channel_to_platform = {
+            "bumpa": "bumpa",
+            "shopify": "shopify",
+            "chowdeck": "chowdeck",
+        }
+        if sales_channel in sales_channel_to_platform:
+            platform_hint = sales_channel_to_platform[sales_channel]
+            raw_payload["platform_from_sales_channel"] = sales_channel
+
     if platform_hint == "auto":
         if "chowdeck.com" in host:
             platform_hint = "chowdeck"
