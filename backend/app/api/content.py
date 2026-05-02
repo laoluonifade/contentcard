@@ -4114,6 +4114,14 @@ async def _do_generate_month(
             brand_product_grounding_pool = await _brand_product_grounding_pool(db, brand_id)
             enforce_product_imagery = _is_product_based_brand(brand_dict)
             product_img_idx = 0
+            # Per-month dedup of product hero images. Without this, two
+            # general-purpose posts (community / engagement / seasonal) can
+            # land on the same hero photo when the planner matches both to
+            # the same opportunity or both fall back to the first product
+            # in the pool. We track the URL we actually shipped per post and
+            # swap to an unused product when a collision happens, so users
+            # see different products across the calendar grid.
+            used_primary_product_urls: set[str] = set()
 
             for i in range(len(saved_items)):
                 item, post = saved_items[i]
@@ -4232,6 +4240,74 @@ async def _do_generate_month(
                         }
                         # Bump idx so the next bundle post starts from a different cursor.
                         product_img_idx += len(extras)
+
+                # Hero dedup: swap to an unused product when this post
+                # would reuse the same hero we already shipped earlier in
+                # the run. We skip dedup on promotional / launch / sale /
+                # bundle posts because their caption text usually names
+                # the specific product — swapping the photo would make
+                # the visual contradict the copy. Everything else
+                # (community, engagement, seasonal, educational, quote,
+                # tip, …) is fair game and benefits from variety.
+                content_type_for_dedup = str(post.get("content_type") or "").strip().lower()
+                pin_to_specific_product = any(
+                    k in content_type_for_dedup
+                    for k in ("promo", "launch", "offer", "sale", "upsell", "bundle", "new_product")
+                )
+                if (
+                    product_ctx
+                    and product_ctx.get("product_image_url")
+                    and not pin_to_specific_product
+                    and brand_product_grounding_pool
+                ):
+                    chosen_url = str(product_ctx.get("product_image_url") or "")
+                    if chosen_url and chosen_url in used_primary_product_urls:
+                        alternative = None
+                        for cand in brand_product_grounding_pool:
+                            cand_url = str(cand.get("product_image_url") or "")
+                            if cand_url and cand_url not in used_primary_product_urls:
+                                alternative = cand
+                                break
+                        if alternative:
+                            alt_urls = alternative.get("product_image_urls") or []
+                            if not alt_urls and alternative.get("product_image_url"):
+                                alt_urls = [alternative.get("product_image_url")]
+                            product_ctx = {
+                                **product_ctx,
+                                "product_image_url": alternative.get("product_image_url"),
+                                "product_image_urls": alt_urls,
+                                "product_price": alternative.get("product_price"),
+                                "product_availability": alternative.get("product_availability"),
+                            }
+                            # Re-point matched_op so the prompt builder doesn't
+                            # describe Product A while we render Product B.
+                            matched_op = {
+                                "entity_id": alternative.get("entity_id"),
+                                "entity_type": "product",
+                                "entity_title": alternative.get("entity_title"),
+                                "source_url": alternative.get("source_url"),
+                                "payload": {
+                                    "entity_id": alternative.get("entity_id"),
+                                    "entity_type": "product",
+                                    "entity_title": alternative.get("entity_title"),
+                                    "source_url": alternative.get("source_url"),
+                                    "price": alternative.get("product_price"),
+                                    "availability": alternative.get("product_availability"),
+                                },
+                            }
+                            logger.info(
+                                "Product hero dedup: swapped to '%s' for post '%s' "
+                                "(original URL had already been used this run)",
+                                alternative.get("entity_title") or alternative.get("product_image_url"),
+                                post.get("topic"),
+                            )
+                    final_url = str(product_ctx.get("product_image_url") or "")
+                    if final_url:
+                        used_primary_product_urls.add(final_url)
+                elif product_ctx and product_ctx.get("product_image_url"):
+                    # Pinned-product paths still record the URL so a later
+                    # non-pinned post can dedup against it.
+                    used_primary_product_urls.add(str(product_ctx.get("product_image_url")))
 
                 if product_ctx:
                     enriched.update(product_ctx)
