@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import ShopifyIcon from '../components/ui/ShopifyIcon'
+import { LogoFull } from '../components/ui/Logo'
 
 // Ad-optimized landing page (ContentCard).
 // Multi-section, conversion-focused, e-commerce-first.
@@ -21,20 +22,6 @@ const CREAM = '#F7F4EE'
 const INK = '#101820'
 
 // ── Tiny re-usable bits ──────────────────────────────────────────────────
-
-function BrandWordmark() {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="rounded-full" style={{ width: 18, height: 18, background: BRAND_TEAL }} />
-      <span
-        className="font-bold text-ink"
-        style={{ fontFamily: '"Inter", system-ui, sans-serif', fontSize: 22, letterSpacing: -0.5 }}
-      >
-        contentcard
-      </span>
-    </div>
-  )
-}
 
 function PrimaryCTA({ label = 'Generate my first posts', onClick }) {
   return (
@@ -299,7 +286,7 @@ export default function LandingPage() {
       {/* ── HERO ─────────────────────────────────────────────────────── */}
       <section className="relative px-6 pt-12 pb-16 lg:pt-20 lg:pb-24">
         <div className="max-w-6xl mx-auto">
-          <BrandWordmark />
+          <LogoFull size={32} />
 
           <div className="mt-12 lg:mt-16 grid lg:grid-cols-2 gap-12 items-center">
             <div className="text-left">
