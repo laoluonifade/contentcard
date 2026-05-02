@@ -236,7 +236,6 @@ export const contentApi = {
   generateMonthV2:     (data)          => api.post('/content/generate-month-v2', data).then(r => r.data),
   generationPrepChat:  (data)          => api.post('/content/generation-prep-chat', data).then(r => r.data),
   prepExecuteVisual:     (data)          => api.post('/content/prep-execute-visual', data).then(r => r.data),
-  brandFormCoach:      (data)          => api.post('/content/brand-form-coach', data).then(r => r.data),
   bulkRemoveFromCalendar: (data)      => api.post('/content/bulk-remove-from-calendar', data).then(r => r.data),
   bulkDelete:            (data)       => api.post('/content/bulk-delete', data).then(r => r.data),
   redistributeDates:     (data)       => api.post('/content/redistribute-dates', data).then(r => r.data),
