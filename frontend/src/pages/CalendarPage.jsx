@@ -344,6 +344,7 @@ export default function CalendarPage() {
     generationPollCount,
     generationProgress,
     resumeActiveGenerationIfAny,
+    checkLastGenerationFailure,
   } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
@@ -444,12 +445,14 @@ export default function CalendarPage() {
     setSelectedDate('')
   }, [month, year, activeBrandId, user?.id])
 
-  // Reattach the loader if the backend has a run in flight for the month
-  // we just navigated to. No-op when nothing is running or we're already
-  // polling — see resumeActiveGenerationIfAny in appStore.
+  // Reattach the loader if a run is in flight for the month we just
+  // navigated to, and surface any stored OpenAI capacity failure so the
+  // banner shows the right state without re-firing generation. Both
+  // helpers no-op when nothing's relevant.
   useEffect(() => {
     if (!activeBrandId) return
     resumeActiveGenerationIfAny(month, year)
+    checkLastGenerationFailure(month, year)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrandId, month, year])
 

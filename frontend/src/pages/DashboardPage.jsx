@@ -120,6 +120,7 @@ export default function DashboardPage() {
     fetchTrends,
     fetchMonthContent,
     resumeActiveGenerationIfAny,
+    checkLastGenerationFailure,
   } = useAppStore()
 
   const activeBrand = brands.find((b) => b.id === activeBrandId)
@@ -155,12 +156,14 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrandId, activeWorkspaceId])
 
-  // After a refresh, reattach the loader if the backend has a run in
-  // flight for the current month on this brand. resumeActiveGenerationIfAny
-  // is a no-op when nothing is running or when we're already polling.
+  // After a refresh, reattach the loader if a run is in flight, and
+  // surface any stored OpenAI capacity failure so the banner shows
+  // "ChatGPT is busy / over quota / unreachable" with the Retry CTA.
+  // Both helpers no-op when nothing's relevant.
   useEffect(() => {
     if (!activeBrandId) return
     resumeActiveGenerationIfAny(now.getMonth() + 1, now.getFullYear())
+    checkLastGenerationFailure(now.getMonth() + 1, now.getFullYear())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrandId])
 

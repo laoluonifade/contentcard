@@ -68,6 +68,21 @@ export default function GenerationStatusBanner({ compact = false }) {
   }
 
   // ── Failure: red banner with Retry + dismiss ─────────────────────────
+  // Title swaps to a friendlier message when the backend reports a known
+  // OpenAI capacity / billing / outage code so the user knows it's not
+  // them — they just need to retry in a few minutes.
+  const failureTitle = (() => {
+    switch (generationFailure?.code) {
+      case 'openai_busy':
+        return 'ChatGPT is busy right now'
+      case 'openai_billing':
+        return 'ChatGPT account is over quota'
+      case 'openai_outage':
+        return "ChatGPT can't be reached right now"
+      default:
+        return 'Generation failed'
+    }
+  })()
   return (
     <div
       className={
@@ -82,9 +97,9 @@ export default function GenerationStatusBanner({ compact = false }) {
         aria-hidden
       />
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-ink">Generation failed</p>
+        <p className="text-sm font-semibold text-ink">{failureTitle}</p>
         <p className="text-xs text-ink/65 mt-0.5">
-          {generationFailure?.reason || 'Something went wrong. Please try again.'}
+          {generationFailure?.reason || 'Something went wrong. Please try again in a few minutes.'}
         </p>
         <div className="mt-2 flex items-center gap-2">
           <button

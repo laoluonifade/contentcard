@@ -66,6 +66,7 @@ from app.services.art_brief_service import build_art_brief
 from app.services.visual_lint_service import lint_final_image
 from app.services.quality_gate_service import score_visual_quality
 from app.services.image_service import (
+    OpenAICapacityError,
     create_loop_gif_from_image_url,
     generate_post_image,
     has_brand_logo,
@@ -136,7 +137,11 @@ def _coerce_disabled_carousel_for_response(out: "ContentOut") -> "ContentOut":
 # they don't resume). The startup sweeper clears these and the
 # idempotency check rejects new requests until the existing run either
 # finishes or expires.
-ACTIVE_GENERATION_TTL_MIN = 30
+#
+# Tuned to "healthy run + 1 retry": a successful generation completes
+# in ~3-5 minutes, so 8 minutes covers normal slack without locking
+# users out for 30 minutes when OpenAI was just briefly down.
+ACTIVE_GENERATION_TTL_MIN = 8
 TRIAL_FREE_GENERATIONS = 2000
 CARD_BONUS_FREE_GENERATIONS = 0
 PLAN_MONTHLY_POST_CAPS = {
@@ -405,11 +410,73 @@ async def _mark_generation_started(
         "platforms": [str(p).lower() for p in platforms],
         "user_id": str(user_id) if user_id else None,
     }
+    # Stamping a fresh run also wipes any prior capacity-failure marker so
+    # the banner doesn't keep showing "ChatGPT is busy" after the user
+    # successfully retries.
     await db.execute(
-        Brand.__table__.update().where(Brand.id == brand_id).values(active_generation=payload)
+        Brand.__table__.update()
+        .where(Brand.id == brand_id)
+        .values(active_generation=payload, last_generation_failure=None)
     )
     await db.commit()
     return run_id
+
+
+async def _record_capacity_failure(
+    brand_id: str,
+    *,
+    code: str,
+    message: str,
+    month: int,
+    year: int,
+) -> None:
+    """Persist a brand-level OpenAI capacity failure for the polling endpoint.
+
+    The frontend banner reads `last_generation_failure` via /content/status
+    and shows specific copy ("ChatGPT is busy" / "ChatGPT account is over
+    quota" / "ChatGPT is having an outage") instead of the generic timeout
+    message.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            payload = {
+                "code": code,
+                "message": message,
+                "occurred_at": datetime.now(timezone.utc).isoformat(),
+                "month": int(month),
+                "year": int(year),
+            }
+            await db.execute(
+                Brand.__table__.update()
+                .where(Brand.id == brand_id)
+                .values(last_generation_failure=payload)
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning(
+            "Could not record last_generation_failure for brand %s: %s", brand_id, exc
+        )
+
+
+async def _clear_capacity_failure(brand_id: str) -> None:
+    """Drop a stale capacity failure once a run completes cleanly.
+
+    Called from _do_generate_month after the render loop finishes without
+    hitting OpenAICapacityError, so a successful generation removes the
+    "ChatGPT is busy" banner from the next /content/status response.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                Brand.__table__.update()
+                .where(Brand.id == brand_id)
+                .values(last_generation_failure=None)
+            )
+            await db.commit()
+    except Exception as exc:
+        logger.warning(
+            "Could not clear last_generation_failure for brand %s: %s", brand_id, exc
+        )
 
 
 async def _mark_generation_finished(brand_id: str, run_id: str | None = None) -> None:
@@ -2027,6 +2094,10 @@ async def generation_status(
     Also returns `active_generation` so the frontend can resume the loader
     after a page refresh: if a run is mid-flight on this brand for this
     month, the banner reattaches without re-firing generateMonth.
+
+    Also returns `last_generation_failure` so the frontend can show a
+    specific OpenAI-busy / billing / outage banner instead of the
+    generic timeout when the previous run hit ChatGPT capacity issues.
     """
     brand = await _get_brand_and_check_access(brand_id, current_user.id, db, need_editor=False)
     result = await db.execute(
@@ -2061,6 +2132,7 @@ async def generation_status(
         "ready": total > 0 and ready_items >= total,
         "by_platform": by_platform,
         "active_generation": _serialize_active_generation_for_status(brand, month, year),
+        "last_generation_failure": _serialize_last_generation_failure(brand, month, year),
     }
 
 
@@ -2093,6 +2165,26 @@ def _serialize_active_generation_for_status(brand: Brand, month: int, year: int)
         "stale": _is_active_generation_stale(active),
         "month": active.get("month"),
         "year": active.get("year"),
+    }
+
+
+def _serialize_last_generation_failure(brand: Brand, month: int, year: int) -> dict | None:
+    """Return the most recent capacity failure when it covers this month, else None.
+
+    Surfaced by /content/status so the frontend banner can show
+    "ChatGPT is busy — try again later" with the existing Retry button.
+    """
+    failure = brand.last_generation_failure if isinstance(brand.last_generation_failure, dict) else None
+    if not failure:
+        return None
+    if int(failure.get("month") or 0) != month or int(failure.get("year") or 0) != year:
+        return None
+    return {
+        "code": failure.get("code"),
+        "message": failure.get("message"),
+        "occurred_at": failure.get("occurred_at"),
+        "month": failure.get("month"),
+        "year": failure.get("year"),
     }
 
 
@@ -4152,6 +4244,14 @@ async def _do_generate_month(
             brand_product_grounding_pool = await _brand_product_grounding_pool(db, brand_id)
             enforce_product_imagery = _is_product_based_brand(brand_dict)
             product_img_idx = 0
+            # Per-month dedup of product hero images. Without this, two
+            # general-purpose posts (community / engagement / seasonal) can
+            # land on the same hero photo when the planner matches both to
+            # the same opportunity or both fall back to the first product
+            # in the pool. We track the URL we actually shipped per post and
+            # swap to an unused product when a collision happens, so users
+            # see different products across the calendar grid.
+            used_primary_product_urls: set[str] = set()
 
             for i in range(len(saved_items)):
                 item, post = saved_items[i]
@@ -4271,6 +4371,74 @@ async def _do_generate_month(
                         # Bump idx so the next bundle post starts from a different cursor.
                         product_img_idx += len(extras)
 
+                # Hero dedup: swap to an unused product when this post
+                # would reuse the same hero we already shipped earlier in
+                # the run. We skip dedup on promotional / launch / sale /
+                # bundle posts because their caption text usually names
+                # the specific product — swapping the photo would make
+                # the visual contradict the copy. Everything else
+                # (community, engagement, seasonal, educational, quote,
+                # tip, …) is fair game and benefits from variety.
+                content_type_for_dedup = str(post.get("content_type") or "").strip().lower()
+                pin_to_specific_product = any(
+                    k in content_type_for_dedup
+                    for k in ("promo", "launch", "offer", "sale", "upsell", "bundle", "new_product")
+                )
+                if (
+                    product_ctx
+                    and product_ctx.get("product_image_url")
+                    and not pin_to_specific_product
+                    and brand_product_grounding_pool
+                ):
+                    chosen_url = str(product_ctx.get("product_image_url") or "")
+                    if chosen_url and chosen_url in used_primary_product_urls:
+                        alternative = None
+                        for cand in brand_product_grounding_pool:
+                            cand_url = str(cand.get("product_image_url") or "")
+                            if cand_url and cand_url not in used_primary_product_urls:
+                                alternative = cand
+                                break
+                        if alternative:
+                            alt_urls = alternative.get("product_image_urls") or []
+                            if not alt_urls and alternative.get("product_image_url"):
+                                alt_urls = [alternative.get("product_image_url")]
+                            product_ctx = {
+                                **product_ctx,
+                                "product_image_url": alternative.get("product_image_url"),
+                                "product_image_urls": alt_urls,
+                                "product_price": alternative.get("product_price"),
+                                "product_availability": alternative.get("product_availability"),
+                            }
+                            # Re-point matched_op so the prompt builder doesn't
+                            # describe Product A while we render Product B.
+                            matched_op = {
+                                "entity_id": alternative.get("entity_id"),
+                                "entity_type": "product",
+                                "entity_title": alternative.get("entity_title"),
+                                "source_url": alternative.get("source_url"),
+                                "payload": {
+                                    "entity_id": alternative.get("entity_id"),
+                                    "entity_type": "product",
+                                    "entity_title": alternative.get("entity_title"),
+                                    "source_url": alternative.get("source_url"),
+                                    "price": alternative.get("product_price"),
+                                    "availability": alternative.get("product_availability"),
+                                },
+                            }
+                            logger.info(
+                                "Product hero dedup: swapped to '%s' for post '%s' "
+                                "(original URL had already been used this run)",
+                                alternative.get("entity_title") or alternative.get("product_image_url"),
+                                post.get("topic"),
+                            )
+                    final_url = str(product_ctx.get("product_image_url") or "")
+                    if final_url:
+                        used_primary_product_urls.add(final_url)
+                elif product_ctx and product_ctx.get("product_image_url"):
+                    # Pinned-product paths still record the URL so a later
+                    # non-pinned post can dedup against it.
+                    used_primary_product_urls.add(str(product_ctx.get("product_image_url")))
+
                 if product_ctx:
                     enriched.update(product_ctx)
                 if isinstance(matched_op, dict):
@@ -4367,6 +4535,8 @@ async def _do_generate_month(
                 cm["logo_required"] = has_brand_logo(brand_dict)
                 cm["logo_applied"] = logo_ok
                 cm["quality_failure_tags"] = _quality_failure_tags(quality_gate)
+                if post_data.get("background_mode_used"):
+                    cm["background_mode"] = post_data.get("background_mode_used")
                 requested_media_type = str(cm.get("requested_media_type") or "").lower()
                 if requested_media_type == "gif" and item.image_url:
                     gif_url = await create_loop_gif_from_image_url(item.image_url, item.topic or "post")
@@ -4414,12 +4584,35 @@ async def _do_generate_month(
                         rv.image_url = item.image_url
                         rv.image_urls = item.image_urls if isinstance(item.image_urls, list) else []
                     await db.commit()
+            except OpenAICapacityError as cap_err:
+                # OpenAI is rate-limited / over quota / having an outage.
+                # Per-image retries inside the render loop won't recover —
+                # bail out, persist a brand-level failure marker so the
+                # frontend banner can show "ChatGPT is busy, try again
+                # later", and clear the active_generation slot so the user
+                # can retry without waiting out the TTL.
+                logger.warning(
+                    "OpenAI capacity error during generation for brand %s "
+                    "(post %s, code=%s): %s",
+                    brand_id, getattr(item, "id", "?"), cap_err.code, cap_err,
+                )
+                await _record_capacity_failure(
+                    brand_id,
+                    code=cap_err.code,
+                    message=str(cap_err),
+                    month=int(month),
+                    year=int(year),
+                )
+                await _mark_generation_finished(brand_id, active_run_id)
+                return
             except Exception as e:
                 logger.warning(f"quality gate/render failed for post {item.id}: {e}")
 
     # Generation finished cleanly (no early return inside the outer except
-    # blocks). Clear the in-flight guard so the user can re-trigger.
+    # blocks). Clear the in-flight guard so the user can re-trigger, and
+    # clear any prior capacity failure since the run completed.
     await _mark_generation_finished(brand_id, active_run_id)
+    await _clear_capacity_failure(brand_id)
 
 
 def _brand_to_dict(brand: Brand) -> dict:
