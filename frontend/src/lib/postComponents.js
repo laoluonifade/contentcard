@@ -13,7 +13,9 @@ import {
   isLight,
   drawWrapped,
   loadImage,
+  pickContrastingForeground,
   rrect,
+  sampleAverageLuminance,
   setFont,
   wrapText,
 } from './postDesignSystem'
@@ -77,46 +79,130 @@ function pickProductUrl(brand) {
 }
 
 // ── Headline ──────────────────────────────────────────────────────────────
-// Big display text. Auto-fits to bounds: starts at ds.headline.fontSize,
-// scales down if the wrapped text overflows.
+// Big display text. Auto-fits to bounds and (when autoContrast is on)
+// samples the rendered background under the headline rect to pick a
+// contrasting ink colour and drop a soft scrim if the background is busy.
+//
+// Opts:
+//   align: 'left' | 'center' | 'right'      — horizontal alignment
+//   verticalAnchor: 'top' | 'middle' | 'bottom'
+//   colour: explicit override (skips autoContrast colour pick)
+//   autoContrast: bool (default true)        — sample bg + pick fg
+//   scrim: bool (default true when autoContrast) — semi-transparent
+//          panel behind text on dark/busy backgrounds
 
 function drawHeadline(ctx, ds, content, bounds, opts = {}) {
   const align = opts.align || 'left'
   const verticalAnchor = opts.verticalAnchor || 'top'
-  const colour = opts.colour || ds.palette.ink
   const text = String(content || '').trim()
   if (!text) return
 
+  // ── Width-aware fit loop ────────────────────────────────────────────
+  // The previous loop only checked vertical fit + a content-coverage
+  // ratio, so a single long word (e.g. "constellation") could overflow
+  // the right edge when bounds.w was tight. Now we also measure the
+  // widest wrapped line and shrink until it fits horizontally too. The
+  // floor stays at ~50% of the original size; if even that overflows
+  // we fall back to ellipsising the longest line.
+  const minFontSize = Math.max(20, ds.headline.fontSize * 0.5)
   let fontSize = ds.headline.fontSize
   let lines = []
-  // Scale down until it fits, but stop at 50% of the original size.
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 12; i++) {
     ctx.font = `${ds.headline.weight} ${fontSize}px ${ds.fontFamily}`
     lines = wrapText(ctx, text, bounds.w).slice(0, ds.headline.maxLines)
+    const widest = lines.reduce(
+      (m, l) => Math.max(m, ctx.measureText(l).width),
+      0,
+    )
     const totalHeight = lines.length * fontSize * ds.headline.lineHeight
-    if (totalHeight <= bounds.h && lines.join(' ').length >= text.length * 0.85) break
-    fontSize = Math.max(fontSize * 0.85, ds.headline.fontSize * 0.5)
+    const fitsHeight = totalHeight <= bounds.h
+    const fitsWidth = widest <= bounds.w
+    const enoughCovered = lines.join(' ').length >= text.length * 0.85
+    if (fitsHeight && fitsWidth && enoughCovered) break
+    if (fontSize <= minFontSize) {
+      // Last-resort: ellipsise any line that still overflows so it can
+      // never bleed past the right edge regardless of the source text.
+      lines = lines.map((l) => ellipsise(ctx, l, bounds.w))
+      break
+    }
+    fontSize = Math.max(fontSize * 0.85, minFontSize)
   }
 
-  ctx.fillStyle = colour
-  ctx.textAlign = align
-  ctx.textBaseline = 'top'
-  ctx.font = `${ds.headline.weight} ${fontSize}px ${ds.fontFamily}`
+  // ── Auto-contrast: sample background under the headline rect ────────
+  // Decides text colour + whether to drop a scrim. Skipped when the
+  // caller passed an explicit colour or set autoContrast: false.
+  const autoContrast = opts.autoContrast !== false && !opts.colour
+  let chosenColour = opts.colour || ds.palette.ink
+  let drawScrimNeeded = false
+  if (autoContrast) {
+    const sampleY = bounds.y
+    const sampleH = Math.min(bounds.h, lines.length * fontSize * ds.headline.lineHeight)
+    const luminance = sampleAverageLuminance(ctx, bounds.x, sampleY, bounds.w, sampleH)
+    chosenColour = pickContrastingForeground(luminance, ds.palette)
+    // Drop a scrim when the background is mid-luminance (busy photo
+    // territory where neither pure white nor pure black is fully
+    // readable) or when the chosen colour is white on a not-quite-dark
+    // photo. The scrim colour matches the inverse of the chosen text.
+    drawScrimNeeded = opts.scrim !== false && (luminance > 0.25 && luminance < 0.75)
+  }
 
+  // Compute text positioning.
   const lineHeight = fontSize * ds.headline.lineHeight
-  const totalHeight = lines.length * lineHeight
+  const totalTextHeight = lines.length * lineHeight
   const startY =
-    verticalAnchor === 'middle' ? bounds.y + (bounds.h - totalHeight) / 2 :
-    verticalAnchor === 'bottom' ? bounds.y + bounds.h - totalHeight :
+    verticalAnchor === 'middle' ? bounds.y + (bounds.h - totalTextHeight) / 2 :
+    verticalAnchor === 'bottom' ? bounds.y + bounds.h - totalTextHeight :
                                    bounds.y
   const baseX =
     align === 'center' ? bounds.x + bounds.w / 2 :
     align === 'right'  ? bounds.x + bounds.w :
                           bounds.x
 
+  // Draw the scrim BEFORE the text so it sits between the photo and
+  // the lettering. Inset by a small margin so it reads as a panel,
+  // not a hard band.
+  if (drawScrimNeeded) {
+    const scrimAlpha = chosenColour === '#FFFFFF' ? 0.42 : 0.32
+    const scrimColour =
+      chosenColour === '#FFFFFF' ? `rgba(0, 0, 0, ${scrimAlpha})` : `rgba(255, 255, 255, ${scrimAlpha})`
+    const padX = 16
+    const padY = 12
+    ctx.save()
+    ctx.fillStyle = scrimColour
+    ctx.beginPath()
+    rrect(
+      ctx,
+      bounds.x - padX / 2,
+      startY - padY,
+      bounds.w + padX,
+      totalTextHeight + padY * 2,
+      18,
+    )
+    ctx.fill()
+    ctx.restore()
+  }
+
+  ctx.save()
+  ctx.fillStyle = chosenColour
+  ctx.textAlign = align
+  ctx.textBaseline = 'top'
+  ctx.font = `${ds.headline.weight} ${fontSize}px ${ds.fontFamily}`
   lines.forEach((l, i) => ctx.fillText(l, baseX, startY + i * lineHeight))
   ctx.textAlign = 'left'
   ctx.textBaseline = 'alphabetic'
+  ctx.restore()
+}
+
+// Trim `line` until it (with an appended ellipsis) fits inside maxWidth.
+// Used as the last-resort floor in drawHeadline so a pathologically
+// long single word never bleeds past the right edge of the canvas.
+function ellipsise(ctx, line, maxWidth) {
+  if (ctx.measureText(line).width <= maxWidth) return line
+  let trimmed = line
+  while (trimmed.length > 1 && ctx.measureText(`${trimmed}…`).width > maxWidth) {
+    trimmed = trimmed.slice(0, -1)
+  }
+  return trimmed.length > 1 ? `${trimmed}…` : line
 }
 
 // ── PriceTag ──────────────────────────────────────────────────────────────
