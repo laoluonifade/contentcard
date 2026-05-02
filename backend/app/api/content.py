@@ -1467,6 +1467,57 @@ async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand
     return True
 
 
+def _extract_offer_badge_text(post_data: dict) -> str | None:
+    """Pull a short, loud offer string out of the post's message architecture
+    or caption so an offer_discount post always has a visible value prop on
+    the canvas. Returns None when nothing usable is found.
+
+    Scan order, in priority:
+      1. An explicit percent / currency token in support, evidence, hook,
+         caption, or topic ("20% off", "₦1500", "$5", "buy 1 get 1").
+      2. A short timing token ("today only", "this weekend", "July special").
+      3. The first ≤ 4-word fragment of message_architecture.support.
+    """
+    ma = post_data.get("message_architecture") if isinstance(post_data.get("message_architecture"), dict) else {}
+    candidates = [
+        str(ma.get("support") or ""),
+        str(ma.get("evidence") or ""),
+        str(ma.get("hook") or ""),
+        str(post_data.get("caption") or ""),
+        str(post_data.get("description") or ""),
+        str(post_data.get("topic") or ""),
+        str(post_data.get("content_idea") or ""),
+    ]
+    text = " ".join(c for c in candidates if c).strip()
+    if not text:
+        return None
+
+    percent = re.search(r"\b(?:up to\s*)?\d{1,3}\s*%\s*off\b", text, flags=re.IGNORECASE)
+    if percent:
+        return percent.group(0).upper().replace("  ", " ")[:24]
+    price = re.search(r"[₦$£€]\s?\d[\d,]*(?:\.\d{1,2})?", text)
+    if price:
+        return price.group(0).strip()[:24]
+    bogo = re.search(r"\bbuy\s*\d+\s*get\s*\d+\b", text, flags=re.IGNORECASE)
+    if bogo:
+        return bogo.group(0).upper()[:24]
+    timing = re.search(
+        r"\b(today only|this weekend|this week|tonight|limited time|flash sale|"
+        r"(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+special)\b",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if timing:
+        return timing.group(0).upper()[:24]
+
+    support = str(ma.get("support") or "").strip()
+    if support:
+        words = support.split()
+        if 1 <= len(words) <= 4:
+            return support.upper()[:24]
+    return None
+
+
 def _synthesize_fallback_strategy(post_data: dict, brand_dict: dict) -> dict:
     """Minimum-viable strategy for posts where the strategist call failed,
     rate-limited, or returned empty components.
@@ -1516,19 +1567,6 @@ def _synthesize_fallback_strategy(post_data: dict, brand_dict: dict) -> dict:
     holiday_name = str(post_data.get("holiday_name") or "").strip()
     is_holiday = bool(post_data.get("is_holiday_post")) or bool(holiday_name)
 
-    components: list[dict] = []
-    if holiday_name:
-        # Loud at-a-glance badge so the post reads as a holiday post even
-        # before the user processes the headline.
-        components.append({
-            "type": "Badge",
-            "content": holiday_name.upper()[:24],
-        })
-    components.append({"type": "Headline", "content": raw_headline})
-    if post_data.get("product_image_url"):
-        components.append({"type": "ProductImage", "content": "primary"})
-    components.append({"type": "CTAButton", "content": cta_text})
-
     # Map visual_theme + content_type onto the strategist's enum so the
     # canvas layout engine has a recognised layout to dispatch on.
     visual_theme = str(post_data.get("visual_theme") or "").strip().lower()
@@ -1548,6 +1586,40 @@ def _synthesize_fallback_strategy(post_data: dict, brand_dict: dict) -> dict:
     else:
         post_type = "product_spotlight"
         layout = "centered_product"
+
+    components: list[dict] = []
+    # Holiday badge wins outright — readers should see "WORKERS' DAY" before
+    # they parse the headline. For non-holiday offer_discount posts we still
+    # need a loud at-a-glance value prop, otherwise the canvas ships as a
+    # vague "order-worthy offer" with no actual offer attached.
+    badge_content: str | None = None
+    if holiday_name:
+        badge_content = holiday_name.upper()[:24]
+    elif post_type == "offer_discount":
+        badge_content = _extract_offer_badge_text(post_data)
+        if not badge_content:
+            # Last-resort floor so the offer slot is never empty: month +
+            # "special" reads as a real offer cue, even when no discount
+            # was extracted upstream.
+            scheduled = str(post_data.get("scheduled_date") or "").strip()
+            month_names = (
+                "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+                "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
+            )
+            month_token = ""
+            if scheduled:
+                try:
+                    month_token = month_names[int(scheduled.split("-")[1]) - 1]
+                except (ValueError, IndexError):
+                    month_token = ""
+            badge_content = (f"{month_token} SPECIAL" if month_token else "LIMITED OFFER")[:24]
+    if badge_content:
+        components.append({"type": "Badge", "content": badge_content})
+
+    components.append({"type": "Headline", "content": raw_headline})
+    if post_data.get("product_image_url"):
+        components.append({"type": "ProductImage", "content": "primary"})
+    components.append({"type": "CTAButton", "content": cta_text})
 
     return {
         "post_type": post_type,
