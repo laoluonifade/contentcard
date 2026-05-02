@@ -733,7 +733,7 @@ export default function CalendarPage() {
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
   const [genTemplateId, setGenTemplateId] = useState(null)
-  const [layoutMode, setLayoutMode] = useState('grid')
+  const [layoutMode, setLayoutMode] = useState('month')
   const [cardUpsellToast, setCardUpsellToast] = useState(null)
   const [showCardModal, setShowCardModal] = useState(false)
   const [thisWeekOnly, setThisWeekOnly] = useState(false)
@@ -961,6 +961,65 @@ export default function CalendarPage() {
     if (m<1){m=12;y--} if (m>12){m=1;y++}
     setMonth(m); setYear(y); setModal(null)
     setSearchParams({ m, y }, { replace: true })
+  }
+
+  const swipeStartRef = useRef(null)
+  const onCalendarTouchStart = (e) => {
+    const t = e.touches?.[0]
+    if (!t) return
+    swipeStartRef.current = { x: t.clientX, y: t.clientY, t: Date.now() }
+  }
+  const onCalendarTouchEnd = (e) => {
+    const start = swipeStartRef.current
+    swipeStartRef.current = null
+    if (!start) return
+    const t = e.changedTouches?.[0]
+    if (!t) return
+    const dx = t.clientX - start.x
+    const dy = t.clientY - start.y
+    const dt = Date.now() - start.t
+    if (Math.abs(dx) < 50 || Math.abs(dx) <= Math.abs(dy) || dt > 600) return
+    shiftMonth(dx < 0 ? 1 : -1)
+  }
+
+  const copyPostCaption = (post) => {
+    if (!post) return
+    const text = fullPostCaptionText(post.caption || '', post.hashtags || [])
+    navigator.clipboard?.writeText(text)
+    toast('Caption copied!')
+  }
+
+  const downloadPostImage = async (post) => {
+    const url = (post?.image_urls?.[0]) || post?.image_url
+    if (!url) {
+      toast('No image to download yet', 'error')
+      return
+    }
+    const filename = `${post.platform || 'post'}-${post.scheduled_date || 'image'}.png`
+    try {
+      const resp = await fetch(url)
+      if (!resp.ok) throw new Error(`Status ${resp.status}`)
+      const blob = await resp.blob()
+      const href = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = href
+      a.download = filename
+      a.rel = 'noopener'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(href), 5000)
+      toast('Image downloaded')
+    } catch {
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.target = '_blank'
+      a.rel = 'noopener'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    }
   }
 
   const totalSlides = Math.max(1, modal?.slide_count||1)
@@ -1851,17 +1910,22 @@ export default function CalendarPage() {
       )}
 
       {!loading && posts.length > 0 && layoutMode === 'month' && (
-        <div className="mb-8 rounded-2xl border border-fog bg-surface p-3 lg:p-4">
-          <div className="grid grid-cols-7 gap-2 mb-2">
+        <div className="mb-8 rounded-2xl border border-fog bg-surface p-2 sm:p-3 lg:p-4">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((label) => (
-              <div key={label} className="px-2 py-1 text-[11px] font-semibold text-ink/40 uppercase tracking-wide">
-                {label}
+              <div key={label} className="px-1 sm:px-2 py-1 text-[10px] sm:text-[11px] font-semibold text-ink/40 uppercase tracking-wide text-center sm:text-left">
+                <span className="sm:hidden">{label.slice(0, 1)}</span>
+                <span className="hidden sm:inline">{label}</span>
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-7 gap-2">
+          <div
+            className="grid grid-cols-7 gap-1 sm:gap-2 touch-pan-y select-none"
+            onTouchStart={onCalendarTouchStart}
+            onTouchEnd={onCalendarTouchEnd}
+          >
             {calendarCells.map((cell, idx) => {
-              if (!cell) return <div key={`empty-${idx}`} className="min-h-[108px] rounded-xl border border-transparent bg-transparent" />
+              if (!cell) return <div key={`empty-${idx}`} className="min-h-[64px] sm:min-h-[108px] rounded-lg sm:rounded-xl border border-transparent bg-transparent" />
               const dayPosts = postsByDate[cell.iso] || []
               const isToday = cell.iso === toIsoDate(now.getFullYear(), now.getMonth() + 1, now.getDate())
               const isActive = selectedDate === cell.iso
@@ -1871,6 +1935,7 @@ export default function CalendarPage() {
                   key={cell.iso}
                   role="button"
                   tabIndex={0}
+                  aria-label={`${fmtDate(cell.iso)}, ${dayPosts.length} post${dayPosts.length === 1 ? '' : 's'}`}
                   onClick={() => setSelectedDate((cur) => (cur === cell.iso ? '' : cell.iso))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
@@ -1878,19 +1943,31 @@ export default function CalendarPage() {
                       setSelectedDate((cur) => (cur === cell.iso ? '' : cell.iso))
                     }
                   }}
-                  className={`min-h-[108px] rounded-xl border p-2 text-left transition-colors cursor-pointer ${
-                    isActive ? 'border-slate-900 bg-mist' : 'border-fog hover:border-ink/20 bg-surface'
+                  className={`min-h-[64px] sm:min-h-[108px] rounded-lg sm:rounded-xl border p-1.5 sm:p-2 text-left transition-colors cursor-pointer active:bg-mist ${
+                    isActive ? 'border-slate-900 bg-mist ring-2 ring-slate-900/10' : 'border-fog hover:border-ink/20 bg-surface'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className={`text-xs font-semibold ${isToday ? 'text-brand-600' : 'text-ink/65'}`}>{cell.day}</span>
+                    <span className={`text-xs sm:text-sm font-semibold ${isToday ? 'text-brand-600' : 'text-ink/65'}`}>{cell.day}</span>
                     {!!dayPosts.length && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-900 text-white">
+                      <span className="text-[9px] sm:text-[10px] px-1 sm:px-1.5 py-0.5 rounded-full bg-slate-900 text-white leading-none">
                         {dayPosts.length}
                       </span>
                     )}
                   </div>
-                  <div className="mt-2 space-y-1">
+                  {/* Mobile: dot indicators only */}
+                  <div className="sm:hidden mt-1 flex flex-wrap gap-0.5">
+                    {dayPosts.slice(0, 4).map((post) => (
+                      <span
+                        key={post.id}
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{ background: PLATFORMS.find((p) => p.id === post.platform)?.color || '#94a3b8' }}
+                        aria-hidden="true"
+                      />
+                    ))}
+                  </div>
+                  {/* Tablet/Desktop: text previews */}
+                  <div className="hidden sm:block mt-2 space-y-1">
                     {topPreview.map((post) => (
                       <button
                         key={post.id}
@@ -1912,9 +1989,10 @@ export default function CalendarPage() {
               )
             })}
           </div>
+          <p className="sm:hidden mt-2 text-[10px] text-ink/35 text-center">Swipe left or right to change month · Tap a date to view content</p>
           {selectedDate && (
             <div className="mt-4 rounded-xl border border-fog bg-mist/40 p-3">
-              <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center justify-between gap-2 mb-3">
                 <p className="text-sm font-semibold text-ink">
                   Plan for {fmtDate(selectedDate)}
                 </p>
@@ -1925,18 +2003,61 @@ export default function CalendarPage() {
               {(postsByDate[selectedDate] || []).length === 0 ? (
                 <p className="text-xs text-ink/45">No scheduled posts on this day yet.</p>
               ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {(postsByDate[selectedDate] || []).map((post) => (
-                    <button
-                      type="button"
-                      key={post.id}
-                      onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
-                      className="rounded-lg border border-fog bg-surface px-2.5 py-2 text-left hover:border-ink/20"
-                    >
-                      <p className="text-[11px] text-ink/45 capitalize">{post.platform}</p>
-                      <p className="text-xs text-ink font-medium truncate mt-0.5">{post.content_idea || post.topic}</p>
-                    </button>
-                  ))}
+                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {(postsByDate[selectedDate] || []).map((post) => {
+                    const postImg = (post?.image_urls?.[0]) || post?.image_url || ''
+                    return (
+                      <div
+                        key={post.id}
+                        className="rounded-xl border border-fog bg-surface overflow-hidden flex flex-col"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
+                          className="text-left p-3 flex items-start gap-3 active:bg-mist transition-colors"
+                        >
+                          {postImg ? (
+                            <img
+                              src={postImg}
+                              alt={post.topic || ''}
+                              className="w-14 h-14 rounded-lg object-cover bg-mist flex-shrink-0"
+                            />
+                          ) : (
+                            <div className="w-14 h-14 rounded-lg bg-mist flex items-center justify-center text-ink/30 flex-shrink-0">
+                              {PLATFORM_LOGO[post.platform]}
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[11px] text-ink/45 capitalize">{post.platform}</p>
+                            <p className="text-sm text-ink font-medium line-clamp-2 mt-0.5">{post.content_idea || post.topic}</p>
+                          </div>
+                        </button>
+                        <div className="grid grid-cols-2 gap-1.5 px-3 pb-3">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              copyPostCaption(post)
+                            }}
+                            className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl border border-fog bg-mist text-ink/80 text-xs font-medium active:bg-fog hover:bg-fog/60"
+                          >
+                            <Copy size={14} /> Copy caption
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              downloadPostImage(post)
+                            }}
+                            disabled={!postImg}
+                            className="min-h-11 inline-flex items-center justify-center gap-1.5 rounded-xl bg-slate-900 text-white text-xs font-medium active:bg-slate-800 hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed"
+                          >
+                            <Download size={14} /> Download
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </div>
@@ -2057,17 +2178,28 @@ export default function CalendarPage() {
       {showGenPanel && (
         <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
           onClick={e=>e.target===e.currentTarget&&setShowGenPanel(false)}>
-          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-6 space-y-5">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-ink font-semibold">Generate {MONTHS[month-1]} {year}</h3>
+          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[92vh] sm:max-h-[88vh] overflow-y-auto pb-[max(env(safe-area-inset-bottom),1rem)] sm:pb-6">
+            {/* Mobile drag handle */}
+            <div className="sm:hidden sticky top-0 z-10 bg-surface pt-2 pb-1 flex justify-center">
+              <span className="block w-10 h-1.5 rounded-full bg-fog" aria-hidden="true" />
+            </div>
+            <div className="px-5 sm:px-6 pt-3 sm:pt-6 pb-2 flex items-start justify-between gap-3 bg-surface">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-ink font-semibold text-base">Generate {MONTHS[month-1]} {year}</h3>
                 <p className="text-ink/40 text-xs mt-0.5">This will create a full month of on-brand content</p>
                 {generationLockedForMonth && (
                   <p className="text-ink/35 text-[11px] mt-1">This month is not available yet. You can generate up to 3 months ahead.</p>
                 )}
               </div>
-              <button onClick={()=>setShowGenPanel(false)} className="text-ink/30 hover:text-ink p-1.5 -mr-1 transition-colors"><X size={18}/></button>
+              <button
+                onClick={()=>setShowGenPanel(false)}
+                className="min-w-11 min-h-11 inline-flex items-center justify-center rounded-full text-ink/45 hover:text-ink hover:bg-mist transition-colors flex-shrink-0"
+                aria-label="Close"
+              >
+                <X size={20}/>
+              </button>
             </div>
+            <div className="px-5 sm:px-6 pb-2 space-y-5">
 
             {/* Brand readiness check */}
             {activeBrand && !isBrandReady(activeBrand) && (
@@ -2098,7 +2230,7 @@ export default function CalendarPage() {
                   { id:'linkedin',  label:'LinkedIn'  },
                 ].map(pl=>(
                   <button key={pl.id} onClick={()=>setGenPlatform(pl.id)}
-                    className={`flex flex-col items-center gap-1.5 p-3 rounded-xl border transition-all ${
+                    className={`flex flex-col items-center gap-1.5 p-3 min-h-16 rounded-xl border transition-all active:bg-mist ${
                       genPlatform===pl.id ? 'border-ink bg-mist' : 'border-fog hover:border-ink/20'
                     }`}>
                     <span className="text-ink/50">{PLATFORM_LOGO[pl.id]}</span>
@@ -2106,6 +2238,7 @@ export default function CalendarPage() {
                   </button>
                 ))}
               </div>
+              <p className="text-ink/30 text-[11px] mt-1.5">Default selected · tap to change</p>
             </div>
 
             <div>
@@ -2113,7 +2246,7 @@ export default function CalendarPage() {
               <div className="flex gap-2">
                 {[1,2,3,4,5].map(n=>(
                   <button key={n} onClick={()=>setGenPPW(n)}
-                    className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition-all ${
+                    className={`flex-1 min-h-11 py-3 rounded-xl border text-sm font-medium transition-all active:bg-mist ${
                       genPPW===n ? 'border-ink bg-mist text-ink' : 'border-fog text-ink/40 hover:border-ink/20'
                     }`}>
                     {n}×
@@ -2127,7 +2260,8 @@ export default function CalendarPage() {
               <p className="label mb-2">Focus topic <span className="text-ink/20 font-normal normal-case tracking-normal">(optional)</span></p>
               <input value={genTopic} onChange={e=>setGenTopic(e.target.value)}
                 placeholder="Leave blank for varied topics"
-                className="input"/>
+                inputMode="text"
+                className="input min-h-12 text-base sm:text-sm"/>
             </div>
 
             {activeTemplates.length > 0 && (
@@ -2184,12 +2318,13 @@ export default function CalendarPage() {
             </div>
 
             <button onClick={handleGenerate} disabled={generatingMonth || generationLockedForMonth || (activeBrand && !isBrandReady(activeBrand))}
-              className="btn-primary w-full justify-center py-3 disabled:opacity-50 disabled:cursor-not-allowed">
+              className="btn-primary w-full justify-center py-4 sm:py-3 text-sm font-semibold min-h-12 disabled:opacity-50 disabled:cursor-not-allowed">
               {generatingMonth
                 ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
                     {generationPollCount < 1 ? 'Starting…' : generationPollCount < 3 ? 'Writing captions…' : generationPollCount < 7 ? 'Crafting posts…' : 'Almost done…'}</>
                 : <><Zap size={15}/>Review &amp; Generate {MONTHS[month-1]} →</>}
             </button>
+            </div>
           </div>
         </div>
       )}
@@ -2197,10 +2332,15 @@ export default function CalendarPage() {
       {modal && (
         <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
           onClick={e=>e.target===e.currentTarget&&setModal(null)}>
-          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[94vh] overflow-y-auto">
+          <div className="bg-surface border border-fog rounded-t-2xl sm:rounded-2xl w-full sm:max-w-3xl md:max-w-4xl lg:max-w-5xl max-h-[94vh] overflow-y-auto pb-[max(env(safe-area-inset-bottom),0px)]">
+
+            {/* Mobile drag handle */}
+            <div className="sm:hidden sticky top-0 z-20 bg-surface pt-2 pb-1 flex justify-center">
+              <span className="block w-10 h-1.5 rounded-full bg-fog" aria-hidden="true" />
+            </div>
 
             {/* Modal header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-fog sticky top-0 bg-surface z-10">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-fog sticky top-3 sm:top-0 bg-surface z-10">
               <div className="min-w-0 flex-1 pr-3">
                 <p className="text-ink/40 text-xs mb-0.5 capitalize">
                   {modal.platform} · {fmtDate(modal.scheduled_date)}
@@ -2234,8 +2374,12 @@ export default function CalendarPage() {
                   <p className="text-ink/35 text-[10px] mt-1">Layout: {humanizeArchetype(modal.visual_archetype)}</p>
                 )}
               </div>
-              <button onClick={()=>setModal(null)} className="text-ink/30 hover:text-ink p-1.5 transition-colors -mr-1 flex-shrink-0">
-                <X size={20}/>
+              <button
+                onClick={()=>setModal(null)}
+                className="min-w-11 min-h-11 inline-flex items-center justify-center rounded-full text-ink/45 hover:text-ink hover:bg-mist transition-colors flex-shrink-0 -mr-2"
+                aria-label="Close"
+              >
+                <X size={22}/>
               </button>
             </div>
 
@@ -2270,18 +2414,18 @@ export default function CalendarPage() {
                   {/* Action buttons */}
                   <div className="flex gap-2 w-full">
                     <button onClick={copyCaption}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-2.5 btn-primary text-xs">
-                      <Copy size={12}/> Copy caption
+                      className="flex-1 flex items-center justify-center gap-1.5 py-3 min-h-12 btn-primary text-sm font-semibold">
+                      <Copy size={14}/> Copy caption
                     </button>
                     {totalSlides > 1 ? (
                       <button onClick={downloadAll}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 btn-secondary text-xs">
-                        <Download size={12}/> Download all
+                        className="flex-1 flex items-center justify-center gap-1.5 py-3 min-h-12 btn-secondary text-sm font-semibold">
+                        <Download size={14}/> Download all
                       </button>
                     ) : (
                       <button onClick={downloadSlide}
-                        className="flex-1 flex items-center justify-center gap-1.5 py-2.5 btn-secondary text-xs">
-                        <Download size={12}/> Download
+                        className="flex-1 flex items-center justify-center gap-1.5 py-3 min-h-12 btn-secondary text-sm font-semibold">
+                        <Download size={14}/> Download image
                       </button>
                     )}
                   </div>
