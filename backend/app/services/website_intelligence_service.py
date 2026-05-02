@@ -174,6 +174,76 @@ async def _fetch_bumpa_products(base_url: str) -> list[dict]:
     return []
 
 
+# HTML fingerprints that reliably appear on Bumpa-hosted storefronts. We keep
+# the list narrow + lower-cased so a custom domain that bundles, say, Bumpa's
+# JS or links to Bumpa's CDN is recognised, but a random site that mentions
+# "bumpa" in a blog post isn't misclassified.
+_BUMPA_HTML_FINGERPRINTS: tuple[str, ...] = (
+    "mybumpa.com",
+    "cdn.bumpa",
+    "bumpa.app",
+    "powered by bumpa",
+    "data-bumpa",
+    'src="https://app.bumpa',
+)
+
+
+async def _looks_like_bumpa(base_url: str) -> bool:
+    """Heuristic check for Bumpa stores hosted on a custom domain.
+
+    Bumpa lets merchants point their own domain (e.g. benardsamuel.com.ng) at
+    a Bumpa-hosted storefront. The hostname check (`mybumpa.com` / `bumpa`)
+    fails for these, so we probe two cheap signals:
+
+      1. The storefront product API. Bumpa custom-domain stores still proxy
+         /api/storefront/products to their backend; a 200 with a recognisable
+         shape is conclusive.
+      2. Homepage HTML fingerprints — Bumpa CDN host, "Powered by Bumpa",
+         data-bumpa attributes, etc.
+
+    Returns True on the first successful signal. Best-effort: any network
+    error → False (we just won't promote the platform_hint).
+    """
+    timeout = httpx.Timeout(10.0, connect=6.0)
+
+    # 1. Storefront API probe — if it answers with valid JSON, we're done.
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            res = await client.get(
+                urljoin(f"{base_url}/", "api/storefront/products?limit=1"),
+                headers={"Accept": "application/json"},
+            )
+            if res.status_code == 200:
+                try:
+                    payload = res.json()
+                except Exception:
+                    payload = None
+                if isinstance(payload, list):
+                    return True
+                if isinstance(payload, dict):
+                    for key in ("products", "data", "items", "results"):
+                        if isinstance(payload.get(key), list):
+                            return True
+    except Exception:
+        pass
+
+    # 2. Homepage HTML fingerprint probe. We scan the first ~300 KB so we
+    #    pick up scripts/links in the head + early body without burning
+    #    bandwidth on huge product-listing pages.
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            res = await client.get(base_url, headers={"User-Agent": "ContentCardBot/1.0"})
+            if res.status_code == 200:
+                text = (res.text or "")[:300_000].lower()
+                for marker in _BUMPA_HTML_FINGERPRINTS:
+                    if marker in text:
+                        return True
+    except Exception:
+        pass
+
+    return False
+
+
 async def _fetch_bumpa_products_with_retry(base_url: str, max_attempts: int = 3) -> tuple[list[dict], int]:
     last_exc: Exception | None = None
     for attempt in range(1, max_attempts + 1):
@@ -1409,6 +1479,18 @@ async def sync_brand_website_intelligence(db: AsyncSession, brand: Brand, force:
             platform_hint = "shopify"
         elif "mybumpa.com" in host or "bumpa" in host:
             platform_hint = "bumpa"
+        else:
+            # Custom domain — most legitimate Bumpa stores point a vanity
+            # domain at Bumpa hosting (e.g. benardsamuel.com.ng → Bumpa).
+            # Probe the storefront API + homepage HTML before falling
+            # through to the generic non-Shopify scraper, which doesn't
+            # know the Bumpa endpoints.
+            try:
+                if await _looks_like_bumpa(source_url):
+                    platform_hint = "bumpa"
+                    raw_payload["bumpa_auto_detected"] = True
+            except Exception:
+                pass
     food_menu_hint = any(
         k in str((brand.industry or "") + " " + (getattr(brand, "sub_industry", "") or "") + " " + (brand.website or "")).lower()
         for k in ("food", "restaurant", "diner", "cafe", "beverage", "menu")
