@@ -20,6 +20,7 @@ import { brandApi } from '../api'
 import { Skeleton } from '../components/ui/Skeleton'
 import { toast } from '../components/ui/Toast'
 import { planIncludesTrendingTopics } from '../utils/planFeatures'
+import GenerationStatusBanner from '../components/dashboard/GenerationStatusBanner'
 
 /*
  * Mobile-first home page.
@@ -305,6 +306,13 @@ export default function DashboardPage() {
         <p className="text-ink/55 text-sm mt-1">
           {activeBrand?.name ? `Here's where ${activeBrand.name} stands today.` : "Here's where you stand today."}
         </p>
+      </div>
+
+      {/* Live generation status — visible whenever a month is generating
+          OR a generation just failed and hasn't been dismissed. Renders
+          nothing in the idle case so it doesn't add visual weight. */}
+      <div className="mb-4">
+        <GenerationStatusBanner />
       </div>
 
       {/* 1. Metric tiles */}
