@@ -305,6 +305,8 @@ async def _build_brand_aware_prompt(post: dict, brand: dict) -> str:
                 platform=platform,
                 format=fmt,
                 variation_axis=variation_axis,
+                visual_theme=str(post.get("visual_theme") or "").strip().lower() or None,
+                holiday_name=str(post.get("holiday_name") or "").strip() or None,
             )
         except Exception as e:
             logger.warning("Strategist call failed (%s); falling back to legacy prompt builder", e)
@@ -1602,6 +1604,142 @@ async def _fetch_and_prepare_product_png(url: str) -> bytes | None:
         return None
 
 
+async def _generate_with_product_collage(
+    product_pngs: list[bytes],
+    prompt: str,
+    topic: str,
+    n: int = 1,
+    *,
+    upload_uid: str | None = None,
+) -> list[str]:
+    """Multi-product collage variant of `_generate_with_product_edits`.
+
+    Sends multiple product PNGs to gpt-image-1 /edits using the `image[]`
+    repeat-key form so the model receives every product simultaneously and
+    composes them into a single tasteful arrangement (bundle / 'complete the
+    look' / set). Falls back to [] if the API fails — the caller should then
+    retry with the single-product path or text-only generation.
+    """
+    if not product_pngs:
+        return []
+    files: list[tuple[str, tuple[str, bytes, str]]] = [
+        ("image[]", (f"product-{idx}.png", png, "image/png"))
+        for idx, png in enumerate(product_pngs[:4])  # cap at 4 to keep prompts coherent
+    ]
+    try:
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=240) as client:
+            resp = await client.post(
+                IMAGES_EDIT_API_URL,
+                headers={"Authorization": f"Bearer {settings.OPENAI_API_KEY}"},
+                files=files,
+                data={
+                    "model": "gpt-image-1",
+                    "prompt": prompt,
+                    "n": str(n),
+                    "size": "1024x1024",
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        items = data.get("data", [])
+        urls: list[str] = []
+        for idx, item in enumerate(items):
+            if item.get("b64_json"):
+                image_bytes = base64.b64decode(item["b64_json"])
+            elif item.get("url"):
+                async with httpx.AsyncClient(timeout=30) as dl:
+                    dl_resp = await dl.get(item["url"])
+                    if dl_resp.status_code != 200:
+                        continue
+                    image_bytes = dl_resp.content
+            else:
+                continue
+            _unique = f"{idx}-{(upload_uid or uuid.uuid4().hex)[:20]}-{uuid.uuid4().hex[:8]}"
+            permanent_url = await _upload_to_cloudinary(
+                image_bytes, f"{topic}-collage", idx, public_suffix=_unique
+            )
+            if permanent_url:
+                urls.append(permanent_url)
+
+        latency = (time.perf_counter() - start) * 1000.0
+        logger.info(
+            "product-collage: %d/%d images from %d source products for '%s' (%.0f ms)",
+            len(urls), n, len(product_pngs), topic, latency,
+        )
+        telemetry_record(CallTelemetry(
+            endpoint_name="image_edit",
+            model="gpt-image-1",
+            input_tokens=max(1, len(prompt) // 4),
+            output_tokens=0,
+            estimated_cost_usd=estimate_cost_usd("gpt-image-1", max(1, len(prompt) // 4), 0),
+            latency_ms=latency,
+            cache_hit=False,
+            retries=0,
+            success=bool(urls),
+            failure_reason=None if urls else "no_urls",
+        ))
+        return urls
+    except Exception as exc:
+        logger.error("Product collage generation failed for '%s': %s", topic, exc)
+        telemetry_record(CallTelemetry(
+            endpoint_name="image_edit",
+            model="gpt-image-1",
+            input_tokens=0,
+            output_tokens=0,
+            estimated_cost_usd=0.0,
+            latency_ms=0.0,
+            cache_hit=False,
+            retries=0,
+            success=False,
+            failure_reason=str(exc)[:200],
+        ))
+        return []
+
+
+def _build_product_collage_prompt(
+    base_edit_prompt: str,
+    product_titles: list[str] | None,
+    visual_theme: str | None,
+    is_bundle: bool,
+    tone_str: str,
+) -> str:
+    """Wrap a single-product edit prompt with multi-product composition rules.
+
+    Keeps the underlying brand / tone / scene instructions intact and prepends
+    a clear directive: arrange every supplied product image into one frame.
+    """
+    titles = [t for t in (product_titles or []) if isinstance(t, str) and t.strip()]
+    titles_clause = (
+        "Featured products in this composition: " + ", ".join(titles[:4]) + "."
+        if titles else
+        "Featured products in this composition: every product image attached must appear."
+    )
+    bundle_clause = (
+        "This is a BUNDLE / SET post: arrange all products together as one offer "
+        "(stacked, grouped, or paired) so the viewer reads them as one purchase, not separate posts."
+        if is_bundle else
+        "Compose all products into a single tasteful arrangement (collage / set / 'complete the look') "
+        "with consistent lighting and brand-aware styling — no jarring scale jumps, no floating cutouts."
+    )
+    theme_hint = ""
+    if visual_theme == "flatlay":
+        theme_hint = "Use a top-down flatlay composition with breathing space and clean spacing between items."
+    elif visual_theme == "lifestyle":
+        theme_hint = "Place the products in a real-world lifestyle context (table, hands, environment) so the bundle feels lived-in."
+    elif visual_theme == "editorial":
+        theme_hint = "Treat the arrangement as a magazine still-life: directional light, intentional shadows, considered composition."
+    return (
+        f"MULTI-PRODUCT COMPOSITION DIRECTIVE\n"
+        f"{titles_clause}\n"
+        f"{bundle_clause}\n"
+        f"{theme_hint}\n"
+        f"Brand tone: {tone_str}.\n\n"
+        f"Underlying scene + design instructions follow:\n{base_edit_prompt}"
+    ).strip()
+
+
 async def _generate_with_product_edits(
     product_png: bytes,
     prompt: str,
@@ -1940,7 +2078,54 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
             logger.info("product-edits: cache hit for '%s'", topic)
             return [str(u) for u in cached if str(u).strip()]
 
-        # Try each product URL until one prepares successfully
+        # Multi-product collage path: when the planner attached 2+ product
+        # images and the post is a bundle / promo / collage theme, fetch every
+        # product PNG up to 4 and submit them all to gpt-image-1 /edits so the
+        # model composes them into one frame instead of picking one.
+        post_visual_theme = str(post.get("visual_theme") or "").strip().lower()
+        post_content_type = str(post.get("content_type") or "").strip().lower()
+        wants_collage = (
+            len(product_image_urls) >= 2 and (
+                post_visual_theme == "collage"
+                or any(k in post_content_type for k in ("promotional", "promo", "offer", "bundle", "upsell"))
+            )
+        )
+        bundled_titles = post.get("bundled_product_titles")
+        if not isinstance(bundled_titles, list):
+            bundled_titles = []
+
+        if wants_collage:
+            collage_pngs: list[bytes] = []
+            for purl in product_image_urls[:4]:
+                png = await _fetch_and_prepare_product_png(purl)
+                if png:
+                    collage_pngs.append(png)
+            if len(collage_pngs) >= 2:
+                tone_str_for_collage = ", ".join(
+                    [str(t).strip() for t in (brand.get("tone_tags") or []) if str(t).strip()]
+                ) or "premium, modern, confident"
+                collage_prompt = _build_product_collage_prompt(
+                    edit_prompt,
+                    product_titles=bundled_titles,
+                    visual_theme=post_visual_theme or None,
+                    is_bundle=any(k in post_content_type for k in ("bundle", "upsell")),
+                    tone_str=tone_str_for_collage,
+                )
+                _post_id_for_edits = str(post.get("id") or "").replace("-", "")[:12]
+                _brand_id_for_edits = str(brand.get("id") or "").replace("-", "")[:8]
+                _edits_uid = f"{_post_id_for_edits}-{_brand_id_for_edits}"
+                collage_urls = await _generate_with_product_collage(
+                    collage_pngs, collage_prompt, topic, n, upload_uid=_edits_uid,
+                )
+                if collage_urls:
+                    cache_set("openai_image", edit_cache_key, collage_urls,
+                              ttl_sec=settings.AI_CACHE_TTL_DETERMINISTIC_SEC)
+                    return collage_urls
+                logger.warning(
+                    "Product collage failed for '%s'; falling back to single-product path", topic
+                )
+
+        # Single-product edit path: try each URL until one prepares successfully.
         product_png: bytes | None = None
         for purl in product_image_urls[:3]:
             product_png = await _fetch_and_prepare_product_png(purl)
