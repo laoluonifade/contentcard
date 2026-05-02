@@ -29,7 +29,7 @@ export default function FeaturesPage() {
         subtitle="ContentCard gives marketing teams a product-led workspace that keeps output high and quality consistent."
         actions={
           <>
-            <PrimaryCta to="/signup">Start free <ArrowRight size={14} className="ml-1" /></PrimaryCta>
+            <PrimaryCta to="/auth">Start free <ArrowRight size={14} className="ml-1" /></PrimaryCta>
             <SecondaryCta to="/pricing">View pricing</SecondaryCta>
           </>
         }
@@ -58,7 +58,7 @@ export default function FeaturesPage() {
           <CtaBand
             title="Ready to see the workflow in action?"
             body="Book a live walkthrough or start your own workspace."
-            primary={<PrimaryCta to="/signup">Start free</PrimaryCta>}
+            primary={<PrimaryCta to="/auth">Start free</PrimaryCta>}
             secondary={<SecondaryCta to="/pricing">View pricing</SecondaryCta>}
           />
         </MarketingContainer>

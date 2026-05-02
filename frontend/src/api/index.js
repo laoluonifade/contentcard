@@ -72,20 +72,6 @@ async function axiosPostWithRetry(url, data, headers) {
   }
 }
 
-async function axiosGetWithRetry(url, params, headers) {
-  try {
-    return await axios.get(url, { params, headers }).then((r) => r.data)
-  } catch (err) {
-    const transient =
-      !err?.response && /^https:\/\/contentcard-backend\.onrender\.com/i.test(String(url))
-    if (transient) {
-      await new Promise((r) => setTimeout(r, 900))
-      return axios.get(url, { params, headers }).then((r) => r.data)
-    }
-    throw err
-  }
-}
-
 /**
  * Unauthenticated auth calls use absolute URLs + optional fallback so the browser
  * never hits the static site for `/api/v1/auth/*` (shows as "login" / preflight failed).
@@ -103,23 +89,10 @@ function postPublicAuth(path, data) {
   })
 }
 
-function getPublicAuth(path, params) {
-  const primaryUrl = joinApiUrl(resolveContentCardApiBase(), path)
-  const fallbackUrl = joinApiUrl(CONTENTCARD_RENDER_API_BASE, path)
-  const headers = { 'Content-Type': 'application/json' }
-  return axiosGetWithRetry(primaryUrl, params, headers).catch((err) => {
-    const networkFailure = !err?.response
-    const canFallback =
-      networkFailure && primaryUrl !== fallbackUrl && /^https?:\/\//i.test(String(primaryUrl))
-    if (canFallback) return axiosGetWithRetry(fallbackUrl, params, headers)
-    throw err
-  })
-}
-
 function isPublicAuthRequest(err) {
   const cfg = err.config || {}
   const combined = `${cfg.baseURL || ''}${cfg.url || ''}`
-  return /auth\/(login|signup)(\?|$|\/)/i.test(combined) || /auth\/shopify\/start/i.test(combined)
+  return /auth\/otp\/(request|verify)(\?|$|\/)/i.test(combined)
 }
 
 const api = axios.create({
@@ -161,21 +134,14 @@ export const marketingApi = {
 }
 
 export const authApi = {
-  signup:         (data) => postPublicAuth('/auth/signup', data),
-  login:          (data) => postPublicAuth('/auth/login', data),
-  me:             ()     => api.get('/auth/me').then(r => r.data),
-  updateProfile:  (data) => api.put('/auth/me', data).then(r => r.data),
-  changePassword: (data) => api.post('/auth/change-password', data).then(r => r.data),
-  deleteAccount:    (data) => api.delete('/auth/me', { data }).then(r => r.data),
-  forgotPassword:   (data) => postPublicAuth('/auth/forgot-password', data),
-  resetPassword:    (data) => postPublicAuth('/auth/reset-password', data),
-  verifyEmail:        (data) => postPublicAuth('/auth/verify-email', data),
-  resendVerification: (data) => postPublicAuth('/auth/resend-verification', data),
-  shopifyStart:   (params) => getPublicAuth('/auth/shopify/start', params),
-  shopifyOnboardingStatus: () => api.get('/auth/shopify/onboarding-status').then(r => r.data),
-  completeShopifyOnboarding: (data) => api.post('/auth/shopify/onboarding-complete', data).then(r => r.data),
-  getPostSignupDecision: () => api.get('/auth/post-signup-decision').then(r => r.data),
-  setPostSignupDecision: (decision) => api.post('/auth/post-signup-decision', { decision }).then(r => r.data),
+  requestOtp:    (email)      => postPublicAuth('/auth/otp/request', { email }),
+  verifyOtp:     (email, code) => postPublicAuth('/auth/otp/verify', { email, code }),
+  me:            ()           => api.get('/auth/me').then(r => r.data),
+  updateProfile: (data)       => api.put('/auth/me', data).then(r => r.data),
+  deleteAccount: ()           => api.delete('/auth/me').then(r => r.data),
+  shopifyStart:  (shop)       => api.get('/auth/shopify/start', { params: { shop } }).then(r => r.data),
+  shopifyConnection: ()       => api.get('/auth/shopify/connection').then(r => r.data),
+  shopifyDisconnect: ()       => api.delete('/auth/shopify/connection').then(r => r.data),
   getEmailPreferences:    ()     => api.get('/auth/me/email-preferences').then(r => r.data),
   updateEmailPreferences: (data) => api.put('/auth/me/email-preferences', data).then(r => r.data),
 }

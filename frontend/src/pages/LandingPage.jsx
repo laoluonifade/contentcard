@@ -279,7 +279,7 @@ function BulletRow({ children }) {
 
 export default function LandingPage() {
   const navigate = useNavigate()
-  const goSignup = () => navigate('/signup')
+  const goSignup = () => navigate('/auth')
 
   return (
     <main className="relative w-full overflow-x-hidden" style={{ background: CREAM, color: INK }}>
@@ -473,7 +473,7 @@ export default function LandingPage() {
           <PrimaryCTA onClick={goSignup} />
           <p className="mt-6 text-ink/55 text-sm">
             Already have an account?{' '}
-            <a href="/login" className="font-semibold text-ink hover:underline">Sign in</a>
+            <a href="/auth" className="font-semibold text-ink hover:underline">Sign in</a>
           </p>
         </div>
       </section>

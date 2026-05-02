@@ -1,16 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
-import { Check, Eye, EyeOff, Sun, Trash2, AlertTriangle, Bell, Mail, Images, ArrowRight } from 'lucide-react'
+import { Check, Sun, Trash2, AlertTriangle, Bell, Mail, Images, ArrowRight } from 'lucide-react'
 import useAuthStore from '../stores/authStore'
 import useAppStore from '../stores/appStore'
 import { authApi, workspaceApi, inviteApi } from '../api'
 import { toast } from '../components/ui/Toast'
 import clsx from 'clsx'
-import { COUNTRIES_LIST } from './SignupPage'
+import { COUNTRIES_LIST } from '../utils/countries'
 import { useTheme } from '../hooks/useTheme'
 import SettingsExtras from '../components/settings/SettingsExtras'
+import ShopifyIcon from '../components/ui/ShopifyIcon'
 
-const TABS = ['Profile', 'Company', 'Team', 'Directory', 'Social', 'Notifications', 'Appearance']
+const TABS = ['Profile', 'Company', 'Team', 'Apps', 'Directory', 'Social', 'Notifications', 'Appearance']
 
 /** Matches billing tiers; `plan` on a workspace row can lag behind pooled subscription. Prefer `effective_plan`. */
 const PLAN_LABELS = { trial: 'Trial', starter: 'Starter', smb: 'Growth', pro: 'Pro' }
@@ -87,7 +88,6 @@ export default function SettingsPage() {
     }
   }
   const [saving, setSaving] = useState(false)
-  const [showPw, setShowPw] = useState(false)
   const [members, setMembers] = useState([])
   const [invites, setInvites] = useState([])
   const [membersLoaded, setMembersLoaded] = useState(false)
@@ -104,10 +104,67 @@ export default function SettingsPage() {
     quietEnd: '07:00',
     autoReply: false,
   })
+  // ── Apps: Shopify connection state ────────────────────────────────────────
+  const [shopifyConnection, setShopifyConnection] = useState(null)
+  const [shopifyLoading, setShopifyLoading] = useState(false)
+  const [shopDomain, setShopDomain] = useState('')
+  const [shopDomainError, setShopDomainError] = useState('')
+  const [connectingShopify, setConnectingShopify] = useState(false)
+  const [disconnectingShopify, setDisconnectingShopify] = useState(false)
+
+  useEffect(() => {
+    if (tab !== 'Apps') return
+    let cancelled = false
+    setShopifyLoading(true)
+    authApi.shopifyConnection()
+      .then((c) => { if (!cancelled) setShopifyConnection(c) })
+      .catch(() => { if (!cancelled) setShopifyConnection({ connected: false }) })
+      .finally(() => { if (!cancelled) setShopifyLoading(false) })
+    return () => { cancelled = true }
+  }, [tab])
+
+  // Bounce back from a successful OAuth handshake (?shopify=connected) and
+  // toast so the user sees confirmation.
+  useEffect(() => {
+    if (searchParams.get('shopify') === 'connected') {
+      toast('Shopify connected. Your catalogue is syncing.')
+      authApi.shopifyConnection().then(setShopifyConnection).catch(() => {})
+    }
+  }, [searchParams])
+
+  const startShopifyConnect = async () => {
+    const candidate = shopDomain.trim().toLowerCase()
+    if (!candidate.endsWith('.myshopify.com')) {
+      setShopDomainError('Enter your Shopify domain, e.g. yourstore.myshopify.com')
+      return
+    }
+    setShopDomainError('')
+    setConnectingShopify(true)
+    try {
+      const res = await authApi.shopifyStart(candidate)
+      window.location.href = res.authorization_url
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || "We couldn't start the Shopify connection.", 'error')
+      setConnectingShopify(false)
+    }
+  }
+
+  const disconnectShopify = async () => {
+    if (!confirm('Disconnect your Shopify shop? We will stop syncing new products.')) return
+    setDisconnectingShopify(true)
+    try {
+      await authApi.shopifyDisconnect()
+      setShopifyConnection({ connected: false })
+      toast('Shopify disconnected.')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Disconnect failed.', 'error')
+    } finally {
+      setDisconnectingShopify(false)
+    }
+  }
+
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
-  const [deletePassword, setDeletePassword] = useState('')
-  const [deleteShowPw, setDeleteShowPw] = useState(false)
   const [deleting, setDeleting] = useState(false)
   useEffect(() => {
     setWorkspaceName(activeWorkspace?.name || '')
@@ -120,7 +177,6 @@ export default function SettingsPage() {
     email: user?.email || '',
     country_code: user?.country_code || '',
   })
-  const [pwForm, setPwForm] = useState({ current_password: '', new_password: '' })
   const loadTeam = async () => {
     if (membersLoaded || !activeWorkspaceId) return
     try {
@@ -143,28 +199,6 @@ export default function SettingsPage() {
       // the correct currency/provider (Paystack for Nigeria, Stripe for everyone else).
       if (countryChanged) fetchSubscription().catch(() => {})
     } catch (err) { toast(err.message, 'error') }
-    finally { setSaving(false) }
-  }
-
-  const changePw = async () => {
-    if (!pwForm.current_password || !pwForm.new_password) { toast('Fill in both password fields to update your password.', 'error'); return }
-    if ((pwForm.new_password || '').length < 8) { toast("Your new password needs to be at least 8 characters long.", 'error'); return }
-    setSaving(true)
-    try {
-      await authApi.changePassword(pwForm)
-      setPwForm({ current_password: '', new_password: '' })
-      toast('Password updated.')
-    } catch (err) {
-      const detail = err?.response?.data?.detail
-      if (Array.isArray(detail) && detail.length > 0) {
-        const msg = detail[0]?.msg || detail[0]?.message || "Couldn't update your password. Try again in a moment."
-        toast(msg, 'error')
-      } else if (typeof detail === 'string' && detail.trim()) {
-        toast(detail, 'error')
-      } else {
-        toast(err.message || "Couldn't update your password. Try again in a moment.", 'error')
-      }
-    }
     finally { setSaving(false) }
   }
 
@@ -235,7 +269,7 @@ export default function SettingsPage() {
     }
     setDeleting(true)
     try {
-      await deleteAccount(deletePassword)
+      await deleteAccount()
       toast('Account deleted. Sorry to see you go.')
       navigate('/')
     } catch (err) {
@@ -326,35 +360,12 @@ export default function SettingsPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(''); setDeletePassword('') }}
+                  onClick={() => { setShowDeleteModal(true); setDeleteConfirmText('') }}
                   className="flex items-center gap-2 px-4 py-2.5 bg-rose-500 hover:bg-rose-600 text-white text-sm font-semibold rounded-xl transition-colors"
                 >
                   <Trash2 size={14} />
                   Delete my account
                 </button>
-              </div>
-
-              <div className="bg-surface border border-fog rounded-2xl p-6 mt-4">
-                <h3 className="text-ink font-bold text-sm mb-1">Change password</h3>
-                <p className="text-ink/40 text-xs mb-5">Min. 8 characters</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">Current password</label>
-                    <div className="relative">
-                      <input type={showPw ? 'text' : 'password'} value={pwForm.current_password} onChange={e => setPwForm(f => ({ ...f, current_password: e.target.value }))} placeholder="Current password" className={`${inputCls} pr-12`} />
-                      <button type="button" onClick={() => setShowPw(v => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/40 hover:text-ink/70">{showPw ? <EyeOff size={15} /> : <Eye size={15} />}</button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">New password</label>
-                    <input type="password" value={pwForm.new_password} onChange={e => setPwForm(f => ({ ...f, new_password: e.target.value }))} placeholder="New password" className={inputCls} />
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <button onClick={changePw} disabled={saving} className="flex items-center gap-2 px-4 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors">
-                    <Check size={14} />Update password
-                  </button>
-                </div>
               </div>
             </div>
           )}
@@ -502,6 +513,84 @@ export default function SettingsPage() {
                     ))}
                   </>
                 )}
+              </div>
+            </div>
+          )}
+
+          {tab === 'Apps' && (
+            <div className="space-y-4">
+              <div className="bg-surface border border-fog rounded-2xl p-6">
+                <h3 className="text-ink font-bold text-sm mb-1">Connected apps</h3>
+                <p className="text-ink/40 text-xs mb-5">
+                  Connect the platforms you sell on so we can pull your products into your daily posts.
+                </p>
+
+                <div className="rounded-xl border border-fog bg-mist/40 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-white border border-fog flex items-center justify-center flex-shrink-0">
+                        <ShopifyIcon className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-ink">Shopify</p>
+                        <p className="text-xs text-ink/55 mt-0.5">
+                          Sync your storefront catalogue. We pull product titles, images, prices, and tags
+                          and use them in product-led posts.
+                        </p>
+                        {shopifyConnection?.connected && (
+                          <p className="text-xs text-emerald-700 font-semibold mt-2 truncate">
+                            Connected to {shopifyConnection.shop_name || shopifyConnection.shop_domain}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex-shrink-0">
+                      {shopifyLoading ? (
+                        <span className="text-xs text-ink/40">Checking…</span>
+                      ) : shopifyConnection?.connected ? (
+                        <button
+                          type="button"
+                          onClick={disconnectShopify}
+                          disabled={disconnectingShopify}
+                          className="px-3 py-2 rounded-xl border border-fog bg-surface text-xs font-semibold text-ink hover:border-rose-300 hover:text-rose-600 disabled:opacity-60"
+                        >
+                          {disconnectingShopify ? 'Disconnecting…' : 'Disconnect'}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {!shopifyLoading && !shopifyConnection?.connected && (
+                    <div className="mt-4 pt-4 border-t border-fog">
+                      <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">
+                        Your Shopify domain
+                      </label>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          value={shopDomain}
+                          onChange={(e) => { setShopDomain(e.target.value); if (shopDomainError) setShopDomainError('') }}
+                          placeholder="yourstore.myshopify.com"
+                          className={`${inputCls} flex-1`}
+                          aria-invalid={Boolean(shopDomainError)}
+                        />
+                        <button
+                          type="button"
+                          onClick={startShopifyConnect}
+                          disabled={connectingShopify || !shopDomain.trim()}
+                          className="px-4 py-3 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-semibold rounded-xl transition-colors whitespace-nowrap"
+                        >
+                          {connectingShopify ? 'Redirecting…' : 'Connect Shopify'}
+                        </button>
+                      </div>
+                      {shopDomainError && (
+                        <p className="text-xs text-rose-600 mt-2">{shopDomainError}</p>
+                      )}
+                      <p className="text-xs text-ink/40 mt-2">
+                        We will redirect you to Shopify to approve the connection.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -721,30 +810,6 @@ export default function SettingsPage() {
                 autoComplete="off"
               />
             </div>
-            {(user?.auth_provider === 'password' || user?.auth_provider === 'mixed') && (
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-widest text-ink/40 mb-2">
-                  Confirm your password
-                </label>
-                <div className="relative">
-                  <input
-                    type={deleteShowPw ? 'text' : 'password'}
-                    value={deletePassword}
-                    onChange={e => setDeletePassword(e.target.value)}
-                    placeholder="Your current password"
-                    className={`${inputCls} pr-12`}
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setDeleteShowPw(v => !v)}
-                    className="absolute right-4 top-1/2 -translate-y-1/2 text-ink/40 hover:text-ink/70"
-                  >
-                    {deleteShowPw ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="flex justify-end gap-2 mt-6">

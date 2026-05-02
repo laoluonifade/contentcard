@@ -807,7 +807,7 @@ export default function BrandKitPage() {
           <p className="text-ink/40 text-sm mb-6 max-w-sm mx-auto">
             Create your brand profile so ContentCard knows your tone, audience, and voice, and generates content that sounds exactly like you.
           </p>
-          <button onClick={() => navigate('/onboarding')}
+          <button onClick={() => navigate('/dashboard')}
             className="inline-flex items-center gap-2 px-6 py-3 bg-brand-500 hover:bg-brand-600 text-white rounded-xl text-sm font-bold transition-colors">
             Create brand profile <ArrowRight size={15} />
           </button>

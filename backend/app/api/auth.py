@@ -1,61 +1,77 @@
-import re
+"""
+Email-OTP authentication.
+
+Same flow for sign-in and sign-up: enter an email, we send a 6-digit code,
+they enter the code, we either find their account or create a new one and
+return a JWT. Shopify OAuth is no longer an auth path — it's a post-auth
+"connect your shop" action that lives under Settings → Apps.
+"""
+
+import asyncio
 import hashlib
 import hmac
 import json
+import logging
+import re
 import secrets
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import RedirectResponse
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import delete, select
-from datetime import datetime, timedelta, timezone
 
+from app.core.config import settings
+from app.core.dependencies import get_current_user
+from app.core.security import create_access_token
 from app.db.database import get_db
 from app.models.brand import Brand
-from app.models.shopify import ShopifyConnection, ShopifyConnectionStatus, ShopifyProductSnapshot
+from app.models.email_otp import EmailOtp
+from app.models.shopify import (
+    ShopifyConnection,
+    ShopifyConnectionStatus,
+    ShopifyProductSnapshot,
+)
 from app.models.user import User
 from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
-from app.core.security import hash_password, verify_password, create_access_token
-from app.core.dependencies import get_current_user
 from app.schemas.auth import (
-    LoginRequest,
-    PasswordChangeRequest,
-    PostSignupDecisionRequest,
+    OtpRequest,
+    OtpVerifyRequest,
     ShopifyAuthStartResponse,
-    ShopifyOnboardingCompleteRequest,
-    ShopifyOnboardingStatusOut,
-    SignupRequest,
     TokenResponse,
     UserOut,
 )
+from app.services.email_service import send_otp_code, send_welcome
 from app.services.geo_service import get_country_from_ip, get_payment_provider
-from app.services.email_service import (
-    send_password_reset,
-    send_welcome,
-    send_email_verification,
-)
-from app.core.config import settings
 
-
-# ── Email verification helpers ─────────────────────────────────────────────
-
-EMAIL_VERIFICATION_TOKEN_TTL = timedelta(hours=24)
-
-
-def _new_email_verification_token() -> tuple[str, datetime]:
-    """Random URL-safe token + an expiry 24h out."""
-    return secrets.token_urlsafe(32), datetime.now(timezone.utc) + EMAIL_VERIFICATION_TOKEN_TTL
-
-
-def _build_verify_url(token: str, email: str) -> str:
-    """The link we email out — VerifyEmailPage reads `token` and `email` from
-    query string."""
-    base = (settings.FRONTEND_URL or "").rstrip("/")
-    return f"{base}/verify-email?token={token}&email={email}"
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+# ── OTP config ────────────────────────────────────────────────────────────
+
+OTP_LENGTH = 6
+OTP_TTL = timedelta(minutes=10)
+OTP_MAX_ATTEMPTS = 5
+# Soft rate-limit: at most this many fresh OTPs per email per hour. Returns
+# 204 silently when tripped so we don't leak which emails are being targeted.
+OTP_REQUESTS_PER_HOUR = 5
+
+
+def _hash_code(code: str) -> str:
+    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+
+def _generate_code() -> str:
+    """6-digit code, zero-padded. secrets.randbelow gives a uniform distribution
+    across 000000–999999."""
+    return f"{secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────
 
 
 def slugify(name: str) -> str:
@@ -101,100 +117,181 @@ async def _serialize_user_out(db: AsyncSession, user: User) -> UserOut:
         "country_code": user.country_code,
         "onboarding_completed": await _user_onboarding_completed(db, user),
         "agency_mode": bool(user.agency_mode),
-        "auth_provider": user.auth_provider or "password",
+        "auth_provider": user.auth_provider or "email_otp",
         "email_verified": bool(getattr(user, "email_verified", True)),
     }
     return UserOut.model_validate(payload)
 
 
-@router.post("/signup", response_model=TokenResponse, status_code=201)
-async def signup(body: SignupRequest, request: Request, db: AsyncSession = Depends(get_db)):
-    # Check duplicate email
-    existing = await db.execute(select(User).where(User.email == body.email))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="An account with this email already exists. Try logging in instead, or use a different email.")
+def _default_full_name(email: str) -> str:
+    """For OTP sign-ups we don't collect a name; derive a friendly default
+    from the email local-part. Users edit this on the onboarding overlay."""
+    local = (email or "").split("@", 1)[0] or "there"
+    return local.replace(".", " ").replace("_", " ").replace("-", " ").strip().title() or "There"
 
-    # Check duplicate phone
-    if body.phone:
-        existing_phone = await db.execute(select(User).where(User.phone == body.phone))
-        if existing_phone.scalar_one_or_none():
-            raise HTTPException(status_code=409, detail="That phone number is already on another account. Use a different number, or reach out if this looks wrong.")
 
-    # Use user-selected country if provided, otherwise geo-detect
-    client_ip = request.client.host if request.client else None
-    detected_country = await get_country_from_ip(client_ip)
-    country_code = (body.country_code or detected_country or "").upper() or None
-    payment_provider = get_payment_provider(country_code)
-
-    # Create user — unverified by default; the verification email goes out below.
-    verification_token, verification_expires = _new_email_verification_token()
+async def _create_user_with_workspace(
+    db: AsyncSession, *, email: str, country_code: str | None
+) -> User:
+    full_name = _default_full_name(email)
     user = User(
-        full_name=body.full_name,
-        email=body.email,
-        phone=body.phone,
-        hashed_password=hash_password(body.password),
+        full_name=full_name,
+        email=email,
         country_code=country_code,
-        email_verified=False,
-        email_verification_token=verification_token,
-        email_verification_token_expires=verification_expires,
+        auth_provider="email_otp",
+        email_verified=True,
+        is_active=True,
     )
     db.add(user)
-    await db.flush()  # get user.id
+    await db.flush()
 
-    # Create default workspace — use the brand/workspace name the user typed at signup,
-    # or fall back to "{full_name}'s Workspace" if they didn't provide one.
-    ws_display_name = (body.workspace_name or "").strip() or f"{body.full_name}'s Workspace"
-    base_slug = slugify(ws_display_name)
-    slug = await ensure_unique_slug(db, base_slug)
-    trial_ends = datetime.now(timezone.utc) + timedelta(days=settings.FREE_TRIAL_DAYS)
-
+    ws_name = f"{full_name}'s Workspace"
+    slug = await ensure_unique_slug(db, slugify(ws_name))
+    payment_provider = get_payment_provider(country_code)
     workspace = Workspace(
-        name=ws_display_name,
+        name=ws_name,
         slug=slug,
         owner_id=user.id,
         plan="trial",
-        trial_ends_at=trial_ends,
+        trial_ends_at=datetime.now(timezone.utc) + timedelta(days=settings.FREE_TRIAL_DAYS),
         payment_provider=payment_provider,
     )
     db.add(workspace)
     await db.flush()
+    db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=WorkspaceRole.OWNER))
+    return user
 
-    # Add as owner member
-    member = WorkspaceMember(
-        workspace_id=workspace.id,
-        user_id=user.id,
-        role=WorkspaceRole.OWNER,
+
+# ── OTP endpoints ─────────────────────────────────────────────────────────
+
+
+@router.post("/otp/request", status_code=204)
+async def request_otp(body: OtpRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Issue a fresh sign-in OTP and email it.
+
+    Always returns 204 — we never tell the caller whether the email is
+    registered, expired the rate-limit, or actually got a message. Frontend
+    proceeds straight to the "enter the code" step regardless.
+    """
+    email = body.email.strip().lower()
+    client_ip = request.client.host if request.client else None
+
+    # Rate-limit per email: count OTPs issued in the last hour. If we're
+    # over the cap, silently no-op so an attacker can't grind for confirmations.
+    one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
+    recent = (
+        await db.execute(
+            select(func.count(EmailOtp.id)).where(
+                EmailOtp.email == email,
+                EmailOtp.created_at >= one_hour_ago,
+            )
+        )
+    ).scalar_one()
+    if recent >= OTP_REQUESTS_PER_HOUR:
+        logger.info("OTP rate-limit hit for email=%s (count=%d)", email, recent)
+        return None
+
+    code = _generate_code()
+    otp = EmailOtp(
+        email=email,
+        code_hash=_hash_code(code),
+        expires_at=datetime.now(timezone.utc) + OTP_TTL,
+        requester_ip=client_ip,
     )
-    db.add(member)
+    db.add(otp)
+    await db.commit()
+
+    # Fire-and-forget so the request doesn't block on SMTP latency.
+    asyncio.create_task(send_otp_code(email, code, ttl_minutes=int(OTP_TTL.total_seconds() // 60)))
+    return None
+
+
+@router.post("/otp/verify", response_model=TokenResponse)
+async def verify_otp(body: OtpVerifyRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    """
+    Consume an OTP. On success: find-or-create the user, return JWT + user
+    payload. `is_new_user` tells the frontend whether to surface the in-app
+    onboarding overlay.
+    """
+    email = body.email.strip().lower()
+    submitted = body.code.strip()
+    if not re.fullmatch(rf"\d{{{OTP_LENGTH}}}", submitted):
+        raise HTTPException(status_code=400, detail="Enter the 6-digit code we just emailed you.")
+
+    # Pick the most recent unconsumed, unexpired row for this email.
+    now = datetime.now(timezone.utc)
+    otp = (
+        await db.execute(
+            select(EmailOtp)
+            .where(
+                EmailOtp.email == email,
+                EmailOtp.consumed_at.is_(None),
+                EmailOtp.expires_at > now,
+            )
+            .order_by(EmailOtp.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
+    if otp is None:
+        raise HTTPException(
+            status_code=400,
+            detail="That code is no longer valid. Request a new one and try again.",
+        )
+
+    if otp.attempts >= OTP_MAX_ATTEMPTS:
+        # Burn the row so further attempts can't keep guessing.
+        otp.consumed_at = now
+        await db.commit()
+        raise HTTPException(
+            status_code=400,
+            detail="Too many wrong attempts on this code. Request a new one to continue.",
+        )
+
+    if not hmac.compare_digest(otp.code_hash, _hash_code(submitted)):
+        otp.attempts += 1
+        await db.commit()
+        raise HTTPException(status_code=400, detail="That code isn't right. Try again.")
+
+    otp.consumed_at = now
+
+    user = (
+        await db.execute(select(User).where(User.email == email))
+    ).scalar_one_or_none()
+
+    is_new_user = False
+    if user is None:
+        client_ip = request.client.host if request.client else None
+        country = await get_country_from_ip(client_ip)
+        user = await _create_user_with_workspace(
+            db, email=email, country_code=(country or "").upper() or None
+        )
+        is_new_user = True
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail="This account has been deactivated. Contact support if you think this is a mistake.",
+        )
+
     await db.commit()
     await db.refresh(user)
 
-    # Fire-and-forget emails so signup never blocks on SMTP latency.
-    import asyncio
-    asyncio.create_task(
-        send_welcome(user.email, user.full_name, settings.FRONTEND_URL + "/dashboard")
-    )
-    asyncio.create_task(
-        send_email_verification(
-            user.email,
-            _build_verify_url(verification_token, user.email),
-            user.full_name,
+    if is_new_user:
+        asyncio.create_task(
+            send_welcome(user.email, user.full_name, settings.FRONTEND_URL + "/dashboard")
         )
+
+    token = create_access_token(user.id)
+    return TokenResponse(
+        access_token=token,
+        is_new_user=is_new_user,
+        user=await _serialize_user_out(db, user),
     )
 
-    token = create_access_token(user.id)
-    return TokenResponse(access_token=token, user=await _serialize_user_out(db, user))
 
-
-@router.post("/login", response_model=TokenResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(User.email == body.email, User.is_active == True))
-    user = result.scalar_one_or_none()
-    if not user or not verify_password(body.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="That email and password don't match. Check the spelling, or reset your password if you've forgotten it.")
-
-    token = create_access_token(user.id)
-    return TokenResponse(access_token=token, user=await _serialize_user_out(db, user))
+# ── Profile ───────────────────────────────────────────────────────────────
 
 
 @router.get("/me", response_model=UserOut)
@@ -227,8 +324,6 @@ async def update_profile(
             setattr(current_user, key, val)
 
     if country_changed:
-        # Propagate the new payment provider to all workspaces the user owns
-        # so billing queries immediately return the correct provider/currency.
         new_provider = get_payment_provider(current_user.country_code)
         result = await db.execute(
             select(Workspace).where(Workspace.owner_id == current_user.id)
@@ -243,40 +338,22 @@ async def update_profile(
 
 @router.delete("/me", status_code=204)
 async def delete_account(
-    body: dict,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Soft-archive the authenticated user's account.
 
-    The user row is NOT hard-deleted — all posts, brands, and workspace data
-    are retained in the database for audit / recovery purposes.  What happens:
-
-    - All active Paystack subscriptions are cancelled.
-    - All saved payment / card data is wiped from owned workspaces.
-    - The user's PII (email, name, phone, password hash) is anonymised in-place
-      so the row carries no personal data.
-    - `is_active` is set to False and `deleted_at` is stamped — the JWT becomes
-      invalid immediately (get_current_user filters on is_active=True).
-    - Workspace content items, brands, and calendar posts are archived (kept)
-      so they remain visible internally and can be recovered if needed.
+    Anonymises PII, cancels Paystack subscriptions, wipes saved card data,
+    archives sole-owned workspaces. Content rows are intentionally retained
+    for audit / recovery. The JWT becomes invalid immediately because
+    get_current_user filters on is_active=True.
     """
     from app.services.billing_service import cancel_paystack_subscription
-
-    # Password confirmation — skip for OAuth-only accounts (no password set)
-    password = str(body.get("password") or "").strip()
-    has_local_password = bool(current_user.hashed_password)
-    if has_local_password:
-        if not password:
-            raise HTTPException(status_code=400, detail="Confirm your password to delete the account. We ask every time so this can't happen by accident.")
-        if not verify_password(password, current_user.hashed_password):
-            raise HTTPException(status_code=400, detail="That password isn't right. Try again, or reset it from the login screen.")
 
     now = datetime.now(timezone.utc)
     uid_short = str(current_user.id)[:8]
 
-    # Collect all workspace memberships for this user
     memberships = (
         await db.execute(
             select(WorkspaceMember).where(WorkspaceMember.user_id == current_user.id)
@@ -291,12 +368,11 @@ async def delete_account(
         if not ws:
             continue
 
-        # Cancel active Paystack subscription and wipe all billing data
         if ws.subscription_id:
             try:
                 await cancel_paystack_subscription(ws.subscription_id)
             except Exception:
-                pass  # best-effort; never block account deletion on billing API errors
+                pass  # never block deletion on a billing API hiccup
 
         ws.subscription_id = None
         ws.customer_id = None
@@ -309,8 +385,6 @@ async def delete_account(
         ws.next_payment_date = None
         ws.plan = "trial"
 
-        # Sole-owned workspaces: keep data intact but mark them inactive so
-        # other members (if any) can no longer log in to them.
         other_owners = (
             await db.execute(
                 select(WorkspaceMember).where(
@@ -324,7 +398,6 @@ async def delete_account(
         if mem.role == WorkspaceRole.OWNER and not other_owners:
             ws.name = f"[Archived workspace – {uid_short}]"
             ws.is_active = False
-            # Revoke other members' access — content rows are intentionally kept
             await db.execute(
                 delete(WorkspaceMember).where(
                     WorkspaceMember.workspace_id == ws_id,
@@ -332,11 +405,9 @@ async def delete_account(
                 )
             )
 
-    # Soft-archive: anonymise PII and deactivate — row is retained in DB
     current_user.email = f"deleted_{uid_short}@deleted.internal"
     current_user.full_name = "[Deleted Account]"
     current_user.phone = None
-    current_user.hashed_password = hash_password(secrets.token_hex(32))  # random unusable hash
     current_user.shopify_shop_domain = None
     current_user.shopify_customer_id = None
     current_user.is_active = False
@@ -345,158 +416,12 @@ async def delete_account(
     await db.commit()
 
 
-@router.post("/forgot-password", status_code=204)
-async def forgot_password(body: dict, db: AsyncSession = Depends(get_db)):
-    """
-    Request a password reset link.
-
-    Always returns 204 regardless of whether the email exists — this prevents
-    account enumeration.  The reset link is emailed and expires in 30 minutes.
-    """
-    import asyncio
-    raw_email = str(body.get("email") or "").strip().lower()
-    if not raw_email:
-        raise HTTPException(status_code=422, detail="Add the email you want the reset link sent to.")
-
-    result = await db.execute(
-        select(User).where(User.email == raw_email, User.is_active == True)
-    )
-    user = result.scalar_one_or_none()
-
-    if user:
-        token = secrets.token_urlsafe(48)
-        user.reset_token = token
-        user.reset_token_expires = datetime.now(timezone.utc) + timedelta(minutes=30)
-        await db.commit()
-
-        reset_url = f"{settings.FRONTEND_URL}/reset-password?token={token}"
-        asyncio.create_task(
-            send_password_reset(user.email, reset_url, user.full_name)
-        )
-    # Always return 204 — never reveal whether an account exists
-
-
-@router.post("/reset-password", status_code=204)
-async def reset_password(body: dict, db: AsyncSession = Depends(get_db)):
-    """
-    Consume a password reset token and set a new password.
-    """
-    token    = str(body.get("token") or "").strip()
-    password = str(body.get("password") or "").strip()
-
-    if not token:
-        raise HTTPException(status_code=422, detail="We couldn't read the reset link. Open the most recent reset email and try the link again.")
-    if len(password) < 8:
-        raise HTTPException(status_code=422, detail="Pick a password that's at least 8 characters long.")
-
-    result = await db.execute(
-        select(User).where(User.reset_token == token, User.is_active == True)
-    )
-    user = result.scalar_one_or_none()
-
-    if not user:
-        raise HTTPException(status_code=400, detail="This reset link no longer works. Request a fresh one and we'll email it over.")
-    if user.reset_token_expires is None or datetime.now(timezone.utc) > user.reset_token_expires:
-        raise HTTPException(status_code=400, detail="This reset link has expired. Request a new one to continue.")
-
-    user.hashed_password = hash_password(password)
-    user.reset_token = None
-    user.reset_token_expires = None
-    await db.commit()
-
-
-@router.post("/change-password", status_code=204)
-async def change_password(
-    body: PasswordChangeRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    if not verify_password(body.current_password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="Your current password isn't right. Double-check and try again.")
-    current_user.hashed_password = hash_password(body.new_password)
-    await db.commit()
-
-
-# ── Email verification ─────────────────────────────────────────────────────
-
-@router.post("/verify-email", status_code=200)
-async def verify_email(body: dict, db: AsyncSession = Depends(get_db)):
-    """
-    Accept the token the user clicked from their inbox and mark their email as
-    verified. Idempotent — verifying an already-verified token returns 200 so
-    a double-click on the email link doesn't show a confusing error.
-    """
-    token = str(body.get("token") or "").strip()
-    if not token:
-        raise HTTPException(
-            status_code=422,
-            detail="We couldn't read the verification link. Open the most recent email and try the link again.",
-        )
-
-    user = (
-        await db.execute(select(User).where(User.email_verification_token == token))
-    ).scalar_one_or_none()
-
-    if not user:
-        # If the token is gone but a user with this token already verified, we
-        # can't tell — return a generic friendly error.
-        raise HTTPException(
-            status_code=400,
-            detail="This verification link no longer works. It may have expired or already been used. Request a fresh one and we'll email it over.",
-        )
-
-    if (
-        user.email_verification_token_expires is None
-        or datetime.now(timezone.utc) > user.email_verification_token_expires
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail="This verification link has expired. Request a new one and we'll email it over.",
-        )
-
-    user.email_verified = True
-    user.email_verification_token = None
-    user.email_verification_token_expires = None
-    await db.commit()
-    return {"verified": True}
-
-
-@router.post("/resend-verification", status_code=204)
-async def resend_verification(body: dict, db: AsyncSession = Depends(get_db)):
-    """
-    Generate a fresh verification token and email it.
-
-    Always returns 204 — even if the email isn't on file — so an attacker
-    can't enumerate registered accounts. We only persist + send when a real
-    unverified user exists.
-    """
-    email = str(body.get("email") or "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=422, detail="Add the email you signed up with so we can re-send the link.")
-
-    user = (
-        await db.execute(select(User).where(User.email == email, User.is_active == True))
-    ).scalar_one_or_none()
-
-    # No-op if the user doesn't exist or is already verified — silent success
-    # protects against email enumeration and stops noise for users who simply
-    # forgot they'd already verified.
-    if user and not user.email_verified:
-        token, expires = _new_email_verification_token()
-        user.email_verification_token = token
-        user.email_verification_token_expires = expires
-        await db.commit()
-
-        import asyncio
-        asyncio.create_task(
-            send_email_verification(
-                user.email,
-                _build_verify_url(token, user.email),
-                user.full_name,
-            )
-        )
-
-    return None
+# ── Shopify connect (post-auth) ───────────────────────────────────────────
+#
+# Shopify is no longer a sign-in method. The user must already be signed in
+# (via OTP) before they can connect a shop. We embed their user_id in the
+# signed OAuth state so the callback knows which authenticated user to wire
+# the connection to.
 
 
 def _shopify_state_secret() -> str:
@@ -573,23 +498,6 @@ async def _shopify_get(shop: str, token: str, path: str, params: dict | None = N
         return res
 
 
-def _required_onboarding_fields(brand: Brand, product_count: int) -> list[str]:
-    missing: list[str] = []
-    if not (brand.name or "").strip():
-        missing.append("brand_name")
-    if not (brand.logo_url or "").strip():
-        missing.append("logo_url")
-    if not (brand.industry or "").strip():
-        missing.append("industry")
-    if not (brand.description or "").strip():
-        missing.append("description")
-    if not (brand.target_audience or "").strip():
-        missing.append("target_audience")
-    if product_count <= 0:
-        missing.append("primary_product_description")
-    return missing
-
-
 async def _latest_shopify_connection_for_user(db: AsyncSession, user_id: str) -> ShopifyConnection | None:
     result = await db.execute(
         select(ShopifyConnection)
@@ -603,11 +511,12 @@ async def _latest_shopify_connection_for_user(db: AsyncSession, user_id: str) ->
 @router.get("/shopify/start", response_model=ShopifyAuthStartResponse)
 async def shopify_start(
     shop: str = Query(...),
-    mode: str = Query("signup"),
-    next_path: str = Query("/dashboard"),
+    next_path: str = Query("/dashboard/settings/apps"),
+    current_user: User = Depends(get_current_user),
 ):
+    """Begin a Shopify OAuth handshake to connect a shop to the signed-in user."""
     if not settings.SHOPIFY_AUTH_ENABLED:
-        raise HTTPException(status_code=404, detail="Shopify auth is disabled")
+        raise HTTPException(status_code=404, detail="Shopify connection is disabled")
     if not settings.SHOPIFY_CLIENT_ID or not settings.SHOPIFY_CLIENT_SECRET:
         raise HTTPException(status_code=500, detail="Shopify OAuth credentials are not configured")
     shop_domain = _normalize_shop_domain(shop)
@@ -616,8 +525,8 @@ async def shopify_start(
         "nonce": secrets.token_urlsafe(16),
         "iat_ts": now.timestamp(),
         "exp_ts": (now + timedelta(minutes=10)).timestamp(),
-        "mode": mode,
-        "next_path": next_path if next_path.startswith("/") else "/dashboard",
+        "user_id": current_user.id,
+        "next_path": next_path if next_path.startswith("/") else "/dashboard/settings/apps",
     }
     state = _sign_state(state_payload)
     scope = (settings.SHOPIFY_SCOPES or "").strip()
@@ -629,7 +538,9 @@ async def shopify_start(
             "state": state,
         }
     )
-    return ShopifyAuthStartResponse(authorization_url=f"https://{shop_domain}/admin/oauth/authorize?{auth_qs}")
+    return ShopifyAuthStartResponse(
+        authorization_url=f"https://{shop_domain}/admin/oauth/authorize?{auth_qs}"
+    )
 
 
 @router.get("/shopify/callback")
@@ -648,16 +559,25 @@ async def shopify_callback(
         if k not in {"hmac", "signature"}
     ]
     sorted_query = "&".join(f"{k}={v}" for k, v in sorted(signed_items))
-    expected_hmac = hmac_sig
     digest = hmac.new(
         settings.SHOPIFY_CLIENT_SECRET.encode("utf-8"),
         sorted_query.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
-    if not hmac.compare_digest(digest, expected_hmac):
+    if not hmac.compare_digest(digest, hmac_sig):
         raise HTTPException(status_code=400, detail="Invalid Shopify callback signature")
 
     parsed_state = _parse_state(state)
+    user_id = parsed_state.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Shopify OAuth state is missing user_id")
+
+    user = (
+        await db.execute(select(User).where(User.id == user_id, User.is_active == True))
+    ).scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=400, detail="The Shopify connection link is no longer valid.")
+
     shop_domain = _normalize_shop_domain(shop)
     token_payload = await _exchange_code_for_token(shop_domain, code)
     access_token = token_payload.get("access_token", "")
@@ -668,69 +588,44 @@ async def shopify_callback(
     shop_res = await _shopify_get(shop_domain, access_token, "/admin/api/2024-10/shop.json")
     shop_info = (shop_res.json() or {}).get("shop") or {}
 
-    email = (shop_info.get("email") or "").strip().lower()
-    if not email:
-        raise HTTPException(status_code=400, detail="Shopify shop email is required")
-    full_name = (shop_info.get("shop_owner") or shop_info.get("name") or "Shopify User").strip()
     shop_name = (shop_info.get("name") or "Shopify Store").strip()
     website = (shop_info.get("domain") or "").strip()
     location = ", ".join(
         [v for v in [shop_info.get("city"), shop_info.get("province"), shop_info.get("country_name")] if v]
     ).strip(", ")
 
-    user_result = await db.execute(select(User).where(User.email == email))
-    user = user_result.scalar_one_or_none()
-    user_already_existed = user is not None
-    if not user:
-        user = User(
-            full_name=full_name,
-            email=email,
-            hashed_password=hash_password(secrets.token_urlsafe(24)),
-            country_code=(shop_info.get("country_code") or None),
-            auth_provider="shopify",
-            shopify_shop_domain=shop_domain,
+    user.shopify_shop_domain = shop_domain
+
+    # The signed-in user already owns at least one workspace (created at signup).
+    # We attach the connection to their first owned workspace.
+    workspace = (
+        await db.execute(
+            select(Workspace)
+            .where(Workspace.owner_id == user.id)
+            .order_by(Workspace.created_at.asc())
+            .limit(1)
         )
-        db.add(user)
-        await db.flush()
-    else:
-        if user.auth_provider == "password":
-            user.auth_provider = "mixed"
-        user.shopify_shop_domain = shop_domain
-
-    connection_result = await db.execute(select(ShopifyConnection).where(ShopifyConnection.shop_domain == shop_domain))
-    connection = connection_result.scalar_one_or_none()
-
-    workspace = None
-    brand = None
-    if connection:
-        ws_existing_result = await db.execute(select(Workspace).where(Workspace.id == connection.workspace_id))
-        workspace = ws_existing_result.scalar_one_or_none()
-        if connection.brand_id:
-            brand_existing_result = await db.execute(select(Brand).where(Brand.id == connection.brand_id))
-            brand = brand_existing_result.scalar_one_or_none()
-
-    ws_result = await db.execute(select(Workspace).where(Workspace.owner_id == user.id).order_by(Workspace.created_at.asc()))
-    owned_workspaces = ws_result.scalars().all()
-    should_create_shopify_workspace = (
-        workspace is None and (not owned_workspaces or user_already_existed)
-    )
-    if should_create_shopify_workspace:
+    ).scalar_one_or_none()
+    if not workspace:
         slug = await ensure_unique_slug(db, slugify(f"{shop_name} workspace"))
-        trial_ends = datetime.now(timezone.utc) + timedelta(days=settings.FREE_TRIAL_DAYS)
         workspace = Workspace(
             name=f"{shop_name} Workspace",
             slug=slug,
             owner_id=user.id,
             plan="trial",
-            trial_ends_at=trial_ends,
+            trial_ends_at=datetime.now(timezone.utc) + timedelta(days=settings.FREE_TRIAL_DAYS),
             payment_provider=get_payment_provider((shop_info.get("country_code") or "").upper() or None),
         )
         db.add(workspace)
         await db.flush()
         db.add(WorkspaceMember(workspace_id=workspace.id, user_id=user.id, role=WorkspaceRole.OWNER))
-    elif workspace is None:
-        workspace = owned_workspaces[0]
 
+    # Pick or create the brand we'll mirror the catalogue into.
+    brand = (
+        await db.execute(
+            select(Brand).where(Brand.workspace_id == workspace.id).order_by(Brand.created_at.asc()).limit(1)
+        )
+    ).scalar_one_or_none()
     if not brand:
         brand = Brand(
             workspace_id=workspace.id,
@@ -748,6 +643,7 @@ async def shopify_callback(
         brand.website = brand.website or (f"https://{website}" if website else None)
         brand.location = brand.location or (location or None)
 
+    # Try to grab the storefront logo from the active theme.
     theme_logo_url: str | None = None
     try:
         themes_res = await _shopify_get(shop_domain, access_token, "/admin/api/2024-10/themes.json")
@@ -769,7 +665,9 @@ async def shopify_callback(
     if not (brand.logo_url or "").strip():
         brand.logo_url = theme_logo_url or None
 
-    next_page = "/shopify/decision"
+    connection = (
+        await db.execute(select(ShopifyConnection).where(ShopifyConnection.shop_domain == shop_domain))
+    ).scalar_one_or_none()
     if not connection:
         connection = ShopifyConnection(
             user_id=user.id,
@@ -793,6 +691,8 @@ async def shopify_callback(
         connection.connection_metadata = {**(connection.connection_metadata or {}), "shop_name": shop_name}
         connection.last_sync_at = datetime.now(timezone.utc)
 
+    # Pull the catalogue. Shopify paginates with Link headers; we walk the
+    # cursor until rel="next" is gone.
     products: list[dict] = []
     page_info: str | None = None
     while True:
@@ -845,126 +745,40 @@ async def shopify_callback(
             )
         )
 
-    required_missing = _required_onboarding_fields(brand, len(products))
-    if required_missing:
-        next_page = "/shopify/complete-onboarding"
-    token = create_access_token(user.id)
     await db.commit()
-    callback_target = f"{_frontend_base()}/shopify/callback"
-    destination = (
-        f"{callback_target}?token={token}&next={next_page}"
-        f"&missing={','.join(required_missing)}&mode={parsed_state.get('mode','signup')}"
-    )
+    next_path = parsed_state.get("next_path") or "/dashboard/settings/apps"
+    destination = f"{_frontend_base()}{next_path}?shopify=connected"
     return RedirectResponse(url=destination, status_code=status.HTTP_302_FOUND)
 
 
-@router.get("/shopify/onboarding-status", response_model=ShopifyOnboardingStatusOut)
-async def shopify_onboarding_status(
+@router.get("/shopify/connection")
+async def get_shopify_connection(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Return the current user's most recent Shopify connection (or null)."""
     connection = await _latest_shopify_connection_for_user(db, current_user.id)
-    if not connection or not connection.brand_id:
-        return ShopifyOnboardingStatusOut(onboarding_complete=True, missing_fields=[])
-    brand_result = await db.execute(select(Brand).where(Brand.id == connection.brand_id))
-    brand = brand_result.scalar_one_or_none()
-    if not brand:
-        return ShopifyOnboardingStatusOut(onboarding_complete=True, missing_fields=[])
-    count_result = await db.execute(
-        select(ShopifyProductSnapshot)
-        .where(
-            ShopifyProductSnapshot.workspace_id == connection.workspace_id,
-            ShopifyProductSnapshot.brand_id == connection.brand_id,
-            ShopifyProductSnapshot.shop_domain == connection.shop_domain,
-        )
-    )
-    product_count = len(count_result.scalars().all())
-    missing = _required_onboarding_fields(brand, product_count)
-    return ShopifyOnboardingStatusOut(
-        onboarding_complete=not missing,
-        missing_fields=missing,
-        brand_id=connection.brand_id,
-        workspace_id=connection.workspace_id,
-    )
+    if not connection or connection.status != ShopifyConnectionStatus.CONNECTED:
+        return {"connected": False, "shop_domain": None, "connected_at": None, "last_sync_at": None}
+    return {
+        "connected": True,
+        "shop_domain": connection.shop_domain,
+        "connected_at": connection.connected_at.isoformat() if connection.connected_at else None,
+        "last_sync_at": connection.last_sync_at.isoformat() if connection.last_sync_at else None,
+        "shop_name": (connection.connection_metadata or {}).get("shop_name"),
+    }
 
 
-@router.post("/shopify/onboarding-complete", response_model=ShopifyOnboardingStatusOut)
-async def complete_shopify_onboarding(
-    body: ShopifyOnboardingCompleteRequest,
+@router.delete("/shopify/connection", status_code=204)
+async def disconnect_shopify(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    connection = await _latest_shopify_connection_for_user(db, current_user.id)
-    if not connection or not connection.brand_id:
-        raise HTTPException(status_code=404, detail="No Shopify onboarding session found")
-    brand_result = await db.execute(select(Brand).where(Brand.id == connection.brand_id))
-    brand = brand_result.scalar_one_or_none()
-    if not brand:
-        raise HTTPException(status_code=404, detail="Brand not found")
-
-    if body.brand_name is not None:
-        brand.name = body.brand_name.strip()
-    if body.industry is not None:
-        brand.industry = body.industry.strip() or None
-    if body.description is not None:
-        brand.description = body.description.strip() or None
-    if body.target_audience is not None:
-        brand.target_audience = body.target_audience.strip() or None
-    if body.logo_url is not None:
-        brand.logo_url = body.logo_url.strip() or None
-    if body.primary_product_description:
-        brand.brand_kit = {
-            **(brand.brand_kit or {}),
-            "primary_product_description": body.primary_product_description.strip(),
-        }
-
-    count_result = await db.execute(
-        select(ShopifyProductSnapshot).where(
-            ShopifyProductSnapshot.workspace_id == connection.workspace_id,
-            ShopifyProductSnapshot.brand_id == connection.brand_id,
-            ShopifyProductSnapshot.shop_domain == connection.shop_domain,
-        )
+    """Disconnect the user's Shopify shop. Product snapshots are kept (the
+    user may reconnect the same shop and we want to avoid re-syncing the
+    whole catalogue from scratch); only the connection row is removed."""
+    await db.execute(
+        delete(ShopifyConnection).where(ShopifyConnection.user_id == current_user.id)
     )
-    product_count = len(count_result.scalars().all())
-    if body.primary_product_description and product_count <= 0:
-        product_count = 1
-
-    missing = _required_onboarding_fields(brand, product_count)
-    if missing:
-        raise HTTPException(status_code=400, detail={"missing_fields": missing})
-
+    current_user.shopify_shop_domain = None
     await db.commit()
-    return ShopifyOnboardingStatusOut(
-        onboarding_complete=True,
-        missing_fields=[],
-        brand_id=connection.brand_id,
-        workspace_id=connection.workspace_id,
-    )
-
-
-@router.get("/post-signup-decision")
-async def get_post_signup_decision(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    connection = await _latest_shopify_connection_for_user(db, current_user.id)
-    if not connection:
-        return {"show_decision": False, "decision": None}
-    decision = (connection.connection_metadata or {}).get("post_signup_decision")
-    return {"show_decision": decision is None, "decision": decision}
-
-
-@router.post("/post-signup-decision")
-async def set_post_signup_decision(
-    body: PostSignupDecisionRequest,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    if body.decision not in {"subscribe_now", "skip_free"}:
-        raise HTTPException(status_code=400, detail="Invalid decision")
-    connection = await _latest_shopify_connection_for_user(db, current_user.id)
-    if not connection:
-        raise HTTPException(status_code=404, detail="Shopify connection not found")
-    connection.connection_metadata = {**(connection.connection_metadata or {}), "post_signup_decision": body.decision}
-    await db.commit()
-    return {"ok": True, "decision": body.decision}

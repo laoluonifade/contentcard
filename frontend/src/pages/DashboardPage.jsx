@@ -436,7 +436,7 @@ export default function DashboardPage() {
           </div>
           <h2 className="text-ink font-semibold text-base mb-2">Set up your brand</h2>
           <p className="text-ink/40 text-sm mb-5 max-w-sm mx-auto">Tell us about your brand so every post sounds exactly like you.</p>
-          <button onClick={() => navigate('/onboarding')} className="btn-primary text-sm">
+          <button onClick={() => navigate('/dashboard')} className="btn-primary text-sm">
             Get started <ArrowRight size={14} />
           </button>
         </div>

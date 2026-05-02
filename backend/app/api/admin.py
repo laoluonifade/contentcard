@@ -29,7 +29,6 @@ from app.models.creative_engine import (
 )
 from app.services.ai_cost_service import cost_audit_snapshot
 from datetime import datetime, timezone, timedelta
-from app.core.security import hash_password
 from app.services.website_intelligence_service import sync_brand_website_intelligence
 from app.api.content import _do_generate_month, _brand_to_dict
 from app.api.brands import _canonical_taxonomy, _bootstrap_brand_templates
@@ -1376,10 +1375,10 @@ async def admin_sales_sandbox_bootstrap(
         owner = User(
             full_name=owner_name or body.business_name.strip(),
             email=owner_email,
-            hashed_password=hash_password(secrets.token_urlsafe(16)),
             country_code=country_code,
             is_active=True,
             email_verified=True,  # admin-created accounts skip the verification flow
+            auth_provider="email_otp",
         )
         db.add(owner)
         await db.flush()
@@ -1514,10 +1513,10 @@ async def admin_adopt_workspace_owner(
         user = User(
             full_name=(body.full_name or email.split("@")[0]).strip()[:255] or "New User",
             email=email,
-            hashed_password=hash_password(secrets.token_urlsafe(16)),
             country_code=((body.country_code or "NG").strip().upper() or None),
             is_active=True,
             email_verified=True,  # admin-created accounts skip the verification flow
+            auth_provider="email_otp",
         )
         db.add(user)
         await db.flush()
