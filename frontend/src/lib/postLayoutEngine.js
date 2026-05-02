@@ -85,8 +85,10 @@ async function renderCenteredProduct(ctx, ds, post, brand, components, imageUrl)
   const cta = findComponent(components, 'CTAButton')
   const badge = findComponent(components, 'Badge')
 
-  // Headline above the product, large, centred. The strategist can override
-  // alignment by setting opts.align on the Headline component.
+  // Headline above the product, large, centred by default. The strategist
+  // can override alignment by setting `opts.align` on the Headline component
+  // ('left' | 'center' | 'right') so a brand can ship a left-aligned editorial
+  // look without forking the layout.
   if (headline) {
     const opts = { align: 'center', ...(headline.opts || {}) }
     await drawComponent(ctx, ds, { ...headline, opts }, {
@@ -170,9 +172,11 @@ async function renderSplit(ctx, ds, post, brand, components, imageUrl) {
   const leftX = ds.spacing.pad
   const leftW = W * 0.46 - ds.spacing.pad
 
-  // Left: headline
+  // Left: headline. Default left-aligned; the strategist can override with
+  // opts.align if the brand wants a different look in this layout.
   if (headline) {
-    await drawComponent(ctx, ds, { ...headline, opts: { align: 'left' } }, {
+    const opts = { align: 'left', ...(headline.opts || {}) }
+    await drawComponent(ctx, ds, { ...headline, opts }, {
       x: leftX,
       y: 160,
       w: leftW,

@@ -294,10 +294,17 @@ class ContentOut(BaseModel):
         return None
 
     @computed_field
-    def slide_blueprint(self) -> list[dict] | None:
+    def slide_blueprint(self) -> list | None:
         """Per-slide narrative blueprint for carousels.
-        Each entry: {slide_number, role, headline, support, image_brief}.
-        Empty / None for non-carousel posts."""
+        Entries can be either strings (role tokens like "cover" / "proof"
+        from the legacy planner) or dicts with the richer
+        {slide_number, role, headline, support, image_brief} shape from
+        the v2 planner. Empty / None for non-carousel posts.
+
+        We return `list` rather than `list[dict]` so Pydantic doesn't emit
+        a "dict expected, got str" warning on each carousel response —
+        which fired 6× per content GET on legacy carousels.
+        """
         t = self.theme
         if isinstance(t, dict):
             cm = t.get("cc_meta")

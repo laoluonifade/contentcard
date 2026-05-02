@@ -81,6 +81,7 @@ from app.services.billing_entitlements import (
 )
 from datetime import date, datetime, timedelta, timezone
 from calendar import month_name, monthrange
+import asyncio
 import logging
 import re
 from pydantic import BaseModel, Field
@@ -1467,6 +1468,21 @@ async def _apply_brand_logo_to_visuals(item: ContentItem, post_data: dict, brand
     return True
 
 
+def _component_types_present(components: list) -> set[str]:
+    """Return the set of component `type` names present in a list of
+    component descriptors. Tolerates non-dict entries and missing types.
+    """
+    out: set[str] = set()
+    if not isinstance(components, list):
+        return out
+    for c in components:
+        if isinstance(c, dict):
+            t = str(c.get("type") or "").strip()
+            if t:
+                out.add(t)
+    return out
+
+
 def _post_can_carry_without_image(cc_meta: dict | None) -> bool:
     """A post can stand on the canvas without an AI image only when its
     component overlay carries enough hierarchy on its own. Headline + CTA
@@ -1478,12 +1494,7 @@ def _post_can_carry_without_image(cc_meta: dict | None) -> bool:
     """
     cm = cc_meta if isinstance(cc_meta, dict) else {}
     components = cm.get("components") if isinstance(cm.get("components"), list) else []
-    types = set()
-    for c in components:
-        if isinstance(c, dict):
-            t = str(c.get("type") or "").strip()
-            if t:
-                types.add(t)
+    types = _component_types_present(components)
     rich_slots = {"Badge", "SubHead", "Subhead", "ReviewCard", "ProductImage", "PriceTag"}
     return bool(types & rich_slots)
 
@@ -1515,6 +1526,84 @@ def _maybe_mark_post_failed(item, cc_meta: dict | None) -> None:
     except Exception as e:
         # Don't let a status assignment error blow up the whole render loop.
         logger.warning("Could not mark post %s failed: %s", getattr(item, "id", "?"), e)
+
+
+def _enforce_required_components(
+    components: list,
+    post_type: str,
+    post_data: dict,
+    brand_dict: dict,
+) -> list:
+    """Post-process the strategist's component list so every post_type carries
+    its required slots. The strategist sometimes returns a valid-but-thin list
+    like [Headline, CTAButton] for an offer_discount post, which renders as a
+    vague headline with no offer attached. This function tops up the missing
+    slots in-place rather than dropping back to the full fallback synth.
+
+    Rules:
+      - offer_discount → must include Badge (extracted offer or month floor)
+      - social_proof   → must include ReviewCard (synthesized from
+        message_architecture.evidence when the strategist omitted one)
+    """
+    if not isinstance(components, list):
+        components = []
+    types = _component_types_present(components)
+    pt = str(post_type or "").strip().lower()
+
+    if pt == "offer_discount" and "Badge" not in types:
+        holiday_name = str(post_data.get("holiday_name") or "").strip()
+        if holiday_name:
+            badge_content = holiday_name.upper()[:24]
+        else:
+            badge_content = _extract_offer_badge_text(post_data)
+        if not badge_content:
+            scheduled = str(post_data.get("scheduled_date") or "").strip()
+            month_names = (
+                "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+                "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
+            )
+            month_token = ""
+            if scheduled:
+                try:
+                    month_token = month_names[int(scheduled.split("-")[1]) - 1]
+                except (ValueError, IndexError):
+                    month_token = ""
+            badge_content = (f"{month_token} SPECIAL" if month_token else "LIMITED OFFER")[:24]
+        # Badges read first, so insert at the front.
+        components = [{"type": "Badge", "content": badge_content}, *components]
+
+    if pt == "social_proof" and "ReviewCard" not in types:
+        ma = post_data.get("message_architecture") if isinstance(post_data.get("message_architecture"), dict) else {}
+        # Prefer evidence (the proof line) over support so the rendered card
+        # carries the strongest customer-quote candidate. Cap to a length the
+        # ReviewCard slot can render without overflow.
+        quote_src = (
+            str(ma.get("evidence") or "").strip()
+            or str(ma.get("support") or "").strip()
+            or str(post_data.get("description") or "").strip()
+        )
+        if quote_src:
+            quote = quote_src.split(".")[0].strip()
+            if len(quote) > 160:
+                quote = quote[:157].rstrip() + "..."
+            attribution = (
+                str((post_data.get("attribution") or "")).strip()
+                or "A real customer"
+            )
+            components = [
+                *components,
+                {
+                    "type": "ReviewCard",
+                    "content": {"quote": quote, "by": attribution},
+                },
+            ]
+        else:
+            logger.info(
+                "social_proof post had no message_architecture evidence/support to "
+                "synthesize a ReviewCard; rendering will fall back to Headline only."
+            )
+
+    return components
 
 
 def _extract_offer_badge_text(post_data: dict) -> str | None:
@@ -1803,7 +1892,17 @@ async def _render_with_quality_gate(
             cc_meta["strategy"] = strategist_out
             cc_meta["post_type"] = render_post.get("post_type") or strategist_out.get("post_type")
             cc_meta["layout"] = render_post.get("layout_family") or strategist_out.get("layout")
-            cc_meta["components"] = render_post.get("component_pack") or strategist_out.get("components") or []
+            base_components = render_post.get("component_pack") or strategist_out.get("components") or []
+            # Even when the strategist succeeds, its components list can be
+            # thin (e.g. offer posts shipping without a Badge, social_proof
+            # posts shipping without a ReviewCard). Top up the missing slots
+            # so the canvas always renders the value prop the post promised.
+            cc_meta["components"] = _enforce_required_components(
+                list(base_components),
+                str(cc_meta.get("post_type") or ""),
+                render_post,
+                brand_dict,
+            )
             cc_meta["use_product_image"] = (
                 render_post.get("use_product_image")
                 if render_post.get("use_product_image") is not None
@@ -1815,6 +1914,22 @@ async def _render_with_quality_gate(
         # AI is the only renderer; the raw AI frames ARE the final visual set.
         # For carousels, generate_post_image returns N frames (one per slide).
         item.image_urls = list(bg_urls) if bg_urls else None
+        if not bg_urls:
+            # Surface this loudly so a silent image failure stops looking
+            # like "the canvas just rendered green". The post still saves
+            # because the component overlay can carry the message, but ops
+            # need to know the AI image pipeline produced nothing on this
+            # attempt.
+            logger.warning(
+                "Empty image_urls for post %s after attempt %s/%s "
+                "(brand=%s, post_type=%s); canvas will fall back to "
+                "brand-color background.",
+                getattr(item, "id", "?"),
+                attempt + 1,
+                max_attempts,
+                brand_dict.get("name") or brand_dict.get("id"),
+                render_post.get("post_type") or "?",
+            )
 
         last_logo_ok = await _apply_brand_logo_to_visuals(item, render_post, brand_dict)
         rendered_urls = item.image_urls if isinstance(item.image_urls, list) and item.image_urls else ([item.image_url] if item.image_url else [])
@@ -4669,6 +4784,13 @@ async def _do_generate_month(
             return
 
         # ── Phase 1: render with quality gate + retry loop ──────────────────────────
+        # Per-post timeout: a single post must never block the whole batch.
+        # The previous loop had no upper bound — a stuck OpenAI call or a
+        # silently-failing image retry chain could hold the worker for the
+        # full request budget, leaving the user staring at a half-finished
+        # calendar after 5 minutes and no error to act on. With this guard,
+        # one bad post times out and we move on to the next.
+        per_post_timeout_s = float(getattr(settings, "RENDER_PER_POST_TIMEOUT_S", 180))
         for _batch_idx, (item, post_data) in enumerate(saved_items):
             try:
                 # Inject batch index so the variation engine can rotate hero/lifestyle/detail/angled
@@ -4678,7 +4800,10 @@ async def _do_generate_month(
                 if not post_data.get("id"):
                     post_data["id"] = str(item.id)
                 sab = post_data.get("art_brief") if isinstance(post_data.get("art_brief"), dict) else {}
-                lint, quality_gate, logo_ok = await _render_with_quality_gate(db, item, post_data, brand_dict, sab)
+                lint, quality_gate, logo_ok = await asyncio.wait_for(
+                    _render_with_quality_gate(db, item, post_data, brand_dict, sab),
+                    timeout=per_post_timeout_s,
+                )
                 th = dict(item.theme) if isinstance(item.theme, dict) else {}
                 cm = dict(th.get("cc_meta") or {})
                 cm["visual_lint"] = lint
@@ -4742,6 +4867,27 @@ async def _do_generate_month(
                         rv.image_url = item.image_url
                         rv.image_urls = item.image_urls if isinstance(item.image_urls, list) else []
                     await db.commit()
+            except asyncio.TimeoutError:
+                # One post exceeded the per-post budget. Log loudly so ops
+                # can see which post / brand stalled, roll back any
+                # partial DB writes, and move on. The post is left as
+                # text-only (no image_urls); the frontend layout engine
+                # will paint the component overlay over a brand-color
+                # background instead of the user staring at an indefinite
+                # spinner.
+                logger.error(
+                    "Render exceeded %ss budget for post %s (brand=%s, "
+                    "topic=%r); skipping and continuing with next post.",
+                    per_post_timeout_s,
+                    getattr(item, "id", "?"),
+                    brand_id,
+                    str(post_data.get("topic") or "")[:80],
+                )
+                try:
+                    await db.rollback()
+                except Exception as rb_err:
+                    logger.warning("rollback after timeout failed for %s: %s", item.id, rb_err)
+                continue
             except OpenAICapacityError as cap_err:
                 # OpenAI is rate-limited / over quota / having an outage.
                 # Per-image retries inside the render loop won't recover —
