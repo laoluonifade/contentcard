@@ -75,7 +75,7 @@ export default function PricingPage() {
                     </div>
                   ))}
                 </div>
-                {p.featured ? <PrimaryCta to="/signup">Start free</PrimaryCta> : <SecondaryCta to="/signup">Start free</SecondaryCta>}
+                {p.featured ? <PrimaryCta to="/auth">Start free</PrimaryCta> : <SecondaryCta to="/auth">Start free</SecondaryCta>}
               </SoftCard>
             ))}
           </div>

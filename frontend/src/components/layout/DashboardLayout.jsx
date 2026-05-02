@@ -7,6 +7,7 @@ import useAuthStore from '../../stores/authStore'
 import useAppStore from '../../stores/appStore'
 import Seo from '../seo/Seo'
 import { getMissingFields, isBrandReady } from '../../utils/brandReadiness'
+import OnboardingOverlay from '../onboarding/OnboardingOverlay'
 
 const NAV = [
   { to: '/dashboard',            icon: LayoutDashboard, label: 'Dashboard'  },
@@ -110,7 +111,7 @@ export default function DashboardLayout() {
     clearVisitorSession()
     logout()
     toast('Signed out', 'success')
-    navigate('/login')
+    navigate('/auth')
   }
 
   const initials = user?.full_name
@@ -296,6 +297,8 @@ export default function DashboardLayout() {
           ))}
         </nav>
       </main>
+
+      {user?.onboarding_completed === false && <OnboardingOverlay />}
     </div>
   )
 }

@@ -41,34 +41,27 @@ const useAuthStore = create(
       isLoading: false,
       error: null,
 
-      signup: async (data) => {
+      requestOtp: async (email) => {
         set({ isLoading: true, error: null })
         try {
-          const res = await authApi.signup(data)
-          set({
-            user: res.user,
-            token: res.access_token,
-            isAuthenticated: true,
-            authResolved: true,
-            isLoading: false,
-          })
-          return res
+          await authApi.requestOtp(email)
+          set({ isLoading: false })
         } catch (err) {
           const msg =
             formatApiErrorDetail(err) ||
             (err.code === 'ERR_NETWORK' || err.message === 'Network Error'
               ? 'Cannot reach the API server. Hard refresh (Cmd+Shift+R), wait a minute after deploy, or try without VPN/ad blockers.'
               : err.message) ||
-            'Signup failed'
+            "We couldn't send your code. Try again in a moment."
           set({ error: msg, isLoading: false })
           throw new Error(msg)
         }
       },
 
-      login: async (data) => {
+      verifyOtp: async (email, code) => {
         set({ isLoading: true, error: null })
         try {
-          const res = await authApi.login(data)
+          const res = await authApi.verifyOtp(email, code)
           set({
             user: res.user,
             token: res.access_token,
@@ -83,7 +76,7 @@ const useAuthStore = create(
             (err.code === 'ERR_NETWORK' || err.message === 'Network Error'
               ? 'Cannot reach the API server. Hard refresh (Cmd+Shift+R), wait a minute after deploy, or try without VPN/ad blockers.'
               : err.message) ||
-            'Login failed'
+            "That code didn't check out. Try again."
           set({ error: msg, isLoading: false })
           throw new Error(msg)
         }
@@ -94,20 +87,10 @@ const useAuthStore = create(
         set({ user: null, token: null, isAuthenticated: false, authResolved: true })
       },
 
-      verifyEmail: async (token) => {
-        // POSTs the token from the verification email link.
-        // On success, refresh the local user so the verified flag flips
-        // immediately without a re-fetch.
-        await authApi.verifyEmail({ token })
-        set((s) => ({
-          user: s.user ? { ...s.user, email_verified: true } : s.user,
-        }))
-      },
-
-      deleteAccount: async (password) => {
+      deleteAccount: async () => {
         set({ isLoading: true, error: null })
         try {
-          await authApi.deleteAccount({ password })
+          await authApi.deleteAccount()
           clearPersistedSession()
           set({ user: null, token: null, isAuthenticated: false, authResolved: true, isLoading: false })
         } catch (err) {

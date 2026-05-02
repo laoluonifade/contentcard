@@ -20,26 +20,22 @@ class User(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     phone: Mapped[str | None] = mapped_column(String(30), unique=True, nullable=True)
-    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     country_code: Mapped[str | None] = mapped_column(String(10), nullable=True)  # e.g. "NG", "US"
     # When True, user may own multiple workspaces (e.g. agency managing client companies).
     agency_mode: Mapped[bool] = mapped_column(Boolean, default=False)
-    auth_provider: Mapped[str] = mapped_column(String(30), default="password")
+    # 'email_otp' for new accounts; legacy rows may still read 'password' or
+    # 'shopify' / 'mixed' — kept as a free-form label for analytics, not gating.
+    auth_provider: Mapped[str] = mapped_column(String(30), default="email_otp")
     shopify_shop_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
     shopify_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    # Email verification — must be confirmed before the user can log in.
-    # OAuth signups (Shopify) auto-set this to True since the provider already verified the address.
-    email_verified: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    email_verification_token: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
-    email_verification_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    # Reaching the dashboard means the email was confirmed by an OTP at sign-in,
+    # so this stays True for every account from day one.
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # Soft-delete / archive support — set when user requests account deletion.
     # PII is anonymised at the same time; the row is kept for audit / data recovery.
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
-    # Password-reset flow — token is a URL-safe random string; cleared after use.
-    reset_token: Mapped[str | None] = mapped_column(String(128), nullable=True, default=None)
-    reset_token_expires: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     # Per-user email opt-in state. Transactional always sends; product_updates
     # gates Phase 1/3 emails; marketing reserved for Phase 4 (drip campaigns).
     # Stored as JSON so we can extend categories later without a migration per add.

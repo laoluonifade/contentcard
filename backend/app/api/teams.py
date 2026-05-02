@@ -8,7 +8,6 @@ from app.db.database import get_db
 from app.models.workspace import WorkspaceInvite, WorkspaceMember, WorkspaceRole, InviteStatus, Workspace
 from app.models.user import User
 from app.core.dependencies import get_current_user
-from app.core.security import hash_password, verify_password
 from app.services.email_service import send_team_invite
 from app.core.config import settings
 from app.schemas.workspace import (
@@ -171,7 +170,19 @@ async def get_invite_details(token: str, db: AsyncSession = Depends(get_db)):
 
 
 @accept_router.post("/{token}/accept", response_model=WorkspaceMemberOut, status_code=201)
-async def accept_invite(token: str, body: AcceptInviteRequest, db: AsyncSession = Depends(get_db)):
+async def accept_invite(
+    token: str,
+    body: AcceptInviteRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Join the workspace pointed to by `token`.
+
+    The invitee must already be authenticated (they signed in via OTP first).
+    For email-targeted invites we require the signed-in email to match the
+    invite recipient. Link invites accept any signed-in user.
+    """
     result = await db.execute(select(WorkspaceInvite).where(
         WorkspaceInvite.token == token,
         WorkspaceInvite.status == InviteStatus.PENDING,
@@ -185,46 +196,28 @@ async def accept_invite(token: str, body: AcceptInviteRequest, db: AsyncSession 
         raise HTTPException(status_code=410, detail="Invite has expired")
 
     link_only = _is_link_invite_email(invite.email)
-    if link_only:
-        if not body.email:
-            raise HTTPException(status_code=400, detail="Enter your email to finish joining.")
-        target_email = str(body.email).strip().lower()
-        taken = await db.execute(select(User).where(User.email == target_email))
-        if taken.scalar_one_or_none():
+    if not link_only:
+        invite_email = str(invite.email).strip().lower()
+        if invite_email != (current_user.email or "").strip().lower():
             raise HTTPException(
-                status_code=409,
-                detail="That email already has an account. Log in and ask an admin to invite you by email instead.",
+                status_code=403,
+                detail="This invite was sent to a different email. Sign in with the email address it was sent to.",
             )
-    else:
-        target_email = str(invite.email).strip().lower()
 
-    existing = await db.execute(select(User).where(User.email == target_email))
-    user = existing.scalar_one_or_none()
-
-    if not user:
-        user = User(
-            full_name=body.full_name,
-            email=target_email,
-            phone=body.phone,
-            hashed_password=hash_password(body.password),
-            email_verified=True,  # accepting an emailed invite confirms email ownership
-        )
-        db.add(user)
-        await db.flush()
-    else:
-        if not verify_password(body.password, user.hashed_password):
-            raise HTTPException(status_code=401, detail="Incorrect password for this account.")
+    if body.full_name and not (current_user.full_name or "").strip():
+        # Pull the name they typed at accept-time into the profile if blank.
+        current_user.full_name = body.full_name.strip()[:255] or current_user.full_name
 
     member_check = await db.execute(select(WorkspaceMember).where(
         WorkspaceMember.workspace_id == invite.workspace_id,
-        WorkspaceMember.user_id == user.id,
+        WorkspaceMember.user_id == current_user.id,
     ))
     if member_check.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="You are already a member of this workspace.")
 
     member = WorkspaceMember(
         workspace_id=invite.workspace_id,
-        user_id=user.id,
+        user_id=current_user.id,
         role=invite.role,
     )
     db.add(member)
@@ -233,5 +226,5 @@ async def accept_invite(token: str, body: AcceptInviteRequest, db: AsyncSession 
     await db.refresh(member)
     return WorkspaceMemberOut(
         id=member.id, user_id=member.user_id, role=member.role,
-        joined_at=member.joined_at, user_email=user.email, user_name=user.full_name,
+        joined_at=member.joined_at, user_email=current_user.email, user_name=current_user.full_name,
     )

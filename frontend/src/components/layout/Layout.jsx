@@ -20,7 +20,7 @@ function Sidebar({ onClose }) {
 
   const handleLogout = () => {
     logout()
-    navigate('/login')
+    navigate('/auth')
   }
 
   const initial = (user?.full_name || user?.email || 'U')[0].toUpperCase()

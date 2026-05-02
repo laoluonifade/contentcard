@@ -36,6 +36,7 @@ from app.models.social import (
 )
 from app.models.shopify import ShopifyConnectionStatus, ShopifyConnection, ShopifyProductSnapshot
 from app.models.email_send import EmailSend
+from app.models.email_otp import EmailOtp
 
 __all__ = [
     "User",
@@ -54,4 +55,5 @@ __all__ = [
     "SocialConnection", "SocialAutopilotConfig", "SocialPost", "SocialWebhookEvent", "SocialComment",
     "ShopifyConnectionStatus", "ShopifyConnection", "ShopifyProductSnapshot",
     "EmailSend",
+    "EmailOtp",
 ]

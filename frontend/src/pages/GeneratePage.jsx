@@ -220,7 +220,7 @@ export default function GeneratePage() {
       {!activeBrandId && (
         <div className="border border-dashed border-fog rounded-2xl p-10 text-center mb-6">
           <p className="text-ink/40 text-sm mb-4">You need a brand profile before generating content.</p>
-          <button onClick={() => navigate('/onboarding')} className="btn-primary text-sm">
+          <button onClick={() => navigate('/dashboard')} className="btn-primary text-sm">
             Create your brand
           </button>
         </div>
