@@ -34,7 +34,7 @@ from app.models.shopify import (
     ShopifyConnectionStatus,
     ShopifyProductSnapshot,
 )
-from app.models.user import User
+from app.models.user import User, DEFAULT_EMAIL_PREFERENCES
 from app.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
 from app.schemas.auth import (
     OtpRequest,
@@ -414,6 +414,47 @@ async def delete_account(
     current_user.deleted_at = now
 
     await db.commit()
+
+
+# ── Email preferences ────────────────────────────────────────────────────
+#
+# Per-user opt-in toggles backing the Notifications tab in Settings. The
+# transactional category is reported but never editable. product_updates
+# gates Phase 1 (generation lifecycle) and Phase 3 (autopilot health) emails;
+# marketing is reserved for Phase 4 and defaults off.
+
+_EDITABLE_EMAIL_PREF_KEYS = {"product_updates", "marketing"}
+
+
+def _coerce_email_preferences(raw) -> dict:
+    """Merge stored preferences with defaults so the API always returns every key."""
+    merged = dict(DEFAULT_EMAIL_PREFERENCES)
+    if isinstance(raw, dict):
+        for key, value in raw.items():
+            if key in merged:
+                merged[key] = bool(value)
+    return merged
+
+
+@router.get("/me/email-preferences")
+async def get_email_preferences(current_user: User = Depends(get_current_user)):
+    return _coerce_email_preferences(current_user.email_preferences)
+
+
+@router.put("/me/email-preferences")
+async def update_email_preferences(
+    body: dict,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    current = _coerce_email_preferences(current_user.email_preferences)
+    for key, value in (body or {}).items():
+        if key in _EDITABLE_EMAIL_PREF_KEYS:
+            current[key] = bool(value)
+    current_user.email_preferences = current
+    await db.commit()
+    await db.refresh(current_user)
+    return _coerce_email_preferences(current_user.email_preferences)
 
 
 # ── Shopify connect (post-auth) ───────────────────────────────────────────
