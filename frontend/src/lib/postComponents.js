@@ -22,8 +22,59 @@ import {
   drawOutlinedText,
   drawSpeechBubbleTail,
   drawPeelShadow,
+  drawCheckeredPattern,
   fillRoundedRect,
 } from './postDrawUtils'
+
+// ── Default garnish asset pack ─────────────────────────────────────────────
+// Tiny inline SVGs so the engine ships a sensible default per industry
+// without bundling a separate asset folder. Brands can override via
+// brand_kit.garnish_set or by uploading their own (future PR). Each
+// entry is loaded as an Image once per render; the IllustratedGarnish
+// drawer composites them with random rotation / position seeded by a
+// per-post key so the same post always renders identically.
+
+const GARNISH_PACKS = {
+  food: [
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path fill="#3B7E47" d="M12 2C6 4 4 9 4 14c0 4 3 8 8 8 5 0 8-4 8-8 0-5-2-10-8-12zm0 4c1.5 2 2 4 2 6 0 3-1 6-3 6 0-1 1-3 1-6 0-2-1-4-1-6z"/></svg>' },
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><ellipse cx="12" cy="13" rx="8" ry="6" fill="#B85C8C"/><ellipse cx="12" cy="11" rx="6" ry="4" fill="#D87FA9"/><path d="M12 2 Q14 5 12 7 Q10 5 12 2" fill="#3B7E47"/></svg>' },
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><ellipse cx="8" cy="14" rx="3" ry="1.4" fill="#E8C97A" transform="rotate(-20 8 14)"/><ellipse cx="14" cy="10" rx="3" ry="1.4" fill="#E8C97A" transform="rotate(20 14 10)"/><ellipse cx="16" cy="16" rx="3" ry="1.4" fill="#E8C97A" transform="rotate(-10 16 16)"/></svg>' },
+  ],
+  tech: [
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2 L13.5 10.5 L22 12 L13.5 13.5 L12 22 L10.5 13.5 L2 12 L10.5 10.5 Z" fill="#3D5AFE"/></svg>' },
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M14 2 L4 14 L11 14 L9 22 L20 10 L13 10 Z" fill="#7C4DFF"/></svg>' },
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="6" cy="6" r="2" fill="#3D5AFE"/><circle cx="12" cy="6" r="2" fill="#3D5AFE"/><circle cx="18" cy="6" r="2" fill="#3D5AFE"/><circle cx="6" cy="12" r="2" fill="#3D5AFE"/><circle cx="18" cy="18" r="2" fill="#3D5AFE"/></svg>' },
+  ],
+  fashion: [
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2 C13 2 14 3 14 4 C14 5 13 6 12 6 L12 8 L22 16 L2 16 Z" stroke="#101820" stroke-width="2" fill="none" stroke-linejoin="round"/></svg>' },
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2 L14.5 9.5 L22 9.5 L16 14 L18 22 L12 17 L6 22 L8 14 L2 9.5 L9.5 9.5 Z" fill="#E91E63"/></svg>' },
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 21 C-2 12 6 0 12 6 C18 0 26 12 12 21 Z" fill="#FF4081"/></svg>' },
+  ],
+  service: [
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="#0CB67A"/><path d="M7 12 L11 16 L17 9" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>' },
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M4 4 H18 A2 2 0 0 1 20 6 V14 A2 2 0 0 1 18 16 H10 L6 20 V16 A2 2 0 0 1 4 14 Z" fill="#0288D1"/></svg>' },
+    { svg: '<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="none" stroke="#0288D1" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="#0288D1"/></svg>' },
+  ],
+  none: [],
+}
+
+// Cache: SVG string → HTMLImageElement promise so a layout that paints
+// multiple garnishes (e.g. a sprinkle of basil leaves) only decodes
+// each SVG once per session.
+const _garnishImageCache = new Map()
+
+function loadGarnishImage(svgString) {
+  if (_garnishImageCache.has(svgString)) return _garnishImageCache.get(svgString)
+  const dataUrl = `data:image/svg+xml;utf8,${encodeURIComponent(svgString)}`
+  const promise = new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('garnish svg decode failed'))
+    img.src = dataUrl
+  })
+  _garnishImageCache.set(svgString, promise)
+  return promise
+}
 
 // ── ProductImage ──────────────────────────────────────────────────────────
 // Composites the brand's product photo into the bounds rectangle. The
@@ -762,6 +813,181 @@ function drawQuoteAttribution(ctx, ds, content, bounds, opts = {}) {
   ctx.restore()
 }
 
+// ── BrandStamp ────────────────────────────────────────────────────────────
+// Small circular brand mark stamped on product photos (Jay's "Jay's
+// DINER" red circle on a milkshake). Reads brand.product_stamp_url
+// first, falls back to brand.wordmark_url, then logo_url. Always
+// renders inside a circular clip with a soft halo so it reads as
+// physical, not flat.
+//
+// Content opts:
+//   tilt:     radians (default 0) — rotation about bounds centre
+//   showHalo: boolean (default true)
+
+async function drawBrandStamp(ctx, ds, _content, bounds, brand) {
+  const url = (brand?.product_stamp_url || brand?.wordmark_url || brand?.logo_url || '').trim()
+  if (!url) return
+  const { x, y, w, h } = bounds
+  const radius = Math.min(w, h) / 2
+  const cx = x + w / 2
+  const cy = y + h / 2
+  const tilt = Number(_content?.tilt ?? 0) || 0
+  const showHalo = _content?.showHalo !== false
+
+  ctx.save()
+  ctx.translate(cx, cy)
+  if (tilt) ctx.rotate(tilt)
+
+  if (showHalo) {
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)'
+    ctx.beginPath()
+    ctx.arc(0, 0, radius * 1.04, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // Circular clip + cover-fit.
+  ctx.beginPath()
+  ctx.arc(0, 0, radius, 0, Math.PI * 2)
+  ctx.clip()
+  try {
+    const img = await loadImage(url)
+    const ar = img.naturalWidth / img.naturalHeight
+    let dw = radius * 2
+    let dh = dw / ar
+    if (dh < radius * 2) {
+      dh = radius * 2
+      dw = dh * ar
+    }
+    ctx.drawImage(img, -dw / 2, -dh / 2, dw, dh)
+  } catch {
+    // Asset unreachable — leave the halo as a quiet placeholder.
+  }
+  ctx.restore()
+}
+
+// ── BrandSignature ────────────────────────────────────────────────────────
+// Handwritten-style monogram for a corner anchor (Jay's red 'J' swash).
+// Reads brand.monogram_url. Drawn at natural aspect ratio, anchored to
+// one corner of bounds.
+//
+// Content opts:
+//   anchor: 'top-left'|'top-right'|'bottom-left'|'bottom-right'
+//           (default 'bottom-right')
+
+async function drawBrandSignature(ctx, ds, _content, bounds, brand) {
+  const url = String(brand?.monogram_url || '').trim()
+  if (!url) return
+  const anchor = _content?.anchor || 'bottom-right'
+  try {
+    const img = await loadImage(url)
+    const ar = img.naturalWidth / img.naturalHeight
+    let dw = bounds.h * ar
+    let dh = bounds.h
+    if (dw > bounds.w) {
+      dw = bounds.w
+      dh = bounds.w / ar
+    }
+    let dx = bounds.x
+    let dy = bounds.y
+    if (anchor === 'top-right') { dx = bounds.x + bounds.w - dw }
+    else if (anchor === 'bottom-left') { dy = bounds.y + bounds.h - dh }
+    else if (anchor === 'bottom-right') { dx = bounds.x + bounds.w - dw; dy = bounds.y + bounds.h - dh }
+    ctx.save()
+    ctx.drawImage(img, dx, dy, dw, dh)
+    ctx.restore()
+  } catch {
+    /* asset missing → no-op */
+  }
+}
+
+// ── IllustratedGarnish ────────────────────────────────────────────────────
+// Small flat illustrations (basil + onion for food, bolts + dots for
+// tech, etc.) sprinkled around a hero. Reads ds.garnish.set to pick the
+// asset pack and lays N glyphs at seeded positions inside bounds.
+//
+// Content can be a number (count) or an object { count, seed, minSize,
+// maxSize }. Pass post.id as seed so the same post always lays its
+// garnish at the same coordinates.
+
+async function drawIllustratedGarnish(ctx, ds, content, bounds, _brand) {
+  const set = ds?.garnish?.set || 'none'
+  const pack = GARNISH_PACKS[set]
+  if (!pack || pack.length === 0) return
+  let count = 4
+  let seed = 1
+  if (typeof content === 'number') count = content
+  else if (content && typeof content === 'object') {
+    if (typeof content.count === 'number') count = content.count
+    if (typeof content.seed === 'number') seed = content.seed
+    else if (typeof content.seed === 'string') {
+      let h = 0
+      for (let i = 0; i < content.seed.length; i += 1) h = ((h << 5) - h + content.seed.charCodeAt(i)) | 0
+      seed = h
+    }
+  }
+  count = Math.max(1, Math.min(8, count))
+  const minSize = (content && content.minSize) || 56
+  const maxSize = (content && content.maxSize) || 120
+
+  // PRNG seeded from `seed` so the same post always lays garnish at the
+  // same coordinates (no flicker on regenerate).
+  let s = (seed >>> 0) || 0xC0FFEE
+  const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 0xFFFFFFFF }
+
+  const images = await Promise.all(pack.map((g) => loadGarnishImage(g.svg).catch(() => null)))
+  const valid = images.filter(Boolean)
+  if (valid.length === 0) return
+
+  ctx.save()
+  for (let i = 0; i < count; i += 1) {
+    const img = valid[Math.floor(rnd() * valid.length)]
+    const size = minSize + rnd() * (maxSize - minSize)
+    const x = bounds.x + rnd() * (bounds.w - size)
+    const y = bounds.y + rnd() * (bounds.h - size)
+    const rot = (rnd() - 0.5) * Math.PI * 0.6
+    ctx.save()
+    ctx.translate(x + size / 2, y + size / 2)
+    ctx.rotate(rot)
+    ctx.drawImage(img, -size / 2, -size / 2, size, size)
+    ctx.restore()
+  }
+  ctx.restore()
+}
+
+// ── CheckeredTray ─────────────────────────────────────────────────────────
+// Diner-style ground pattern under product hero shots. Wraps the shared
+// drawCheckeredPattern util with sensible defaults that read from brand
+// colours.
+//
+// Content / opts:
+//   cellSize:       px (default 60)
+//   colourA:        hex (default '#FFFFFF')
+//   colourB:        hex (default ds.palette.ink)
+//   rotation:       radians (default 0)
+//   roundedRadius:  px corner radius (default 0)
+
+function drawCheckeredTray(ctx, ds, content, bounds, opts = {}) {
+  const c = (content && typeof content === 'object') ? content : {}
+  const cellSize = c.cellSize ?? opts.cellSize ?? 60
+  const colourA = c.colourA || opts.colourA || '#FFFFFF'
+  const colourB = c.colourB || opts.colourB || ds.palette.ink
+  const rotation = c.rotation ?? opts.rotation ?? 0
+  const radius = c.roundedRadius ?? opts.roundedRadius ?? 0
+
+  ctx.save()
+  if (radius > 0) {
+    rrect(ctx, bounds.x, bounds.y, bounds.w, bounds.h, radius)
+    ctx.clip()
+  }
+  drawCheckeredPattern(ctx, bounds.x, bounds.y, bounds.w, bounds.h, {
+    cellSize,
+    colourA,
+    colourB,
+    rotation,
+  })
+  ctx.restore()
+}
+
 // ── Dispatcher ────────────────────────────────────────────────────────────
 // Layouts call this with the raw component descriptor. Drawers that need
 // async work (only ProductImage today) return a promise; sync drawers
@@ -795,6 +1021,14 @@ async function drawComponent(ctx, ds, component, bounds, brand) {
       return drawPeelSticker(ctx, ds, content, bounds, component.opts || {})
     case 'QuoteAttribution':
       return drawQuoteAttribution(ctx, ds, content, bounds, component.opts || {})
+    case 'BrandStamp':
+      return drawBrandStamp(ctx, ds, content, bounds, brand)
+    case 'BrandSignature':
+      return drawBrandSignature(ctx, ds, content, bounds, brand)
+    case 'IllustratedGarnish':
+      return drawIllustratedGarnish(ctx, ds, content, bounds, brand)
+    case 'CheckeredTray':
+      return drawCheckeredTray(ctx, ds, content, bounds, component.opts || {})
     default:
       return
   }
@@ -813,5 +1047,9 @@ export {
   drawSpeechBubblePill,
   drawPeelSticker,
   drawQuoteAttribution,
+  drawBrandStamp,
+  drawBrandSignature,
+  drawIllustratedGarnish,
+  drawCheckeredTray,
   drawComponent,
 }
