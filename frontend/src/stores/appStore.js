@@ -499,7 +499,11 @@ const useAppStore = create(
       fetchMonthContent: async (month, year) => {
         const brandId = get().activeBrandId
         if (!brandId) return []
-        const items = (await contentApi.list({ brand_id: brandId, month, year })).map(normalizeContentItem)
+        // include_failed=true so the calendar can render FAILED posts as
+        // "Generation failed — Regenerate" tiles. Without this the user
+        // generates 4, only sees 2, and has no signal that the other 2
+        // exist or how to recover them.
+        const items = (await contentApi.list({ brand_id: brandId, month, year, include_failed: true })).map(normalizeContentItem)
         const key = `${year}-${month}`
         set(s => ({ contentByMonth: { ...s.contentByMonth, [key]: items } }))
         return items
