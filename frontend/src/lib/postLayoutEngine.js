@@ -564,6 +564,98 @@ async function renderQuoteEditorial(ctx, ds, post, brand, components, imageUrl) 
   }
 }
 
+// ── Layout 7: lifestyle_clean ─────────────────────────────────────────────
+// Jay's milkshake-against-red-wall look. Full-bleed photo, no headline,
+// no overlay, no gradient — the photo is doing the work. Optional small
+// brand wordmark / signature in a corner. Used when the source photo is
+// strong enough to stand alone (categorised as `hands_on` or `lifestyle`).
+//
+// When no image is reachable we fall through to renderLifestyleOverlay so
+// the post still reads as a finished piece.
+
+async function renderLifestyleClean(ctx, ds, post, brand, components, imageUrl) {
+  if (!imageUrl) {
+    return renderLifestyleOverlay(ctx, ds, post, brand, components, imageUrl)
+  }
+  await drawBackground(ctx, ds, imageUrl)
+
+  // Photo carries the design. Only optional, very small chrome:
+  // monogram / signature in a corner if the brand has one. Logo is
+  // suppressed by default — the brand-stamp on the product photo
+  // is the implied wordmark.
+  const signature = findComponent(components, 'BrandSignature')
+  if (signature || brand?.monogram_url) {
+    await drawComponent(
+      ctx, ds,
+      signature || { type: 'BrandSignature', content: { anchor: 'bottom-right' } },
+      { x: W - 200, y: H - 160, w: 160, h: 120 },
+      brand,
+    )
+  }
+}
+
+// ── Layout 8: meme_ui_screenshot ──────────────────────────────────────────
+// Jay's fake ChatGPT card. The whole canvas is a textured brand-coloured
+// background with a single `MockUIChat` card centred on it. The chat
+// card is the post's punchline; the brand colour around it is the
+// frame.
+//
+// Components honoured:
+//   - MockUIChat            — required, fills the centre 84% × 80%
+//   - BrandSignature        — optional corner mark
+
+async function renderMemeUIScreenshot(ctx, ds, post, brand, components, imageUrl) {
+  // Brand-coloured surface. If an AI image was supplied we ignore it —
+  // the screenshot card is the focus and a photo-rich background would
+  // fight the joke. The strategist + bg-mode dispatcher (PR 9) should
+  // route this layout to color_block / gradient_panel anyway.
+  ctx.fillStyle = ds.palette.background
+  ctx.fillRect(0, 0, W, H)
+  drawPaperTexture(ctx, ds, ds.texture?.kind === 'noise' ? 0.06 : 0.04, 1.5)
+
+  const chat = findComponent(components, 'MockUIChat')
+  const signature = findComponent(components, 'BrandSignature')
+
+  if (chat) {
+    await drawComponent(ctx, ds, chat, {
+      x: W * 0.08,
+      y: H * 0.08,
+      w: W * 0.84,
+      h: H * 0.78,
+    }, brand)
+  } else {
+    // Synthesise a minimal chat card so a misconfigured strategist still
+    // ships something readable instead of a blank brand wall.
+    const punchline = String(post?.content_idea || post?.topic || '').trim()
+    if (punchline) {
+      await drawComponent(
+        ctx, ds,
+        {
+          type: 'MockUIChat',
+          content: {
+            appName: 'ChatGPT',
+            bubbles: [
+              { role: 'them', text: 'What’s the move?' },
+              { role: 'you', text: punchline },
+            ],
+          },
+        },
+        { x: W * 0.08, y: H * 0.08, w: W * 0.84, h: H * 0.78 },
+        brand,
+      )
+    }
+  }
+
+  if (signature || brand?.monogram_url) {
+    await drawComponent(
+      ctx, ds,
+      signature || { type: 'BrandSignature', content: { anchor: 'bottom-right' } },
+      { x: W - 220, y: H - 140, w: 180, h: 100 },
+      brand,
+    )
+  }
+}
+
 // ── Master dispatcher ─────────────────────────────────────────────────────
 
 const LAYOUT_RENDERERS = {
@@ -573,6 +665,8 @@ const LAYOUT_RENDERERS = {
   lifestyle_overlay: renderLifestyleOverlay,
   typography_poster: renderTypographyPoster,
   quote_editorial: renderQuoteEditorial,
+  lifestyle_clean: renderLifestyleClean,
+  meme_ui_screenshot: renderMemeUIScreenshot,
 }
 
 // Legacy archetype slugs that pre-date the Phase-A layout engine. The
@@ -582,10 +676,15 @@ const LAYOUT_RENDERERS = {
 // cc_meta.layout) still dispatches to a sensible design instead of always
 // landing on the default centered_product.
 const ARCHETYPE_TO_LAYOUT = {
-  // POV / lifestyle scenes — full-bleed photo with the headline lower-third.
-  pov_comic: 'lifestyle_overlay',
-  portrait_story: 'lifestyle_overlay',
-  photo_hero: 'lifestyle_overlay',
+  // Photo-led archetypes prefer the clean layout when the brand has
+  // strong photography; the renderer itself falls back to lifestyle_overlay
+  // (with its bottom gradient) when no image is reachable.
+  photo_hero: 'lifestyle_clean',
+  portrait_story: 'lifestyle_clean',
+  // POV / device-mockup archetypes are meme-shaped — fake-screenshot
+  // cards instead of full-bleed photos.
+  pov_comic: 'meme_ui_screenshot',
+  device_mockup_benefit: 'meme_ui_screenshot',
   // Loud typography flooded over the canvas. pattern_headline used to
   // collapse to offer_card (which veiled the AI image at 92% brand
   // primary); typography_poster gives it the editorial poster treatment
@@ -597,7 +696,6 @@ const ARCHETYPE_TO_LAYOUT = {
   // renderers instead of centered_product.
   flat_edu: 'typography_poster',
   editorial_issue_card: 'quote_editorial',
-  device_mockup_benefit: 'centered_product',
   // Co-brand / merchant launches read like a split design (text + product).
   // PR 8 replaces these with bold_announcement / hero_carousel_opener.
   co_brand_lockup: 'split',
