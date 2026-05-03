@@ -17,7 +17,14 @@ from app.models.creative_engine import (
 from app.models.workspace import WorkspaceMember, WorkspaceRole
 from app.models.user import User
 from app.core.dependencies import get_current_user
-from app.schemas.brand import BrandCreate, BrandUpdate, BrandOut
+from app.schemas.brand import (
+    BrandCreate,
+    BrandUpdate,
+    BrandOut,
+    BrandProductOut,
+    BrandPhotoCategoryUpdate,
+    BRAND_PHOTO_CATEGORIES,
+)
 from app.schemas.website_intelligence import (
     WebsiteAuthCaptureConfigRequest,
     WebsiteAuthCaptureRunRequest,
@@ -64,6 +71,121 @@ cloudinary.config(
 )
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/brands", tags=["brands"])
+
+
+# How many product cards we hand to the frontend layout engine per brand.
+_BRAND_PRODUCT_LIMIT = 6
+
+# brand_kit JSON keys that hold the new asset URLs. Echoed at the top
+# level of BrandOut for layout-engine convenience.
+_ASSET_SLOT_KEYS = ("wordmark_url", "monogram_url", "product_stamp_url")
+
+
+def _select_product_image_url(attrs: dict) -> str | None:
+    images = attrs.get("images") if isinstance(attrs.get("images"), list) else []
+    return next((str(x).strip() for x in images if str(x or "").strip()), None)
+
+
+async def _serialize_brand(brand: Brand, db: AsyncSession) -> BrandOut:
+    """Build a BrandOut with brand_photos / asset URLs / products inlined.
+
+    Reads asset URLs from brand_kit so adding a new slot doesn't require a
+    migration. Photo categories live in brand_kit.photo_categories: the
+    layout engine uses them to pick whether a hands-on shot can drive
+    lifestyle_clean or has to fall back to lifestyle_overlay."""
+    out = BrandOut.model_validate(brand)
+    out.brand_photos = list(brand.brand_photos or [])
+
+    kit = brand.brand_kit if isinstance(brand.brand_kit, dict) else {}
+    for key in _ASSET_SLOT_KEYS:
+        val = kit.get(key)
+        if isinstance(val, str) and val.strip():
+            setattr(out, key, val.strip())
+
+    photo_categories = kit.get("photo_categories")
+    if isinstance(photo_categories, dict):
+        out.brand_photo_categories = {
+            str(k): str(v).lower()
+            for k, v in photo_categories.items()
+            if str(v).lower() in BRAND_PHOTO_CATEGORIES
+        }
+
+    rows = (
+        await db.execute(
+            select(WebsiteEntity)
+            .where(
+                WebsiteEntity.brand_id == brand.id,
+                WebsiteEntity.entity_type == "product",
+                WebsiteEntity.is_active.is_(True),
+            )
+            .order_by(WebsiteEntity.last_seen_at.desc())
+            .limit(_BRAND_PRODUCT_LIMIT)
+        )
+    ).scalars().all()
+    products: list[BrandProductOut] = []
+    for row in rows:
+        attrs = row.attributes if isinstance(row.attributes, dict) else {}
+        image_url = _select_product_image_url(attrs)
+        cutout_url = attrs.get("cutout_url") if isinstance(attrs.get("cutout_url"), str) else None
+        # Source mismatch (the user replaced the product photo) → drop the
+        # cached cutout so PR 9's pipeline regenerates it.
+        if cutout_url and attrs.get("cutout_source_url") and attrs.get("cutout_source_url") != image_url:
+            cutout_url = None
+        products.append(
+            BrandProductOut(
+                id=row.id,
+                name=row.title or "",
+                image_url=image_url,
+                cutout_url=cutout_url,
+            )
+        )
+    out.products = products
+    return out
+
+
+async def _upload_brand_asset(
+    brand: Brand,
+    contents: bytes,
+    *,
+    slot: str,
+    folder_suffix: str,
+    public_id: str,
+    bg_removal: bool,
+) -> str:
+    """Shared logo / wordmark / monogram / product-stamp uploader.
+    Stores the final URL in brand.brand_kit[slot] and commits the row."""
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 10 MB).")
+
+    upload_kwargs: dict = {
+        "folder": f"contentcard/brands/{brand.id}/{folder_suffix}",
+        "public_id": public_id,
+        "overwrite": True,
+        "resource_type": "image",
+        "format": "png",
+    }
+    if bg_removal and settings.CLOUDINARY_LOGO_AI_BG_REMOVAL:
+        upload_kwargs["eager"] = [{"effect": "background_removal"}]
+        upload_kwargs["eager_async"] = False
+
+    try:
+        result = cloudinary.uploader.upload(contents, **upload_kwargs)
+    except Exception as e:
+        if upload_kwargs.get("eager"):
+            logger.warning("%s upload with AI bg removal failed, retrying without: %s", slot, e)
+            upload_kwargs.pop("eager", None)
+            upload_kwargs.pop("eager_async", None)
+            result = cloudinary.uploader.upload(contents, **upload_kwargs)
+        else:
+            logger.error("%s upload failed: %s", slot, e)
+            raise HTTPException(status_code=502, detail="Image upload failed. Please try again.")
+
+    eager = result.get("eager") or []
+    if eager and isinstance(eager[0], dict) and eager[0].get("secure_url"):
+        url = str(eager[0]["secure_url"])
+    else:
+        url = str(result["secure_url"])
+    return url
 
 
 def _website_product_hash(title: str, source_url: str | None, attrs: dict) -> str:
@@ -374,7 +496,8 @@ async def list_brands(
         .where(Brand.workspace_id == workspace_id)
         .order_by(desc(Brand.updated_at), desc(Brand.created_at))
     )
-    return [BrandOut.model_validate(b) for b in result.scalars().all()]
+    brands = result.scalars().all()
+    return [await _serialize_brand(b, db) for b in brands]
 
 
 @router.post("", response_model=BrandOut, status_code=201)
@@ -399,7 +522,7 @@ async def create_brand(
     await db.refresh(brand)
     background_tasks.add_task(_sync_brand_assistant, brand.id)
     background_tasks.add_task(_bootstrap_brand_templates, brand.id, current_user.country_code)
-    return BrandOut.model_validate(brand)
+    return await _serialize_brand(brand, db)
 
 
 @router.get("/{brand_id}", response_model=BrandOut)
@@ -413,7 +536,7 @@ async def get_brand(
     brand = r.scalar_one_or_none()
     if not brand:
         raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
-    return BrandOut.model_validate(brand)
+    return await _serialize_brand(brand, db)
 
 
 def _deep_merge_dict(base: dict, patch: dict) -> dict:
@@ -459,7 +582,7 @@ async def update_brand(
     await db.commit()
     await db.refresh(brand)
     background_tasks.add_task(_sync_brand_assistant, brand.id)
-    return BrandOut.model_validate(brand)
+    return await _serialize_brand(brand, db)
 
 
 @router.delete("/{brand_id}", status_code=204)
@@ -625,8 +748,14 @@ async def delete_brand_photo(
     if photo_index < 0 or photo_index >= len(photos):
         raise HTTPException(status_code=404, detail="Photo not found")
 
-    photos.pop(photo_index)
+    removed_url = photos.pop(photo_index)
     brand.brand_photos = photos
+    # Drop the matching category tag so brand_kit stays consistent.
+    kit = dict(brand.brand_kit or {})
+    cats = dict(kit.get("photo_categories") or {})
+    if cats.pop(removed_url, None) is not None:
+        kit["photo_categories"] = cats
+        brand.brand_kit = kit
     await db.commit()
 
 
@@ -690,6 +819,174 @@ async def upload_logo(
         brand.logo_url = result["secure_url"]
     await db.commit()
     return {"logo_url": brand.logo_url}
+
+
+# ── Extended brand assets ────────────────────────────────────────────────
+#
+# wordmark / monogram / product_stamp are used by the Phase-B layout
+# engine: typography_poster anchors the wordmark in a corner, narrow
+# layouts use the monogram, and brand-coloured posters stamp the product
+# photo with the product_stamp circle. All three live in brand.brand_kit
+# so we can extend without a schema migration; each upload flows through
+# the same Cloudinary path (with optional AI background removal) as the
+# logo.
+
+
+def _set_brand_kit_value(brand: Brand, key: str, value):
+    kit = dict(brand.brand_kit or {})
+    if value is None:
+        kit.pop(key, None)
+    else:
+        kit[key] = value
+    brand.brand_kit = kit
+
+
+@router.post("/{brand_id}/wordmark", response_model=dict)
+async def upload_wordmark(
+    workspace_id: str, brand_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload the brand wordmark (full-name lockup). Distinct from the
+    logo: the wordmark is the typeset name (e.g. 'Jay's DINER') and is
+    used by editorial-poster layouts where the icon-only logo would
+    read as anonymous."""
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
+    contents = await file.read()
+    url = await _upload_brand_asset(
+        brand, contents,
+        slot="wordmark", folder_suffix="wordmark", public_id="wordmark",
+        bg_removal=True,
+    )
+    _set_brand_kit_value(brand, "wordmark_url", url)
+    await db.commit()
+    return {"wordmark_url": url}
+
+
+@router.post("/{brand_id}/monogram", response_model=dict)
+async def upload_monogram(
+    workspace_id: str, brand_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload the brand monogram (initial-only mark, e.g. Jay's red 'J'
+    swash). Used in tight corners by the layout engine where the full
+    wordmark would be too wide."""
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
+    contents = await file.read()
+    url = await _upload_brand_asset(
+        brand, contents,
+        slot="monogram", folder_suffix="monogram", public_id="monogram",
+        bg_removal=True,
+    )
+    _set_brand_kit_value(brand, "monogram_url", url)
+    await db.commit()
+    return {"monogram_url": url}
+
+
+@router.post("/{brand_id}/product-stamp", response_model=dict)
+async def upload_product_stamp(
+    workspace_id: str, brand_id: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload the circular product-stamp variant of the brand mark
+    (e.g. the 'Jay's DINER' red circle that gets stamped on milkshake
+    cups). Used by the BrandStamp component to authenticate product
+    photography."""
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
+    contents = await file.read()
+    url = await _upload_brand_asset(
+        brand, contents,
+        slot="product_stamp", folder_suffix="product-stamp", public_id="product-stamp",
+        bg_removal=True,
+    )
+    _set_brand_kit_value(brand, "product_stamp_url", url)
+    await db.commit()
+    return {"product_stamp_url": url}
+
+
+@router.delete("/{brand_id}/asset/{slot}", status_code=204)
+async def delete_brand_asset(
+    workspace_id: str, brand_id: str, slot: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Clear one of the optional brand-asset slots (wordmark / monogram /
+    product_stamp). The Cloudinary file stays — just unlinks the URL."""
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
+    valid_slots = {"wordmark": "wordmark_url", "monogram": "monogram_url", "product_stamp": "product_stamp_url"}
+    if slot not in valid_slots:
+        raise HTTPException(status_code=400, detail=f"Unknown asset slot. Expected one of: {', '.join(valid_slots)}.")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
+    _set_brand_kit_value(brand, valid_slots[slot], None)
+    await db.commit()
+
+
+@router.put("/{brand_id}/photos/{photo_index}/category", response_model=dict)
+async def set_brand_photo_category(
+    workspace_id: str, brand_id: str, photo_index: int,
+    body: BrandPhotoCategoryUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Tag a brand photo as hands_on / still_life / lifestyle so the
+    layout engine can pick the right one for the right design (e.g.
+    lifestyle_clean only uses hands_on / lifestyle, never a still_life
+    catalogue shot)."""
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
+    photos = list(brand.brand_photos or [])
+    if photo_index < 0 or photo_index >= len(photos):
+        raise HTTPException(status_code=404, detail="Photo not found")
+    url = photos[photo_index]
+    kit = dict(brand.brand_kit or {})
+    cats = dict(kit.get("photo_categories") or {})
+    if not body.category:
+        cats.pop(url, None)
+    else:
+        category = body.category.strip().lower()
+        if category not in BRAND_PHOTO_CATEGORIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown category. Expected one of: {', '.join(BRAND_PHOTO_CATEGORIES)}.",
+            )
+        cats[url] = category
+    kit["photo_categories"] = cats
+    brand.brand_kit = kit
+    await db.commit()
+    return {"photo_url": url, "category": cats.get(url)}
 
 
 @router.post("/{brand_id}/website/sync", response_model=WebsiteSyncResponse)

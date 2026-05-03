@@ -74,11 +74,25 @@ function arraysEqual(a, b) {
   return a.every((v, i) => v === b[i])
 }
 
+// Categories the layout engine recognises for brand photos. The label is
+// the user-visible string in the dropdown; the value is what the backend
+// stores. Keep in sync with BRAND_PHOTO_CATEGORIES in backend/app/schemas/brand.py.
+const PHOTO_CATEGORY_OPTIONS = [
+  { value: '', label: 'Uncategorised' },
+  { value: 'hands_on', label: 'Hands-on / lifestyle action' },
+  { value: 'still_life', label: 'Still-life / catalogue' },
+  { value: 'lifestyle', label: 'Lifestyle / scene' },
+]
+
 function formFromBrand(brand) {
   const kit = (brand && brand.brand_kit) || {}
   return {
     name: brand?.name || '',
     logo_url: brand?.logo_url || '',
+    // Extended brand assets — used by the Phase-B layout engine.
+    wordmark_url: brand?.wordmark_url || kit.wordmark_url || '',
+    monogram_url: brand?.monogram_url || kit.monogram_url || '',
+    product_stamp_url: brand?.product_stamp_url || kit.product_stamp_url || '',
     industry: brand?.industry || '',
     sub_industry: brand?.sub_industry || '',
     brand_colors: Array.isArray(brand?.brand_colors) && brand.brand_colors.length
@@ -212,6 +226,102 @@ export default function BrandKitPage() {
   }
 
   const removeLogo = () => set('logo_url', '')
+
+  // ── Extended brand assets (wordmark / monogram / product stamp) ──────────
+  // Each slot mirrors the logo upload flow but skips the crop step (these
+  // assets ship at brand-supplied dimensions: a wordmark is wide, a
+  // monogram is tight, a product stamp is round). Files upload directly
+  // and we update the form state with the returned URL.
+  const ASSET_SLOTS = [
+    {
+      key: 'wordmark_url',
+      apiSlot: 'wordmark',
+      apiMethod: 'uploadWordmark',
+      label: 'Wordmark',
+      help: 'Full-name lockup (e.g. "Jay’s DINER"). Used by editorial-poster layouts where the icon-only logo would read as anonymous.',
+    },
+    {
+      key: 'monogram_url',
+      apiSlot: 'monogram',
+      apiMethod: 'uploadMonogram',
+      label: 'Monogram',
+      help: 'Initial-only mark (e.g. a single "J" swash). Used in tight corners where the wordmark is too wide.',
+    },
+    {
+      key: 'product_stamp_url',
+      apiSlot: 'product_stamp',
+      apiMethod: 'uploadProductStamp',
+      label: 'Product stamp',
+      help: 'Circular sticker variant of the brand mark — gets stamped onto product photos for authenticity (think "Jay’s DINER" red circle on a milkshake cup).',
+    },
+  ]
+
+  const assetInputRefs = useRef({})
+  const [assetUploading, setAssetUploading] = useState({})
+
+  const onPickAssetFile = (slot) => async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file || !activeWorkspaceId || !brand?.id) return
+    if (!file.type.startsWith('image/')) {
+      toast('Pick an image file (PNG, JPG, or SVG).', 'error')
+      return
+    }
+    setAssetUploading((u) => ({ ...u, [slot.key]: true }))
+    try {
+      const res = await brandApi[slot.apiMethod](activeWorkspaceId, brand.id, file)
+      const url = res?.[slot.key]
+      if (url) {
+        set(slot.key, url)
+        await fetchBrands(activeWorkspaceId).catch(() => {})
+        toast(`${slot.label} uploaded.`)
+      }
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || `Couldn’t upload that ${slot.label.toLowerCase()}.`, 'error')
+    } finally {
+      setAssetUploading((u) => ({ ...u, [slot.key]: false }))
+    }
+  }
+
+  const removeAsset = (slot) => async () => {
+    if (!activeWorkspaceId || !brand?.id) return
+    setAssetUploading((u) => ({ ...u, [slot.key]: true }))
+    try {
+      await brandApi.deleteBrandAsset(activeWorkspaceId, brand.id, slot.apiSlot)
+      set(slot.key, '')
+      await fetchBrands(activeWorkspaceId).catch(() => {})
+      toast(`${slot.label} removed.`)
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Could not remove that asset.', 'error')
+    } finally {
+      setAssetUploading((u) => ({ ...u, [slot.key]: false }))
+    }
+  }
+
+  // ── Brand photo categories ────────────────────────────────────────────────
+  // Photos already exist on the brand record (uploaded via API or
+  // onboarding); we don't ship a photo-upload UI here yet. We do let the
+  // user tag each existing photo so the layout engine can pick the right
+  // one for the right design.
+  const brandPhotos = useMemo(
+    () => (Array.isArray(brand?.brand_photos) ? brand.brand_photos : []),
+    [brand],
+  )
+  const photoCategories = useMemo(
+    () => (brand?.brand_photo_categories && typeof brand.brand_photo_categories === 'object'
+      ? brand.brand_photo_categories : {}),
+    [brand],
+  )
+  const onPhotoCategoryChange = (photoIndex) => async (e) => {
+    if (!activeWorkspaceId || !brand?.id) return
+    const value = e.target.value
+    try {
+      await brandApi.setPhotoCategory(activeWorkspaceId, brand.id, photoIndex, value || null)
+      await fetchBrands(activeWorkspaceId).catch(() => {})
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Could not save that category.', 'error')
+    }
+  }
 
   // ── Brand colours ─────────────────────────────────────────────────────────
   const addColor = (raw) => {
@@ -441,6 +551,94 @@ export default function BrandKitPage() {
             PNG with transparency works best. We&apos;ll auto-detect your brand colours from the logo.
           </p>
         </div>
+
+        {/* 2.5 Extended brand assets */}
+        <div>
+          <label className={labelCls}>
+            Extended brand assets <span className="text-ink/40 font-normal normal-case">(optional, used by some layouts)</span>
+          </label>
+          <p className="text-xs text-ink/50 mb-3">
+            These give the layout engine more to work with on poster-style designs.
+            Upload what you have — anything missing falls back to your logo.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {ASSET_SLOTS.map((slot) => {
+              const url = form[slot.key]
+              const busy = !!assetUploading[slot.key]
+              return (
+                <div key={slot.key} className="rounded-2xl border border-fog bg-mist/40 p-4 flex flex-col">
+                  <p className="text-xs font-semibold text-ink mb-1">{slot.label}</p>
+                  <p className="text-[11px] text-ink/45 mb-3 leading-snug min-h-[2.6em]">{slot.help}</p>
+                  <input
+                    ref={(el) => { assetInputRefs.current[slot.key] = el }}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={onPickAssetFile(slot)}
+                  />
+                  <div className="flex-1 flex items-center justify-center min-h-[7rem] rounded-xl bg-surface border border-fog mb-3 overflow-hidden">
+                    {url
+                      ? <img src={url} alt={slot.label} className="max-w-full max-h-28 object-contain p-2" />
+                      : <span className="text-[11px] text-ink/30">Not uploaded</span>}
+                  </div>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => assetInputRefs.current[slot.key]?.click()}
+                      disabled={busy}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl border border-fog bg-surface text-[11px] font-semibold text-ink hover:border-brand-400 disabled:opacity-50"
+                    >
+                      <Upload size={12} />
+                      {busy ? 'Uploading…' : (url ? 'Replace' : 'Upload')}
+                    </button>
+                    {url && (
+                      <button
+                        type="button"
+                        onClick={removeAsset(slot)}
+                        disabled={busy}
+                        className="inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl border border-fog bg-surface text-[11px] font-semibold text-rose-600 hover:text-rose-700 disabled:opacity-50"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* 2.6 Brand photo categories */}
+        {brandPhotos.length > 0 && (
+          <div>
+            <label className={labelCls}>
+              Brand photos <span className="text-ink/40 font-normal normal-case">(tag each one for smarter layouts)</span>
+            </label>
+            <p className="text-xs text-ink/50 mb-3">
+              Tagging tells the layout engine when a photo can drive a clean
+              lifestyle poster vs when it should sit as a smaller cameo.
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {brandPhotos.map((url, i) => (
+                <div key={`${url}-${i}`} className="rounded-2xl border border-fog bg-mist/40 p-2">
+                  <div className="aspect-square rounded-xl overflow-hidden bg-surface mb-2">
+                    <img src={url} alt={`Brand photo ${i + 1}`} className="w-full h-full object-cover" />
+                  </div>
+                  <select
+                    className="w-full text-[11px] px-2 py-1.5 rounded-lg border border-fog bg-surface"
+                    value={photoCategories[url] || ''}
+                    onChange={onPhotoCategoryChange(i)}
+                    aria-label={`Category for photo ${i + 1}`}
+                  >
+                    {PHOTO_CATEGORY_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* 3. Business type + sub-category */}
         <div>
