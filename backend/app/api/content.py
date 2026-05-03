@@ -2586,9 +2586,20 @@ async def list_content(
     if month and year:
         start = date(year, month, 1)
         end = date(year, month, monthrange(year, month)[1])
-        # Calendar views should follow the actual scheduled month first.
-        # Fall back to generation_month/year only for rows that have not been
-        # explicitly scheduled yet, so newly generated drafts still appear.
+        # A post belongs in this month's calendar when EITHER
+        #   1. its scheduled_date falls inside the month, OR
+        #   2. it was generated for this month/year.
+        # Previously branch 2 also required scheduled_date IS NULL, which
+        # silently hid posts whose scheduled_date had been set to a day
+        # outside the generation month (e.g. the scheduler nudged a post
+        # for "August 2026" onto July 31). The status banner counted it
+        # as "1 of 4 visuals ready" but this list filtered it out, so the
+        # user saw "0 posts" while the banner promised content. Dropping
+        # the IS NULL clause surfaces the post in its generation month
+        # even when scheduling slipped. Side-effect: a post the user
+        # explicitly moves to a different month now appears in both
+        # months until rescheduled — acceptable since "moved off
+        # generation month" is rare and "missing post" is worse.
         conditions.append(
             or_(
                 and_(
@@ -2597,7 +2608,6 @@ async def list_content(
                     ContentItem.scheduled_date <= end,
                 ),
                 and_(
-                    ContentItem.scheduled_date.is_(None),
                     ContentItem.generation_month == month,
                     ContentItem.generation_year == year,
                 ),

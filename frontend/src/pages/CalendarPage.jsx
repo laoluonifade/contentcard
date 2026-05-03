@@ -337,6 +337,7 @@ export default function CalendarPage() {
     activeWorkspaceId,
     brands,
     brandsLoaded,
+    contentByMonth,
     fetchMonthContent,
     generateMonth,
     generatingMonth,
@@ -445,6 +446,19 @@ export default function CalendarPage() {
       cancelled = true
     }
   }, [activeBrandId, month, year])
+
+  // Mirror the store's contentByMonth cache into local posts state. Without
+  // this, posts only updates when the per-tab sessionStorage-gated polling
+  // fires (which doesn't happen when generation was triggered from a
+  // different tab). _pollForContent in the store does refetch and write
+  // into contentByMonth on every status tick, so subscribing here is what
+  // makes the open calendar tab pick up newly-finished posts in real time
+  // without the user having to refresh.
+  useEffect(() => {
+    if (!activeBrandId) return
+    const next = contentByMonth?.[`${year}-${month}`]
+    if (Array.isArray(next)) setPosts(next)
+  }, [contentByMonth, activeBrandId, month, year])
 
   // Reset month-scoped UI state when the user navigates between months or
   // brands. Generation baselines persist via the backend response.
