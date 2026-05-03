@@ -348,6 +348,16 @@ export default function CalendarPage() {
   } = useAppStore()
   const activeBrand = brands.find(b => b.id === activeBrandId)
 
+  const brandPrimaryPlatforms = useMemo(() => {
+    const raw = activeBrand?.brand_kit?.primary_platforms
+    return Array.isArray(raw) ? raw.map((p) => String(p).toLowerCase()) : []
+  }, [activeBrand?.brand_kit?.primary_platforms])
+  const availablePlatforms = useMemo(() => {
+    if (!brandPrimaryPlatforms.length) return PLATFORMS
+    const filtered = PLATFORMS.filter((p) => brandPrimaryPlatforms.includes(p.id))
+    return filtered.length ? filtered : PLATFORMS
+  }, [brandPrimaryPlatforms])
+
   const now = new Date()
   const [searchParams, setSearchParams] = useSearchParams()
   const [month, setMonth] = useState(() => {
@@ -401,7 +411,7 @@ export default function CalendarPage() {
   const [filterPlat, setFilterPlat] = useState('all')
   const [showGenPanel, setShowGenPanel] = useState(false)
   const [markingPosted, setMarkingPosted] = useState(false)
-  const [genPlatform, setGenPlatform]   = useState('instagram')
+  const [genPlatform, setGenPlatform]   = useState(() => availablePlatforms[0]?.id || 'instagram')
   const [genPPW, setGenPPW]             = useState(3)
   const [genTopic, setGenTopic]         = useState('')
   const [layoutMode, setLayoutMode] = useState('grid')
@@ -531,6 +541,12 @@ export default function CalendarPage() {
   useEffect(() => {
     if (generatingMonth && showGenPanel) setShowGenPanel(false)
   }, [generatingMonth, showGenPanel])
+
+  useEffect(() => {
+    if (!availablePlatforms.some((p) => p.id === genPlatform)) {
+      setGenPlatform(availablePlatforms[0]?.id || 'instagram')
+    }
+  }, [availablePlatforms, genPlatform])
 
   useEffect(() => {
     if (!showGenPanel || !activeBrandId) return
@@ -1399,13 +1415,11 @@ export default function CalendarPage() {
 
             <div>
               <p className="label mb-2">Platform</p>
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { id:'instagram', label:'Instagram' },
-                  { id:'facebook',  label:'Facebook'  },
-                  { id:'twitter',   label:'Twitter/X' },
-                  { id:'linkedin',  label:'LinkedIn'  },
-                ].map(pl=>(
+              <div
+                className="grid gap-2"
+                style={{ gridTemplateColumns: `repeat(${Math.min(Math.max(availablePlatforms.length, 1), 4)}, minmax(0, 1fr))` }}
+              >
+                {availablePlatforms.map(pl=>(
                   <button key={pl.id} onClick={()=>setGenPlatform(pl.id)}
                     className={`flex flex-col items-center gap-1.5 p-3 min-h-16 rounded-xl border transition-all active:bg-mist ${
                       genPlatform===pl.id ? 'border-ink bg-mist' : 'border-fog hover:border-ink/20'
@@ -1415,7 +1429,11 @@ export default function CalendarPage() {
                   </button>
                 ))}
               </div>
-              <p className="text-ink/30 text-[11px] mt-1.5">Default selected · tap to change</p>
+              <p className="text-ink/30 text-[11px] mt-1.5">
+                {brandPrimaryPlatforms.length > 0 && availablePlatforms.length < PLATFORMS.length
+                  ? 'From your brand kit · update there to add more'
+                  : 'Default selected · tap to change'}
+              </p>
             </div>
 
             <div>
