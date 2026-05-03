@@ -11,6 +11,7 @@ import {
   alpha,
   darken,
   isLight,
+  luminance,
   drawWrapped,
   loadImage,
   pickContrastingForeground,
@@ -400,8 +401,14 @@ function drawCTAButton(ctx, ds, content, bounds, opts = {}) {
   const text = String(content || '').trim() || 'Shop Now'
   const padX = ds.cta.paddingX
   const padY = ds.cta.paddingY
+  // Default bg / fg chain:
+  //   bg = explicit opts.bg → brand primary
+  //   fg = explicit opts.fg → inverse of bg (white on dark, ink on light)
+  // The inverse pick uses pickContrastingForeground so the threshold
+  // matches what Headline uses — keeps CTA + headline contrast
+  // decisions consistent.
   const bg = opts.bg || ds.palette.primary
-  const fg = opts.fg || (isLight(bg) ? ds.palette.ink : '#FFFFFF')
+  const fg = opts.fg || pickContrastingForeground(luminance(bg), ds.palette)
   ctx.save()
   ctx.font = `${ds.cta.weight} ${ds.cta.fontSize}px ${ds.fontFamily}`
   const textW = ctx.measureText(text).width
@@ -411,9 +418,17 @@ function drawCTAButton(ctx, ds, content, bounds, opts = {}) {
             opts.align === 'center' ? bounds.x + (bounds.w - w) / 2 :
                                       bounds.x
   const y = bounds.y
+  // Soft drop shadow lifts the pill off any background so it stops
+  // disappearing into a same-hue photo (the orange-on-orange bug).
   ctx.fillStyle = bg
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.2)'
+  ctx.shadowBlur = 14
+  ctx.shadowOffsetY = 4
   rrect(ctx, x, y, w, h, ds.cta.radius)
   ctx.fill()
+  ctx.shadowColor = 'transparent'
+  ctx.shadowBlur = 0
+  ctx.shadowOffsetY = 0
   ctx.fillStyle = fg
   ctx.textBaseline = 'middle'
   ctx.fillText(text, x + padX, y + h / 2 + 1)
