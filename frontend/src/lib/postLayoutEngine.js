@@ -63,7 +63,7 @@ function pickComponents(components, types) {
 function brandHasProductPhoto(brand) {
   if (!brand) return false
   const products = Array.isArray(brand.products) ? brand.products : []
-  if (products[0]?.image_url) return true
+  if (products[0]?.cutout_url || products[0]?.image_url) return true
   const photos = Array.isArray(brand.brand_photos) ? brand.brand_photos : []
   return !!photos[0]
 }
