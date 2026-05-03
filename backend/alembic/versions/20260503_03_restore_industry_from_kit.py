@@ -1,8 +1,20 @@
 """restore brand industry / sub_industry from brand_kit when corrupted by old canonicaliser
 
-Revision ID: 20260503_02
-Revises: 20260503_01
+Revision ID: 20260503_03
+Revises: 20260503_02
 Create Date: 2026-05-03
+
+Originally landed as `20260503_02` in PR #320, which collided with PR #319's
+`20260503_02_content_status_failed_uppercase` (also revision `20260503_02`,
+also `Revises: 20260503_01`). The duplicate revision id created a multi-head
+state in Alembic; on production the uppercase-FAILED migration never ran,
+the calendar listing stayed 500 (`invalid input value for enum
+contentstatus: "FAILED"`), and this migration's industry restore never ran
+either. Renumbering to `20260503_03` so the chain is single-headed:
+
+    20260503_01_clear_flat_bg_image_urls
+        └── 20260503_02_content_status_failed_uppercase
+                └── 20260503_03_restore_industry_from_kit  (this file)
 
 The Brand Kit save endpoint used to run every value through a backend-only
 INDUSTRY_TAXONOMY ("Technology / SaaS / Finance & Fintech / ...") that
@@ -39,8 +51,8 @@ from typing import Sequence, Union
 from alembic import op
 
 
-revision: str = "20260503_02"
-down_revision: Union[str, None] = "20260503_01"
+revision: str = "20260503_03"
+down_revision: Union[str, None] = "20260503_02"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
