@@ -25,9 +25,16 @@ function hexToRgb(hex) {
   ]
 }
 
-function isLight(hex) {
+// Approximate WCAG luminance — same colour-channel weighting as the
+// existing isLight helper, normalised to 0..1 so callers can branch on
+// thresholds (e.g. background must be > 0.55 to host dark ink legibly).
+function luminance(hex) {
   const [r, g, b] = hexToRgb(hex)
-  return (r * 299 + g * 587 + b * 114) / 1000 > 160
+  return Math.max(0, Math.min(1, (r * 299 + g * 587 + b * 114) / 255000))
+}
+
+function isLight(hex) {
+  return luminance(hex) > 160 / 255
 }
 
 function alpha(hex, a) {
@@ -49,29 +56,63 @@ function lighten(hex, amt = 0.18) {
 
 // ── Resolve brand palette + roles (background / accent / neutral / ink) ───
 
+// Neutral fallback when brand_colors is empty. Slate, NOT ContentCard
+// green — green made every un-configured brand look identical to
+// ContentCard itself, masking the missing-palette bug as a "we forgot
+// to set the brand colour" issue.
+const _EMPTY_PALETTE_PRIMARY = '#1F2937'
+const _DEFAULT_INK = '#0F172A'
+
+// Background must be light enough to host dark ink legibly. If the
+// resolved background drops below this luminance we lighten the
+// brand primary instead, so we never render dark-on-dark by accident.
+const _BACKGROUND_MIN_LUMINANCE = 0.55
+
 function resolveBrandPalette(brand) {
   const colors = (brand?.brand_colors || []).filter(Boolean)
-  const primary = colors[0] || '#168C5A'
-  const secondary = colors[1] || (isLight(primary) ? '#101820' : '#F7F1E6')
+  // PRIMARY rule: brand_colors[0] always wins when present. Empty
+  // palette falls back to neutral slate so the renderer never silently
+  // adopts a foreign brand colour.
+  const primary = colors[0] || _EMPTY_PALETTE_PRIMARY
+
+  const secondary = colors[1] || (isLight(primary) ? _DEFAULT_INK : '#F7F1E6')
   const accent = colors[2] || primary
-  // Background prefers a light brand colour; accent prefers a dark one.
-  const lightCandidate = colors.find((c) => isLight(c))
-  const darkCandidate = colors.find((c) => !isLight(c))
-  const background = lightCandidate || lighten(primary, 0.55)
-  const ink = darkCandidate || '#101820'
-  // Outline colour for two-tone display type (think Jay's Diner red headline
-  // with a yellow outline). Picks the brand's third colour when present, then
-  // a non-primary non-ink colour from the palette, and finally a default
-  // warm yellow that reads against most brand primaries.
+
+  // Ink: prefer the darkest brand colour when present; default to a
+  // slate ink (not pure black — easier on the eye on flat surfaces).
+  const darkCandidate = [...colors].sort((a, b) => luminance(a) - luminance(b))[0]
+  const ink = (darkCandidate && luminance(darkCandidate) < 0.4)
+    ? darkCandidate
+    : _DEFAULT_INK
+
+  // Background: brand-light colour first, then a deterministic light
+  // derivative of the primary. Hard guard: if the chosen background
+  // ends up too dark to host dark ink, lighten the primary instead so
+  // we never paint dark-on-dark (the olive-mud bug).
+  const lightCandidate = [...colors]
+    .filter((c) => luminance(c) > _BACKGROUND_MIN_LUMINANCE)
+    .sort((a, b) => luminance(b) - luminance(a))[0]
+  let background = lightCandidate || lighten(primary, 0.55)
+  if (luminance(background) < _BACKGROUND_MIN_LUMINANCE) {
+    // Use the same lighten amount as the implicit fallback so a
+    // borderline-light brand colour and the lighten-primary path
+    // produce visually similar surfaces.
+    background = lighten(primary, 0.7)
+  }
+
+  // Outline colour for two-tone display type (Jay's red headline with
+  // yellow outline). Picks the brand's third colour, then any
+  // palette entry that isn't primary or ink, then a warm yellow that
+  // reads against most brand primaries.
   const outline = (
     colors[2]
     || colors.find((c) => c !== primary && c !== ink)
     || '#F5C242'
   )
-  // Paper / canvas colour for editorial typography posters. Distinct from
-  // `background` (which is the everyday flat brand fill); paper is always
-  // slightly warm-cream so type-led posters read like print.
+  // Paper / canvas colour for editorial typography posters. Always a
+  // warm cream so type-led posters read like print regardless of brand.
   const paper = '#F4ECDD'
+
   return {
     primary,
     secondary,
@@ -307,9 +348,13 @@ function sampleAverageLuminance(ctx, x, y, w, h) {
 // Bias toward white on dark, ink on light, with a comfortable margin
 // either side of the 50% midline so we don't flip-flop on near-neutral
 // backgrounds.
-function pickContrastingForeground(luminance, palette) {
-  const inkColour = palette?.ink || '#101820'
-  return luminance < 0.55 ? '#FFFFFF' : inkColour
+function pickContrastingForeground(luminanceValue, palette) {
+  const inkColour = palette?.ink || _DEFAULT_INK
+  // Bias more aggressively toward white on dark / mid-tone surfaces so
+  // we never paint dark ink on a colour that won't host it. Threshold
+  // moved from 0.55 → 0.62 so muddy mid-tones (the olive bug) stop
+  // returning ink — black text on dark olive was the failure mode.
+  return luminanceValue < 0.62 ? '#FFFFFF' : inkColour
 }
 
 
@@ -328,6 +373,7 @@ export {
   H,
   hexToRgb,
   isLight,
+  luminance,
   alpha,
   darken,
   lighten,
