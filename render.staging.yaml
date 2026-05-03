@@ -7,6 +7,12 @@ services:
     branch: staging
     plan: starter
     buildCommand: pip install -r requirements.txt
+    # Runs once on every deploy, against the same instance image as build,
+    # before Render flips traffic to the new release. If the upgrade fails
+    # the deploy halts and the old release keeps serving — the right
+    # behaviour, since shipping new code that depends on a missing migration
+    # is what got us into the contentstatus="FAILED" 500-loop.
+    preDeployCommand: alembic upgrade head
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: APP_ENV
