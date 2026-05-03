@@ -66,8 +66,22 @@ export default function GeneratePage() {
   const activeBrand = brands.find(b => b.id === activeBrandId)
   const showTrends = planIncludesTrendingTopics(activeWorkspace?.plan)
 
+  const brandPrimaryPlatforms = Array.isArray(activeBrand?.brand_kit?.primary_platforms)
+    ? activeBrand.brand_kit.primary_platforms.map((p) => String(p).toLowerCase())
+    : []
+  const availablePlatforms = brandPrimaryPlatforms.length
+    ? PLATFORMS.filter((p) => brandPrimaryPlatforms.includes(p.id))
+    : PLATFORMS
+  const platformChoices = availablePlatforms.length ? availablePlatforms : PLATFORMS
+
   const now = new Date()
-  const [selPlatform, setSelPlatform]   = useState('instagram')
+  const [selPlatform, setSelPlatform]   = useState(() => platformChoices[0]?.id || 'instagram')
+
+  useEffect(() => {
+    if (!platformChoices.some((p) => p.id === selPlatform)) {
+      setSelPlatform(platformChoices[0]?.id || 'instagram')
+    }
+  }, [platformChoices.map((p) => p.id).join(','), selPlatform])
   const [selMonth, setSelMonth]         = useState(now.getMonth() + 1)
   const [selYear, setSelYear]           = useState(now.getFullYear())
   const [postsPerWeek, setPostsPerWeek] = useState(3)
@@ -207,8 +221,11 @@ export default function GeneratePage() {
               <span className="w-4 h-4 rounded-full bg-mist text-ink/40 text-[9px] font-bold flex items-center justify-center">1</span>
               Platform
             </p>
-            <div className="grid grid-cols-4 gap-2">
-              {PLATFORMS.map(({ id, label }) => (
+            <div
+              className="grid gap-2"
+              style={{ gridTemplateColumns: `repeat(${Math.min(Math.max(platformChoices.length, 1), 4)}, minmax(0, 1fr))` }}
+            >
+              {platformChoices.map(({ id, label }) => (
                 <button key={id} onClick={() => setSelPlatform(id)}
                   className={`flex flex-col items-center gap-2 p-3 rounded-xl border transition-all ${
                     selPlatform === id ? 'border-ink bg-mist' : 'border-fog hover:border-ink/20'
@@ -220,6 +237,11 @@ export default function GeneratePage() {
                 </button>
               ))}
             </div>
+            {brandPrimaryPlatforms.length > 0 && availablePlatforms.length < PLATFORMS.length && (
+              <p className="text-ink/30 text-[11px] mt-2">
+                Showing platforms from your brand kit. Add more in your brand kit to expand this list.
+              </p>
+            )}
           </div>
 
           {/* Step 2: Month */}
@@ -255,7 +277,7 @@ export default function GeneratePage() {
               Posting frequency
             </p>
             <p className="text-ink/30 text-xs mb-4 ml-6">
-              How often do you post on {PLATFORMS.find(p => p.id === selPlatform)?.label}?
+              How often do you post on {(platformChoices.find(p => p.id === selPlatform) || PLATFORMS.find(p => p.id === selPlatform))?.label}?
             </p>
             <div className="flex gap-2">
               {FREQ_OPTIONS.map(({ value, label, desc }) => (
