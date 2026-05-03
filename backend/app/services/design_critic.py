@@ -562,12 +562,18 @@ _CRITIC_SYSTEM_PROMPT = """You are a senior creative director reviewing one batc
 
 Your job: identify posts that look generic, templated, or AI-slop, and the posts that look like real campaign work from a top agency.
 
-Score each post on three axes (1-5 scale, where 5 is best):
+Score each post on these axes (1-5 scale, where 5 is best):
   - distinctiveness: feels specifically art-directed for THIS brand and idea, not template-fillable
   - uniqueness_within_batch: visually different from the other posts in this batch (composition, mode, palette)
   - non_genericness: lacks AI-art tells (smiling stock people, soft gradient backgrounds, generic office scenes, vague "modern design")
 
-Reject any post where ANY axis is <=2.
+PROMO / OFFER POSTS (when content_type contains promo / offer / deal / sale / discount / bundle / launch / promotional)
+score these THREE EXTRA axes — they DO NOT apply to non-promo posts:
+  - offer_clarity: a concrete offer mechanic (price, % off, bundle, time window) is visible in the headline / support / CTA — not buried in a hashtag. Score 1 if missing, 5 if it leads the visual.
+  - cta_strength: the CTA names a specific action tied to the offer ("Grab the combo", "Claim 20% off"). Generic verbs alone ("Order now", "Shop now", "Learn more", "Buy now") score 1.
+  - headline_specificity: the on-image headline is 3-5 punchy words, leads with benefit or offer, contains no brand name, no filler adjectives ("order-worthy", "must-try", "amazing"). A long verbose calendar-style headline ("July order-worthy offer from Juicy junction") scores 1.
+
+Reject any post where ANY axis (including the promo axes when applicable) is <=2.
 
 Return STRICT JSON only, no prose, no markdown:
 {
@@ -577,6 +583,9 @@ Return STRICT JSON only, no prose, no markdown:
       "distinctiveness": <1-5>,
       "uniqueness_within_batch": <1-5>,
       "non_genericness": <1-5>,
+      "offer_clarity": <1-5 or null when not a promo>,
+      "cta_strength": <1-5 or null when not a promo>,
+      "headline_specificity": <1-5 or null when not a promo>,
       "reject": <true|false>,
       "reasons": ["short reason", ...],
       "fix_directive": "one sentence specifying what to change to make it agency-grade"
@@ -595,23 +604,34 @@ class CriticVerdict:
     reject: bool
     reasons: list[str] = field(default_factory=list)
     fix_directive: str = ""
+    offer_clarity: int | None = None
+    cta_strength: int | None = None
+    headline_specificity: int | None = None
 
     @property
     def score(self) -> float:
-        return (self.distinctiveness + self.uniqueness + self.non_genericness) / 3.0
+        axes: list[int] = [self.distinctiveness, self.uniqueness, self.non_genericness]
+        for extra in (self.offer_clarity, self.cta_strength, self.headline_specificity):
+            if isinstance(extra, int):
+                axes.append(extra)
+        return sum(axes) / len(axes)
 
 
 def _post_summary_for_critic(post: dict, idx: int) -> str:
     """Compact, model-friendly summary; keeps the critic call cheap."""
+    ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
     return (
         f"#{idx} | content_type={post.get('content_type','?')} | "
+        f"content_type_slot={post.get('content_type_slot','?')} | "
         f"design_mode={post.get('design_mode','?')} | "
         f"format={post.get('format','?')}\n"
         f"  content_idea: {str(post.get('content_idea',''))[:120]}\n"
         f"  caption_lead: {str(post.get('caption',''))[:160]}\n"
         f"  visual_direction: {str(post.get('visual_direction',''))[:600]}\n"
         f"  image_prompt: {str(post.get('image_prompt',''))[:400]}\n"
-        f"  message_architecture.hook: {str((post.get('message_architecture') or {}).get('hook',''))[:80]}"
+        f"  message_architecture.hook: {str(ma.get('hook',''))[:80]}\n"
+        f"  message_architecture.support: {str(ma.get('support',''))[:120]}\n"
+        f"  cta: {str(post.get('cta',''))[:80]}"
     )
 
 
@@ -714,6 +734,14 @@ def _parse_critic_response(raw: str) -> list[CriticVerdict]:
     for r in rows:
         if not isinstance(r, dict):
             continue
+        def _opt_axis(key: str) -> int | None:
+            raw_val = r.get(key)
+            if raw_val is None or raw_val == "":
+                return None
+            try:
+                return int(raw_val)
+            except (TypeError, ValueError):
+                return None
         try:
             out.append(
                 CriticVerdict(
@@ -724,6 +752,9 @@ def _parse_critic_response(raw: str) -> list[CriticVerdict]:
                     reject=bool(r.get("reject", False)),
                     reasons=[str(x) for x in (r.get("reasons") or []) if x],
                     fix_directive=str(r.get("fix_directive") or "").strip(),
+                    offer_clarity=_opt_axis("offer_clarity"),
+                    cta_strength=_opt_axis("cta_strength"),
+                    headline_specificity=_opt_axis("headline_specificity"),
                 )
             )
         except (TypeError, ValueError):

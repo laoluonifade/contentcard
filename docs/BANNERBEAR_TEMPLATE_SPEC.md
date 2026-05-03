@@ -238,28 +238,45 @@ Use this as the execution playbook. Run all steps for each family in order.
 
 Goal: strong campaign conversion tile.
 
+- [ ] **Headline (HARD)**
+  - 3-5 words MAX. Punchy.
+  - Leads with benefit / offer mechanic (price, discount %, bundle, time window).
+  - NEVER contains the brand name.
+  - NEVER uses filler adjectives ("order-worthy", "must-try", "amazing", "world-class").
+  - Examples that PASS: "20% off today only", "July combo deal", "Buy 1 get 1", "₦5,000 lunch bundle".
+  - Examples that FAIL: "July order-worthy offer from Juicy junction", "Amazing offer this month".
+- [ ] **Offer requirement (HARD)**
+  - Post MUST include a concrete offer mechanic — price, discount, bundle, or time window — visible in the headline / support / CTA.
+  - Posts missing this signal are auto-rejected and routed back to the QA polish pass for rewrite.
+- [ ] **Mandatory four-zone layout**
+  - HOOK ZONE — top band on a contrast surface (gradient / blur / solid card). Never directly on busy pixels.
+  - PRODUCT ZONE — single hero product centred, 8-10% safe margin.
+  - OFFER ZONE — distinct offer badge / chip carrying the price-or-discount, separate from headline.
+  - CTA ZONE — filled pill button at bottom, action verb tied to the offer.
+  - Reading order in 2 seconds: HOOK → PRODUCT → OFFER → CTA.
+- [ ] **Text overlay rules (HARD)**
+  - Every text block sits on (a) a gradient overlay, (b) a blur panel, or (c) a solid card.
+  - White text directly on a busy mid-tone food photo without a panel is a render fail.
+  - Contrast ratio >= 4.5 verified at 25% zoom.
+- [ ] **Component system**
+  - CTA button (filled pill, brand accent, 1 line, never wraps).
+  - Offer badge / chip (offer mechanic, separate from headline).
+  - Headline block (display-scale sans-serif on contrast surface).
+  - Optional subtext block (smaller weight, below headline, same surface).
+  - Logo lockup space (left clean for post-production composite).
 - [ ] **Badge**
-  - Upper-left.
-  - Height 52-64px.
-  - Radius 16-20px.
+  - Upper-left or floating near product.
+  - Height 52-64px. Radius 16-20px.
   - Contrast ratio >= 4.5 with text.
-- [ ] **Headline**
-  - Left aligned, upper-mid.
-  - 2-3 lines max.
-  - Character count target: 18-45.
-- [ ] **Subhead**
-  - One block beneath headline.
-  - 1-2 lines target.
-- [ ] **CTA block**
-  - Bottom-left.
-  - Width 280-420px.
-  - Radius 20-28px.
-  - CTA text never wraps.
+- [ ] **CTA**
+  - Names a specific action tied to the offer ("Grab the combo", "Claim 20% off").
+  - NEVER weak generics ("Order now", "Shop now", "Learn more", "Buy now", "Click here").
 - [ ] **Overlay intensity**
   - 24-40% dark overlay behind text zone.
 - [ ] **Pass criteria**
   - Headline readable at 25% zoom.
   - CTA instantly visible within 1 second glance.
+  - Reading flow obvious without effort.
 
 ## Education Family Checklist (`BANNERBEAR_TEMPLATE_EDU`)
 
