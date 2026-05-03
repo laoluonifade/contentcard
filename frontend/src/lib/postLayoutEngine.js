@@ -232,12 +232,23 @@ async function renderSplit(ctx, ds, post, brand, components, imageUrl) {
 //   [BOTTOM-LEFT] CTA button
 
 async function renderOfferCard(ctx, ds, post, brand, components, imageUrl) {
-  // Offer cards prefer a bold flat colour. We CAN draw the AI background
-  // first, but veil it with the accent colour at high opacity so the bold
-  // colour-block dominates.
+  // Draw the AI background, then tint it with the brand-primary at a level
+  // that keeps the photo recognisable but still pulls the design toward
+  // the brand colour. When no AI image is available, the tint reads as a
+  // near-solid brand-colour fill (drawBackground already painted the
+  // brand background).
   await drawBackground(ctx, ds, imageUrl)
-  ctx.fillStyle = alpha(ds.palette.primary, 0.92)
+  ctx.fillStyle = alpha(ds.palette.primary, imageUrl ? 0.55 : 0.92)
   ctx.fillRect(0, 0, W, H)
+  // Soft bottom gradient so headline / subhead / CTA stay readable against
+  // any photo content underneath.
+  if (imageUrl) {
+    const grad = ctx.createLinearGradient(0, H * 0.35, 0, H)
+    grad.addColorStop(0, 'rgba(0, 0, 0, 0)')
+    grad.addColorStop(1, 'rgba(0, 0, 0, 0.35)')
+    ctx.fillStyle = grad
+    ctx.fillRect(0, 0, W, H)
+  }
 
   // Brand wordmark in inverse-readable colour
   const inkColour = isLight(ds.palette.primary) ? ds.palette.ink : '#FFFFFF'
