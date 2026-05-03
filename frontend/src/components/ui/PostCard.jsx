@@ -106,7 +106,7 @@ async function downloadCanvas(canvas, filename) {
 
 // ── PostCard component ─────────────────────────────────────────────────────
 
-const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIndex = 0, className = '' }, ref) {
+const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIndex = 0, className = '', fluid = false }, ref) {
   const canvasRef = useRef(null)
   const [imgError, setImgError] = useState(false)
   const [rendering, setRendering] = useState(false)
@@ -186,7 +186,11 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
   return (
     <div
       className={`relative overflow-hidden ${className}`}
-      style={{ width: size, height: size, borderRadius: 12, backgroundColor: '#0a0a0a' }}
+      style={
+        fluid
+          ? { width: '100%', height: '100%', borderRadius: 12, backgroundColor: '#0a0a0a' }
+          : { width: size, height: size, borderRadius: 12, backgroundColor: '#0a0a0a' }
+      }
     >
       {useStructured && (
         <canvas
