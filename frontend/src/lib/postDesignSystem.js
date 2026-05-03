@@ -59,6 +59,19 @@ function resolveBrandPalette(brand) {
   const darkCandidate = colors.find((c) => !isLight(c))
   const background = lightCandidate || lighten(primary, 0.55)
   const ink = darkCandidate || '#101820'
+  // Outline colour for two-tone display type (think Jay's Diner red headline
+  // with a yellow outline). Picks the brand's third colour when present, then
+  // a non-primary non-ink colour from the palette, and finally a default
+  // warm yellow that reads against most brand primaries.
+  const outline = (
+    colors[2]
+    || colors.find((c) => c !== primary && c !== ink)
+    || '#F5C242'
+  )
+  // Paper / canvas colour for editorial typography posters. Distinct from
+  // `background` (which is the everyday flat brand fill); paper is always
+  // slightly warm-cream so type-led posters read like print.
+  const paper = '#F4ECDD'
   return {
     primary,
     secondary,
@@ -66,7 +79,53 @@ function resolveBrandPalette(brand) {
     background,
     ink,
     neutral: '#F4F4F5',
+    outline,
+    paper,
   }
+}
+
+// ── Texture + garnish ─────────────────────────────────────────────────────
+//
+// Texture treatments mirror what print-era brands like Jay's lean on: a
+// soft paper grain on cream backgrounds, a subtle noise on flat brand
+// colour. The drawer (drawPaperTexture in postDrawUtils) consults these
+// tokens to decide whether to paint anything at all.
+//
+// Garnish picks an illustration pack (basil + onion for food, bolts for
+// tech, etc.) so a `IllustratedGarnish` component can ship sensible
+// defaults without the strategist having to spell out a specific asset.
+
+const TEXTURE_KINDS = ['none', 'paper', 'noise']
+const GARNISH_SETS = ['none', 'food', 'tech', 'fashion', 'service']
+const HEADLINE_STYLES = ['clean', 'outlined', 'stacked']
+
+function resolveTextureKind(brand, post) {
+  const explicit = String(post?.theme?.cc_meta?.texture || '').toLowerCase()
+  if (TEXTURE_KINDS.includes(explicit)) return explicit
+  const brandPref = String(brand?.brand_kit?.texture || '').toLowerCase()
+  if (TEXTURE_KINDS.includes(brandPref)) return brandPref
+  return 'none'
+}
+
+function resolveGarnishSet(brand) {
+  const explicit = String(brand?.brand_kit?.garnish_set || '').toLowerCase()
+  if (GARNISH_SETS.includes(explicit)) return explicit
+  // Auto-pick from industry so a brand never has to configure this manually
+  // for the obvious case. Anything we don't recognise reads as 'none'.
+  const industry = String(brand?.industry || '').toLowerCase()
+  if (/(food|restaurant|cafe|kitchen|meal|delivery|beverage|hospitality|dining)/.test(industry)) return 'food'
+  if (/(saas|software|tech|platform|app|fintech|workflow|ai)/.test(industry)) return 'tech'
+  if (/(fashion|apparel|clothing|retail|beauty|cosmetic)/.test(industry)) return 'fashion'
+  if (/(agency|consult|legal|professional|service|b2b)/.test(industry)) return 'service'
+  return 'none'
+}
+
+function resolveHeadlineStyle(brand, post) {
+  const explicit = String(post?.theme?.cc_meta?.headline_style || '').toLowerCase()
+  if (HEADLINE_STYLES.includes(explicit)) return explicit
+  const brandPref = String(brand?.brand_kit?.headline_style || '').toLowerCase()
+  if (HEADLINE_STYLES.includes(brandPref)) return brandPref
+  return 'clean'
 }
 
 // ── Token resolver ────────────────────────────────────────────────────────
@@ -89,6 +148,9 @@ function resolveDesignTokens(brand, post) {
     fontFamily,
     palette,
     tone,
+    texture: { kind: resolveTextureKind(brand, post), opacity: 0.07, scale: 1 },
+    garnish: { set: resolveGarnishSet(brand) },
+    headline_style: resolveHeadlineStyle(brand, post),
     spacing: {
       unit: 8,
       pad: 64,         // safe edge margin (~6%)
@@ -271,6 +333,12 @@ export {
   lighten,
   resolveBrandPalette,
   resolveDesignTokens,
+  resolveTextureKind,
+  resolveGarnishSet,
+  resolveHeadlineStyle,
+  TEXTURE_KINDS,
+  GARNISH_SETS,
+  HEADLINE_STYLES,
   setFont,
   rrect,
   wrapText,
