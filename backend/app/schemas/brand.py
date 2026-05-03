@@ -58,6 +58,17 @@ class BrandUpdate(BaseModel):
     brand_kit: dict | None = None
 
 
+class BrandProductOut(BaseModel):
+    """Lean product card surfaced on BrandOut so the frontend layout
+    engine can composite a cutout straight onto a flat brand-coloured
+    poster. Heavier metadata (price, tags, change events) stays on the
+    dedicated /website/products endpoint."""
+    id: str
+    name: str
+    image_url: str | None = None
+    cutout_url: str | None = None
+
+
 class BrandOut(BaseModel):
     id: str
     workspace_id: str
@@ -87,6 +98,8 @@ class BrandOut(BaseModel):
     twitter_handle: str | None
     linkedin_handle: str | None
     brand_kit: dict | None
+    brand_photos: list = []
+    products: list[BrandProductOut] = []
     openai_assistant_id: str | None
     openai_vector_store_id: str | None
     created_at: datetime

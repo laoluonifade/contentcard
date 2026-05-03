@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str = ""
     # When True, logo upload also requests Cloudinary AI background removal (paid add-on). Local edge-based stripping always runs first.
     CLOUDINARY_LOGO_AI_BG_REMOVAL: bool = False
+    # When True, product photos get the same Cloudinary AI background-removal
+    # treatment so the layout engine can composite a clean cutout onto flat
+    # brand-coloured posters. Falls back to REMOVE_BG_API_KEY when Cloudinary
+    # bg removal is unavailable.
+    CLOUDINARY_PRODUCT_AI_BG_REMOVAL: bool = True
+    # Optional remove.bg fallback. Only used when Cloudinary bg removal isn't
+    # configured / fails. Free tier is 50 images/month.
+    REMOVE_BG_API_KEY: str = ""
 
     # Bannerbear was removed entirely — the AI generates the full visual
     # (background + headline + CTA + layout) and Cloudinary stamps the real

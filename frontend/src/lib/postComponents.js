@@ -66,8 +66,12 @@ async function drawProductImage(ctx, ds, _content, bounds, brand) {
 
 function pickProductUrl(brand) {
   if (!brand) return null
-  // Try brand.products[0].image_url, then brand_photos[0].
+  // Prefer the bg-removed cutout when the backend cutout pipeline has
+  // produced one — the layout engine composites onto flat brand colour
+  // and a raw product photo's own background reads as a pasted square.
+  // Fall back to the original product image, then user-uploaded brand photos.
   const products = Array.isArray(brand.products) ? brand.products : []
+  if (products[0]?.cutout_url) return products[0].cutout_url
   if (products[0]?.image_url) return products[0].image_url
   const photos = Array.isArray(brand.brand_photos) ? brand.brand_photos : []
   if (photos[0]) return photos[0]

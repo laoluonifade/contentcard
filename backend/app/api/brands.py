@@ -54,8 +54,99 @@ import cloudinary
 import cloudinary.uploader
 from app.core.config import settings
 from app.services.image_service import logo_bytes_to_storage_png
+from app.schemas.brand import BrandProductOut
+from app.services.cutout_service import generate_product_cutout
 
 logger = logging.getLogger(__name__)
+
+
+# ── Brand product cutout pipeline ────────────────────────────────────────
+# Surfaces brand products (with their AI-cutout URLs) on every BrandOut so
+# the frontend layout engine can composite a clean product image onto flat
+# brand-coloured posters. Cutouts are cached per source URL on the
+# WebsiteEntity row and regenerated lazily on brand fetch.
+
+# How many product cards we hand to the frontend layout engine. We keep
+# this small because every product walks the cutout pipeline on first
+# fetch.
+_BRAND_PRODUCT_LIMIT = 6
+
+
+def _select_product_image_url(attrs: dict) -> str | None:
+    images = attrs.get("images") if isinstance(attrs.get("images"), list) else []
+    return next((str(x).strip() for x in images if str(x or "").strip()), None)
+
+
+async def _populate_product_cutout(brand_id: str, entity_id: str) -> None:
+    """Background task: download the product image, run it through the
+    bg-removal pipeline, and persist the cutout URL onto the entity row.
+
+    Idempotent: bails out if the row already has a cutout_url or if a
+    previous attempt failed."""
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (
+                await db.execute(select(WebsiteEntity).where(WebsiteEntity.id == entity_id))
+            ).scalar_one_or_none()
+            if not row or row.brand_id != brand_id:
+                return
+            attrs = dict(row.attributes or {})
+            if attrs.get("cutout_url") or attrs.get("cutout_failed"):
+                return
+            source = _select_product_image_url(attrs)
+            if not source:
+                return
+            cutout = await generate_product_cutout(source)
+            if cutout:
+                attrs["cutout_url"] = cutout
+                attrs["cutout_source_url"] = source
+            else:
+                attrs["cutout_failed"] = True
+            row.attributes = attrs
+            await db.commit()
+    except Exception as e:
+        logger.warning("product cutout task failed for entity %s: %s", entity_id, e)
+
+
+async def _serialize_brand(
+    brand: Brand, db: AsyncSession, *, background_tasks: BackgroundTasks | None = None
+) -> BrandOut:
+    """Build a BrandOut with the brand's product cards inlined. Triggers
+    lazy cutout generation for any product that doesn't have one yet."""
+    products: list[BrandProductOut] = []
+    rows = (
+        await db.execute(
+            select(WebsiteEntity)
+            .where(
+                WebsiteEntity.brand_id == brand.id,
+                WebsiteEntity.entity_type == "product",
+                WebsiteEntity.is_active.is_(True),
+            )
+            .order_by(WebsiteEntity.last_seen_at.desc())
+            .limit(_BRAND_PRODUCT_LIMIT)
+        )
+    ).scalars().all()
+    for row in rows:
+        attrs = row.attributes if isinstance(row.attributes, dict) else {}
+        image_url = _select_product_image_url(attrs)
+        cutout_url = attrs.get("cutout_url") if isinstance(attrs.get("cutout_url"), str) else None
+        # Source mismatch (the user replaced the product photo) → re-run.
+        if cutout_url and attrs.get("cutout_source_url") and attrs.get("cutout_source_url") != image_url:
+            cutout_url = None
+        if image_url and not cutout_url and not attrs.get("cutout_failed") and background_tasks is not None:
+            background_tasks.add_task(_populate_product_cutout, brand.id, row.id)
+        products.append(
+            BrandProductOut(
+                id=row.id,
+                name=row.title or "",
+                image_url=image_url,
+                cutout_url=cutout_url,
+            )
+        )
+    out = BrandOut.model_validate(brand)
+    out.products = products
+    out.brand_photos = list(brand.brand_photos or [])
+    return out
 
 cloudinary.config(
     cloud_name=settings.CLOUDINARY_CLOUD_NAME,
@@ -365,6 +456,7 @@ async def _check_member(workspace_id: str, user_id: str, db: AsyncSession) -> Wo
 @router.get("", response_model=list[BrandOut])
 async def list_brands(
     workspace_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -374,7 +466,8 @@ async def list_brands(
         .where(Brand.workspace_id == workspace_id)
         .order_by(desc(Brand.updated_at), desc(Brand.created_at))
     )
-    return [BrandOut.model_validate(b) for b in result.scalars().all()]
+    brands = result.scalars().all()
+    return [await _serialize_brand(b, db, background_tasks=background_tasks) for b in brands]
 
 
 @router.post("", response_model=BrandOut, status_code=201)
@@ -399,12 +492,13 @@ async def create_brand(
     await db.refresh(brand)
     background_tasks.add_task(_sync_brand_assistant, brand.id)
     background_tasks.add_task(_bootstrap_brand_templates, brand.id, current_user.country_code)
-    return BrandOut.model_validate(brand)
+    return await _serialize_brand(brand, db, background_tasks=background_tasks)
 
 
 @router.get("/{brand_id}", response_model=BrandOut)
 async def get_brand(
     workspace_id: str, brand_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -413,7 +507,7 @@ async def get_brand(
     brand = r.scalar_one_or_none()
     if not brand:
         raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
-    return BrandOut.model_validate(brand)
+    return await _serialize_brand(brand, db, background_tasks=background_tasks)
 
 
 def _deep_merge_dict(base: dict, patch: dict) -> dict:
@@ -459,7 +553,7 @@ async def update_brand(
     await db.commit()
     await db.refresh(brand)
     background_tasks.add_task(_sync_brand_assistant, brand.id)
-    return BrandOut.model_validate(brand)
+    return await _serialize_brand(brand, db, background_tasks=background_tasks)
 
 
 @router.delete("/{brand_id}", status_code=204)
