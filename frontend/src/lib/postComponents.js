@@ -11,6 +11,7 @@ import {
   alpha,
   darken,
   isLight,
+  luminance,
   drawWrapped,
   loadImage,
   pickContrastingForeground,
@@ -281,9 +282,10 @@ function drawSubHead(ctx, ds, content, bounds, opts = {}) {
   const text = String(content || '').trim()
   if (!text) return
 
-  const minFontSize = Math.max(18, ds.subhead.fontSize * 0.6)
+  const minFontSize = Math.max(18, ds.subhead.fontSize * 0.75)
   let fontSize = ds.subhead.fontSize
   let lines = []
+  let fits = false
   for (let i = 0; i < 10; i++) {
     ctx.font = `${ds.subhead.weight} ${fontSize}px ${ds.fontFamily}`
     lines = wrapText(ctx, text, bounds.w).slice(0, ds.subhead.maxLines)
@@ -292,13 +294,19 @@ function drawSubHead(ctx, ds, content, bounds, opts = {}) {
       0,
     )
     const totalHeight = lines.length * fontSize * ds.subhead.lineHeight
-    if (totalHeight <= bounds.h && widest <= bounds.w) break
-    if (fontSize <= minFontSize) {
-      lines = lines.map((l) => ellipsise(ctx, l, bounds.w))
+    if (totalHeight <= bounds.h && widest <= bounds.w) {
+      fits = true
       break
     }
+    if (fontSize <= minFontSize) break
     fontSize = Math.max(fontSize * 0.9, minFontSize)
   }
+  // If the copy STILL doesn't fit at the floor font size, drop the
+  // subhead entirely. Ellipsising mid-word ("…door…") reads as lazy /
+  // broken — better to omit a too-long subhead than to show one that
+  // visibly truncates. Caller can shorten the support line and
+  // regenerate.
+  if (!fits) return
 
   const autoContrast = opts.autoContrast !== false && !opts.colour
   let chosenColour = opts.colour || ds.palette.ink
@@ -400,8 +408,14 @@ function drawCTAButton(ctx, ds, content, bounds, opts = {}) {
   const text = String(content || '').trim() || 'Shop Now'
   const padX = ds.cta.paddingX
   const padY = ds.cta.paddingY
+  // Default bg / fg chain:
+  //   bg = explicit opts.bg → brand primary
+  //   fg = explicit opts.fg → inverse of bg (white on dark, ink on light)
+  // The inverse pick uses pickContrastingForeground so the threshold
+  // matches what Headline uses — keeps CTA + headline contrast
+  // decisions consistent.
   const bg = opts.bg || ds.palette.primary
-  const fg = opts.fg || (isLight(bg) ? ds.palette.ink : '#FFFFFF')
+  const fg = opts.fg || pickContrastingForeground(luminance(bg), ds.palette)
   ctx.save()
   ctx.font = `${ds.cta.weight} ${ds.cta.fontSize}px ${ds.fontFamily}`
   const textW = ctx.measureText(text).width
@@ -411,9 +425,17 @@ function drawCTAButton(ctx, ds, content, bounds, opts = {}) {
             opts.align === 'center' ? bounds.x + (bounds.w - w) / 2 :
                                       bounds.x
   const y = bounds.y
+  // Soft drop shadow lifts the pill off any background so it stops
+  // disappearing into a same-hue photo (the orange-on-orange bug).
   ctx.fillStyle = bg
+  ctx.shadowColor = 'rgba(0, 0, 0, 0.2)'
+  ctx.shadowBlur = 14
+  ctx.shadowOffsetY = 4
   rrect(ctx, x, y, w, h, ds.cta.radius)
   ctx.fill()
+  ctx.shadowColor = 'transparent'
+  ctx.shadowBlur = 0
+  ctx.shadowOffsetY = 0
   ctx.fillStyle = fg
   ctx.textBaseline = 'middle'
   ctx.fillText(text, x + padX, y + h / 2 + 1)
@@ -556,8 +578,13 @@ function drawBrandLogo(ctx, ds, brand, bounds) {
 //   weight:         font weight; default 900 (heavy display).
 
 function drawOutlineHeadline(ctx, ds, content, bounds, opts = {}) {
-  const text = String(content || '').trim()
-  if (!text) return
+  // Posters live on ALL CAPS power words. Sentence-cased copy on a
+  // poster reads as a stock-image overlay, not a designed piece. Force
+  // uppercase by default; a brand can opt out with `opts.respectCase`
+  // when their voice genuinely calls for sentence case.
+  const raw = String(content || '').trim()
+  if (!raw) return
+  const text = opts.respectCase ? raw : raw.toUpperCase()
 
   const align = opts.align || 'center'
   const fillColour = opts.fillColour || ds.palette.primary
@@ -596,6 +623,33 @@ function drawOutlineHeadline(ctx, ds, content, bounds, opts = {}) {
   let x = bounds.x + bounds.w / 2
   if (align === 'left') x = bounds.x
   else if (align === 'right') x = bounds.x + bounds.w
+
+  // Optional scrim plate behind the headline. Layouts that drop the
+  // OutlineHeadline over a busy AI photo can pass `opts.scrim: true`
+  // (or `'auto'`) to lay a soft semi-transparent panel between the
+  // photo and the lettering. The outline + shadow normally carry
+  // legibility on flat surfaces, so default off — opt-in only.
+  if (opts.scrim) {
+    const scrimAlpha = typeof opts.scrim === 'number' ? opts.scrim : 0.32
+    const scrimColour = opts.scrimColour || `rgba(0, 0, 0, ${scrimAlpha})`
+    const padX = Math.max(24, size * 0.12)
+    const padY = Math.max(20, size * 0.18)
+    const plateY = bounds.y + (bounds.h - totalHeight) / 2 - padY * 0.4
+    ctx.save()
+    ctx.fillStyle = scrimColour
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.18)'
+    ctx.shadowBlur = 18
+    rrect(
+      ctx,
+      bounds.x + padX,
+      plateY,
+      bounds.w - padX * 2,
+      totalHeight + padY * 1.2,
+      Math.min(28, padY),
+    )
+    ctx.fill()
+    ctx.restore()
+  }
 
   for (const line of lines) {
     drawOutlinedText(ctx, line, {

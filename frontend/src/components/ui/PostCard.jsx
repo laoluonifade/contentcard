@@ -124,10 +124,10 @@ const PostCard = forwardRef(function PostCard({ post, brand, size = 400, slideIn
     const canvas = canvasRef.current
     if (!canvas) return
     setRendering(true)
-    renderPostToCanvas(canvas, post, brand, imageUrl)
+    renderPostToCanvas(canvas, post, brand, imageUrl, slideIndex)
       .catch(() => { /* fall through to <img> via imgError */ })
       .finally(() => setRendering(false))
-  }, [useStructured, post, brand, imageUrl])
+  }, [useStructured, post, brand, imageUrl, slideIndex])
 
   useImperativeHandle(ref, () => ({
     async download(filename) {

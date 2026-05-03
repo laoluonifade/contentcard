@@ -2213,6 +2213,42 @@ async def _generate_carousel_frames(
     return urls
 
 
+# ── Layout / background-mode compatibility ───────────────────────────────
+#
+# Some Phase-B layouts only make sense over a particular background mode.
+# The strategist + bg-mode dispatcher need to agree, or we end up with
+# illegal pairs like `lifestyle_clean` over a flat colour block (which
+# would render as just brand colour with a tiny corner mark) or
+# `meme_ui_screenshot` over an AI photo (the chat card fights the
+# photo). PR B1 wires this helper into the strategist post-processing
+# so invalid pairs get re-routed to a safe fallback before they reach
+# the renderer.
+_LAYOUT_BG_MODE_REQUIREMENTS: dict[str, set[str]] = {
+    # Layouts that only work with a real photographic background.
+    "lifestyle_clean": {"product_hero", "ai_scene"},
+    "lifestyle_overlay": {"product_hero", "ai_scene"},
+    # Layouts that prefer a flat colour surface (paper / brand fill).
+    "meme_ui_screenshot": {"color_block", "gradient_panel"},
+    # All other layouts work in either mode — leave unconstrained.
+}
+
+
+def layout_compatible_with_bg_mode(layout: str | None, bg_mode: str | None) -> bool:
+    """True when the requested layout / bg-mode combination is legal.
+
+    Layouts not in the requirements table are treated as universal.
+    A null bg_mode defers the call to the dispatcher (returns True so
+    the strategist can pick the layout before the mode is decided)."""
+    if not layout:
+        return True
+    requirements = _LAYOUT_BG_MODE_REQUIREMENTS.get(str(layout).lower())
+    if not requirements:
+        return True
+    if not bg_mode:
+        return True
+    return str(bg_mode).lower() in requirements
+
+
 def _select_background_mode(post: dict, post_index: int, has_product: bool) -> str:
     """Pick a background mode for this post so the calendar isn't seven
     near-identical product hero shots.
