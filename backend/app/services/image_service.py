@@ -98,9 +98,156 @@ PLATFORM_FORMAT = {
     "linkedin": "LinkedIn post image, landscape or square",
 }
 
+
+# ── Promo content_type detection + layout system ─────────────────────────────
+#
+# A promo / offer post is treated as a CONVERSION VISUAL, not a decorated
+# product photo. The renderer is given a mandatory four-zone layout system
+# (hook / product / offer / CTA) plus component spec (badge, headline block,
+# subtext, CTA button, logo lockup) plus text-overlay rules so the headline
+# never sits directly on busy image pixels.
+
+_PROMO_CONTENT_KEYS_IMG: tuple[str, ...] = (
+    "promo", "promotional", "promotion", "offer", "deal", "sale",
+    "discount", "bundle", "upsell", "launch", "cta", "campaign",
+    "limited_time", "limited time", "flash sale", "happy hour",
+    "happy_hour",
+)
+
+
+def _is_promo_post_for_render(post: dict) -> bool:
+    """True when this post should render via the promo layout system."""
+    if not isinstance(post, dict):
+        return False
+    blob = " ".join(
+        str(post.get(k) or "").lower()
+        for k in ("content_type_slot", "content_type", "content_type_label")
+    )
+    return any(key in blob for key in _PROMO_CONTENT_KEYS_IMG)
+
+
+def _promo_layout_directive(
+    *,
+    hook: str,
+    support: str,
+    cta_text: str,
+    badge_text: str,
+    logo_safe_zone: str,
+) -> str:
+    """Mandatory four-zone layout + component + overlay rules for promo posts.
+
+    Replaces freeform "text floating over a hero photo" with a real conversion
+    poster spec the AI image renderer can follow without inventing layout.
+    """
+    safe_zone = (logo_safe_zone or "lower_right").replace("-", "_")
+    # Map logo corner to the opposite hook corner so they never collide.
+    hook_corner = {
+        "lower_right": "upper-left",
+        "lower_left": "upper-right",
+        "upper_right": "lower-left",
+        "upper_left": "lower-right",
+    }.get(safe_zone, "upper-left")
+    parts: list[str] = [
+        "PROMO LAYOUT SYSTEM (MANDATORY — this is a conversion visual, not a decorated photo).",
+        "Stage the canvas in FOUR clearly defined zones — no freeform placement, no text floating in random space:",
+        f"  1. HOOK ZONE ({hook_corner} band, ~25% canvas height): the headline sits here, on a contrast surface "
+        "(gradient overlay 60-80% opacity, blur panel, or solid colour card). Headline must be 3-5 words, "
+        "set in a bold geometric sans-serif at display scale, with at least 4.5:1 contrast against its surface.",
+        "  2. PRODUCT ZONE (centre, ~45% canvas height): the hero product / packshot / dish lives here as the "
+        "single focal subject. Crop confidently, keep it inside an 8-10% safe margin, do not let text overlap it.",
+        "  3. OFFER ZONE (top-opposite-corner OR floating chip near the product): a distinct OFFER BADGE — "
+        "a pill or chip carrying the offer mechanic (price, discount %, bundle size, time window). This badge "
+        "is a component, not body copy. Bright accent colour, rounded corners 16-24px, high-contrast text.",
+        f"  4. CTA ZONE (bottom band, ~15% canvas height): a real CTA button — solid filled pill or rectangle, "
+        "rounded 20-28px, brand accent colour, single line of text, never a weak generic phrase. The CTA must "
+        f"feel actionable and tied to the offer. Logo lockup goes in the {safe_zone.replace('_', '-')} corner.",
+        "",
+        "TEXT OVERLAY RULES (MANDATORY): never paint text directly on busy image pixels. Every text block "
+        "must sit on (a) a gradient overlay, (b) a blur panel, OR (c) a solid card. Verify contrast is "
+        "instantly readable at 25% zoom. White text on a busy mid-tone food photo without a panel is a render fail.",
+        "",
+        "COMPONENT SYSTEM (REQUIRED elements — design these as real components, not painted-on suggestions):",
+        "  • CTA button (filled pill, brand accent, 1 line)",
+        "  • Offer badge / chip (offer mechanic, separate from the headline)",
+        "  • Headline block (display-scale sans-serif on contrast surface)",
+        "  • Optional subtext block (smaller weight, below headline, same surface)",
+        "  • Logo lockup space (left clean for post-production composite)",
+        "",
+        "CONTENT-TYPE → LAYOUT MAP: this post's content_type is offer / promo, so the design language is "
+        "PROMO CARD / COMBO LAYOUT — bold conversion poster — NOT a generic portrait story or moody food photo.",
+    ]
+    if hook:
+        h = hook.replace('"', "'")
+        parts.append(f'Headline copy for hook zone (render VERBATIM, 3-5 words): "{h[:60]}".')
+    if support:
+        s = support.replace('"', "'")
+        parts.append(f'Optional subtext for hook zone (smaller weight, render VERBATIM): "{s[:120]}".')
+    if badge_text:
+        b = badge_text.replace('"', "'")
+        parts.append(
+            f'Offer badge text (render VERBATIM inside a coloured pill in the offer zone): "{b[:32]}". '
+            "The badge must be visually distinct from the headline — different colour, smaller size, pill shape."
+        )
+    if cta_text:
+        c = cta_text.replace('"', "'")
+        parts.append(
+            f'CTA button text (render VERBATIM inside a filled rounded button at the bottom): "{c[:48]}". '
+            "Must reference the offer, not a weak generic phrase."
+        )
+    parts.append(
+        "Reading order in 2 seconds: HOOK → PRODUCT → OFFER → CTA. If the eye cannot travel that path "
+        "without effort, the layout has failed."
+    )
+    return " ".join(parts)
+
+
+def _derive_promo_badge_text(post: dict, brand: dict | None) -> str:
+    """Pull a short offer-badge string from message_architecture / caption.
+
+    Looks for explicit offer mechanics (price, %, bundle, time window) and
+    returns a short pill-ready string. Falls back to "" when no signal —
+    callers should still render the badge component but with neutral copy.
+    """
+    ma = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+    candidates: list[str] = []
+    for key in ("badge", "offer_badge"):
+        v = str(ma.get(key) or "").strip()
+        if v:
+            candidates.append(v)
+    haystack_parts = [
+        str(ma.get("hook") or ""),
+        str(ma.get("support") or ""),
+        str(ma.get("evidence") or ""),
+        str(post.get("description") or ""),
+        str(post.get("caption") or ""),
+    ]
+    haystack = " ".join(haystack_parts)
+    patterns = (
+        r"\b\d{1,3}\s?%\s?(?:off|discount|save)\b",
+        r"\bsave\s+(?:up\s+to\s+)?\d[\d,\.]*\s?%?",
+        r"\b(?:₦|n|ngn|usd|\$|£|€|gh₵|ksh|r|rs|inr)\s?\d[\d,\.]*",
+        r"\b\d+\s+for\s+\d+\b",
+        r"\bbuy\s+\d+\s+get\s+\d+\b",
+        r"\bbogo\b",
+        r"\b(?:flash\s+sale|happy\s+hour|today\s+only|weekend\s+only)\b",
+        r"\bfree\s+(?:delivery|shipping|drink|side|gift|item)\b",
+    )
+    for pat in patterns:
+        m = re.search(pat, haystack, re.I)
+        if m:
+            candidates.append(m.group(0).strip().upper())
+            break
+    for c in candidates:
+        c = re.sub(r"\s+", " ", c).strip()
+        if c:
+            # Pills look best in 2-4 word all-caps snippets.
+            words = c.split()
+            return " ".join(words[:5]).upper()[:32]
+    return ""
+
 # ── Content-type art direction map ────────────────────────────────────────────
 _CONTENT_DESIGN_MAP = {
-    "offer": "Conversion-first social design with bold offer hierarchy, CTA chip, price or value module when supplied by layout copy, product or service proof, and strong visual rhythm. Avoid plain hero photography.",
+    "offer": "PROMO CARD layout (NOT a moody product photo). Four mandatory zones: hook zone (3-5 word headline on a contrast panel), product zone (single hero packshot), offer zone (price / discount / bundle badge as a coloured pill), CTA zone (filled button at the bottom). Headlines never sit directly on busy pixels — always a gradient overlay, blur panel, or solid card behind text. Reading order in 2 seconds: HOOK → PRODUCT → OFFER → CTA.",
     "product_or_service_spotlight": "Premium product or service design with a clear focal subject, contextual use-case, benefit module, and deliberate negative space for final typography. Avoid generic packshot or stock scene.",
     "proof": "Trust-building proof design with review, outcome, credibility cue, stat, or customer evidence as the conceptual anchor. Use editorial hierarchy and avoid generic testimonial stock imagery.",
     "education": "Saveable teaching design with clear hierarchy, icons, modules, steps, or framework structure. The visual should make the lesson easier to understand, not merely decorate it.",
@@ -114,8 +261,8 @@ _CONTENT_DESIGN_MAP = {
     "educational": "Clean, authoritative composition with clear visual hierarchy: numbered system or step-reveal layout, generous negative space, credible and precise scene design.",
     "meme / relatable humour": "High-contrast punchy composition with bold text dominance and reaction-energy visual. Culturally tuned and relatable. Avoid low-energy flat or overly polished corporate feel.",
     "meme": "High-contrast punchy composition with bold text dominance and reaction-energy visual. Culturally tuned and relatable.",
-    "cta / promotion": "Bold product or offer hero composition with urgency energy: strong color contrast, clear focal subject (product, deal, or value moment), action-ready visual hierarchy. Avoid soft muted tones and passive scenes.",
-    "promotion": "Bold product or offer hero composition with urgency energy: strong color contrast, clear focal subject, action-ready visual hierarchy.",
+    "cta / promotion": "PROMO CARD layout (NOT a generic hero photo). Four mandatory zones — hook (3-5 word headline on a contrast panel), product, offer badge (price / discount / bundle pill), CTA button. Reading order: HOOK → PRODUCT → OFFER → CTA. Text never sits on busy pixels.",
+    "promotion": "PROMO CARD layout. Four mandatory zones — hook (3-5 word headline on contrast panel), product, offer badge (price / discount / bundle pill), CTA button. Reading order: HOOK → PRODUCT → OFFER → CTA.",
     "customer testimonial": "Warm human-centered layout anchored by a real face, expressive hands, or authentic environment. Quote as secondary hero element. Trust-focused — no generic stock smiles, no corporate cold palette.",
     "testimonial": "Warm human-centered layout anchored by a real face or authentic environment. Trust-focused — no generic stock smiles.",
     "behind the scenes": "Candid documentary energy with raw authenticity: slightly imperfect framing, real-world textures, unposed moments that feel like genuine access. Avoid overly staged or polished looks.",
@@ -128,7 +275,7 @@ _CONTENT_DESIGN_MAP = {
     "monday motivation": "Energizing motivational composition: bold typography hero or dynamic action scene, uplifting and aspirational. Avoid generic inspirational stock photo clichés.",
     # Canonical content_planner slot keys (used when post["content_type_slot"] is set)
     "product_spotlight": "Premium product hero with contextual lifestyle story: product as clear focal subject, styled environment as supporting narrative, tactile material and lighting. Avoid generic white-background packshots.",
-    "promotional": "Bold product or offer hero composition with urgency energy: strong color contrast, clear focal subject, action-ready visual hierarchy.",
+    "promotional": "PROMO CARD layout (canonical slot). Four mandatory zones — hook (3-5 word headline on contrast panel), product, offer badge (price / discount / bundle pill), CTA button. Reading order: HOOK → PRODUCT → OFFER → CTA. Headlines on contrast surfaces only, never directly on busy pixels.",
     "social_proof": "Quote-first typographic hero — the customer's words ARE the visual. Optional warm authenticated context (kitchen, workspace, hand). Trust-focused, no generic stock smiles.",
     "engagement": "Bold question-forward composition: large typography question as dominant element with supporting visual context. Conversational and inviting energy.",
     "story": "Candid documentary energy with raw authenticity: real-world textures, unposed moments, genuine access. Avoid overly staged or polished looks.",
@@ -1006,12 +1153,34 @@ def _build_image_prompt(post: dict, brand: dict) -> str:
         "no glassy doll-like eyes, no uncanny smile geometry, no over-smoothed beauty-filter skin, and no impossible reflections. "
         "Prefer believable documentary camera rendering with natural texture, grounded shadows, and authentic micro-imperfections."
     )
+
+    # Promo / offer posts: append the four-zone layout system, text-overlay
+    # rules, and component spec so the renderer treats this as a conversion
+    # poster, not a decorated product photo.
+    promo_layout_block = ""
+    if _is_promo_post_for_render(post):
+        ma_for_promo = post.get("message_architecture") if isinstance(post.get("message_architecture"), dict) else {}
+        badge_text = _derive_promo_badge_text(post, brand)
+        promo_layout_block = _promo_layout_directive(
+            hook=str(ma_for_promo.get("hook") or "").strip(),
+            support=str(ma_for_promo.get("support") or "").strip(),
+            cta_text=str(post.get("cta") or "").strip(),
+            badge_text=badge_text,
+            logo_safe_zone=logo_safe_zone,
+        )
+
     # Strategy constraints go FIRST so the model treats them as the primary brief,
     # not flavor — the "person holding phone" attractor only breaks under hard constraints.
     if strategy_block:
         prompt = f"{strategy_block}\n\n{prompt.strip()}{edge_guard}"
     else:
         prompt = f"{prompt.strip()}{edge_guard}"
+
+    if promo_layout_block:
+        # Promo layout block goes AFTER edge_guard so its zone-by-zone rules
+        # are the last thing the renderer reads — they override any earlier
+        # "freeform poster" framing for promo content_types.
+        prompt = f"{prompt}\n\n{promo_layout_block}"
 
     # AI is the only text renderer — strip the no-text language sprinkled
     # throughout the strategy_block / format_note / negatives so it does not

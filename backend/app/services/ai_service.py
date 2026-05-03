@@ -520,6 +520,125 @@ _GENERIC_PHRASES = [
     "easy to act on", "explore our features", "take the next step",
 ]
 
+
+# ── Promotional / offer post rules ────────────────────────────────────────────
+#
+# Promotional posts have stricter copy and design requirements than other
+# content types. The headline must be ad-grade (3-5 words, punchy, benefit
+# or offer led) and the post must communicate a concrete offer mechanic
+# (price, discount, bundle, or time window). Generic offer language alone
+# is treated as a quality failure that triggers QA polish / regenerate.
+
+_PROMO_CONTENT_KEYS: tuple[str, ...] = (
+    "promo", "promotional", "promotion", "offer", "deal", "sale",
+    "discount", "bundle", "upsell", "launch", "cta", "campaign",
+    "limited time", "limited_time", "flash sale", "happy hour",
+    "happy_hour", "event", "webinar",
+)
+
+_PROMO_HEADLINE_MAX_WORDS = 5
+
+_PROMO_HEADLINE_FILLER_TOKENS: frozenset[str] = frozenset({
+    "order-worthy", "orderworthy", "must-try", "musttry",
+    "best-ever", "bestever", "amazing", "awesome", "incredible",
+    "unbelievable", "ultimate", "premium-grade", "next-level",
+    "top-tier", "world-class", "the", "a", "an", "from",
+})
+
+_PROMO_WEAK_CTAS: frozenset[str] = frozenset({
+    "order now", "shop now", "learn more", "click here", "buy now",
+    "get started", "tap below", "explore now", "discover now",
+    "see more", "find out more",
+})
+
+# Single-token ad-copy anchors. Presence of any one of these in caption,
+# support, or CTA satisfies the offer-clarity requirement for a promo.
+_OFFER_SIGNAL_PATTERNS: tuple[re.Pattern, ...] = (
+    re.compile(r"\b\d{1,3}\s?%\s?(?:off|discount|save)\b", re.I),
+    re.compile(r"\bsave\s+(?:up\s+to\s+)?\d", re.I),
+    re.compile(r"\b(?:₦|n|ngn|usd|\$|£|€|gh₵|ksh|r|rs|inr)\s?\d", re.I),
+    re.compile(r"\b\d+\s+for\s+\d", re.I),                # "2 for 1" / "3 for 5000"
+    re.compile(r"\bbuy\s+\d+\s+get\s+\d", re.I),         # "buy 1 get 1"
+    re.compile(r"\bbogo\b", re.I),
+    re.compile(r"\bbundle\b", re.I),
+    re.compile(r"\bcombo\b", re.I),
+    re.compile(r"\bfree\s+(?:delivery|shipping|drink|side|gift|item)\b", re.I),
+    re.compile(r"\bflash\s+sale\b", re.I),
+    re.compile(r"\bhappy\s+hour\b", re.I),
+    re.compile(r"\b(?:this\s+)?weekend\s+only\b", re.I),
+    re.compile(r"\btoday\s+only\b", re.I),
+    re.compile(r"\bends?\s+(?:today|tonight|sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b", re.I),
+    re.compile(r"\b\d+\s+(?:days|hours)\s+left\b", re.I),
+    re.compile(r"\bgift\s+with\s+purchase\b", re.I),
+    re.compile(r"\bearly\s+bird\b", re.I),
+)
+
+
+def _is_promotional_post(post: dict) -> bool:
+    """True if the post's content_type / slot maps to the promotional family."""
+    if not isinstance(post, dict):
+        return False
+    haystack = " ".join(
+        str(post.get(k) or "").lower()
+        for k in ("content_type_slot", "content_type", "content_type_label")
+    )
+    return any(key in haystack for key in _PROMO_CONTENT_KEYS)
+
+
+def _has_offer_signal(*texts: str | None) -> bool:
+    """True if any of the texts contains a recognisable offer mechanic."""
+    blob = " ".join(str(t or "") for t in texts).strip()
+    if not blob:
+        return False
+    return any(pat.search(blob) for pat in _OFFER_SIGNAL_PATTERNS)
+
+
+def _promo_headline_word_count(text: str | None) -> int:
+    return len([w for w in str(text or "").strip().split() if w])
+
+
+def _promo_headline_contains_brand(text: str | None, brand: dict | None) -> bool:
+    if not text or not brand:
+        return False
+    name = str(brand.get("name") or brand.get("brand_name") or "").strip().lower()
+    if len(name) < 3:
+        return False
+    haystack = re.sub(r"[^a-z0-9 ]", " ", str(text).lower())
+    return f" {name} " in f" {haystack} "
+
+
+def _promo_headline_uses_filler(text: str | None) -> bool:
+    if not text:
+        return False
+    tokens = [t for t in re.split(r"[\s\-_/]+", str(text).strip().lower()) if t]
+    if not tokens:
+        return False
+    # A genuine 3-5 word ad headline has a strong noun. Filler tokens like
+    # "order-worthy" or "must-try" pad the line without adding offer specifics.
+    for tok in tokens:
+        if tok in _PROMO_HEADLINE_FILLER_TOKENS:
+            return True
+    return False
+
+
+def _trim_promo_headline(text: str | None, max_words: int = _PROMO_HEADLINE_MAX_WORDS) -> str:
+    """Clamp a promo hook to max_words and strip leading filler/articles."""
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    words = [w for w in raw.split() if w]
+    while words and words[0].lower() in {"the", "a", "an"}:
+        words = words[1:]
+    if len(words) > max_words:
+        words = words[:max_words]
+    return " ".join(words).strip()
+
+
+def _is_weak_promo_cta(text: str | None) -> bool:
+    norm = re.sub(r"[^a-z0-9 ]", " ", str(text or "").lower()).strip()
+    norm = re.sub(r"\s+", " ", norm)
+    return norm in _PROMO_WEAK_CTAS
+
 _FOCAL_KEYWORDS = [
     "foreground", "midground", "background", "depth", "focal", "hero",
     "leading line", "frame within", "negative space", "rule of thirds",
@@ -580,7 +699,7 @@ def _validate_design_quality(posts: list[dict], brand: dict | None = None) -> li
     Logs warnings for generic or low-quality design language; does NOT drop posts.
     """
     for i, post in enumerate(posts):
-        warnings = _collect_post_quality_warnings(post)
+        warnings = _collect_post_quality_warnings(post, brand=brand)
         if warnings:
             post["quality_warnings"] = warnings[:8]
             logger.warning(f"Post {i} ({post.get('date')}): quality warnings: {warnings}")
@@ -602,7 +721,12 @@ def _validate_design_quality(posts: list[dict], brand: dict | None = None) -> li
     return posts
 
 
-def _collect_post_quality_warnings(post: dict, words_to_avoid: list[str] | None = None) -> list[str]:
+def _collect_post_quality_warnings(
+    post: dict,
+    words_to_avoid: list[str] | None = None,
+    *,
+    brand: dict | None = None,
+) -> list[str]:
     warnings: list[str] = []
     raw_caption = str(post.get("caption") or "")
     caption = raw_caption.lower()
@@ -689,6 +813,33 @@ def _collect_post_quality_warnings(post: dict, words_to_avoid: list[str] | None 
         slide_count = max(1, int(post.get("slide_count") or 1))
         if slide_count < 3:
             warnings.append("weak_carousel_depth")
+
+    # Promo / offer posts: enforce ad-grade headline, real offer signal,
+    # strong CTA. These warnings feed _qa_polish_posts so the LLM can
+    # rewrite on the next pass instead of shipping flat copy.
+    if _is_promotional_post(post):
+        brand_for_check = brand if isinstance(brand, dict) else None
+        head_words = _promo_headline_word_count(hook)
+        if hook and head_words > _PROMO_HEADLINE_MAX_WORDS:
+            warnings.append("promo_headline_too_long")
+        if hook and head_words < 2:
+            warnings.append("promo_headline_too_short")
+        if hook and _promo_headline_contains_brand(hook, brand_for_check):
+            warnings.append("promo_headline_contains_brand_name")
+        if hook and _promo_headline_uses_filler(hook):
+            warnings.append("promo_headline_uses_filler")
+        offer_haystack_parts = [
+            raw_caption,
+            str(post.get("description") or ""),
+            hook,
+            support,
+            cta,
+            str(post.get("content_idea") or ""),
+        ]
+        if not _has_offer_signal(*offer_haystack_parts):
+            warnings.append("promo_missing_offer_signal")
+        if cta and _is_weak_promo_cta(cta):
+            warnings.append("promo_weak_generic_cta")
 
     platform_key = _platform_key(platform)
     if platform_key == "twitter" and caption_word_count > 38:
@@ -1077,23 +1228,53 @@ def _trim_words_local(text: str, max_words: int) -> str:
 
 def _ensure_message_architecture(post: dict, brand: dict | None) -> None:
     """Guarantee hook/support lines for Bannerbear typography when the model omits them."""
+    is_promo = _is_promotional_post(post)
+    hook_word_cap = _PROMO_HEADLINE_MAX_WORDS if is_promo else 9
+    support_word_cap = 22 if is_promo else 24
+
     ma = post.get("message_architecture")
+    existing_hook = ""
+    existing_support = ""
     if isinstance(ma, dict):
-        hook = str(ma.get("hook") or "").strip()
-        support = str(ma.get("support") or "").strip()
-        if hook and support:
-            return
+        existing_hook = str(ma.get("hook") or "").strip()
+        existing_support = str(ma.get("support") or "").strip()
+
+    # For promo posts, never accept a hook >5 words even if the model returned
+    # one. Trim it down so the on-image headline stays ad-grade.
+    if is_promo and existing_hook:
+        clamped = _trim_promo_headline(existing_hook, _PROMO_HEADLINE_MAX_WORDS)
+        if clamped:
+            existing_hook = clamped
+
+    if existing_hook and existing_support:
+        if isinstance(ma, dict):
+            ma["hook"] = existing_hook[:120]
+            post["message_architecture"] = ma
+        return
     caption = str(post.get("caption") or "").strip()
     cap_lines = [ln.strip() for ln in caption.replace("\r", "").split("\n") if ln.strip()]
     topic = str(post.get("topic") or post.get("content_idea") or "This week").strip()
     desc = str(post.get("description") or "").strip()
     desc_hook = desc.split(".")[0].strip() if desc else ""
-    hook_src = desc_hook if 4 <= len(desc_hook.split()) <= 12 else topic
-    hook = _trim_words_local(hook_src, 9) or _trim_words_local(topic, 9) or "Fresh from our kitchen"
-    support_src = desc if desc and desc != hook else (cap_lines[0] if cap_lines else caption)
+    hook_src = existing_hook or (desc_hook if 4 <= len(desc_hook.split()) <= 12 else topic)
+    hook_default = "Today only deal" if is_promo else "Fresh from our kitchen"
+    if is_promo:
+        hook = _trim_promo_headline(hook_src, hook_word_cap) or _trim_promo_headline(topic, hook_word_cap) or hook_default
+    else:
+        hook = _trim_words_local(hook_src, hook_word_cap) or _trim_words_local(topic, hook_word_cap) or hook_default
+    support_src = existing_support or (desc if desc and desc != hook else (cap_lines[0] if cap_lines else caption))
     if support_src.strip().lower().startswith(hook[:20].lower()) and len(cap_lines) > 1:
         support_src = cap_lines[1]
-    support = _trim_words_local(support_src, 24) or _trim_words_local(caption, 24) or "Made to order, built to crave."
+    support_default = (
+        "Bundle priced to grab today — tap to claim before stock runs out."
+        if is_promo
+        else "Made to order, built to crave."
+    )
+    support = (
+        _trim_words_local(support_src, support_word_cap)
+        or _trim_words_local(caption, support_word_cap)
+        or support_default
+    )
     evidence = ""
     if isinstance(ma, dict) and str(ma.get("evidence") or "").strip():
         evidence = str(ma.get("evidence")).strip()[:160]
@@ -1243,7 +1424,7 @@ def _align_post_creative_contract(post: dict, brand: dict | None) -> None:
             + "Do not render these words, prices, captions, hashtags, or any readable typography in the raster image."
         ).strip()
 
-    post["quality_warnings"] = _collect_post_quality_warnings(post)
+    post["quality_warnings"] = _collect_post_quality_warnings(post, brand=brand)
 
 
 VISUAL_DIRECTION_DESIGN_TOKENS = (
@@ -2068,7 +2249,7 @@ def _validate_posts(
 
         _ensure_post_cta(post, brand)
         _align_post_creative_contract(post, brand)
-        post["quality_warnings"] = _collect_post_quality_warnings(post, words_to_avoid=avoid)
+        post["quality_warnings"] = _collect_post_quality_warnings(post, words_to_avoid=avoid, brand=brand)
         valid.append(_sanitize_post_copy_fields(post, brand))
 
     valid = _apply_style_mix_targets(valid, brand)
@@ -2077,7 +2258,7 @@ def _validate_posts(
     valid = _flag_duplicate_posts(valid)
     for p in valid:
         _align_post_creative_contract(p, brand)
-        p["quality_warnings"] = _collect_post_quality_warnings(p, words_to_avoid=avoid)
+        p["quality_warnings"] = _collect_post_quality_warnings(p, words_to_avoid=avoid, brand=brand)
         _flag_hook_caption_opener_collision(p)
         _sanitize_post_copy_fields(p, brand)
         # Sanitize may have blanked a CTA that was a banned filler phrase
@@ -3796,9 +3977,18 @@ For EACH post return ALL these fields:
 13. logo_safe_zone: exactly one of: upper_left, upper_right, lower_left, lower_right. Choose where the uploaded logo lockup should sit in the final design while preserving clean breathing room. Keep this consistent with visual_direction.
 14. message_architecture: REQUIRED object for the on-image typography layout (rendered as headline and subcopy on the final graphic, before people read the caption). String fields:
     - hook: 3-10 words, scroll-stopping headline; may be seasonal, cheeky, or celebratory when USER / STRATEGIST add-ons mention a holiday or moment. Must feel like ad copy, not a dry calendar label alone.
+      • PROMO / OFFER POSTS (content_type contains promo / offer / deal / sale / discount / bundle / launch): hook is HARD-CAPPED at 3-5 words. It MUST be punchy, lead with a clear benefit or offer mechanic (price, discount, bundle, time window), and read like a billboard headline. NEVER include the brand name in the hook. NEVER use filler adjectives like "order-worthy", "must-try", "amazing", "world-class". Examples that PASS: "20% off today only", "July combo deal", "Buy 1 get 1", "₦5,000 lunch bundle", "Free delivery weekend". Examples that FAIL: "July order-worthy offer from Juicy junction", "Amazing offer this month", "Don't miss our deal".
     - support: 14-30 words, second line on the graphic with micro-story, playful tension, or concrete benefit; must NOT duplicate the caption's opening sentence verbatim. The caption's first sentence must NOT match the hook verbatim either — they sit next to each other and reading the same line twice is a fail. The caption opener should advance the idea (add specifics, set context, drop a stat) rather than restate the hook.
+      • PROMO / OFFER POSTS: support MUST clarify the offer — what's included (e.g. "2 sandwiches + drink"), who it's for, or when it ends. Generic benefit language alone is a fail.
     - evidence: optional 8-20 words with a crisp proof cue (ingredient, ritual, quality habit) when it strengthens trust.
     - cta: one short line aligned with field 5, tightened for a card footer if needed.
+      • PROMO / OFFER POSTS: CTA must reference the offer ("Grab the combo", "Claim 20% off", "Reserve your bundle"). NEVER use weak generic CTAs ("Order now", "Shop now", "Learn more", "Click here", "Buy now") on a promo post.
+    - layout_zones (REQUIRED for promo / offer posts): object with the four zones the rendered design must visibly stage:
+        hook_zone: which canvas region holds the headline (e.g. "top-left band", "upper third").
+        product_zone: which region holds the product / hero image (e.g. "centre", "right column").
+        offer_zone: which region holds the offer mechanic — price chip, discount badge, or bundle module — distinct from the headline.
+        cta_zone: which region holds the CTA button — bottom band recommended.
+      Non-promo posts may omit layout_zones.
 15. slide_blueprint: REQUIRED ONLY when format=carousel. Array of exactly slide_count entries, each describing ONE slide. Every slide must advance the story — NEVER repeat the same headline or restage the same scene. Use the standard carousel storytelling arc: hook -> problem/tension -> insight or proof -> how/what -> close/CTA (compress or expand to fit slide_count). Each entry has the shape:
     {{
       "slide_number": 1-based index,
@@ -3832,6 +4022,8 @@ HARD RULES:
 • message_architecture carries every headline, subhead, and CTA line meant to be read on the graphic. The image renders all of that copy directly.
 • visual_direction must include the literal prefix Headline for layout: with quoted copy matching message_architecture.hook exactly; when message_architecture.support is non-empty, also include Subhead for layout: with quoted support matching exactly; field 7 and field 14 must never contradict each other.
 • Avoid "person doing something" generic scenes. Every visual must include art-directed context props and composition structure that looks like a designed social campaign.
+• PROMO / OFFER GATE (HARD): if content_type contains promo / offer / deal / sale / discount / bundle / launch, the post MUST include a concrete offer mechanic somewhere readable on the design — a price (e.g. "₦5,000", "$12"), a discount ("20% off", "Save 30%"), a bundle ("2 for 1", "combo deal", "buy 1 get 1"), or a time window ("this weekend only", "today only", "ends Sunday"). The offer mechanic must be visible in the message_architecture (hook, support, or evidence) AND in the caption — not buried in a hashtag. A promo post without one of these signals is a fail and will be rejected.
+• PROMO LAYOUT (HARD): every promo / offer post must follow the four-zone layout system — hook zone (headline), product zone (hero image / packshot), offer zone (price chip, discount badge, or bundle module), CTA zone (button). Free-form "text floating on top of the photo" is a fail. Headlines must sit on a contrast surface (gradient overlay, blur panel, or solid card) — never directly on a busy image region.
 • Realism QA for human photos: reject and rewrite prompts that would likely create uncanny outputs (waxy skin, duplicated faces, malformed hands, doll-like eyes, over-airbrushed complexion, impossible lighting reflections).
 • Prefer believable editorial camera realism over synthetic polish: natural skin pores, realistic texture, grounded shadows, and candid body language.
 
@@ -4206,7 +4398,7 @@ Draft posts JSON:
             polished = data.get("posts") if isinstance(data, dict) else None
             if isinstance(polished, list) and len(polished) == len(posts):
                 remaining = _summarize_quality_warnings([
-                    {**p, "quality_warnings": _collect_post_quality_warnings(p, words_to_avoid=words_to_avoid)}
+                    {**p, "quality_warnings": _collect_post_quality_warnings(p, words_to_avoid=words_to_avoid, brand=brand)}
                     for p in polished if isinstance(p, dict)
                 ])
                 if not remaining:
