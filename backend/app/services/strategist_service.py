@@ -67,28 +67,105 @@ ALLOWED_POST_TYPES: frozenset[str] = frozenset({
 })
 
 ALLOWED_LAYOUTS: frozenset[str] = frozenset({
+    # Phase A originals.
     "centered_product",
     "split",
     "offer_card",
     "lifestyle_overlay",
+    # Phase B additions (PRs 6-8): the strategist may pick any of these
+    # whenever its content_type / post_type calls for the corresponding
+    # visual recipe.
+    "typography_poster",
+    "quote_editorial",
+    "lifestyle_clean",
+    "meme_ui_screenshot",
+    "bold_announcement",
+    "hero_carousel_opener",
 })
 
 ALLOWED_COMPONENT_TYPES: frozenset[str] = frozenset({
+    # Phase A originals.
     "ProductImage",
     "Headline",
     "PriceTag",
     "Badge",
     "CTAButton",
     "ReviewCard",
+    # Phase B additions (PRs 3-5).
+    "OutlineHeadline",
+    "SubHead",
+    "SpeechBubblePill",
+    "PeelSticker",
+    "QuoteAttribution",
+    "BrandStamp",
+    "BrandSignature",
+    "IllustratedGarnish",
+    "CheckeredTray",
+    "ProductLineup",
+    "MockUIChat",
 })
 
 # Default layout per post_type when the strategist doesn't pick one explicitly.
+# Updated to use the full Phase-B menu so the model has a stronger default
+# when it skips the layout slot. Carousel openers are special-cased by
+# format/slide-position downstream (PR 9 already writes
+# cc_meta.slides[0].layout = hero_carousel_opener for carousels).
 _DEFAULT_LAYOUT_BY_POST_TYPE: dict[str, str] = {
     "product_spotlight": "centered_product",
-    "offer_discount":    "offer_card",
+    "offer_discount":    "bold_announcement",
     "social_proof":      "split",
-    "lifestyle_use":     "lifestyle_overlay",
+    "lifestyle_use":     "lifestyle_clean",
+    "quote":             "quote_editorial",
+    "inspiration":       "quote_editorial",
+    "announcement":      "bold_announcement",
+    "launch":            "bold_announcement",
+    "meme":              "meme_ui_screenshot",
+    "relatable":         "meme_ui_screenshot",
+    "pov":               "meme_ui_screenshot",
+    "feature":           "typography_poster",
+    "education":         "typography_poster",
+    "behind_scenes":     "lifestyle_clean",
 }
+
+# Content-type → preferred layout pool. The strategist prompt surfaces
+# this so the model picks variety instead of collapsing to two layouts.
+# Used by the post-processing fallback when the model returns an
+# out-of-set layout.
+_PREFERRED_LAYOUTS_BY_CONTENT_TYPE: dict[str, list[str]] = {
+    "promotional":     ["bold_announcement", "offer_card", "centered_product"],
+    "launch":          ["bold_announcement", "hero_carousel_opener", "centered_product"],
+    "sale":            ["bold_announcement", "offer_card"],
+    "bundle":          ["bold_announcement", "centered_product"],
+    "new_product":     ["bold_announcement", "centered_product"],
+    "quote":           ["quote_editorial", "typography_poster"],
+    "inspiration":     ["quote_editorial", "typography_poster"],
+    "motivation":      ["quote_editorial", "typography_poster"],
+    "affirmation":     ["quote_editorial", "typography_poster"],
+    "education":       ["typography_poster", "centered_product"],
+    "tip":             ["typography_poster", "meme_ui_screenshot"],
+    "meme":            ["meme_ui_screenshot", "typography_poster"],
+    "relatable":       ["meme_ui_screenshot", "typography_poster"],
+    "pov":             ["meme_ui_screenshot", "lifestyle_clean"],
+    "lifestyle":       ["lifestyle_clean", "lifestyle_overlay"],
+    "behind_scenes":   ["lifestyle_clean", "lifestyle_overlay"],
+    "community":       ["lifestyle_clean", "split", "lifestyle_overlay"],
+    "engagement":      ["meme_ui_screenshot", "lifestyle_clean"],
+    "ugc":             ["lifestyle_clean", "split"],
+    "story":           ["lifestyle_clean", "lifestyle_overlay", "split"],
+    "review":          ["split", "quote_editorial"],
+    "testimonial":     ["split", "quote_editorial"],
+    "feature":         ["typography_poster", "centered_product"],
+    "product_focus":   ["centered_product", "typography_poster"],
+}
+
+
+def preferred_layouts_for_content_type(content_type: str | None) -> list[str]:
+    """Return the prioritised layout pool for a given content_type.
+    Empty list when no preference is configured (caller falls back to
+    the post_type default)."""
+    if not content_type:
+        return []
+    return list(_PREFERRED_LAYOUTS_BY_CONTENT_TYPE.get(str(content_type).lower(), []))
 
 # PRD §6.2 strict schema enums.
 ALLOWED_FORMATS: frozenset[str] = frozenset({"single", "quote", "gif"})
@@ -238,7 +315,7 @@ specific, brand-grounded values (no empty strings):
   "text_on_image":   "DEPRECATED — leave as a short summary of the headline. Frontend uses `components` instead.",
   "format":          "single | quote | gif",
   "post_type":       "product_spotlight | offer_discount | social_proof | lifestyle_use",
-  "layout":          "centered_product | split | offer_card | lifestyle_overlay",
+  "layout":          "centered_product | split | offer_card | lifestyle_overlay | typography_poster | quote_editorial | lifestyle_clean | meme_ui_screenshot | bold_announcement | hero_carousel_opener — pick the recipe that fits the post intent. Editorial / quote / inspiration → typography_poster or quote_editorial. Launch / new menu / sale → bold_announcement (or hero_carousel_opener for multi-slide). POV / meme / relatable → meme_ui_screenshot. Real photo + brand colour wall → lifestyle_clean. Default mix should NOT collapse to centered_product or offer_card every post.",
   "components":      [ { "type": "...", "content": "..." }, ... ],
   "use_product_image": true | false
 }
@@ -692,7 +769,16 @@ def coerce_strategy_with_defaults(strategy: dict[str, Any]) -> dict[str, Any]:
         out["post_type"] = "product_spotlight"
     layout = str(out.get("layout") or "").strip().lower()
     if layout not in ALLOWED_LAYOUTS:
-        out["layout"] = _DEFAULT_LAYOUT_BY_POST_TYPE.get(out["post_type"], "centered_product")
+        # Try the content_type → layout pool first; fall back to the
+        # post_type default. This is what gives variety: a `quote` post
+        # without an explicit layout lands on quote_editorial instead of
+        # collapsing to centered_product.
+        ct = str(out.get("content_type") or "").strip().lower()
+        pool = preferred_layouts_for_content_type(ct)
+        out["layout"] = next(
+            (cand for cand in pool if cand in ALLOWED_LAYOUTS),
+            _DEFAULT_LAYOUT_BY_POST_TYPE.get(out["post_type"], "centered_product"),
+        )
     if not isinstance(out.get("components"), list) or not out["components"]:
         # Bridge from text_on_image + product when nothing else is available
         text_summary = str(out.get("text_on_image") or "").strip() or "Shop our latest"
