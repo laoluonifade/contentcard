@@ -52,6 +52,19 @@ function findComponent(components, type) {
   return components.find((c) => c && String(c.type || '') === type) || null
 }
 
+// Poster layouts (typography_poster / bold_announcement /
+// hero_carousel_opener) want a 3-5 word punch that owns the canvas, not
+// the long-form sentence-style hook captions live on. The strategist
+// emits `cc_meta.headline_short` for that purpose; this helper picks it
+// when present and falls back to the regular Headline content otherwise.
+function pickPosterHeadlineContent(post, fallbackContent) {
+  const cm = post?.theme?.cc_meta
+  if (cm && typeof cm.headline_short === 'string' && cm.headline_short.trim()) {
+    return cm.headline_short.trim()
+  }
+  return fallbackContent
+}
+
 function pickComponents(components, types) {
   return types
     .map((t) => findComponent(components, t))
@@ -453,6 +466,8 @@ async function renderTypographyPoster(ctx, ds, post, brand, components, imageUrl
   const callout = findComponent(components, 'SpeechBubblePill')
   const garnishComp = findComponent(components, 'IllustratedGarnish')
   const signature = findComponent(components, 'BrandSignature')
+  const cta = findComponent(components, 'CTAButton')
+  const stamp = findComponent(components, 'BrandStamp')
 
   // Headline: dominant top stack. Force the OutlineHeadline path so the
   // strategist can ship a regular Headline component and still land on
@@ -463,11 +478,15 @@ async function renderTypographyPoster(ctx, ds, post, brand, components, imageUrl
       stack: true,
       fillColour: ds.palette.primary,
       outlineColour: ds.palette.outline,
+      // Scrim plate behind the headline only when there's a photo
+      // behind us — outline + shadow carry legibility on flat
+      // brand-coloured paper.
+      scrim: !!imageUrl,
       ...(headline.opts || {}),
     }
     await drawComponent(
       ctx, ds,
-      { type: 'OutlineHeadline', content: headline.content, opts },
+      { type: 'OutlineHeadline', content: pickPosterHeadlineContent(post, headline.content), opts },
       { x: ds.spacing.pad, y: 110, w: W - ds.spacing.pad * 2, h: subhead ? 520 : 580 },
       brand,
     )
@@ -515,6 +534,31 @@ async function renderTypographyPoster(ctx, ds, post, brand, components, imageUrl
       ctx, ds,
       { ...callout, opts: { ...(callout.opts || {}), tail } },
       { x: W * 0.66, y: H * 0.62, w: 220, h: 80 },
+      brand,
+    )
+  }
+
+  // CTA — anchor the pill at the bottom 12% of the canvas, horizontally
+  // centred under the product. Without this typography_poster shipped a
+  // headline + product but no call-to-action, leaving the user without
+  // a clear next step.
+  if (cta) {
+    await drawComponent(
+      ctx, ds,
+      { ...cta, opts: { align: 'center', ...(cta.opts || {}) } },
+      { x: 0, y: H - 130, w: W, h: 80 },
+      brand,
+    )
+  }
+
+  // Brand stamp top-left when the brand has a stamp / wordmark uploaded.
+  // Auto-anchored even when the strategist forgets the component, so
+  // poster output always reads as branded.
+  if (stamp || brand?.product_stamp_url || brand?.wordmark_url) {
+    await drawComponent(
+      ctx, ds,
+      stamp || { type: 'BrandStamp', content: { showHalo: true } },
+      { x: ds.spacing.pad, y: ds.spacing.pad, w: 96, h: 96 },
       brand,
     )
   }
@@ -604,6 +648,335 @@ async function renderQuoteEditorial(ctx, ds, post, brand, components, imageUrl) 
   }
 }
 
+// ── Layout 7: lifestyle_clean ─────────────────────────────────────────────
+// Jay's milkshake-against-red-wall look. Full-bleed photo, no headline,
+// no overlay, no gradient — the photo carries the design. Optional small
+// brand wordmark / signature in a corner. Used when the source photo is
+// strong enough to stand alone (categorised as `hands_on` or `lifestyle`).
+//
+// When no image is reachable we fall through to renderLifestyleOverlay so
+// the post still reads as a finished piece.
+
+async function renderLifestyleClean(ctx, ds, post, brand, components, imageUrl) {
+  if (!imageUrl) {
+    return renderLifestyleOverlay(ctx, ds, post, brand, components, imageUrl)
+  }
+  await drawBackground(ctx, ds, imageUrl)
+
+  // Photo carries the design. Only optional, very small chrome:
+  // monogram / signature in a corner if the brand has one.
+  const signature = findComponent(components, 'BrandSignature')
+  if (signature || brand?.monogram_url) {
+    await drawComponent(
+      ctx, ds,
+      signature || { type: 'BrandSignature', content: { anchor: 'bottom-right' } },
+      { x: W - 200, y: H - 160, w: 160, h: 120 },
+      brand,
+    )
+  }
+}
+
+// ── Layout 8: meme_ui_screenshot ──────────────────────────────────────────
+// Jay's fake ChatGPT card. The whole canvas is a textured brand-coloured
+// background with a single MockUIChat card centred on it. The chat card
+// is the post's punchline; the brand colour around it is the frame.
+//
+// Components honoured:
+//   - MockUIChat            — required, fills the centre 84% × 80%
+//   - BrandSignature        — optional corner mark
+
+async function renderMemeUIScreenshot(ctx, ds, post, brand, components, imageUrl) {
+  // Brand-coloured surface. If an AI image was supplied we ignore it —
+  // the screenshot card is the focus and a photo-rich background would
+  // fight the joke. PR A8's bg-mode dispatcher routes this layout to
+  // color_block / gradient_panel anyway.
+  ctx.fillStyle = ds.palette.background
+  ctx.fillRect(0, 0, W, H)
+  drawPaperTexture(ctx, ds, ds.texture?.kind === 'noise' ? 0.06 : 0.04, 1.5)
+
+  const chat = findComponent(components, 'MockUIChat')
+  const signature = findComponent(components, 'BrandSignature')
+
+  if (chat) {
+    await drawComponent(ctx, ds, chat, {
+      x: W * 0.08,
+      y: H * 0.08,
+      w: W * 0.84,
+      h: H * 0.78,
+    }, brand)
+  } else {
+    // Synthesise a minimal chat card so a misconfigured strategist still
+    // ships something readable instead of a blank brand wall.
+    const punchline = String(post?.content_idea || post?.topic || '').trim()
+    if (punchline) {
+      await drawComponent(
+        ctx, ds,
+        {
+          type: 'MockUIChat',
+          content: {
+            appName: 'ChatGPT',
+            bubbles: [
+              { role: 'them', text: 'What’s the move?' },
+              { role: 'you', text: punchline },
+            ],
+          },
+        },
+        { x: W * 0.08, y: H * 0.08, w: W * 0.84, h: H * 0.78 },
+        brand,
+      )
+    }
+  }
+
+  if (signature || brand?.monogram_url) {
+    await drawComponent(
+      ctx, ds,
+      signature || { type: 'BrandSignature', content: { anchor: 'bottom-right' } },
+      { x: W - 220, y: H - 140, w: 180, h: 100 },
+      brand,
+    )
+  }
+}
+
+// ── Layout 9: bold_announcement ───────────────────────────────────────────
+// Jay's "NEW MENU ALERT! NEW YORKER BURGER" look. Two-tier headline
+// (loud announcement + italic display sub), product line-up across the
+// bottom, peel-sticker badge anchored in the upper-right.
+
+async function renderBoldAnnouncement(ctx, ds, post, brand, components, imageUrl) {
+  // Paper / cream surface with a subtle wash over any AI image.
+  if (imageUrl) {
+    await drawBackground(ctx, ds, imageUrl)
+    ctx.fillStyle = alpha(ds.palette.paper, 0.7)
+    ctx.fillRect(0, 0, W, H)
+  } else {
+    ctx.fillStyle = ds.palette.paper
+    ctx.fillRect(0, 0, W, H)
+  }
+  drawPaperTexture(ctx, ds, ds.texture?.kind === 'paper' ? 0.12 : 0.07, 1)
+
+  maybeDrawBrandLogo(ctx, ds, brand)
+
+  const headline = findComponent(components, 'OutlineHeadline')
+    || findComponent(components, 'Headline')
+  const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
+  const peel = findComponent(components, 'PeelSticker')
+  const lineup = findComponent(components, 'ProductLineup')
+  const product = findComponent(components, 'ProductImage')
+  const tray = findComponent(components, 'CheckeredTray')
+  const cta = findComponent(components, 'CTAButton')
+  const stamp = findComponent(components, 'BrandStamp')
+  const signature = findComponent(components, 'BrandSignature')
+
+  // Headline — "NEW MENU ALERT!" stacked outline.
+  if (headline) {
+    const opts = {
+      align: 'center',
+      stack: true,
+      fillColour: ds.palette.primary,
+      outlineColour: ds.palette.outline,
+      // Scrim plate behind the headline only when there's a photo
+      // behind us — outline + shadow carry legibility on flat
+      // brand-coloured paper.
+      scrim: !!imageUrl,
+      ...(headline.opts || {}),
+    }
+    await drawComponent(
+      ctx, ds,
+      { type: 'OutlineHeadline', content: pickPosterHeadlineContent(post, headline.content), opts },
+      { x: ds.spacing.pad, y: 110, w: W - ds.spacing.pad * 2, h: 320 },
+      brand,
+    )
+  }
+
+  // Italic subhead — Jay's "NEW YORKER BURGER" line under the alert.
+  if (subhead) {
+    const opts = {
+      align: 'center',
+      colour: ds.palette.primary,
+      fontStyle: 'italic',
+      ...(subhead.opts || {}),
+    }
+    await drawComponent(ctx, ds, { ...subhead, opts }, {
+      x: ds.spacing.pad,
+      y: 440,
+      w: W - ds.spacing.pad * 2,
+      h: 80,
+    }, brand)
+  }
+
+  // Optional checkered-tray stripe under the lineup.
+  if (tray) {
+    await drawComponent(ctx, ds, tray, {
+      x: 0,
+      y: H * 0.7,
+      w: W,
+      h: 40,
+    }, brand)
+  }
+
+  // Product lineup or single product hero.
+  if (lineup || (Array.isArray(brand?.products) && brand.products.length >= 2)) {
+    await drawComponent(
+      ctx, ds,
+      lineup || { type: 'ProductLineup', content: { count: 4, overlap: 0.16 } },
+      { x: 0, y: H * 0.55, w: W, h: H * 0.4 },
+      brand,
+    )
+  } else if (product) {
+    await drawComponent(ctx, ds, product, {
+      x: W * 0.22,
+      y: H * 0.6,
+      w: W * 0.56,
+      h: H * 0.34,
+    }, brand)
+  }
+
+  // Peel sticker — anchor top-right by default.
+  if (peel) {
+    await drawComponent(ctx, ds, peel, {
+      x: W - 280,
+      y: H * 0.5 - 80,
+      w: 220,
+      h: 220,
+    }, brand)
+  }
+
+  // CTA pill at the bottom 12% of the canvas, horizontally centred so
+  // the lineup → CTA flow sits on the same vertical axis.
+  if (cta) {
+    await drawComponent(
+      ctx, ds,
+      { ...cta, opts: { align: 'center', ...(cta.opts || {}) } },
+      { x: 0, y: H - 130, w: W, h: 80 },
+      brand,
+    )
+  }
+
+  // Auto brand-stamp + signature — surface the brand mark even when
+  // the strategist forgets the components, so announcement posts
+  // never read as un-branded.
+  if (stamp || brand?.product_stamp_url || brand?.wordmark_url) {
+    await drawComponent(
+      ctx, ds,
+      stamp || { type: 'BrandStamp', content: { showHalo: true } },
+      { x: ds.spacing.pad, y: ds.spacing.pad, w: 96, h: 96 },
+      brand,
+    )
+  }
+  if (signature || brand?.monogram_url) {
+    await drawComponent(
+      ctx, ds,
+      signature || { type: 'BrandSignature', content: { anchor: 'bottom-right' } },
+      { x: W - 200, y: H - 160, w: 160, h: 120 },
+      brand,
+    )
+  }
+}
+
+// ── Layout 10: hero_carousel_opener ───────────────────────────────────────
+// First-slide opener for an announcement carousel. Slide 1 is the
+// "alert + lineup" lockup; subsequent slides should each render through
+// `centered_product` per item (PR A8 wires per-slide dispatch).
+
+async function renderHeroCarouselOpener(ctx, ds, post, brand, components, imageUrl) {
+  if (imageUrl) {
+    await drawBackground(ctx, ds, imageUrl)
+    ctx.fillStyle = alpha(ds.palette.paper, 0.65)
+    ctx.fillRect(0, 0, W, H)
+  } else {
+    ctx.fillStyle = ds.palette.paper
+    ctx.fillRect(0, 0, W, H)
+  }
+  drawPaperTexture(ctx, ds, ds.texture?.kind === 'paper' ? 0.1 : 0.06, 1.2)
+
+  maybeDrawBrandLogo(ctx, ds, brand)
+
+  const headline = findComponent(components, 'OutlineHeadline')
+    || findComponent(components, 'Headline')
+  const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
+  const peel = findComponent(components, 'PeelSticker')
+  const lineup = findComponent(components, 'ProductLineup')
+  const cta = findComponent(components, 'CTAButton')
+  const stamp = findComponent(components, 'BrandStamp')
+  const signature = findComponent(components, 'BrandSignature')
+
+  // Top-anchored alert headline.
+  if (headline) {
+    const opts = {
+      align: 'left',
+      stack: true,
+      fillColour: ds.palette.primary,
+      outlineColour: ds.palette.outline,
+      // Scrim plate behind the headline only when there's a photo
+      // behind us — outline + shadow carry legibility on flat
+      // brand-coloured paper.
+      scrim: !!imageUrl,
+      ...(headline.opts || {}),
+    }
+    await drawComponent(
+      ctx, ds,
+      { type: 'OutlineHeadline', content: pickPosterHeadlineContent(post, headline.content), opts },
+      { x: ds.spacing.pad, y: 110, w: W * 0.7, h: 280 },
+      brand,
+    )
+  }
+
+  if (subhead) {
+    const opts = { align: 'left', colour: ds.palette.primary, ...(subhead.opts || {}) }
+    await drawComponent(ctx, ds, { ...subhead, opts }, {
+      x: ds.spacing.pad,
+      y: 410,
+      w: W * 0.7,
+      h: 70,
+    }, brand)
+  }
+
+  // Lineup fills the bottom 45%, slightly inset.
+  await drawComponent(
+    ctx, ds,
+    lineup || { type: 'ProductLineup', content: { count: 4, overlap: 0.14 } },
+    { x: ds.spacing.pad, y: H * 0.55, w: W - ds.spacing.pad * 2, h: H * 0.4 },
+    brand,
+  )
+
+  // Peel sticker top-right — Jay's "NEW" tab. Default-on.
+  await drawComponent(
+    ctx, ds,
+    peel || { type: 'PeelSticker', content: 'NEW' },
+    { x: W - 240, y: 140, w: 180, h: 180 },
+    brand,
+  )
+
+  // Optional CTA pill bottom-centred under the lineup.
+  if (cta) {
+    await drawComponent(
+      ctx, ds,
+      { ...cta, opts: { align: 'center', ...(cta.opts || {}) } },
+      { x: 0, y: H - 110, w: W, h: 70 },
+      brand,
+    )
+  }
+
+  // Auto-anchor brand mark + signature so even a strategist that
+  // forgets the components ships a branded opener.
+  if (stamp || brand?.product_stamp_url || brand?.wordmark_url) {
+    await drawComponent(
+      ctx, ds,
+      stamp || { type: 'BrandStamp', content: { showHalo: true } },
+      { x: ds.spacing.pad, y: ds.spacing.pad, w: 96, h: 96 },
+      brand,
+    )
+  }
+  if (signature || brand?.monogram_url) {
+    await drawComponent(
+      ctx, ds,
+      signature || { type: 'BrandSignature', content: { anchor: 'bottom-right' } },
+      { x: W - 200, y: H - 160, w: 160, h: 120 },
+      brand,
+    )
+  }
+}
+
 // ── Master dispatcher ─────────────────────────────────────────────────────
 
 const LAYOUT_RENDERERS = {
@@ -613,6 +986,10 @@ const LAYOUT_RENDERERS = {
   lifestyle_overlay: renderLifestyleOverlay,
   typography_poster: renderTypographyPoster,
   quote_editorial: renderQuoteEditorial,
+  lifestyle_clean: renderLifestyleClean,
+  meme_ui_screenshot: renderMemeUIScreenshot,
+  bold_announcement: renderBoldAnnouncement,
+  hero_carousel_opener: renderHeroCarouselOpener,
 }
 
 // Legacy archetype slugs that pre-date the Phase-A layout engine. The
@@ -622,10 +999,15 @@ const LAYOUT_RENDERERS = {
 // cc_meta.layout) still dispatches to a sensible design instead of always
 // landing on the default centered_product.
 const ARCHETYPE_TO_LAYOUT = {
-  // POV / lifestyle scenes — full-bleed photo with the headline lower-third.
-  pov_comic: 'lifestyle_overlay',
-  portrait_story: 'lifestyle_overlay',
-  photo_hero: 'lifestyle_overlay',
+  // Photo-led archetypes prefer the clean layout when the brand has
+  // strong photography; the renderer itself falls back to lifestyle_overlay
+  // (with its bottom gradient) when no image is reachable.
+  photo_hero: 'lifestyle_clean',
+  portrait_story: 'lifestyle_clean',
+  // POV / device-mockup archetypes are meme-shaped — fake-screenshot
+  // cards instead of full-bleed photos.
+  pov_comic: 'meme_ui_screenshot',
+  device_mockup_benefit: 'meme_ui_screenshot',
   // Loud typography flooded over the canvas. pattern_headline used to
   // collapse to offer_card (which veiled the AI image at 92% brand
   // primary); typography_poster gives it the editorial poster treatment
@@ -637,34 +1019,57 @@ const ARCHETYPE_TO_LAYOUT = {
   // renderers instead of centered_product.
   flat_edu: 'typography_poster',
   editorial_issue_card: 'quote_editorial',
-  device_mockup_benefit: 'centered_product',
-  // Co-brand / merchant launches read like a split design (text + product).
-  co_brand_lockup: 'split',
-  merchant_launch_cutout: 'split',
-  product_grid_offer: 'split',
+  // Co-brand / merchant launches and product-grid offers all want the
+  // same announcement treatment (loud headline + product line-up + peel
+  // sticker). bold_announcement gives them that without hiding the
+  // products behind a brand-colour veil. offer_pill_stack ships the
+  // same look since it's also an offer / launch shape.
+  co_brand_lockup: 'bold_announcement',
+  merchant_launch_cutout: 'bold_announcement',
+  product_grid_offer: 'bold_announcement',
+  offer_pill_stack: 'bold_announcement',
 }
 
 // Default layout when the strategy is missing or has an unknown layout.
 const DEFAULT_LAYOUT = 'centered_product'
 
 // Read post.theme.cc_meta to extract the structured strategist output.
-function readStrategy(post) {
+//
+// `slideIndex` (default 0) lets the engine pick a per-slide override for
+// carousel posts: when cc_meta.slides[slideIndex] exists, its layout /
+// components win over the post-level defaults. Without per-slide
+// overrides every slide of a carousel rendered identically.
+function readStrategy(post, slideIndex = 0) {
   if (!post || typeof post !== 'object') return null
   const theme = post.theme && typeof post.theme === 'object' ? post.theme : {}
   const cm = theme.cc_meta && typeof theme.cc_meta === 'object' ? theme.cc_meta : {}
-  // Prefer the explicit fields stored by Phase A backend
-  let layout = String(cm.layout || cm.strategy?.layout || '').toLowerCase()
+
+  const slides = Array.isArray(cm.slides) ? cm.slides : []
+  const slide = (slideIndex >= 0 && slides[slideIndex] && typeof slides[slideIndex] === 'object')
+    ? slides[slideIndex]
+    : null
+
+  // Prefer per-slide layout, then post-level cc_meta.layout, then legacy
+  // strategy.layout.
+  let layout = String(
+    (slide && slide.layout) || cm.layout || cm.strategy?.layout || '',
+  ).toLowerCase()
   // Fall back to the legacy archetype slug if no layout was set, or if the
   // layout name isn't recognised by the engine. Without this, every legacy
   // post lands on centered_product regardless of intent.
   if (!layout || !LAYOUT_RENDERERS[layout]) {
-    const archetype = String(cm.visual_archetype || cm.strategy?.visual_archetype || '').toLowerCase()
+    const archetype = String(
+      (slide && slide.visual_archetype) || cm.visual_archetype || cm.strategy?.visual_archetype || '',
+    ).toLowerCase()
     const remapped = ARCHETYPE_TO_LAYOUT[archetype]
     if (remapped) layout = remapped
   }
-  const components = Array.isArray(cm.components)
-    ? cm.components
-    : Array.isArray(cm.strategy?.components) ? cm.strategy.components : []
+  // Per-slide components override post-level ones when present.
+  const components = (slide && Array.isArray(slide.components) && slide.components.length)
+    ? slide.components
+    : (Array.isArray(cm.components)
+      ? cm.components
+      : Array.isArray(cm.strategy?.components) ? cm.strategy.components : [])
   const useProductImage = typeof cm.use_product_image === 'boolean'
     ? cm.use_product_image
     : !!cm.strategy?.use_product_image
@@ -672,14 +1077,14 @@ function readStrategy(post) {
   return { layout, components, useProductImage, postType, strategy: cm.strategy || null }
 }
 
-async function renderPostToCanvas(canvas, post, brand, imageUrl) {
+async function renderPostToCanvas(canvas, post, brand, imageUrl, slideIndex = 0) {
   const ctx = canvas.getContext('2d')
   if (!ctx) return false
   canvas.width = W
   canvas.height = H
 
   const ds = resolveDesignTokens(brand, post)
-  const strategy = readStrategy(post)
+  const strategy = readStrategy(post, slideIndex)
 
   if (!strategy || !strategy.components || strategy.components.length === 0) {
     // No structured strategy → just paint the AI image (current behaviour).
