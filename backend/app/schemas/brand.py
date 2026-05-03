@@ -2,6 +2,30 @@ from pydantic import BaseModel
 from datetime import datetime
 
 
+# Allowed brand-photo categories. Drives layout selection downstream
+# (e.g. lifestyle_clean only fits hands_on / lifestyle photos).
+BRAND_PHOTO_CATEGORIES = ("hands_on", "still_life", "lifestyle")
+
+
+class BrandProductOut(BaseModel):
+    """Lean product card surfaced on BrandOut so the frontend layout
+    engine can composite a clean cutout straight onto a flat
+    brand-coloured poster. Heavier metadata (price, tags, change
+    events) stays on the dedicated /website/products endpoint.
+
+    `cutout_url` is populated by the bg-removal pipeline (PR 9). Until
+    then it stays None and the frontend falls back to image_url."""
+    id: str
+    name: str
+    image_url: str | None = None
+    cutout_url: str | None = None
+
+
+class BrandPhotoCategoryUpdate(BaseModel):
+    """PUT body for setting a single photo's category."""
+    category: str | None = None
+
+
 class BrandCreate(BaseModel):
     name: str
     industry: str | None = None
@@ -87,6 +111,18 @@ class BrandOut(BaseModel):
     twitter_handle: str | None
     linkedin_handle: str | None
     brand_kit: dict | None
+    # Brand assets surfaced separately so the layout engine doesn't have
+    # to dig through brand_kit. wordmark/monogram/product_stamp live in
+    # brand_kit but are echoed at the top level for convenience.
+    brand_photos: list = []
+    wordmark_url: str | None = None
+    monogram_url: str | None = None
+    product_stamp_url: str | None = None
+    # Map of photo URL → category ("hands_on" | "still_life" | "lifestyle").
+    # Categorised photos drive layout selection (lifestyle_clean wants a
+    # hands_on shot, centered_product prefers still_life, etc.).
+    brand_photo_categories: dict = {}
+    products: list[BrandProductOut] = []
     openai_assistant_id: str | None
     openai_vector_store_id: str | None
     created_at: datetime
