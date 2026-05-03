@@ -2,6 +2,19 @@ from pydantic import BaseModel
 from datetime import datetime
 
 
+# Allowed brand-photo categories. Drives layout selection downstream
+# (e.g. lifestyle_clean wants hands_on / lifestyle photos, centered_product
+# prefers still_life). Keep in sync with PHOTO_CATEGORY_OPTIONS in
+# frontend/src/pages/BrandKitPage.jsx.
+BRAND_PHOTO_CATEGORIES = ("hands_on", "still_life", "lifestyle")
+
+
+class BrandPhotoCategoryUpdate(BaseModel):
+    """PUT body for setting a single photo's category. Pass null/empty to
+    clear the category."""
+    category: str | None = None
+
+
 class BrandCreate(BaseModel):
     name: str
     industry: str | None = None
@@ -99,6 +112,17 @@ class BrandOut(BaseModel):
     linkedin_handle: str | None
     brand_kit: dict | None
     brand_photos: list = []
+    # Extended brand assets used by the layout engine. Each lives inside
+    # brand_kit so we can extend without a schema migration; the serializer
+    # echoes them at the top level for renderer convenience.
+    wordmark_url: str | None = None
+    monogram_url: str | None = None
+    product_stamp_url: str | None = None
+    # Map of photo URL → category ("hands_on" | "still_life" | "lifestyle").
+    # Tagged photos drive layout selection so a lifestyle-clean poster
+    # only fires when the brand actually has a hands-on / lifestyle shot
+    # to anchor it.
+    brand_photo_categories: dict = {}
     products: list[BrandProductOut] = []
     openai_assistant_id: str | None
     openai_vector_store_id: str | None
