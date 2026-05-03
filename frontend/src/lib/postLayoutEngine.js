@@ -693,6 +693,172 @@ async function renderMemeUIScreenshot(ctx, ds, post, brand, components, imageUrl
   }
 }
 
+// ── Layout 9: bold_announcement ───────────────────────────────────────────
+// Jay's "NEW MENU ALERT! NEW YORKER BURGER" look. Two-tier headline
+// (loud announcement + italic display sub), product line-up across the
+// bottom, peel-sticker badge anchored in the upper-right.
+
+async function renderBoldAnnouncement(ctx, ds, post, brand, components, imageUrl) {
+  // Paper / cream surface with a subtle wash over any AI image.
+  if (imageUrl) {
+    await drawBackground(ctx, ds, imageUrl)
+    ctx.fillStyle = alpha(ds.palette.paper, 0.7)
+    ctx.fillRect(0, 0, W, H)
+  } else {
+    ctx.fillStyle = ds.palette.paper
+    ctx.fillRect(0, 0, W, H)
+  }
+  drawPaperTexture(ctx, ds, ds.texture?.kind === 'paper' ? 0.12 : 0.07, 1)
+
+  maybeDrawBrandLogo(ctx, ds, brand)
+
+  const headline = findComponent(components, 'OutlineHeadline')
+    || findComponent(components, 'Headline')
+  const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
+  const peel = findComponent(components, 'PeelSticker')
+  const lineup = findComponent(components, 'ProductLineup')
+  const product = findComponent(components, 'ProductImage')
+  const tray = findComponent(components, 'CheckeredTray')
+
+  // Headline — "NEW MENU ALERT!" stacked outline.
+  if (headline) {
+    const opts = {
+      align: 'center',
+      stack: true,
+      fillColour: ds.palette.primary,
+      outlineColour: ds.palette.outline,
+      ...(headline.opts || {}),
+    }
+    await drawComponent(
+      ctx, ds,
+      { type: 'OutlineHeadline', content: headline.content, opts },
+      { x: ds.spacing.pad, y: 110, w: W - ds.spacing.pad * 2, h: 320 },
+      brand,
+    )
+  }
+
+  // Italic subhead — Jay's "NEW YORKER BURGER" line under the alert.
+  if (subhead) {
+    const opts = {
+      align: 'center',
+      colour: ds.palette.primary,
+      fontStyle: 'italic',
+      ...(subhead.opts || {}),
+    }
+    await drawComponent(ctx, ds, { ...subhead, opts }, {
+      x: ds.spacing.pad,
+      y: 440,
+      w: W - ds.spacing.pad * 2,
+      h: 80,
+    }, brand)
+  }
+
+  // Optional checkered-tray stripe under the lineup.
+  if (tray) {
+    await drawComponent(ctx, ds, tray, {
+      x: 0,
+      y: H * 0.7,
+      w: W,
+      h: 40,
+    }, brand)
+  }
+
+  // Product lineup or single product hero.
+  if (lineup || (Array.isArray(brand?.products) && brand.products.length >= 2)) {
+    await drawComponent(
+      ctx, ds,
+      lineup || { type: 'ProductLineup', content: { count: 4, overlap: 0.16 } },
+      { x: 0, y: H * 0.55, w: W, h: H * 0.4 },
+      brand,
+    )
+  } else if (product) {
+    await drawComponent(ctx, ds, product, {
+      x: W * 0.22,
+      y: H * 0.6,
+      w: W * 0.56,
+      h: H * 0.34,
+    }, brand)
+  }
+
+  // Peel sticker — anchor top-right by default.
+  if (peel) {
+    await drawComponent(ctx, ds, peel, {
+      x: W - 280,
+      y: H * 0.5 - 80,
+      w: 220,
+      h: 220,
+    }, brand)
+  }
+}
+
+// ── Layout 10: hero_carousel_opener ───────────────────────────────────────
+// First-slide opener for an announcement carousel. Slide 1 is the
+// "alert + lineup" lockup; subsequent slides should each render through
+// `centered_product` per item (PR A8 wires per-slide dispatch).
+
+async function renderHeroCarouselOpener(ctx, ds, post, brand, components, imageUrl) {
+  if (imageUrl) {
+    await drawBackground(ctx, ds, imageUrl)
+    ctx.fillStyle = alpha(ds.palette.paper, 0.65)
+    ctx.fillRect(0, 0, W, H)
+  } else {
+    ctx.fillStyle = ds.palette.paper
+    ctx.fillRect(0, 0, W, H)
+  }
+  drawPaperTexture(ctx, ds, ds.texture?.kind === 'paper' ? 0.1 : 0.06, 1.2)
+
+  maybeDrawBrandLogo(ctx, ds, brand)
+
+  const headline = findComponent(components, 'OutlineHeadline')
+    || findComponent(components, 'Headline')
+  const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
+  const peel = findComponent(components, 'PeelSticker')
+  const lineup = findComponent(components, 'ProductLineup')
+
+  // Top-anchored alert headline.
+  if (headline) {
+    const opts = {
+      align: 'left',
+      stack: true,
+      fillColour: ds.palette.primary,
+      outlineColour: ds.palette.outline,
+      ...(headline.opts || {}),
+    }
+    await drawComponent(
+      ctx, ds,
+      { type: 'OutlineHeadline', content: headline.content, opts },
+      { x: ds.spacing.pad, y: 110, w: W * 0.7, h: 280 },
+      brand,
+    )
+  }
+
+  if (subhead) {
+    const opts = { align: 'left', colour: ds.palette.primary, ...(subhead.opts || {}) }
+    await drawComponent(ctx, ds, { ...subhead, opts }, {
+      x: ds.spacing.pad,
+      y: 410,
+      w: W * 0.7,
+      h: 70,
+    }, brand)
+  }
+
+  // Lineup fills the bottom 45%, slightly inset.
+  await drawComponent(
+    ctx, ds,
+    lineup || { type: 'ProductLineup', content: { count: 4, overlap: 0.14 } },
+    { x: ds.spacing.pad, y: H * 0.55, w: W - ds.spacing.pad * 2, h: H * 0.4 },
+    brand,
+  )
+
+  // Peel sticker top-right — Jay's "NEW" tab. Default-on.
+  await drawComponent(
+    ctx, ds,
+    peel || { type: 'PeelSticker', content: 'NEW' },
+    { x: W - 240, y: 140, w: 180, h: 180 },
+    brand,
+  )
+}
+
 // ── Master dispatcher ─────────────────────────────────────────────────────
 
 const LAYOUT_RENDERERS = {
@@ -704,6 +870,8 @@ const LAYOUT_RENDERERS = {
   quote_editorial: renderQuoteEditorial,
   lifestyle_clean: renderLifestyleClean,
   meme_ui_screenshot: renderMemeUIScreenshot,
+  bold_announcement: renderBoldAnnouncement,
+  hero_carousel_opener: renderHeroCarouselOpener,
 }
 
 // Legacy archetype slugs that pre-date the Phase-A layout engine. The
@@ -733,10 +901,15 @@ const ARCHETYPE_TO_LAYOUT = {
   // renderers instead of centered_product.
   flat_edu: 'typography_poster',
   editorial_issue_card: 'quote_editorial',
-  // Co-brand / merchant launches read like a split design (text + product).
-  co_brand_lockup: 'split',
-  merchant_launch_cutout: 'split',
-  product_grid_offer: 'split',
+  // Co-brand / merchant launches and product-grid offers all want the
+  // same announcement treatment (loud headline + product line-up + peel
+  // sticker). bold_announcement gives them that without hiding the
+  // products behind a brand-colour veil. offer_pill_stack ships the
+  // same look since it's also an offer / launch shape.
+  co_brand_lockup: 'bold_announcement',
+  merchant_launch_cutout: 'bold_announcement',
+  product_grid_offer: 'bold_announcement',
+  offer_pill_stack: 'bold_announcement',
 }
 
 // Default layout when the strategy is missing or has an unknown layout.
