@@ -167,6 +167,84 @@ def preferred_layouts_for_content_type(content_type: str | None) -> list[str]:
         return []
     return list(_PREFERRED_LAYOUTS_BY_CONTENT_TYPE.get(str(content_type).lower(), []))
 
+
+# ── headline_short derivation ────────────────────────────────────────────
+#
+# Posters live on 3-5 power words ("THE MENU ALREADY DECIDED"); the
+# long-form hook the strategist writes for captions is usually a full
+# sentence. When the model forgets to ship `headline_short`, derive one
+# from whatever else we have so the renderer never paints a 9-word
+# sentence into an OutlineHeadline.
+
+_GENERIC_PUNCH_FALLBACKS = (
+    "FRESH DROP",
+    "HOT NOW",
+    "TODAY ONLY",
+    "NEW IN",
+)
+_PUNCH_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "of", "for", "with", "to", "on", "in",
+    "at", "by", "is", "are", "was", "were", "be", "been", "have", "has",
+    "had", "do", "does", "did", "this", "that", "these", "those", "it",
+    "its", "as", "we", "you", "your", "our", "their", "from", "into", "if",
+})
+
+
+def _derive_headline_short(strategy: dict) -> str:
+    """Build a 3-5 word ALL-CAPS punch from the longest-form hook
+    available. Falls back to a generic punch if everything is empty."""
+    candidates = [
+        strategy.get("headline"),
+        (strategy.get("message_architecture") or {}).get("hook")
+            if isinstance(strategy.get("message_architecture"), dict) else None,
+        strategy.get("content_idea"),
+        strategy.get("topic"),
+        strategy.get("text_on_image"),
+    ]
+    for cand in candidates:
+        text = str(cand or "").strip()
+        if not text:
+            continue
+        # Strip surrounding quotes / ending punctuation.
+        text = text.strip(' "\'“”‘’.!?,;:')
+        # Collapse whitespace.
+        words = [w for w in text.split() if w]
+        if not words:
+            continue
+        # First pass: drop stopwords, keep at most 5 words.
+        kept = [w for w in words if w.lower() not in _PUNCH_STOPWORDS][:5]
+        # If the strip nuked everything, fall back to the first 4 raw
+        # words (a hook like "Why we do it" still produces "WHY WE DO IT").
+        if not kept:
+            kept = words[:4]
+        if kept:
+            return " ".join(kept).upper()
+    # Last-resort generic punch — picked deterministically from the
+    # post_type so the same post never shifts on regenerate.
+    pt = str(strategy.get("post_type") or "").strip().lower()
+    return _GENERIC_PUNCH_FALLBACKS[abs(hash(pt)) % len(_GENERIC_PUNCH_FALLBACKS)]
+
+
+def _layout_compatible_with_bg_mode(layout: str | None, bg_mode: str | None) -> bool:
+    """Local mirror of image_service.layout_compatible_with_bg_mode so
+    the strategist module doesn't have to import from image_service
+    (and risk circular imports). Keep the table in sync."""
+    if not layout:
+        return True
+    requirements = _STRATEGIST_LAYOUT_BG_REQUIREMENTS.get(str(layout).lower())
+    if not requirements:
+        return True
+    if not bg_mode:
+        return True
+    return str(bg_mode).lower() in requirements
+
+
+_STRATEGIST_LAYOUT_BG_REQUIREMENTS: dict[str, set[str]] = {
+    "lifestyle_clean": {"product_hero", "ai_scene"},
+    "lifestyle_overlay": {"product_hero", "ai_scene"},
+    "meme_ui_screenshot": {"color_block", "gradient_panel"},
+}
+
 # PRD §6.2 strict schema enums.
 ALLOWED_FORMATS: frozenset[str] = frozenset({"single", "quote", "gif"})
 ALLOWED_CONTENT_TYPES: frozenset[str] = frozenset({
@@ -313,6 +391,7 @@ specific, brand-grounded values (no empty strings):
   "lighting":        "Light quality consistent with brand mood.",
   "color_strategy":  "Which brand hex is background, which is accent, which is neutral.",
   "text_on_image":   "DEPRECATED — leave as a short summary of the headline. Frontend uses `components` instead.",
+  "headline_short":  "REQUIRED for poster layouts. 3-5 power WORDS in ALL CAPS that own the canvas (e.g. \"THE MENU ALREADY DECIDED\" / \"NEW MENU ALERT\" / \"THE KIND YOU DON'T PUT DOWN\"). Distinct from the long-form `headline` / hook used in captions. Posters render this through OutlineHeadline; sentence-cased multi-word hooks read as stock-image overlays, not posters.",
   "format":          "single | quote | gif",
   "post_type":       "product_spotlight | offer_discount | social_proof | lifestyle_use",
   "layout":          "centered_product | split | offer_card | lifestyle_overlay | typography_poster | quote_editorial | lifestyle_clean | meme_ui_screenshot | bold_announcement | hero_carousel_opener — pick the recipe that fits the post intent. Editorial / quote / inspiration → typography_poster or quote_editorial. Launch / new menu / sale → bold_announcement (or hero_carousel_opener for multi-slide). POV / meme / relatable → meme_ui_screenshot. Real photo + brand colour wall → lifestyle_clean. Default mix should NOT collapse to centered_product or offer_card every post.",
@@ -791,6 +870,35 @@ def coerce_strategy_with_defaults(strategy: dict[str, Any]) -> dict[str, Any]:
         # Default true for product_spotlight / social_proof / offer_discount,
         # false for lifestyle_use.
         out["use_product_image"] = out["post_type"] != "lifestyle_use"
+
+    # Headline-short backfill — required by the poster layouts. The model
+    # is supposed to emit a 3-5 word punch alongside the long-form hook.
+    # When it forgets, derive one from the message hook / topic / content
+    # idea so OutlineHeadline never has to render a 9-word sentence.
+    if not str(out.get("headline_short") or "").strip():
+        out["headline_short"] = _derive_headline_short(out)
+
+    # Layout / bg-mode compatibility — drop layouts that can't be served
+    # by the strategist's chosen mode (e.g. meme_ui_screenshot over
+    # ai_scene). When a conflict is detected we route to the
+    # content_type pool first, then to the post_type default, then to
+    # centered_product as a last resort.
+    bg_mode = str(out.get("background_mode") or out.get("bg_mode") or "").strip().lower() or None
+    if bg_mode and not _layout_compatible_with_bg_mode(out["layout"], bg_mode):
+        ct = str(out.get("content_type") or "").strip().lower()
+        candidates = [
+            *preferred_layouts_for_content_type(ct),
+            _DEFAULT_LAYOUT_BY_POST_TYPE.get(out["post_type"], "centered_product"),
+            "centered_product",
+        ]
+        out["layout"] = next(
+            (
+                cand
+                for cand in candidates
+                if cand in ALLOWED_LAYOUTS and _layout_compatible_with_bg_mode(cand, bg_mode)
+            ),
+            "centered_product",
+        )
     return out
 
 
