@@ -2214,26 +2214,48 @@ async def _generate_carousel_frames(
 
 
 def _select_background_mode(post: dict, post_index: int, has_product: bool) -> str:
-    """Pick a background mode for this post.
+    """Pick a background mode for this post so the calendar isn't seven
+    near-identical product hero shots.
 
     Modes:
       - "product_hero"   — current product-edit path (requires has_product)
-      - "ai_scene"       — generic AI photo (used when there's no product)
+      - "color_block"    — locally-rendered flat brand-colour panel
+      - "gradient_panel" — locally-rendered brand colour gradient
 
-    The `color_block` and `gradient_panel` modes used to short-circuit
-    image generation and let the frontend canvas paint a flat brand-colour
-    fill, but in practice that produced posts that read as "we forgot to
-    generate an image" — every other tile on the calendar was a slab of
-    brand colour. Always asking the model for a real photo means the
-    canvas always has something photographic to overlay.
+    Selection biases by content_type:
+      - promotional / launch / sale / bundle → product_hero (need to see it)
+      - quote / inspiration / affirmation     → color_block + gradient
+      - seasonal / holiday / moment           → gradient + color_block
+      - community / engagement / story        → mix of all three
+      - everything else                       → rotate evenly
 
     Honours an explicit `cc_meta.use_product_image: true` from the
     strategist as a force toward product_hero (when product_image_urls
-    are available).
+    are available); a strategist-confirmed product post should always
+    show the product.
     """
-    if has_product:
+    content_type = str(post.get("content_type") or "").lower()
+    explicit_use_product = bool(post.get("use_product_image"))
+    if explicit_use_product and has_product:
         return "product_hero"
-    return "ai_scene"
+    if has_product and any(
+        k in content_type
+        for k in ("promo", "launch", "offer", "sale", "upsell", "bundle", "new_product")
+    ):
+        return "product_hero"
+    if any(k in content_type for k in ("quote", "inspiration", "motivation", "affirmation")):
+        return ["color_block", "gradient_panel"][post_index % 2]
+    if any(k in content_type for k in ("seasonal", "holiday", "moment")):
+        return ["gradient_panel", "color_block", "product_hero" if has_product else "color_block"][post_index % 3]
+    if any(k in content_type for k in ("community", "engagement", "user_generated", "ugc", "story")):
+        rotation = ["color_block", "gradient_panel"]
+        if has_product:
+            rotation.append("product_hero")
+        return rotation[post_index % len(rotation)]
+    rotation = ["color_block", "gradient_panel"]
+    if has_product:
+        rotation.append("product_hero")
+    return rotation[post_index % len(rotation)]
 
 
 def _brand_palette(brand: dict) -> list[str]:

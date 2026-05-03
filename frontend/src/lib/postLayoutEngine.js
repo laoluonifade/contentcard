@@ -57,6 +57,25 @@ function pickComponents(components, types) {
     .filter(Boolean)
 }
 
+// True when the brand actually has a product photo we can composite.
+// Mirrors the lookup in postComponents.drawProductImage so the renderer's
+// auto-fallback only kicks in when there's something to draw.
+function brandHasProductPhoto(brand) {
+  if (!brand) return false
+  const products = Array.isArray(brand.products) ? brand.products : []
+  if (products[0]?.image_url) return true
+  const photos = Array.isArray(brand.brand_photos) ? brand.brand_photos : []
+  return !!photos[0]
+}
+
+// Synthesise a ProductImage component when the strategist didn't supply
+// one. Used by layouts that look much better with a product cutout than
+// without (offer_card, centered_product) when the brand has a photo
+// available.
+function synthesizeProductComponent() {
+  return { type: 'ProductImage', content: 'primary', opts: {} }
+}
+
 // ── Logo + brand wordmark slot ────────────────────────────────────────────
 // Drawn unless brand_kit.logo_rendering === "none". Top-left, small.
 
@@ -80,7 +99,12 @@ async function renderCenteredProduct(ctx, ds, post, brand, components, imageUrl)
 
   const headline = findComponent(components, 'Headline')
   const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
+  // Fall back to a synthesised product cameo when the strategist didn't
+  // ship one but the brand has a product photo on file. Without this the
+  // canvas reads as text-only over a flat brand colour, even though we
+  // could be showing the product.
   const product = findComponent(components, 'ProductImage')
+    || (brandHasProductPhoto(brand) ? synthesizeProductComponent() : null)
   const price = findComponent(components, 'PriceTag')
   const cta = findComponent(components, 'CTAButton')
   const badge = findComponent(components, 'Badge')
@@ -258,7 +282,12 @@ async function renderOfferCard(ctx, ds, post, brand, components, imageUrl) {
   const headline = findComponent(components, 'Headline')
   const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
   const cta = findComponent(components, 'CTAButton')
+  // Auto-add a product cameo when the strategist didn't include one
+  // and the brand has a product photo. Otherwise the offer card reads
+  // as flat colour with text only — the brand-colour-poster look the
+  // layout is going for needs the product to feel finished.
   const product = findComponent(components, 'ProductImage')
+    || (brandHasProductPhoto(brand) ? synthesizeProductComponent() : null)
 
   // Badge top centre (e.g. "LIMITED" / "TODAY ONLY")
   if (badge) {
