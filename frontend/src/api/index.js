@@ -190,6 +190,34 @@ export const brandApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     }).then(r => r.data)
   },
+  uploadWordmark: (wsId, brandId, file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post(`/workspaces/${wsId}/brands/${brandId}/wordmark`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  uploadMonogram: (wsId, brandId, file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post(`/workspaces/${wsId}/brands/${brandId}/monogram`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  uploadProductStamp: (wsId, brandId, file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return api.post(`/workspaces/${wsId}/brands/${brandId}/product-stamp`, fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    }).then(r => r.data)
+  },
+  deleteBrandAsset: (wsId, brandId, slot) =>
+    api.delete(`/workspaces/${wsId}/brands/${brandId}/asset/${slot}`).then(r => r.data),
+  setPhotoCategory: (wsId, brandId, photoIndex, category) =>
+    api.put(
+      `/workspaces/${wsId}/brands/${brandId}/photos/${photoIndex}/category`,
+      { category },
+    ).then(r => r.data),
   aiInsights: (wsId, brandId) => api.post(`/workspaces/${wsId}/brands/${brandId}/ai-insights`).then(r => r.data),
   uploadPhoto: (wsId, brandId, file) => {
     const fd = new FormData()
