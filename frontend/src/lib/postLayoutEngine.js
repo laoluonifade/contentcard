@@ -52,6 +52,19 @@ function findComponent(components, type) {
   return components.find((c) => c && String(c.type || '') === type) || null
 }
 
+// Poster layouts (typography_poster / bold_announcement /
+// hero_carousel_opener) want a 3-5 word punch that owns the canvas, not
+// the long-form sentence-style hook captions live on. The strategist
+// emits `cc_meta.headline_short` for that purpose; this helper picks it
+// when present and falls back to the regular Headline content otherwise.
+function pickPosterHeadlineContent(post, fallbackContent) {
+  const cm = post?.theme?.cc_meta
+  if (cm && typeof cm.headline_short === 'string' && cm.headline_short.trim()) {
+    return cm.headline_short.trim()
+  }
+  return fallbackContent
+}
+
 function pickComponents(components, types) {
   return types
     .map((t) => findComponent(components, t))
@@ -453,6 +466,8 @@ async function renderTypographyPoster(ctx, ds, post, brand, components, imageUrl
   const callout = findComponent(components, 'SpeechBubblePill')
   const garnishComp = findComponent(components, 'IllustratedGarnish')
   const signature = findComponent(components, 'BrandSignature')
+  const cta = findComponent(components, 'CTAButton')
+  const stamp = findComponent(components, 'BrandStamp')
 
   // Headline: dominant top stack. Force the OutlineHeadline path so the
   // strategist can ship a regular Headline component and still land on
@@ -463,11 +478,15 @@ async function renderTypographyPoster(ctx, ds, post, brand, components, imageUrl
       stack: true,
       fillColour: ds.palette.primary,
       outlineColour: ds.palette.outline,
+      // Scrim plate behind the headline only when there's a photo
+      // behind us — outline + shadow carry legibility on flat
+      // brand-coloured paper.
+      scrim: !!imageUrl,
       ...(headline.opts || {}),
     }
     await drawComponent(
       ctx, ds,
-      { type: 'OutlineHeadline', content: headline.content, opts },
+      { type: 'OutlineHeadline', content: pickPosterHeadlineContent(post, headline.content), opts },
       { x: ds.spacing.pad, y: 110, w: W - ds.spacing.pad * 2, h: subhead ? 520 : 580 },
       brand,
     )
@@ -515,6 +534,31 @@ async function renderTypographyPoster(ctx, ds, post, brand, components, imageUrl
       ctx, ds,
       { ...callout, opts: { ...(callout.opts || {}), tail } },
       { x: W * 0.66, y: H * 0.62, w: 220, h: 80 },
+      brand,
+    )
+  }
+
+  // CTA — anchor the pill at the bottom 12% of the canvas, horizontally
+  // centred under the product. Without this typography_poster shipped a
+  // headline + product but no call-to-action, leaving the user without
+  // a clear next step.
+  if (cta) {
+    await drawComponent(
+      ctx, ds,
+      { ...cta, opts: { align: 'center', ...(cta.opts || {}) } },
+      { x: 0, y: H - 130, w: W, h: 80 },
+      brand,
+    )
+  }
+
+  // Brand stamp top-left when the brand has a stamp / wordmark uploaded.
+  // Auto-anchored even when the strategist forgets the component, so
+  // poster output always reads as branded.
+  if (stamp || brand?.product_stamp_url || brand?.wordmark_url) {
+    await drawComponent(
+      ctx, ds,
+      stamp || { type: 'BrandStamp', content: { showHalo: true } },
+      { x: ds.spacing.pad, y: ds.spacing.pad, w: 96, h: 96 },
       brand,
     )
   }
@@ -719,6 +763,9 @@ async function renderBoldAnnouncement(ctx, ds, post, brand, components, imageUrl
   const lineup = findComponent(components, 'ProductLineup')
   const product = findComponent(components, 'ProductImage')
   const tray = findComponent(components, 'CheckeredTray')
+  const cta = findComponent(components, 'CTAButton')
+  const stamp = findComponent(components, 'BrandStamp')
+  const signature = findComponent(components, 'BrandSignature')
 
   // Headline — "NEW MENU ALERT!" stacked outline.
   if (headline) {
@@ -727,11 +774,15 @@ async function renderBoldAnnouncement(ctx, ds, post, brand, components, imageUrl
       stack: true,
       fillColour: ds.palette.primary,
       outlineColour: ds.palette.outline,
+      // Scrim plate behind the headline only when there's a photo
+      // behind us — outline + shadow carry legibility on flat
+      // brand-coloured paper.
+      scrim: !!imageUrl,
       ...(headline.opts || {}),
     }
     await drawComponent(
       ctx, ds,
-      { type: 'OutlineHeadline', content: headline.content, opts },
+      { type: 'OutlineHeadline', content: pickPosterHeadlineContent(post, headline.content), opts },
       { x: ds.spacing.pad, y: 110, w: W - ds.spacing.pad * 2, h: 320 },
       brand,
     )
@@ -789,6 +840,37 @@ async function renderBoldAnnouncement(ctx, ds, post, brand, components, imageUrl
       h: 220,
     }, brand)
   }
+
+  // CTA pill at the bottom 12% of the canvas, horizontally centred so
+  // the lineup → CTA flow sits on the same vertical axis.
+  if (cta) {
+    await drawComponent(
+      ctx, ds,
+      { ...cta, opts: { align: 'center', ...(cta.opts || {}) } },
+      { x: 0, y: H - 130, w: W, h: 80 },
+      brand,
+    )
+  }
+
+  // Auto brand-stamp + signature — surface the brand mark even when
+  // the strategist forgets the components, so announcement posts
+  // never read as un-branded.
+  if (stamp || brand?.product_stamp_url || brand?.wordmark_url) {
+    await drawComponent(
+      ctx, ds,
+      stamp || { type: 'BrandStamp', content: { showHalo: true } },
+      { x: ds.spacing.pad, y: ds.spacing.pad, w: 96, h: 96 },
+      brand,
+    )
+  }
+  if (signature || brand?.monogram_url) {
+    await drawComponent(
+      ctx, ds,
+      signature || { type: 'BrandSignature', content: { anchor: 'bottom-right' } },
+      { x: W - 200, y: H - 160, w: 160, h: 120 },
+      brand,
+    )
+  }
 }
 
 // ── Layout 10: hero_carousel_opener ───────────────────────────────────────
@@ -814,6 +896,9 @@ async function renderHeroCarouselOpener(ctx, ds, post, brand, components, imageU
   const subhead = findComponent(components, 'SubHead') || findComponent(components, 'Subhead')
   const peel = findComponent(components, 'PeelSticker')
   const lineup = findComponent(components, 'ProductLineup')
+  const cta = findComponent(components, 'CTAButton')
+  const stamp = findComponent(components, 'BrandStamp')
+  const signature = findComponent(components, 'BrandSignature')
 
   // Top-anchored alert headline.
   if (headline) {
@@ -822,11 +907,15 @@ async function renderHeroCarouselOpener(ctx, ds, post, brand, components, imageU
       stack: true,
       fillColour: ds.palette.primary,
       outlineColour: ds.palette.outline,
+      // Scrim plate behind the headline only when there's a photo
+      // behind us — outline + shadow carry legibility on flat
+      // brand-coloured paper.
+      scrim: !!imageUrl,
       ...(headline.opts || {}),
     }
     await drawComponent(
       ctx, ds,
-      { type: 'OutlineHeadline', content: headline.content, opts },
+      { type: 'OutlineHeadline', content: pickPosterHeadlineContent(post, headline.content), opts },
       { x: ds.spacing.pad, y: 110, w: W * 0.7, h: 280 },
       brand,
     )
@@ -857,6 +946,35 @@ async function renderHeroCarouselOpener(ctx, ds, post, brand, components, imageU
     { x: W - 240, y: 140, w: 180, h: 180 },
     brand,
   )
+
+  // Optional CTA pill bottom-centred under the lineup.
+  if (cta) {
+    await drawComponent(
+      ctx, ds,
+      { ...cta, opts: { align: 'center', ...(cta.opts || {}) } },
+      { x: 0, y: H - 110, w: W, h: 70 },
+      brand,
+    )
+  }
+
+  // Auto-anchor brand mark + signature so even a strategist that
+  // forgets the components ships a branded opener.
+  if (stamp || brand?.product_stamp_url || brand?.wordmark_url) {
+    await drawComponent(
+      ctx, ds,
+      stamp || { type: 'BrandStamp', content: { showHalo: true } },
+      { x: ds.spacing.pad, y: ds.spacing.pad, w: 96, h: 96 },
+      brand,
+    )
+  }
+  if (signature || brand?.monogram_url) {
+    await drawComponent(
+      ctx, ds,
+      signature || { type: 'BrandSignature', content: { anchor: 'bottom-right' } },
+      { x: W - 200, y: H - 160, w: 160, h: 120 },
+      brand,
+    )
+  }
 }
 
 // ── Master dispatcher ─────────────────────────────────────────────────────
