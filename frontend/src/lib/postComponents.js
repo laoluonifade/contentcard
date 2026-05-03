@@ -18,6 +18,12 @@ import {
   sampleAverageLuminance,
   wrapText,
 } from './postDesignSystem'
+import {
+  drawOutlinedText,
+  drawSpeechBubbleTail,
+  drawPeelShadow,
+  fillRoundedRect,
+} from './postDrawUtils'
 
 // ── ProductImage ──────────────────────────────────────────────────────────
 // Composites the brand's product photo into the bounds rectangle. The
@@ -477,6 +483,285 @@ function drawBrandLogo(ctx, ds, brand, bounds) {
   ctx.restore()
 }
 
+// ── OutlineHeadline ───────────────────────────────────────────────────────
+// Two-tone outlined display type — Jay's Diner red fill + yellow outline +
+// drop shadow. Distinct geometry from `Headline`: this one always paints
+// outlined glyphs, doesn't try to autofit a tight bounds the same way.
+// Caller picks the size by setting opts.fontSize or letting auto-fit pick
+// from the bounds height. Used by typography_poster / bold_announcement /
+// hero_carousel_opener layouts in PRs A5 + A7.
+//
+// Opts:
+//   align:          'left' | 'center' | 'right' (default 'center')
+//   fillColour:     hex; defaults to ds.palette.primary
+//   outlineColour:  hex; defaults to ds.palette.outline
+//   shadowColour:   rgba; null disables (default soft black)
+//   outlineWidth:   px; default scales with font size (~0.045× size)
+//   stack:          when true, breaks the headline onto multiple lines
+//                   matching wrapText's natural break (Jay's "THE / MENU /
+//                   ALREADY / DECIDED" stack). default false.
+//   fontSize:       explicit px size; default auto-fits.
+//   weight:         font weight; default 900 (heavy display).
+
+function drawOutlineHeadline(ctx, ds, content, bounds, opts = {}) {
+  const text = String(content || '').trim()
+  if (!text) return
+
+  const align = opts.align || 'center'
+  const fillColour = opts.fillColour || ds.palette.primary
+  const outlineColour = opts.outlineColour || ds.palette.outline
+  const shadowColour = opts.shadowColour === undefined
+    ? 'rgba(0, 0, 0, 0.18)'
+    : opts.shadowColour
+  const stack = !!opts.stack
+  const weight = opts.weight || 900
+  const fontFamily = ds.fontFamily
+
+  // Auto-fit: shrink until the longest line fits horizontally and the total
+  // stack fits vertically. Start big and step down by 6%.
+  let size = opts.fontSize || Math.min(bounds.h * (stack ? 0.85 : 0.6), 220)
+  let lines = []
+  for (let i = 0; i < 14; i += 1) {
+    ctx.font = `${weight} ${size}px ${fontFamily}`
+    if (stack) {
+      lines = wrapText(ctx, text, bounds.w * 0.95)
+    } else {
+      lines = [text]
+    }
+    const widest = Math.max(...lines.map((l) => ctx.measureText(l).width))
+    const totalH = lines.length * size * 1.02
+    if (widest <= bounds.w * 0.95 && totalH <= bounds.h * 1.02) break
+    size *= 0.94
+  }
+
+  const outlineWidth = opts.outlineWidth ?? Math.max(2, Math.round(size * 0.045))
+  const shadowOffsetY = Math.max(2, Math.round(size * 0.03))
+  const shadowBlur = Math.max(2, Math.round(size * 0.04))
+
+  const lineHeight = size * 1.02
+  const totalHeight = lineHeight * lines.length
+  let y = bounds.y + (bounds.h - totalHeight) / 2 + size * 0.86 // baseline of first line
+  let x = bounds.x + bounds.w / 2
+  if (align === 'left') x = bounds.x
+  else if (align === 'right') x = bounds.x + bounds.w
+
+  for (const line of lines) {
+    drawOutlinedText(ctx, line, {
+      fillColour,
+      outlineColour,
+      shadowColour,
+      shadowBlur,
+      shadowOffsetY,
+      outlineWidth,
+      x,
+      y,
+      size,
+      weight,
+      fontFamily,
+      align,
+      baseline: 'alphabetic',
+    })
+    y += lineHeight
+  }
+}
+
+// ── SpeechBubblePill ──────────────────────────────────────────────────────
+// Pill-shaped callout with a small triangular tail pointing at an anchor.
+// Used for "PASTA" / "PRO TIP" callouts that highlight part of the canvas.
+// Bounds describe the pill body; opts.tail describes the anchor the tail
+// should point at.
+//
+// Opts:
+//   align:        'left' | 'center' | 'right'
+//   bg:           pill fill; default ds.palette.outline
+//   fg:           text colour; default contrasts against bg
+//   fontSize:     px; default auto-fits
+//   weight:       font weight; default 800
+//   tail: {
+//     anchorX, anchorY,            -- canvas-space point the tail points at
+//     side: 'top'|'bottom'|'left'|'right',  -- which pill edge to anchor on
+//     width: 36,                   -- base width of the tail triangle
+//   }
+
+function drawSpeechBubblePill(ctx, ds, content, bounds, opts = {}) {
+  const text = String(content || '').trim()
+  if (!text) return
+  const { x, y, w, h } = bounds
+  const radius = h / 2
+  const bg = opts.bg || ds.palette.outline || ds.palette.primary
+  const fg = opts.fg || (isLight(bg) ? ds.palette.ink : '#FFFFFF')
+  const weight = opts.weight || 800
+  const fontFamily = ds.fontFamily
+  const align = opts.align || 'center'
+
+  // Auto-fit text size to the pill's interior height.
+  let size = opts.fontSize || Math.round(h * 0.5)
+  for (let i = 0; i < 8; i += 1) {
+    ctx.font = `${weight} ${size}px ${fontFamily}`
+    if (ctx.measureText(text).width <= w - radius * 2) break
+    size *= 0.92
+  }
+
+  // Tail first so the pill body covers any seam at the body edge.
+  if (opts.tail && typeof opts.tail.anchorX === 'number' && typeof opts.tail.anchorY === 'number') {
+    const side = String(opts.tail.side || 'bottom')
+    let bodyEdgeX = x + w / 2
+    let bodyEdgeY = y + h / 2
+    if (side === 'bottom') { bodyEdgeY = y + h }
+    else if (side === 'top') { bodyEdgeY = y }
+    else if (side === 'left') { bodyEdgeX = x }
+    else if (side === 'right') { bodyEdgeX = x + w }
+    drawSpeechBubbleTail(ctx, {
+      anchorX: opts.tail.anchorX,
+      anchorY: opts.tail.anchorY,
+      bodyEdgeX,
+      bodyEdgeY,
+      fillColour: bg,
+      width: opts.tail.width || Math.max(28, h * 0.6),
+    })
+  }
+
+  // Pill body.
+  fillRoundedRect(ctx, x, y, w, h, radius, {
+    fillColour: bg,
+    shadowColour: 'rgba(0, 0, 0, 0.12)',
+    shadowBlur: 8,
+    shadowOffsetY: 2,
+  })
+
+  // Centred label.
+  ctx.save()
+  ctx.font = `${weight} ${size}px ${fontFamily}`
+  ctx.fillStyle = fg
+  ctx.textAlign = align
+  ctx.textBaseline = 'middle'
+  let textX = x + w / 2
+  if (align === 'left') textX = x + radius
+  else if (align === 'right') textX = x + w - radius
+  ctx.fillText(text, textX, y + h / 2)
+  ctx.restore()
+}
+
+// ── PeelSticker ───────────────────────────────────────────────────────────
+// Circular badge with a curl-shadow that fakes a paper sticker peeled at
+// a corner. Used for "NEW" / "LIMITED" callouts that need to read as
+// physical, not a flat label.
+//
+// Bounds describes the bounding square; the sticker's radius is
+// min(bounds.w, bounds.h) / 2.
+//
+// Opts:
+//   bg:           sticker fill; default ds.palette.outline
+//   fg:           label colour; default contrasts against bg
+//   fontSize:     px; default auto-fits
+//   weight:       font weight; default 900
+//   peelAngle:    radians; default Math.PI / 4 (bottom-right peel)
+
+function drawPeelSticker(ctx, ds, content, bounds, opts = {}) {
+  const text = String(content || '').trim()
+  if (!text) return
+  const { x, y, w, h } = bounds
+  const radius = Math.min(w, h) / 2
+  const cx = x + w / 2
+  const cy = y + h / 2
+  const bg = opts.bg || ds.palette.outline || ds.palette.primary
+  const fg = opts.fg || (isLight(bg) ? ds.palette.ink : '#FFFFFF')
+  const weight = opts.weight || 900
+  const fontFamily = ds.fontFamily
+  const peelAngle = opts.peelAngle ?? Math.PI / 4
+
+  // Drop the curl shadow first so the circle sits cleanly on top.
+  drawPeelShadow(ctx, { cx, cy, radius, angle: peelAngle, intensity: 0.32, blur: 22 })
+
+  // Sticker body (filled circle + hairline inner ring for paper feel).
+  ctx.save()
+  ctx.fillStyle = bg
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.lineWidth = Math.max(1, radius * 0.04)
+  ctx.strokeStyle = alpha(ds.palette.ink, 0.06)
+  ctx.beginPath()
+  ctx.arc(cx, cy, radius * 0.92, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.restore()
+
+  // Auto-fit label.
+  let size = opts.fontSize || Math.round(radius * 0.55)
+  for (let i = 0; i < 8; i += 1) {
+    ctx.font = `${weight} ${size}px ${fontFamily}`
+    if (ctx.measureText(text).width <= radius * 1.45) break
+    size *= 0.9
+  }
+
+  ctx.save()
+  ctx.font = `${weight} ${size}px ${fontFamily}`
+  ctx.fillStyle = fg
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(text.toUpperCase(), cx, cy)
+  ctx.restore()
+}
+
+// ── QuoteAttribution ──────────────────────────────────────────────────────
+// Editorial quote block: italic body + em-dash + author line. Drawn as
+// one component so layouts can place it without juggling two atoms.
+// Content is either a string ("body — author") or { body, author }.
+//
+// Opts:
+//   align:        'left' | 'center' (default 'left')
+//   bodyColour:   default ds.palette.ink
+//   authorColour: default 60% ink
+
+function drawQuoteAttribution(ctx, ds, content, bounds, opts = {}) {
+  const align = opts.align || 'left'
+  let body = ''
+  let author = ''
+  if (content && typeof content === 'object') {
+    body = String(content.body || content.quote || '').trim()
+    author = String(content.author || content.attribution || '').trim()
+  } else {
+    const raw = String(content || '').trim()
+    const split = raw.split(/\s[—–-]\s|\s—\s/)
+    body = (split[0] || '').trim()
+    author = (split.slice(1).join(' — ') || '').trim()
+  }
+  if (!body) return
+
+  const { x, y, w, h } = bounds
+  const fontFamily = ds.fontFamily
+  const bodyColour = opts.bodyColour || ds.palette.ink
+  const authorColour = opts.authorColour || alpha(ds.palette.ink, 0.6)
+
+  // Auto-fit body to bounds. Italic display with airy line height.
+  let size = Math.min(60, h * 0.4)
+  for (let i = 0; i < 12; i += 1) {
+    ctx.font = `italic 600 ${size}px ${fontFamily}`
+    const lines = wrapText(ctx, body, w * 0.96)
+    if (lines.length * size * 1.28 <= h - 60) break
+    size *= 0.93
+  }
+
+  ctx.save()
+  ctx.font = `italic 600 ${size}px ${fontFamily}`
+  ctx.fillStyle = bodyColour
+  ctx.textAlign = align
+  ctx.textBaseline = 'top'
+  const textX = align === 'center' ? x + w / 2 : x
+  const lineHeight = size * 1.28
+  const lines = wrapText(ctx, body, w * 0.96)
+  lines.forEach((line, i) => ctx.fillText(line, textX, y + i * lineHeight))
+
+  if (author) {
+    const authorSize = Math.max(18, Math.round(size * 0.42))
+    ctx.font = `500 ${authorSize}px ${fontFamily}`
+    ctx.fillStyle = authorColour
+    const authorY = y + lines.length * lineHeight + 18
+    ctx.fillText(`— ${author}`, textX, authorY)
+  }
+  ctx.restore()
+}
+
 // ── Dispatcher ────────────────────────────────────────────────────────────
 // Layouts call this with the raw component descriptor. Drawers that need
 // async work (only ProductImage today) return a promise; sync drawers
@@ -491,6 +776,8 @@ async function drawComponent(ctx, ds, component, bounds, brand) {
       return drawProductImage(ctx, ds, content, bounds, brand)
     case 'Headline':
       return drawHeadline(ctx, ds, content, bounds, component.opts || {})
+    case 'OutlineHeadline':
+      return drawOutlineHeadline(ctx, ds, content, bounds, component.opts || {})
     case 'SubHead':
     case 'Subhead':
       return drawSubHead(ctx, ds, content, bounds, component.opts || {})
@@ -502,6 +789,12 @@ async function drawComponent(ctx, ds, component, bounds, brand) {
       return drawCTAButton(ctx, ds, content, bounds, component.opts || {})
     case 'ReviewCard':
       return drawReviewCard(ctx, ds, content, bounds)
+    case 'SpeechBubblePill':
+      return drawSpeechBubblePill(ctx, ds, content, bounds, component.opts || {})
+    case 'PeelSticker':
+      return drawPeelSticker(ctx, ds, content, bounds, component.opts || {})
+    case 'QuoteAttribution':
+      return drawQuoteAttribution(ctx, ds, content, bounds, component.opts || {})
     default:
       return
   }
@@ -510,11 +803,15 @@ async function drawComponent(ctx, ds, component, bounds, brand) {
 export {
   drawProductImage,
   drawHeadline,
+  drawOutlineHeadline,
   drawSubHead,
   drawPriceTag,
   drawBadge,
   drawCTAButton,
   drawReviewCard,
   drawBrandLogo,
+  drawSpeechBubblePill,
+  drawPeelSticker,
+  drawQuoteAttribution,
   drawComponent,
 }
