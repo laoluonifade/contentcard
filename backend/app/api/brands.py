@@ -61,6 +61,7 @@ import cloudinary
 import cloudinary.uploader
 from app.core.config import settings
 from app.services.image_service import logo_bytes_to_storage_png
+from app.services.cutout_service import generate_product_cutout
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +87,40 @@ def _select_product_image_url(attrs: dict) -> str | None:
     return next((str(x).strip() for x in images if str(x or "").strip()), None)
 
 
-async def _serialize_brand(brand: Brand, db: AsyncSession) -> BrandOut:
+async def _populate_product_cutout(brand_id: str, entity_id: str) -> None:
+    """Background task: download a product image, run it through the
+    bg-removal pipeline, persist the cutout URL on the entity row.
+
+    Idempotent — bails out if the row already has a cutout_url for the
+    current source, or if a previous attempt failed."""
+    try:
+        async with AsyncSessionLocal() as db:
+            row = (
+                await db.execute(select(WebsiteEntity).where(WebsiteEntity.id == entity_id))
+            ).scalar_one_or_none()
+            if not row or row.brand_id != brand_id:
+                return
+            attrs = dict(row.attributes or {})
+            source = _select_product_image_url(attrs)
+            if not source:
+                return
+            # Source unchanged + already cached or already failed → skip.
+            if attrs.get("cutout_source_url") == source and (attrs.get("cutout_url") or attrs.get("cutout_failed")):
+                return
+            cutout = await generate_product_cutout(source)
+            if cutout:
+                attrs["cutout_url"] = cutout
+                attrs["cutout_source_url"] = source
+                attrs.pop("cutout_failed", None)
+            else:
+                attrs["cutout_failed"] = True
+            row.attributes = attrs
+            await db.commit()
+    except Exception as e:
+        logger.warning("product cutout task failed for entity %s: %s", entity_id, e)
+
+
+async def _serialize_brand(brand: Brand, db: AsyncSession, *, background_tasks: BackgroundTasks | None = None) -> BrandOut:
     """Build a BrandOut with brand_photos / asset URLs / products inlined.
 
     Reads asset URLs from brand_kit so adding a new slot doesn't require a
@@ -128,9 +162,20 @@ async def _serialize_brand(brand: Brand, db: AsyncSession) -> BrandOut:
         image_url = _select_product_image_url(attrs)
         cutout_url = attrs.get("cutout_url") if isinstance(attrs.get("cutout_url"), str) else None
         # Source mismatch (the user replaced the product photo) → drop the
-        # cached cutout so PR 9's pipeline regenerates it.
+        # cached cutout so the pipeline regenerates it on next refresh.
         if cutout_url and attrs.get("cutout_source_url") and attrs.get("cutout_source_url") != image_url:
             cutout_url = None
+        # Lazy: kick off cutout generation for every product missing one.
+        # PR 8's ProductLineup needs cutouts for 3-5 products at once, not
+        # just the first one — fire a task per product so the next render
+        # has everything ready.
+        if (
+            background_tasks is not None
+            and image_url
+            and not cutout_url
+            and not attrs.get("cutout_failed")
+        ):
+            background_tasks.add_task(_populate_product_cutout, brand.id, row.id)
         products.append(
             BrandProductOut(
                 id=row.id,
@@ -141,6 +186,40 @@ async def _serialize_brand(brand: Brand, db: AsyncSession) -> BrandOut:
         )
     out.products = products
     return out
+
+
+# ── Background-mode + layout compatibility ────────────────────────────────
+#
+# Some layouts only make sense over a particular background mode. The
+# strategist + bg-mode dispatcher need to agree, or we end up with
+# illegal pairs like `lifestyle_clean` over a flat colour block (which
+# would render as just brand colour with a tiny corner mark).
+
+_LAYOUT_BG_MODE_REQUIREMENTS = {
+    # Layouts that only work with a real photographic background.
+    "lifestyle_clean": {"product_hero", "ai_scene"},
+    "lifestyle_overlay": {"product_hero", "ai_scene"},
+    # Layouts that prefer a flat colour surface (paper / brand fill).
+    "meme_ui_screenshot": {"color_block", "gradient_panel"},
+    # Layouts that work in either mode — leave unconstrained.
+}
+
+
+def layout_compatible_with_bg_mode(layout: str | None, bg_mode: str | None) -> bool:
+    """True when the requested layout / bg-mode combination is legal.
+
+    Used by the strategist post-processing to drop invalid `cc_meta.layout`
+    choices before they reach the renderer. Layouts not in the table
+    are treated as universal."""
+    if not layout:
+        return True
+    requirements = _LAYOUT_BG_MODE_REQUIREMENTS.get(str(layout).lower())
+    if not requirements:
+        return True
+    if not bg_mode:
+        # No bg mode chosen yet — defer the call to the dispatcher.
+        return True
+    return str(bg_mode).lower() in requirements
 
 
 async def _upload_brand_asset(
@@ -487,6 +566,7 @@ async def _check_member(workspace_id: str, user_id: str, db: AsyncSession) -> Wo
 @router.get("", response_model=list[BrandOut])
 async def list_brands(
     workspace_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -497,7 +577,7 @@ async def list_brands(
         .order_by(desc(Brand.updated_at), desc(Brand.created_at))
     )
     brands = result.scalars().all()
-    return [await _serialize_brand(b, db) for b in brands]
+    return [await _serialize_brand(b, db, background_tasks=background_tasks) for b in brands]
 
 
 @router.post("", response_model=BrandOut, status_code=201)
@@ -522,12 +602,13 @@ async def create_brand(
     await db.refresh(brand)
     background_tasks.add_task(_sync_brand_assistant, brand.id)
     background_tasks.add_task(_bootstrap_brand_templates, brand.id, current_user.country_code)
-    return await _serialize_brand(brand, db)
+    return await _serialize_brand(brand, db, background_tasks=background_tasks)
 
 
 @router.get("/{brand_id}", response_model=BrandOut)
 async def get_brand(
     workspace_id: str, brand_id: str,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -536,7 +617,7 @@ async def get_brand(
     brand = r.scalar_one_or_none()
     if not brand:
         raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
-    return await _serialize_brand(brand, db)
+    return await _serialize_brand(brand, db, background_tasks=background_tasks)
 
 
 def _deep_merge_dict(base: dict, patch: dict) -> dict:
@@ -582,7 +663,7 @@ async def update_brand(
     await db.commit()
     await db.refresh(brand)
     background_tasks.add_task(_sync_brand_assistant, brand.id)
-    return await _serialize_brand(brand, db)
+    return await _serialize_brand(brand, db, background_tasks=background_tasks)
 
 
 @router.delete("/{brand_id}", status_code=204)

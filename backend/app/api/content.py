@@ -1908,6 +1908,25 @@ async def _render_with_quality_gate(
                 if render_post.get("use_product_image") is not None
                 else strategist_out.get("use_product_image")
             )
+
+            # Per-slide layout dispatch for carousels. Slide 1 anchors the
+            # opener (alert + product line-up); subsequent slides each
+            # render through centered_product per item so the carousel
+            # feels curated instead of five identical frames. The
+            # strategist (PR 10) can override these with explicit
+            # cc_meta.slides[].layout entries.
+            slide_count = int(render_post.get("slide_count") or 0) or len(bg_urls or []) or 0
+            fmt = str(render_post.get("format") or strategist_out.get("format") or "").lower()
+            if fmt == "carousel" and slide_count > 1 and not isinstance(cc_meta.get("slides"), list):
+                slides = []
+                base_layout = str(cc_meta.get("layout") or "centered_product").lower()
+                for i in range(slide_count):
+                    if i == 0 and base_layout != "hero_carousel_opener":
+                        slides.append({"layout": "hero_carousel_opener"})
+                    else:
+                        slides.append({"layout": "centered_product"})
+                cc_meta["slides"] = slides
+
             theme_curr["cc_meta"] = cc_meta
             item.theme = theme_curr
 
