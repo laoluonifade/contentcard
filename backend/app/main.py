@@ -242,6 +242,15 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE content_templates ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN DEFAULT FALSE",
             "ALTER TABLE content_templates ADD COLUMN IF NOT EXISTS is_design_ready BOOLEAN DEFAULT FALSE",
             "ALTER TYPE contentplatform ADD VALUE IF NOT EXISTS 'linkedin'",
+            # Defensive: the alembic migration that adds 'FAILED' to
+            # contentstatus uses op.get_context().autocommit_block(), which has
+            # been unreliable on the async engine in production — leaving the
+            # calendar listing 500ing with `invalid input value for enum
+            # contentstatus: "FAILED"`. Mirror the linkedin pattern above so
+            # every container start guarantees the value is present, regardless
+            # of migration state. SAEnum(ContentStatus) binds the enum NAME
+            # (uppercase) so we add the uppercase variant here.
+            "ALTER TYPE contentstatus ADD VALUE IF NOT EXISTS 'FAILED'",
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS openai_assistant_id VARCHAR(100)",
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS openai_vector_store_id VARCHAR(100)",
             "ALTER TABLE brands ADD COLUMN IF NOT EXISTS sub_industry VARCHAR(120)",
