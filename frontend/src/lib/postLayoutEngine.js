@@ -52,6 +52,19 @@ function findComponent(components, type) {
   return components.find((c) => c && String(c.type || '') === type) || null
 }
 
+// Poster layouts (typography_poster / bold_announcement /
+// hero_carousel_opener) want a 3-5 word punch that owns the canvas, not
+// the long-form sentence-style hook captions live on. The strategist
+// emits `cc_meta.headline_short` for that purpose; this helper picks it
+// when present and falls back to the regular Headline content otherwise.
+function pickPosterHeadlineContent(post, fallbackContent) {
+  const cm = post?.theme?.cc_meta
+  if (cm && typeof cm.headline_short === 'string' && cm.headline_short.trim()) {
+    return cm.headline_short.trim()
+  }
+  return fallbackContent
+}
+
 function pickComponents(components, types) {
   return types
     .map((t) => findComponent(components, t))
@@ -467,7 +480,7 @@ async function renderTypographyPoster(ctx, ds, post, brand, components, imageUrl
     }
     await drawComponent(
       ctx, ds,
-      { type: 'OutlineHeadline', content: headline.content, opts },
+      { type: 'OutlineHeadline', content: pickPosterHeadlineContent(post, headline.content), opts },
       { x: ds.spacing.pad, y: 110, w: W - ds.spacing.pad * 2, h: subhead ? 520 : 580 },
       brand,
     )
@@ -731,7 +744,7 @@ async function renderBoldAnnouncement(ctx, ds, post, brand, components, imageUrl
     }
     await drawComponent(
       ctx, ds,
-      { type: 'OutlineHeadline', content: headline.content, opts },
+      { type: 'OutlineHeadline', content: pickPosterHeadlineContent(post, headline.content), opts },
       { x: ds.spacing.pad, y: 110, w: W - ds.spacing.pad * 2, h: 320 },
       brand,
     )
@@ -826,7 +839,7 @@ async function renderHeroCarouselOpener(ctx, ds, post, brand, components, imageU
     }
     await drawComponent(
       ctx, ds,
-      { type: 'OutlineHeadline', content: headline.content, opts },
+      { type: 'OutlineHeadline', content: pickPosterHeadlineContent(post, headline.content), opts },
       { x: ds.spacing.pad, y: 110, w: W * 0.7, h: 280 },
       brand,
     )
