@@ -2089,10 +2089,23 @@ def _select_background_mode(post: dict, post_index: int, has_product: bool) -> s
     return rotation[post_index % len(rotation)]
 
 
+def _brand_palette(brand: dict) -> list[str]:
+    """Read the brand's palette from either of the two keys callers use.
+
+    `_brand_to_dict` serialises `Brand.brand_colors` under the key `colors`,
+    but earlier code in this module looked it up under `brand_colors` and
+    fell through to the ContentCard fallback when the key wasn't present —
+    so flat-colour backgrounds shipped as #168C5A green for every brand.
+    Single-source the lookup so both keys work.
+    """
+    raw = brand.get("colors") or brand.get("brand_colors") or []
+    return [c for c in raw if isinstance(c, str) and c.strip()]
+
+
 def _render_color_block_png(brand: dict) -> bytes:
     """1080×1080 flat brand-primary fill. Cheap, deterministic, no OpenAI call."""
     from PIL import Image
-    colors = [c for c in (brand.get("brand_colors") or []) if isinstance(c, str) and c.strip()]
+    colors = _brand_palette(brand)
     primary = colors[0] if colors else "#168C5A"
     rgb = _hex_to_rgb_tuple(primary)
     img = Image.new("RGB", (1024, 1024), rgb)
@@ -2106,7 +2119,7 @@ def _render_gradient_panel_png(brand: dict) -> bytes:
     contrasting secondary. Falls back to a primary→darker-primary ramp
     when only one brand colour is set so the result still feels brand-on."""
     from PIL import Image
-    colors = [c for c in (brand.get("brand_colors") or []) if isinstance(c, str) and c.strip()]
+    colors = _brand_palette(brand)
     primary = colors[0] if colors else "#168C5A"
     secondary = colors[1] if len(colors) > 1 else _shift_hex(primary, -0.45)
     p_rgb = _hex_to_rgb_tuple(primary)
@@ -2253,21 +2266,30 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
         )
         post["background_mode_used"] = bg_mode
         if bg_mode in ("color_block", "gradient_panel"):
-            local_url = await _render_local_background(
-                mode=bg_mode, brand=brand, post=post, topic=topic,
-            )
-            if local_url:
-                logger.info(
-                    "Background mode %s for '%s': locally rendered (no OpenAI call)",
-                    bg_mode, topic,
-                )
-                return [local_url]
-            # Local render failed (Cloudinary not configured?) — fall through
-            # to the normal AI path so the post still gets a background.
-            logger.warning(
-                "Local %s render failed for '%s'; falling back to AI generation",
+            # Post-Bannerbear architecture: the frontend canvas paints a
+            # brand-coloured background for free when image_urls is empty
+            # (postLayoutEngine.drawBackground falls back to ds.palette.background)
+            # and then layers Badge / Headline / SubHead / CTA on top via
+            # the strategist components. Uploading a flat-colour PNG to
+            # Cloudinary was a Bannerbear-era artefact: the result was a
+            # green wall when the layout engine didn't fire (and even when
+            # it did, it was paying Cloudinary to host a colour that the
+            # canvas can paint locally).
+            #
+            # Worse, _render_color_block_png reads brand.get("brand_colors")
+            # but _brand_to_dict serialises it as "colors" — so the upload
+            # was using the hardcoded ContentCard fallback (#168C5A) instead
+            # of the brand's actual primary, regardless of brand kit.
+            #
+            # Returning [] here makes item.image_urls = None, which the
+            # canvas handles correctly: it paints the real brand background
+            # and layers the post's structured components on top.
+            logger.info(
+                "Background mode %s for '%s': image_urls left empty so the canvas "
+                "renders the brand-coloured background and component overlay client-side.",
                 bg_mode, topic,
             )
+            return []
 
     if product_image_urls and model == "gpt-image-1":
         # Classify product to select visual strategy
