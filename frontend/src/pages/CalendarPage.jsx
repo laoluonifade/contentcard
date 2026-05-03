@@ -234,13 +234,14 @@ function buildMonthGrid(month, year) {
   return cells
 }
 
-function PostThumb({ post, brand, onClick, selectMode, selected }) {
+function PostThumb({ post, brand, onClick, selectMode, selected, onRegenerate, regenerating }) {
   const isCarousel = (post?.slide_count||1) > 1
   const imageUrl = (post?.image_urls?.[0]) || post?.image_url
   const arch = post?.visual_archetype
   const websiteGrounding = post?.theme?.cc_meta?.website_grounding
   const websiteSourceLabel = websiteGrounding?.trigger_type ? String(websiteGrounding.trigger_type).replace('.', ' ') : ''
   const isSel = !!selected
+  const isFailed = String(post?.status || '').toLowerCase() === 'failed'
   const rec = recommendationForPlatform(post?.platform)
 
   const cls = "group relative bg-surface border border-fog rounded-xl overflow-hidden hover:border-ink/20 transition-colors text-left w-full"
@@ -256,14 +257,18 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
         </div>
       )}
       <div className="relative" style={{ aspectRatio:'1' }}>
-        {imageUrl
-          ? <PostCard post={post} brand={brand} fluid />
-          : (
-            <div className="flex h-full w-full min-h-[120px] items-center justify-center bg-mist px-2 text-center text-[10px] font-medium text-ink/35">
-              Finishing design…
-            </div>
-          )
-        }
+        {isFailed ? (
+          <div className="flex h-full w-full min-h-[120px] flex-col items-center justify-center bg-rose-50 px-3 text-center">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-rose-600 mb-1.5">Generation failed</span>
+            <p className="text-[11px] text-rose-700/80 leading-tight line-clamp-3">{post.content_idea || post.topic || 'Couldn’t finish this post'}</p>
+          </div>
+        ) : imageUrl ? (
+          <PostCard post={post} brand={brand} fluid />
+        ) : (
+          <div className="flex h-full w-full min-h-[120px] items-center justify-center bg-mist px-2 text-center text-[10px] font-medium text-ink/35">
+            Finishing design…
+          </div>
+        )}
         {isCarousel && (
           <div className={`absolute top-2 flex items-center gap-1 bg-black/50 backdrop-blur-sm px-1.5 py-0.5 rounded ${selectMode ? 'right-2' : 'left-2'}`}>
             <Layers size={9} className="text-white" />
@@ -295,27 +300,43 @@ function PostThumb({ post, brand, onClick, selectMode, selected }) {
         </p>
         {!selectMode && (
           <div className="mt-2 flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                navigator.clipboard?.writeText(fullPostCaptionText(post.caption || '', post.hashtags || []))
-                toast('Caption copied')
-              }}
-              className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/70 hover:text-ink"
-            >
-              Quick copy
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer')
-              }}
-              className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/70 hover:text-ink"
-            >
-              Open composer
-            </button>
+            {isFailed ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (typeof onRegenerate === 'function') onRegenerate(post)
+                }}
+                disabled={regenerating}
+                className="text-[10px] px-2 py-1 rounded-md border border-rose-200 bg-rose-50 text-rose-700 font-semibold hover:bg-rose-100 disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                {regenerating ? 'Regenerating…' : 'Regenerate'}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    navigator.clipboard?.writeText(fullPostCaptionText(post.caption || '', post.hashtags || []))
+                    toast('Caption copied')
+                  }}
+                  className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/70 hover:text-ink"
+                >
+                  Quick copy
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer')
+                  }}
+                  className="text-[10px] px-2 py-1 rounded-md border border-fog bg-surface text-ink/70 hover:text-ink"
+                >
+                  Open composer
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -807,6 +828,35 @@ export default function CalendarPage() {
       toast('Visuals updated')
     } catch (e) {
       toast(e.response?.data?.detail || 'Bulk visual regen failed', 'error')
+    }
+  }
+
+  // Per-post regenerate, called from the failed-post tile. Keeps a Set of
+  // in-flight post ids so the tile button can show "Regenerating…" without
+  // blocking other tiles. Visual rendering is async on the backend; we
+  // refetch on completion so the formerly-failed tile turns into a real
+  // post once a visual lands.
+  const [regeneratingIds, setRegeneratingIds] = useState(() => new Set())
+  const regenerateFailedPost = async (post) => {
+    if (!post?.id || regeneratingIds.has(post.id)) return
+    setRegeneratingIds((prev) => {
+      const next = new Set(prev)
+      next.add(post.id)
+      return next
+    })
+    try {
+      await contentApi.regenerateVisual(post.id, { mode: 'same_archetype' })
+      const items = await fetchMonthContent(month, year)
+      setPosts(items)
+      toast('Regeneration started — the new visual will appear in a moment.')
+    } catch (e) {
+      toast(e?.response?.data?.detail || e.message || "Couldn't kick off regeneration. Try again.", 'error')
+    } finally {
+      setRegeneratingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(post.id)
+        return next
+      })
     }
   }
 
@@ -1375,6 +1425,8 @@ export default function CalendarPage() {
                   selectMode={selectMode}
                   selected={selectedIds.has(post.id)}
                   onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
+                  onRegenerate={regenerateFailedPost}
+                  regenerating={regeneratingIds.has(post.id)}
                 />
               ))}
             </div>
@@ -1388,6 +1440,8 @@ export default function CalendarPage() {
                     selectMode={selectMode}
                     selected={selectedIds.has(post.id)}
                     onClick={() => (selectMode ? togglePostSelect(post.id) : setModal(post))}
+                    onRegenerate={regenerateFailedPost}
+                    regenerating={regeneratingIds.has(post.id)}
                   />
                 </div>
               ))}

@@ -2578,6 +2578,7 @@ async def list_content(
     platform: ContentPlatform | None = None,
     status: ContentStatus | None = None,
     include_pending: bool = False,
+    include_failed: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -2622,12 +2623,20 @@ async def list_content(
         conditions.append(ContentItem.platform == platform)
     if status:
         conditions.append(ContentItem.status == status)
-    else:
-        # Hide FAILED posts from the calendar grid by default. Render produced
-        # nothing usable for these — the user sees a regenerate path through a
-        # separate endpoint. Callers can opt in by passing status=failed.
+    elif not include_failed:
+        # Hide FAILED posts from the calendar grid by default. Callers can
+        # opt in with include_failed=true to render them as "Generation
+        # failed — Regenerate" tiles so the user knows the strategist
+        # produced more rows than the calendar surfaces, and has a
+        # one-click recovery path. status=failed still works for code
+        # paths that want only failed rows.
         conditions.append(ContentItem.status != ContentStatus.FAILED)
-    if month and year and not include_pending:
+    if month and year and not include_pending and not include_failed:
+        # When the calendar opts in to showing failed posts, do NOT also
+        # filter out rows without image assets — the failed tile renders
+        # without an image_url, that's the whole point. Callers wanting
+        # the strict "ready posts only" view (e.g. social autopilot)
+        # should leave include_failed=false.
         conditions.append(
             or_(
                 ContentItem.image_url.isnot(None),
@@ -2638,7 +2647,7 @@ async def list_content(
         select(ContentItem).where(and_(*conditions)).order_by(ContentItem.scheduled_date)
     )
     rows = list(result.scalars().all())
-    if month and year and not include_pending:
+    if month and year and not include_pending and not include_failed:
         rows = [c for c in rows if _item_ready_for_user(c)]
     return [_coerce_disabled_carousel_for_response(ContentOut.model_validate(c)) for c in rows]
 
