@@ -476,6 +476,10 @@ async function renderTypographyPoster(ctx, ds, post, brand, components, imageUrl
       stack: true,
       fillColour: ds.palette.primary,
       outlineColour: ds.palette.outline,
+      // Scrim plate behind the headline only when there's a photo
+      // behind us — outline + shadow carry legibility on flat
+      // brand-coloured paper.
+      scrim: !!imageUrl,
       ...(headline.opts || {}),
     }
     await drawComponent(
@@ -740,6 +744,10 @@ async function renderBoldAnnouncement(ctx, ds, post, brand, components, imageUrl
       stack: true,
       fillColour: ds.palette.primary,
       outlineColour: ds.palette.outline,
+      // Scrim plate behind the headline only when there's a photo
+      // behind us — outline + shadow carry legibility on flat
+      // brand-coloured paper.
+      scrim: !!imageUrl,
       ...(headline.opts || {}),
     }
     await drawComponent(
@@ -835,6 +843,10 @@ async function renderHeroCarouselOpener(ctx, ds, post, brand, components, imageU
       stack: true,
       fillColour: ds.palette.primary,
       outlineColour: ds.palette.outline,
+      // Scrim plate behind the headline only when there's a photo
+      // behind us — outline + shadow carry legibility on flat
+      // brand-coloured paper.
+      scrim: !!imageUrl,
       ...(headline.opts || {}),
     }
     await drawComponent(
