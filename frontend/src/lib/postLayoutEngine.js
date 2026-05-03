@@ -916,23 +916,42 @@ const ARCHETYPE_TO_LAYOUT = {
 const DEFAULT_LAYOUT = 'centered_product'
 
 // Read post.theme.cc_meta to extract the structured strategist output.
-function readStrategy(post) {
+//
+// `slideIndex` (default 0) lets the engine pick a per-slide override for
+// carousel posts: when cc_meta.slides[slideIndex] exists, its layout /
+// components win over the post-level defaults. Without per-slide
+// overrides every slide of a carousel rendered identically.
+function readStrategy(post, slideIndex = 0) {
   if (!post || typeof post !== 'object') return null
   const theme = post.theme && typeof post.theme === 'object' ? post.theme : {}
   const cm = theme.cc_meta && typeof theme.cc_meta === 'object' ? theme.cc_meta : {}
-  // Prefer the explicit fields stored by Phase A backend
-  let layout = String(cm.layout || cm.strategy?.layout || '').toLowerCase()
+
+  const slides = Array.isArray(cm.slides) ? cm.slides : []
+  const slide = (slideIndex >= 0 && slides[slideIndex] && typeof slides[slideIndex] === 'object')
+    ? slides[slideIndex]
+    : null
+
+  // Prefer per-slide layout, then post-level cc_meta.layout, then legacy
+  // strategy.layout.
+  let layout = String(
+    (slide && slide.layout) || cm.layout || cm.strategy?.layout || '',
+  ).toLowerCase()
   // Fall back to the legacy archetype slug if no layout was set, or if the
   // layout name isn't recognised by the engine. Without this, every legacy
   // post lands on centered_product regardless of intent.
   if (!layout || !LAYOUT_RENDERERS[layout]) {
-    const archetype = String(cm.visual_archetype || cm.strategy?.visual_archetype || '').toLowerCase()
+    const archetype = String(
+      (slide && slide.visual_archetype) || cm.visual_archetype || cm.strategy?.visual_archetype || '',
+    ).toLowerCase()
     const remapped = ARCHETYPE_TO_LAYOUT[archetype]
     if (remapped) layout = remapped
   }
-  const components = Array.isArray(cm.components)
-    ? cm.components
-    : Array.isArray(cm.strategy?.components) ? cm.strategy.components : []
+  // Per-slide components override post-level ones when present.
+  const components = (slide && Array.isArray(slide.components) && slide.components.length)
+    ? slide.components
+    : (Array.isArray(cm.components)
+      ? cm.components
+      : Array.isArray(cm.strategy?.components) ? cm.strategy.components : [])
   const useProductImage = typeof cm.use_product_image === 'boolean'
     ? cm.use_product_image
     : !!cm.strategy?.use_product_image
@@ -940,14 +959,14 @@ function readStrategy(post) {
   return { layout, components, useProductImage, postType, strategy: cm.strategy || null }
 }
 
-async function renderPostToCanvas(canvas, post, brand, imageUrl) {
+async function renderPostToCanvas(canvas, post, brand, imageUrl, slideIndex = 0) {
   const ctx = canvas.getContext('2d')
   if (!ctx) return false
   canvas.width = W
   canvas.height = H
 
   const ds = resolveDesignTokens(brand, post)
-  const strategy = readStrategy(post)
+  const strategy = readStrategy(post, slideIndex)
 
   if (!strategy || !strategy.components || strategy.components.length === 0) {
     // No structured strategy → just paint the AI image (current behaviour).
