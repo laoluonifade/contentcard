@@ -13,7 +13,7 @@ const NAV = [
   { to: '/dashboard/calendar',   icon: Calendar,         label: 'Calendar'   },
   { to: '/dashboard/products',   icon: Package,          label: 'Products'   },
   { to: '/dashboard/brand-kit',  icon: Heart,            label: 'Brand Kit'  },
-  { to: '/dashboard/social',     icon: Share2,           label: 'Social'     },
+  // { to: '/dashboard/social',     icon: Share2,           label: 'Social'     },
   { to: '/dashboard/settings',   icon: Settings,         label: 'Settings'   },
   { to: '/dashboard/billing',    icon: CreditCard,       label: 'Billing'    },
 ]
