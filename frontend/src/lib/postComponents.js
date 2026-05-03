@@ -23,6 +23,7 @@ import {
   drawSpeechBubbleTail,
   drawPeelShadow,
   drawCheckeredPattern,
+  drawSoftBaselineShadow,
   fillRoundedRect,
 } from './postDrawUtils'
 
@@ -988,6 +989,317 @@ function drawCheckeredTray(ctx, ds, content, bounds, opts = {}) {
   ctx.restore()
 }
 
+// ── ProductLineup ─────────────────────────────────────────────────────────
+// Multi-product collage on a baseline (e.g. Jay's "fries + drink + burger
+// + coleslaw"). Reads up to N product cutouts from
+// brand.products[].cutout_url (with image_url fallback) and lays them
+// across bounds with overlap and a soft baseline shadow under each.
+//
+// Content / opts:
+//   count:        2..5 — how many products to lay (default 4)
+//   overlap:      0..0.4 — fraction of slot width that adjacent items
+//                 overlap (default 0.12)
+//   baselineY:    px from bounds.y where the soft shadows sit
+//   sortBy:       'order' | 'tallest_centre' (default 'tallest_centre')
+
+async function drawProductLineup(ctx, ds, content, bounds, brand) {
+  const c = (content && typeof content === 'object') ? content : {}
+  const count = Math.max(2, Math.min(5, c.count || 4))
+  const overlap = Math.max(0, Math.min(0.4, c.overlap ?? 0.12))
+  const baselineY = c.baselineY ?? bounds.y + bounds.h - bounds.h * 0.08
+
+  const products = Array.isArray(brand?.products) ? brand.products : []
+  const urls = products
+    .slice(0, count)
+    .map((p) => (p?.cutout_url || p?.image_url || '').trim())
+    .filter(Boolean)
+  if (urls.length === 0) return
+
+  const slotW = bounds.w / urls.length
+  const usableW = slotW * (1 + overlap)
+
+  const images = await Promise.all(urls.map((u) => loadImage(u).catch(() => null)))
+  const valid = images.map((img, i) => ({ img, i })).filter((e) => e.img)
+  if (valid.length === 0) return
+
+  // Optional reorder so the tallest cameo sits centre-stage.
+  let order = valid.map((_, i) => i)
+  if (c.sortBy !== 'order') {
+    order.sort((a, b) => valid[b].img.naturalHeight - valid[a].img.naturalHeight)
+    const reordered = []
+    for (let i = 0; i < order.length; i += 1) {
+      const target = (i % 2 === 0)
+        ? Math.floor(order.length / 2) - Math.floor(i / 2)
+        : Math.floor(order.length / 2) + Math.ceil(i / 2)
+      reordered[Math.max(0, Math.min(order.length - 1, target))] = order[i]
+    }
+    order = reordered
+  }
+
+  for (let pos = 0; pos < order.length; pos += 1) {
+    const entry = valid[order[pos]]
+    if (!entry) continue
+    const { img } = entry
+    const cx = bounds.x + slotW * (pos + 0.5)
+    const scale = Math.min(usableW / img.naturalWidth, bounds.h * 0.92 / img.naturalHeight)
+    const dw = img.naturalWidth * scale
+    const dh = img.naturalHeight * scale
+    const dx = cx - dw / 2
+    const dy = baselineY - dh
+
+    drawSoftBaselineShadow(ctx, {
+      cx,
+      cy: baselineY + Math.max(8, dh * 0.04),
+      radiusX: dw * 0.55,
+      radiusY: Math.max(8, dh * 0.06),
+      colour: 'rgba(0, 0, 0, 0.32)',
+      feather: 0.55,
+    })
+
+    ctx.save()
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.18)'
+    ctx.shadowBlur = 28
+    ctx.shadowOffsetY = 12
+    ctx.drawImage(img, dx, dy, dw, dh)
+    ctx.restore()
+  }
+}
+
+// ── MockUIChat ────────────────────────────────────────────────────────────
+// Fake chat-screenshot card framed on the canvas — Jay's ChatGPT meme
+// format. Renders an app-header strip, alternating message bubbles, and
+// an action-icon row at the bottom. Designed to read as a quoted screen
+// recording rather than a brand poster.
+//
+// Content shape:
+//   {
+//     appName:   "ChatGPT 5.2"
+//     bubbles: [
+//       { role: 'them' | 'you', text: '...', image?: 'url' },
+//       ...
+//     ]
+//   }
+
+async function drawMockUIChat(ctx, ds, content, bounds, brand) {
+  const c = (content && typeof content === 'object') ? content : {}
+  const appName = String(c.appName || 'ChatGPT').trim()
+  const bubbles = Array.isArray(c.bubbles) ? c.bubbles.slice(0, 6) : []
+  if (bubbles.length === 0) return
+
+  const cardColour = c.cardColour || '#FFFFFF'
+  const cardRadius = c.cardRadius || 36
+  const inkColour = c.inkColour || ds.palette.ink
+  const theirBubble = c.theirBubble || '#F2F2F4'
+  const yourBubble = c.yourBubble || '#FFFFFF'
+
+  // Card body with soft shadow.
+  fillRoundedRect(ctx, bounds.x, bounds.y, bounds.w, bounds.h, cardRadius, {
+    fillColour: cardColour,
+    shadowColour: 'rgba(0, 0, 0, 0.18)',
+    shadowBlur: 40,
+    shadowOffsetY: 14,
+  })
+
+  // App-header strip.
+  const headerH = Math.max(60, bounds.h * 0.085)
+  const padX = Math.max(28, bounds.w * 0.05)
+  ctx.save()
+  ctx.font = `600 ${Math.round(headerH * 0.42)}px ${ds.fontFamily}`
+  ctx.fillStyle = inkColour
+  ctx.textBaseline = 'middle'
+  // Hamburger glyph on the left.
+  const burgerX = bounds.x + padX
+  const burgerY = bounds.y + headerH / 2
+  ctx.lineWidth = 3
+  ctx.strokeStyle = inkColour
+  ctx.beginPath()
+  for (let r = 0; r < 3; r += 1) {
+    ctx.moveTo(burgerX, burgerY - 8 + r * 8)
+    ctx.lineTo(burgerX + 24, burgerY - 8 + r * 8)
+  }
+  ctx.stroke()
+  // App name + dropdown caret.
+  ctx.fillText(appName, burgerX + 56, burgerY)
+  const labelW = ctx.measureText(appName).width
+  ctx.beginPath()
+  ctx.moveTo(burgerX + 56 + labelW + 14, burgerY - 4)
+  ctx.lineTo(burgerX + 56 + labelW + 22, burgerY + 4)
+  ctx.lineTo(burgerX + 56 + labelW + 30, burgerY - 4)
+  ctx.stroke()
+  // Right-aligned "Share" affordance.
+  ctx.font = `600 ${Math.round(headerH * 0.34)}px ${ds.fontFamily}`
+  ctx.textAlign = 'right'
+  ctx.fillStyle = alpha(inkColour, 0.7)
+  ctx.fillText('Share', bounds.x + bounds.w - padX, burgerY)
+  ctx.restore()
+
+  // Message bubbles.
+  const bubbleAreaY = bounds.y + headerH + 20
+  const footerH = Math.max(70, bounds.h * 0.1)
+  const bubbleAreaH = bounds.h - headerH - footerH - 40
+  let cursorY = bubbleAreaY
+  const bubblePadX = padX
+  const bubbleRadius = 28
+  const bubbleTextSize = Math.round(bounds.h * 0.038)
+  for (const bubble of bubbles) {
+    if (cursorY > bubbleAreaY + bubbleAreaH) break
+    const role = bubble.role === 'them' ? 'them' : 'you'
+    const fill = role === 'them' ? theirBubble : yourBubble
+    const align = role === 'them' ? 'right' : 'left'
+    const text = String(bubble.text || '').trim()
+    let bubbleH = 0
+    let bubbleW = 0
+
+    let img = null
+    if (bubble.image) {
+      try { img = await loadImage(bubble.image) } catch { img = null }
+    }
+    if (img) {
+      const imgW = bounds.w * 0.55
+      const imgH = imgW * (img.naturalHeight / img.naturalWidth)
+      bubbleW = imgW + 24
+      bubbleH = imgH + 24
+    } else if (text) {
+      const maxW = bounds.w * 0.7
+      ctx.font = `500 ${bubbleTextSize}px ${ds.fontFamily}`
+      const lines = wrapText(ctx, text, maxW - 48)
+      const widest = Math.max(...lines.map((l) => ctx.measureText(l).width))
+      bubbleW = Math.min(maxW, widest + 48)
+      bubbleH = lines.length * bubbleTextSize * 1.4 + 24
+    } else {
+      continue
+    }
+
+    const bubbleX = align === 'right'
+      ? bounds.x + bounds.w - bubblePadX - bubbleW
+      : bounds.x + bubblePadX
+    fillRoundedRect(ctx, bubbleX, cursorY, bubbleW, bubbleH, bubbleRadius, {
+      fillColour: fill,
+      shadowColour: role === 'them' ? null : 'rgba(0, 0, 0, 0.05)',
+      shadowBlur: 6,
+      shadowOffsetY: 2,
+    })
+
+    if (img) {
+      ctx.save()
+      const imgX = bubbleX + 12
+      const imgY = cursorY + 12
+      const imgW = bubbleW - 24
+      const imgH = bubbleH - 24
+      rrect(ctx, imgX, imgY, imgW, imgH, 14)
+      ctx.clip()
+      const ar = img.naturalWidth / img.naturalHeight
+      let dw = imgW
+      let dh = dw / ar
+      if (dh < imgH) { dh = imgH; dw = dh * ar }
+      ctx.drawImage(img, imgX + (imgW - dw) / 2, imgY + (imgH - dh) / 2, dw, dh)
+      ctx.restore()
+    } else {
+      ctx.save()
+      ctx.font = `500 ${bubbleTextSize}px ${ds.fontFamily}`
+      ctx.fillStyle = inkColour
+      ctx.textBaseline = 'top'
+      drawWrapped(ctx, text, bubbleX + 24, cursorY + 18, bubbleW - 48, bubbleTextSize * 1.4)
+      ctx.restore()
+    }
+
+    cursorY += bubbleH + 18
+  }
+
+  // Action-icon row (copy / 👍 / 👎 / share / regenerate / ⋯).
+  const footerY = bounds.y + bounds.h - footerH
+  const iconSize = Math.max(28, footerH * 0.5)
+  const iconCount = 6
+  const iconGap = (bounds.w - padX * 2) / (iconCount - 1)
+  ctx.save()
+  ctx.lineWidth = 2
+  ctx.strokeStyle = alpha(inkColour, 0.55)
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  for (let i = 0; i < iconCount; i += 1) {
+    const ix = bounds.x + padX + i * iconGap
+    const iy = footerY + footerH / 2
+    drawPlaceholderIcon(ctx, ix, iy, iconSize, i)
+  }
+  ctx.restore()
+}
+
+// Glyph-mark approximations for the chat-card footer. Doesn't replicate
+// any specific app's icons — just a row of generic action affordances so
+// the card reads as functional UI.
+function drawPlaceholderIcon(ctx, cx, cy, size, idx) {
+  const half = size / 2
+  ctx.save()
+  ctx.translate(cx, cy)
+  switch (idx) {
+    case 0: // copy: two stacked rectangles
+      ctx.strokeRect(-half + 4, -half + 4, size - 12, size - 8)
+      ctx.strokeRect(-half, -half, size - 12, size - 8)
+      break
+    case 1: // thumbs up
+      ctx.beginPath()
+      ctx.moveTo(-half, half)
+      ctx.lineTo(-half, 0)
+      ctx.lineTo(-2, -half + 3)
+      ctx.quadraticCurveTo(2, -half - 4, 4, -half + 6)
+      ctx.lineTo(half - 2, -half + 6)
+      ctx.lineTo(half - 4, half)
+      ctx.closePath()
+      ctx.stroke()
+      break
+    case 2: // thumbs down (mirror)
+      ctx.scale(1, -1)
+      ctx.beginPath()
+      ctx.moveTo(-half, half)
+      ctx.lineTo(-half, 0)
+      ctx.lineTo(-2, -half + 3)
+      ctx.quadraticCurveTo(2, -half - 4, 4, -half + 6)
+      ctx.lineTo(half - 2, -half + 6)
+      ctx.lineTo(half - 4, half)
+      ctx.closePath()
+      ctx.stroke()
+      break
+    case 3: // share
+      ctx.beginPath()
+      ctx.moveTo(0, -half)
+      ctx.lineTo(0, 4)
+      ctx.moveTo(-6, -half + 6)
+      ctx.lineTo(0, -half)
+      ctx.lineTo(6, -half + 6)
+      ctx.moveTo(-half + 2, 4)
+      ctx.lineTo(-half + 2, half - 2)
+      ctx.lineTo(half - 2, half - 2)
+      ctx.lineTo(half - 2, 4)
+      ctx.stroke()
+      break
+    case 4: // regenerate
+      ctx.beginPath()
+      ctx.arc(0, 0, half - 2, 0, Math.PI * 1.5)
+      ctx.stroke()
+      ctx.beginPath()
+      ctx.moveTo(half - 8, -half + 4)
+      ctx.lineTo(half - 2, half - 8 - half + 4)
+      ctx.lineTo(half - 4, -half + 10)
+      ctx.stroke()
+      break
+    case 5: // ellipsis
+      ctx.fillStyle = ctx.strokeStyle
+      ctx.beginPath()
+      ctx.arc(-half + 6, 0, 3, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.beginPath()
+      ctx.arc(0, 0, 3, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.beginPath()
+      ctx.arc(half - 6, 0, 3, 0, Math.PI * 2)
+      ctx.fill()
+      break
+    default:
+      break
+  }
+  ctx.restore()
+}
+
 // ── Dispatcher ────────────────────────────────────────────────────────────
 // Layouts call this with the raw component descriptor. Drawers that need
 // async work (only ProductImage today) return a promise; sync drawers
@@ -1029,6 +1341,10 @@ async function drawComponent(ctx, ds, component, bounds, brand) {
       return drawIllustratedGarnish(ctx, ds, content, bounds, brand)
     case 'CheckeredTray':
       return drawCheckeredTray(ctx, ds, content, bounds, component.opts || {})
+    case 'ProductLineup':
+      return drawProductLineup(ctx, ds, content, bounds, brand)
+    case 'MockUIChat':
+      return drawMockUIChat(ctx, ds, content, bounds, brand)
     default:
       return
   }
@@ -1051,5 +1367,7 @@ export {
   drawBrandSignature,
   drawIllustratedGarnish,
   drawCheckeredTray,
+  drawProductLineup,
+  drawMockUIChat,
   drawComponent,
 }
