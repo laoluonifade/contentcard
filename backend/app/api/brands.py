@@ -74,65 +74,37 @@ def _website_product_hash(title: str, source_url: str | None, attrs: dict) -> st
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
-INDUSTRY_TAXONOMY: dict[str, list[str]] = {
-    "Technology": [
-        "Fintech", "SaaS", "AI Platform", "Cybersecurity", "Developer Tools",
-        "Cloud Infrastructure", "EdTech", "HealthTech", "MarTech", "PropTech",
-    ],
-    "Finance & Fintech": [
-        "Digital Banking", "Cross-border Payments", "Lending", "InsuranceTech", "WealthTech",
-        "Crypto & Web3", "Payroll", "AccountingTech", "SME Finance", "Credit Scoring",
-    ],
-    "E-commerce & Retail": [
-        "D2C Fashion", "Beauty Retail", "Consumer Electronics", "Home & Living", "Grocery Commerce",
-        "Marketplace", "Luxury Retail", "Kids & Family", "Pharmacy Retail", "B2B Wholesale",
-    ],
-    "Health & Wellness": [
-        "Fitness", "Mental Health", "Nutrition", "Telemedicine", "Skincare",
-        "Supplements", "Women Health", "Men Health", "Corporate Wellness", "Rehab & Recovery",
-    ],
-    "Education": [
-        "K-12", "Higher Education", "Test Prep", "Vocational Training", "Creator Education",
-        "Language Learning", "STEM Learning", "Kids Learning", "Corporate Learning", "Study Abroad",
-    ],
-    "Real Estate": [
-        "Residential Sales", "Property Management", "Short Let", "Commercial Real Estate", "PropTech",
-        "Mortgage Advisory", "Real Estate Investment", "Interior Design", "Construction", "Land Sales",
-    ],
-    "Food & Beverage": [
-        "Quick Service Restaurant", "Fine Dining", "Cloud Kitchen", "Bakery", "Cafe",
-        "Meal Prep", "Beverages", "Snacks", "Catering", "Food Delivery",
-    ],
-    "Travel & Hospitality": [
-        "Hotels", "Resorts", "Travel Agency", "Tour Operations", "Visa Services",
-        "Airline", "Event Venues", "Luxury Travel", "Adventure Travel", "Staycation",
-    ],
-    "Professional Services": [
-        "Legal Services", "Accounting", "Consulting", "Recruitment", "Marketing Agency",
-        "Creative Studio", "Business Advisory", "Outsourcing", "Logistics Services", "Security Services",
-    ],
-    "Media & Entertainment": [
-        "Streaming", "Podcast Network", "Music Label", "Film Production", "News Media",
-        "Sports Media", "Events & Concerts", "Gaming", "Creator Brand", "Community Media",
-    ],
-}
+
+from app.services.industry_taxonomy import (
+    DEFAULT_INDUSTRY,
+    DEFAULT_SUB_INDUSTRY,
+    INDUSTRY_TAXONOMY,
+    find_sub_industry_parent,
+)
 
 
 def _canonical_taxonomy(industry: str | None, sub_industry: str | None) -> tuple[str, str]:
-    """
-    Resolve (industry, sub_industry) to taxonomy keys.
+    """Resolve (industry, sub_industry) to canonical-cased taxonomy keys.
 
-    Lenient on purpose — the quick-fill flow gets these from an LLM, which
-    happily emits things like ("Technology", "Logistics") that don't line up
-    with our taxonomy. Rather than 400ing the user out of onboarding, we:
+    The taxonomy now lives in `app.services.industry_taxonomy` and matches
+    the frontend dropdown 1:1, so a value the user actually picked from the
+    dropdown will always match. We only canonicalise *case* — we never
+    rewrite a recognised parent or sub to a different value.
 
-      1. If the sub_industry doesn't fit the chosen industry but DOES fit
-         another industry, switch the industry to that one. ("Logistics" →
-         Professional Services / Logistics Services.)
-      2. If the sub_industry isn't recognised anywhere, fall back to the
-         first sub-industry under the chosen industry. The user can edit it.
-      3. If the industry itself is unrecognised, we still fall back instead
-         of 400ing — default to "Technology" / "SaaS".
+    Behaviour, in order:
+      1. Empty industry or sub → 400 (the dropdown enforces both as required).
+      2. Recognised parent + recognised sub under that parent → return
+         canonical-cased pair untouched.
+      3. Sub matches a different parent (e.g. user typed "Restaurant" with
+         no parent picked, or the LLM picked the wrong parent) → switch the
+         industry to the sub's natural parent.
+      4. Industry recognised but sub isn't → keep the industry, keep the
+         user's sub verbatim. The user is allowed to enter values the
+         taxonomy hasn't been taught about; they shouldn't get silently
+         overwritten with the parent's first sub the way the old logic did.
+      5. Industry not recognised either → fall back to the
+         "Multi-product Store" generic catch-all so onboarding always
+         succeeds, but log so we can see how often this fires.
     """
     ind_raw = str(industry or "").strip()
     sub_raw = str(sub_industry or "").strip()
@@ -143,52 +115,47 @@ def _canonical_taxonomy(industry: str | None, sub_industry: str | None) -> tuple
 
     ind_map = {k.lower(): k for k in INDUSTRY_TAXONOMY.keys()}
     ind_key = ind_map.get(ind_raw.lower())
+    sub_match_parent, sub_match_key = find_sub_industry_parent(sub_raw)
 
-    # Look for sub_industry across every industry — preserves the AI's read of
-    # the user's actual business when its industry guess was off.
-    sub_lower = sub_raw.lower()
-    sub_match_industry: str | None = None
-    sub_match_key: str | None = None
-    for parent, subs in INDUSTRY_TAXONOMY.items():
-        for s in subs:
-            if s.lower() == sub_lower:
-                sub_match_industry = parent
-                sub_match_key = s
-                break
-        if sub_match_key:
-            break
-
+    # Industry name we don't recognise — try the sub's parent first so we
+    # don't lose the user's intent, then fall back to the generic catch-all.
     if not ind_key:
-        # Industry name we don't recognise. Use the sub_industry's parent if we
-        # found one, else default to Technology / SaaS so onboarding always
-        # succeeds with sensible-looking values.
-        if sub_match_industry and sub_match_key:
-            logger.info("taxonomy: unknown industry '%s', adopting '%s' from sub_industry '%s'", ind_raw, sub_match_industry, sub_raw)
-            return sub_match_industry, sub_match_key
-        logger.info("taxonomy: unknown industry '%s' and sub '%s' — defaulting to Technology / SaaS", ind_raw, sub_raw)
-        return "Technology", INDUSTRY_TAXONOMY["Technology"][0]
+        if sub_match_parent and sub_match_key:
+            logger.info(
+                "taxonomy: unknown industry %r, adopting %r from sub %r",
+                ind_raw, sub_match_parent, sub_raw,
+            )
+            return sub_match_parent, sub_match_key
+        logger.info(
+            "taxonomy: unknown industry %r and sub %r — defaulting to %r / %r",
+            ind_raw, sub_raw, DEFAULT_INDUSTRY, DEFAULT_SUB_INDUSTRY,
+        )
+        return DEFAULT_INDUSTRY, DEFAULT_SUB_INDUSTRY
 
     # Industry recognised. Try to find sub within it first.
-    sub_within = next((s for s in INDUSTRY_TAXONOMY[ind_key] if s.lower() == sub_lower), None)
+    sub_within = next((s for s in INDUSTRY_TAXONOMY[ind_key] if s.lower() == sub_raw.lower()), None)
     if sub_within:
         return ind_key, sub_within
 
-    # Sub doesn't fit chosen industry but matches elsewhere — trust the sub
-    # and switch industry to the one that owns it.
-    if sub_match_industry and sub_match_key:
+    # Sub doesn't fit the chosen industry but matches elsewhere — trust the
+    # sub and switch industry to the one that owns it.
+    if sub_match_parent and sub_match_key:
         logger.info(
-            "taxonomy: sub '%s' doesn't fit '%s' — switching industry to '%s'",
-            sub_raw, ind_key, sub_match_industry,
+            "taxonomy: sub %r doesn't fit %r — switching industry to %r",
+            sub_raw, ind_key, sub_match_parent,
         )
-        return sub_match_industry, sub_match_key
+        return sub_match_parent, sub_match_key
 
-    # Sub is unrecognised everywhere — keep the chosen industry, default to
-    # its first sub. The user can change it afterwards.
+    # Sub is unrecognised everywhere — keep the user's input verbatim. The
+    # old code overwrote it with INDUSTRY_TAXONOMY[ind_key][0] but that
+    # silently destroyed legitimate niche values the taxonomy hasn't
+    # caught up to yet (and was the second half of the green-wall flow:
+    # the first save canonicalised the value, the next load showed empty).
     logger.info(
-        "taxonomy: sub '%s' unrecognised; falling back to '%s' for industry '%s'",
-        sub_raw, INDUSTRY_TAXONOMY[ind_key][0], ind_key,
+        "taxonomy: sub %r unrecognised under %r; preserving user value verbatim",
+        sub_raw, ind_key,
     )
-    return ind_key, INDUSTRY_TAXONOMY[ind_key][0]
+    return ind_key, sub_raw
 
 
 async def _sync_brand_assistant(brand_id: str) -> None:

@@ -224,89 +224,93 @@ class PlaybookVisualDirectionIn(BaseModel):
     is_active: bool = True
 
 
-INDUSTRY_TAXONOMY: dict[str, list[str]] = {
-    "Technology": [
-        "Fintech", "SaaS", "AI Platform", "Cybersecurity", "Developer Tools",
-        "Cloud Infrastructure", "EdTech", "HealthTech", "MarTech", "PropTech",
-    ],
-    "Finance & Fintech": [
-        "Digital Banking", "Cross-border Payments", "Lending", "InsuranceTech", "WealthTech",
-        "Crypto & Web3", "Payroll", "AccountingTech", "SME Finance", "Credit Scoring",
-    ],
-    "E-commerce & Retail": [
-        "D2C Fashion", "Beauty Retail", "Consumer Electronics", "Home & Living", "Grocery Commerce",
-        "Marketplace", "Luxury Retail", "Kids & Family", "Pharmacy Retail", "B2B Wholesale",
-    ],
-    "Health & Wellness": [
-        "Fitness", "Mental Health", "Nutrition", "Telemedicine", "Skincare",
-        "Supplements", "Women Health", "Men Health", "Corporate Wellness", "Rehab & Recovery",
-    ],
-    "Education": [
-        "K-12", "Higher Education", "Test Prep", "Vocational Training", "Creator Education",
-        "Language Learning", "STEM Learning", "Kids Learning", "Corporate Learning", "Study Abroad",
-    ],
-    "Real Estate": [
-        "Residential Sales", "Property Management", "Short Let", "Commercial Real Estate", "PropTech",
-        "Mortgage Advisory", "Real Estate Investment", "Interior Design", "Construction", "Land Sales",
-    ],
-    "Food & Beverage": [
-        "Quick Service Restaurant", "Fine Dining", "Cloud Kitchen", "Bakery", "Cafe",
-        "Meal Prep", "Beverages", "Snacks", "Catering", "Food Delivery",
-    ],
-    "Travel & Hospitality": [
-        "Hotels", "Resorts", "Travel Agency", "Tour Operations", "Visa Services",
-        "Airline", "Event Venues", "Luxury Travel", "Adventure Travel", "Staycation",
-    ],
-    "Professional Services": [
-        "Legal Services", "Accounting", "Consulting", "Recruitment", "Marketing Agency",
-        "Creative Studio", "Business Advisory", "Outsourcing", "Logistics Services", "Security Services",
-    ],
-    "Media & Entertainment": [
-        "Streaming", "Podcast Network", "Music Label", "Film Production", "News Media",
-        "Sports Media", "Events & Concerts", "Gaming", "Creator Brand", "Community Media",
-    ],
-}
+from app.services.industry_taxonomy import (
+    DEFAULT_INDUSTRY,
+    DEFAULT_SUB_INDUSTRY,
+    INDUSTRY_TAXONOMY,
+    find_sub_industry_parent,
+)
 
-_INDUSTRY_ALIASES = {
-    "technology": "Technology",
-    "tech": "Technology",
-    "tech_saas": "Technology",
-    "finance & fintech": "Finance & Fintech",
-    "finance_fintech": "Finance & Fintech",
-    "fintech": "Finance & Fintech",
-    "e-commerce & retail": "E-commerce & Retail",
-    "ecommerce": "E-commerce & Retail",
-    "ecommerce_retail": "E-commerce & Retail",
-    "health & wellness": "Health & Wellness",
-    "health_wellness": "Health & Wellness",
-    "education": "Education",
-    "real estate": "Real Estate",
-    "real_estate": "Real Estate",
-    "food & beverage": "Food & Beverage",
-    "food": "Food & Beverage",
-    "travel & hospitality": "Travel & Hospitality",
-    "travel_hospitality": "Travel & Hospitality",
-    "professional services": "Professional Services",
-    "professional_services": "Professional Services",
-    "media & entertainment": "Media & Entertainment",
-    "media_entertainment": "Media & Entertainment",
+
+# Legacy → canonical mapping. The backend used to ship a different taxonomy
+# (Technology / SaaS / Finance & Fintech / E-commerce & Retail / ...) that
+# was completely disjoint from the frontend dropdown. _canonical_taxonomy
+# silently rewrote every Brand-Kit save through that stale list, leaving
+# many real production rows with industry="Technology" or "E-commerce &
+# Retail" — values the user never actually picked. The admin "align
+# taxonomy" tool uses this map to migrate those legacy values forward to
+# the closest commerce-first parent.
+_LEGACY_INDUSTRY_REMAP: dict[str, str] = {
+    "technology": "Digital Products Store",
+    "tech": "Digital Products Store",
+    "tech_saas": "Digital Products Store",
+    "finance & fintech": "Digital Products Store",
+    "finance_fintech": "Digital Products Store",
+    "fintech": "Digital Products Store",
+    "e-commerce & retail": "Multi-product Store (General Store)",
+    "ecommerce": "Multi-product Store (General Store)",
+    "ecommerce_retail": "Multi-product Store (General Store)",
+    "health & wellness": "Health & Wellness Store",
+    "health_wellness": "Health & Wellness Store",
+    "education": "Digital Products Store",
+    "real estate": "Multi-product Store (General Store)",
+    "real_estate": "Multi-product Store (General Store)",
+    "food & beverage": "Food Store",
+    "food": "Food Store",
+    "travel & hospitality": "Multi-product Store (General Store)",
+    "travel_hospitality": "Multi-product Store (General Store)",
+    "professional services": "Digital Products Store",
+    "professional_services": "Digital Products Store",
+    "media & entertainment": "Digital Products Store",
+    "media_entertainment": "Digital Products Store",
 }
 
 
 def _canonical_brand_taxonomy_or_default(industry: str | None, sub_industry: str | None) -> tuple[str, str, bool]:
+    """Align (industry, sub_industry) to the canonical taxonomy.
+
+    Used by the admin "align legacy taxonomy" tool to bulk-migrate brand
+    rows that hold values from the old backend taxonomy. Logic:
+
+      1. Try to match the parent in the current taxonomy (case-insensitive).
+      2. Otherwise, look up `_LEGACY_INDUSTRY_REMAP` to fold old parents
+         ("Technology", "Food & Beverage", ...) into their nearest
+         current parent ("Digital Products Store", "Food Store", ...).
+      3. Otherwise, see if the sub matches a parent in the current
+         taxonomy and adopt that parent.
+      4. Final fallback: DEFAULT_INDUSTRY / DEFAULT_SUB_INDUSTRY.
+
+    For the sub_industry, prefer the input verbatim when it already lives
+    under the resolved parent (case-insensitively); otherwise keep the
+    user's input as-is unless the resolved parent's first sub is the only
+    sensible default (in which case we set it).
+
+    Returns (industry, sub_industry, changed) so the caller can preview
+    diffs before committing.
+    """
     ind_raw = str(industry or "").strip()
     sub_raw = str(sub_industry or "").strip()
 
     ind_map = {k.lower(): k for k in INDUSTRY_TAXONOMY.keys()}
-    ind_key = ind_map.get(ind_raw.lower()) or _INDUSTRY_ALIASES.get(ind_raw.lower())
+    ind_key = ind_map.get(ind_raw.lower())
     if not ind_key:
-        ind_key = "Technology"
+        ind_key = _LEGACY_INDUSTRY_REMAP.get(ind_raw.lower())
+    if not ind_key:
+        sub_match_parent, _ = find_sub_industry_parent(sub_raw)
+        ind_key = sub_match_parent or DEFAULT_INDUSTRY
 
     sub_map = {s.lower(): s for s in INDUSTRY_TAXONOMY[ind_key]}
     sub_key = sub_map.get(sub_raw.lower()) if sub_raw else None
     if not sub_key:
-        # deterministic default to avoid null or mismatched pairs in legacy rows
-        sub_key = INDUSTRY_TAXONOMY[ind_key][0]
+        # Don't silently overwrite a user value the taxonomy hasn't been
+        # taught about yet — but legacy rows often have no sub at all
+        # (or a stale value like "SaaS" that doesn't fit any current
+        # parent), so fall back to the parent's first sub when input is
+        # empty or clearly stale.
+        if not sub_raw or sub_raw.lower() in _LEGACY_INDUSTRY_REMAP:
+            sub_key = INDUSTRY_TAXONOMY[ind_key][0]
+        else:
+            sub_key = sub_raw
 
     changed = (ind_key != ind_raw) or (sub_key != sub_raw)
     return ind_key, sub_key, changed
