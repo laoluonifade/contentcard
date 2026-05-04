@@ -140,11 +140,20 @@ async def update_workspace(
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    new_name = str(body.name or "").strip()
-    if len(new_name) < 2:
-        raise HTTPException(status_code=400, detail="Workspace name must be at least 2 characters")
+    # Rename — only when a name is supplied. Allows the same endpoint
+    # to flip just the currency without echoing the existing name.
+    if body.name is not None:
+        new_name = str(body.name or "").strip()
+        if len(new_name) < 2:
+            raise HTTPException(status_code=400, detail="Workspace name must be at least 2 characters")
+        ws.name = new_name
 
-    ws.name = new_name
+    if body.default_currency is not None:
+        # Empty string clears the default; otherwise upper-case + cap
+        # length so we don't store a free-form essay.
+        cleaned = str(body.default_currency or "").strip().upper()
+        ws.default_currency = cleaned[:8] or None
+
     await db.commit()
     await db.refresh(ws)
     wo = WorkspaceOut.model_validate(ws)

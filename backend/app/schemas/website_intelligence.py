@@ -68,6 +68,23 @@ class WebsiteProductOut(BaseModel):
     last_change_at: datetime | None = None
     first_seen_at: datetime
     last_seen_at: datetime
+    # Promotion-engine flags + usage. Stored on attributes, surfaced
+    # at the top level so the products UI / strategist can read them
+    # without digging through the JSON. is_new is computed server-side
+    # (first_seen within the last 14 days) so the frontend doesn't
+    # have to mirror the date math.
+    is_starred: bool = False
+    is_bestseller: bool = False
+    usage_count: int = 0
+    is_new: bool = False
+
+
+class WebsiteProductFlagsUpdate(BaseModel):
+    """PATCH body for toggling promotion flags. Any field left as None
+    is ignored — partial updates supported so the UI can flip just one
+    flag without echoing the full state."""
+    is_starred: bool | None = None
+    is_bestseller: bool | None = None
 
 
 class WebsiteProductCreateRequest(BaseModel):

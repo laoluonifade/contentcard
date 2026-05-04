@@ -4525,6 +4525,12 @@ async def _do_generate_month(
                     if key:
                         approved_map[key] = op
             used_approved_ids: set[str] = set()
+            # Per-batch tally of which product WebsiteEntity ids were
+            # matched to posts. Bulk-incremented after the commit so each
+                # product's `attributes.usage_count` reflects how many posts
+                # reference it. Drives the "low usage" smart label and the
+                # rotation logic in PR P8.
+            used_product_entity_ids: list[str] = []
             brand_product_images = await _brand_product_image_pool(db, brand_id)
             brand_product_grounding_pool = await _brand_product_grounding_pool(db, brand_id)
             enforce_product_imagery = _is_product_based_brand(brand_dict)
@@ -4564,6 +4570,17 @@ async def _do_generate_month(
                             break
                 if matched_op and matched_op.get("id"):
                     used_approved_ids.add(str(matched_op.get("id")))
+                # Track the matched product entity for usage_count
+                # bumping after the commit. matched_op may carry the
+                # entity_id at the top level OR nested under payload
+                # depending on the upstream construction path.
+                if isinstance(matched_op, dict):
+                    op_payload = matched_op.get("payload") if isinstance(matched_op.get("payload"), dict) else {}
+                    op_entity_type = str(matched_op.get("entity_type") or op_payload.get("entity_type") or "").lower()
+                    if op_entity_type == "product":
+                        product_eid = str(matched_op.get("entity_id") or op_payload.get("entity_id") or "").strip()
+                        if product_eid:
+                            used_product_entity_ids.append(product_eid)
                 product_ctx = await _product_grounding_context(
                     db,
                     brand_id,
@@ -4775,6 +4792,36 @@ async def _do_generate_month(
                     .values(status="dismissed")
                 )
                 await db.commit()
+
+            # Bump usage_count on each product entity that was matched to
+            # a post in this batch. Uses Counter so a product matched to
+            # multiple posts gets bumped once per match. JSON column means
+            # we fetch + mutate + save rather than an SQL update.
+            if used_product_entity_ids:
+                from collections import Counter
+                bumps = Counter(used_product_entity_ids)
+                rows = (
+                    await db.execute(
+                        select(WebsiteEntity).where(
+                            WebsiteEntity.brand_id == brand_id,
+                            WebsiteEntity.id.in_(list(bumps.keys())),
+                            WebsiteEntity.entity_type == "product",
+                        )
+                    )
+                ).scalars().all()
+                for row in rows:
+                    incr = bumps.get(row.id, 0)
+                    if not incr:
+                        continue
+                    attrs = dict(row.attributes or {})
+                    try:
+                        current = int(attrs.get("usage_count") or 0)
+                    except (TypeError, ValueError):
+                        current = 0
+                    attrs["usage_count"] = current + incr
+                    row.attributes = attrs
+                if rows:
+                    await db.commit()
 
             if campaign_plan_id:
                 for item, post in saved_items:

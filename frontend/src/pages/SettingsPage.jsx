@@ -553,6 +553,8 @@ export default function SettingsPage() {
                             </div>
                           </div>
                         </div>
+
+                        <CurrencyEditor workspace={ws} />
                       </div>
                     )
                   })}
@@ -993,5 +995,90 @@ export default function SettingsPage() {
       </div>
     )}
     </>
+  )
+}
+
+// ── Workspace currency editor ────────────────────────────────────────
+// Tiny inline form that flips ws.default_currency. Used inside the
+// Brands tab next to each workspace's name + plan + payment block.
+// Common ISO codes are surfaced as quick chips; the input also takes
+// any 2-8 char string for less common ones.
+function CurrencyEditor({ workspace }) {
+  const setWorkspaceCurrency = useAppStore((s) => s.setWorkspaceCurrency)
+  const initial = workspace?.default_currency || ''
+  const [value, setValue] = useState(initial)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setValue(workspace?.default_currency || '')
+  }, [workspace?.default_currency])
+
+  const dirty = value.trim().toUpperCase() !== (initial || '')
+
+  const save = async (next) => {
+    setSaving(true)
+    try {
+      await setWorkspaceCurrency(workspace.id, next)
+      toast(next ? `Default currency set to ${next}.` : 'Default currency cleared.')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Could not save currency.', 'error')
+      setValue(initial)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const QUICK_CODES = ['NGN', 'USD', 'GBP', 'EUR', 'GHS', 'KES', 'ZAR']
+
+  return (
+    <div className="mt-3">
+      <label className="block text-[10px] font-bold uppercase tracking-widest text-ink/40 mb-1.5">
+        Default currency <span className="text-ink/35 font-normal normal-case">(used when a product has no currency of its own)</span>
+      </label>
+      <div className="flex flex-col sm:flex-row gap-2">
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value.slice(0, 8))}
+          placeholder="e.g. NGN"
+          className="flex-1 px-3 py-2 bg-surface border border-fog rounded-lg text-xs text-ink placeholder:text-ink/30 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all uppercase"
+        />
+        <button
+          type="button"
+          onClick={() => save(value.trim().toUpperCase())}
+          disabled={saving || !dirty}
+          className="px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-xs font-semibold transition-colors whitespace-nowrap"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {QUICK_CODES.map((code) => (
+          <button
+            key={code}
+            type="button"
+            onClick={() => { setValue(code); save(code) }}
+            disabled={saving || (workspace?.default_currency || '') === code}
+            className={clsx(
+              'px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors',
+              (workspace?.default_currency || '') === code
+                ? 'border-brand-500 bg-brand-500/10 text-brand-700'
+                : 'border-fog bg-mist text-ink/55 hover:border-brand-300 hover:text-ink',
+            )}
+          >
+            {code}
+          </button>
+        ))}
+        {workspace?.default_currency && (
+          <button
+            type="button"
+            onClick={() => { setValue(''); save('') }}
+            disabled={saving}
+            className="px-2 py-0.5 rounded-md text-[10px] font-bold border border-fog bg-surface text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+    </div>
   )
 }
