@@ -237,6 +237,7 @@ async def lifespan(app: FastAPI):
             "ALTER TABLE content_templates ADD COLUMN IF NOT EXISTS preview_image_url VARCHAR(1000)",
             "ALTER TABLE content_templates ADD COLUMN IF NOT EXISTS preview_image_urls JSON",
             "ALTER TABLE content_templates ADD COLUMN IF NOT EXISTS source VARCHAR(32) DEFAULT 'manual'",
+            "ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS default_currency VARCHAR(8)",
             "ALTER TABLE content_templates ADD COLUMN IF NOT EXISTS country_code VARCHAR(10)",
             "ALTER TABLE content_templates ADD COLUMN IF NOT EXISTS business_type VARCHAR(50)",
             "ALTER TABLE content_templates ADD COLUMN IF NOT EXISTS is_system_default BOOLEAN DEFAULT FALSE",

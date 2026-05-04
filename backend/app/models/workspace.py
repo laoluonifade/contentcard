@@ -45,6 +45,12 @@ class Workspace(Base):
     card_exp_year: Mapped[str | None] = mapped_column(String(5), nullable=True)
     next_payment_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Default currency for products + content (ISO-4217 code, optional).
+    # When a product doesn't carry an explicit currency the UI / strategist
+    # falls back to this value. Empty / null preserves the legacy
+    # "no default" behaviour so existing workspaces don't change overnight.
+    default_currency: Mapped[str | None] = mapped_column(String(8), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

@@ -134,6 +134,22 @@ const useAppStore = create(
         return updated
       },
 
+      // Set the workspace-level default currency (ISO 4217 string or
+      // empty to clear). Reused by the products page and the settings
+      // UI, so kept in the store rather than duplicated in two places.
+      setWorkspaceCurrency: async (workspaceId, currency) => {
+        const wsId = workspaceId || get().activeWorkspaceId
+        if (!wsId) throw new Error('No active workspace')
+        const cleaned = String(currency || '').trim().toUpperCase()
+        const updated = await workspaceApi.update(wsId, { default_currency: cleaned })
+        set((s) => {
+          const workspaces = s.workspaces.map((w) => (w.id === wsId ? { ...w, ...updated } : w))
+          const activeWorkspace = s.activeWorkspace?.id === wsId ? { ...s.activeWorkspace, ...updated } : s.activeWorkspace
+          return { workspaces, activeWorkspace }
+        })
+        return updated
+      },
+
       // ── Brands ──────────────────────────────────────────────────
       fetchBrands: async (workspaceId) => {
         const wsId = workspaceId || get().activeWorkspaceId
