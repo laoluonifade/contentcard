@@ -45,6 +45,7 @@ from app.schemas.creative_engine import (
     StyleFingerprintOut,
 )
 from app.models.website_intelligence import WebsiteChangeEvent, WebsiteEntity, WebsiteOpportunity
+from app.models.content import ContentItem
 from app.models.creative_engine import StyleFingerprint
 from app.services.website_intelligence_service import (
     ensure_website_intelligence_defaults,
@@ -1113,6 +1114,75 @@ async def list_brand_website_entities(
         q = q.where(WebsiteEntity.entity_type == entity_type)
     rows = (await db.execute(q)).scalars().all()
     return [WebsiteEntityOut.model_validate(row) for row in rows]
+
+
+@router.get("/{brand_id}/website/products/stats", response_model=dict)
+async def brand_product_stats(
+    workspace_id: str,
+    brand_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Quick metrics for the products page header — total, starred, and
+    products that were referenced by content generated in the current
+    calendar month. Cheap to compute (one SELECT per number) so the
+    products page can call this on every load without a cache."""
+    await _check_member(workspace_id, current_user.id, db)
+    brand = (
+        await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    ).scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
+
+    # All active product entities for this brand.
+    rows = (
+        await db.execute(
+            select(WebsiteEntity).where(
+                WebsiteEntity.brand_id == brand_id,
+                WebsiteEntity.entity_type == "product",
+                WebsiteEntity.is_active.is_(True),
+            )
+        )
+    ).scalars().all()
+
+    total = len(rows)
+    starred = sum(
+        1
+        for r in rows
+        if isinstance(r.attributes, dict) and bool(r.attributes.get("is_starred"))
+    )
+
+    # Used this month: count distinct product entity_ids that appear in
+    # any ContentItem.theme.website_grounding.entity_id for this brand
+    # in the current calendar month. Iterating in Python because the
+    # JSON-path lookup syntax differs between Postgres / SQLite test
+    # backends; the row count per month is bounded (≤ ~50 posts) so
+    # this is fine.
+    today = datetime.now(timezone.utc)
+    items = (
+        await db.execute(
+            select(ContentItem).where(
+                ContentItem.brand_id == brand_id,
+                ContentItem.generation_month == today.month,
+                ContentItem.generation_year == today.year,
+            )
+        )
+    ).scalars().all()
+    used_ids: set[str] = set()
+    for it in items:
+        theme = it.theme if isinstance(it.theme, dict) else {}
+        wg = theme.get("website_grounding") if isinstance(theme.get("website_grounding"), dict) else {}
+        eid = wg.get("entity_id")
+        if not eid and isinstance(wg.get("payload"), dict):
+            eid = wg["payload"].get("entity_id")
+        if eid:
+            used_ids.add(str(eid))
+
+    return {
+        "total": total,
+        "starred": starred,
+        "used_this_month": len(used_ids),
+    }
 
 
 @router.get("/{brand_id}/website/products", response_model=list[WebsiteProductOut])

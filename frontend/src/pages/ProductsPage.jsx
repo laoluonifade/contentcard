@@ -203,6 +203,12 @@ export default function ProductsPage() {
     }
   }
 
+  // Quick-metrics state for the header — total / starred / used this
+  // month. Pulled from a separate stats endpoint so the products list
+  // doesn't have to walk every ContentItem in the month to compute
+  // "used_this_month" client-side.
+  const [stats, setStats] = useState({ total: 0, starred: 0, used_this_month: 0 })
+
   const loadProducts = async () => {
     if (!activeWorkspaceId || !activeBrandId) return
     setProductsLoading(true)
@@ -216,10 +222,39 @@ export default function ProductsPage() {
     }
   }
 
+  const loadStats = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    try {
+      const s = await brandApi.websiteProductStats(activeWorkspaceId, activeBrandId)
+      if (s && typeof s === 'object') {
+        setStats({
+          total: Number(s.total || 0),
+          starred: Number(s.starred || 0),
+          used_this_month: Number(s.used_this_month || 0),
+        })
+      }
+    } catch {
+      /* metrics are best-effort */
+    }
+  }
+
   useEffect(() => {
     loadProducts()
+    loadStats()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrandId, activeWorkspaceId])
+
+  // Refresh stats whenever the local product list changes — flag flips
+  // and removes are reflected in `total`/`starred` instantly. The
+  // backend `used_this_month` only changes when a new post lands, so
+  // we don't need a roundtrip just for the local mutations.
+  useEffect(() => {
+    setStats((prev) => ({
+      ...prev,
+      total: Array.isArray(products) ? products.length : prev.total,
+      starred: Array.isArray(products) ? products.filter((p) => p.is_starred).length : prev.starred,
+    }))
+  }, [products])
 
   // Close the modal with Escape — the only modal control besides the X button.
   useEffect(() => {
@@ -319,36 +354,80 @@ export default function ProductsPage() {
 
   return (
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-4">
-      {/* Header — title + helper text on top, action row underneath on
-          mobile so the title doesn't get squeezed by the buttons; reverts
-          to a single inline row from sm: where there's room. */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-4">
-        <div className="min-w-0">
-          <h1 className="text-xl sm:text-2xl font-bold text-ink">Products</h1>
-          <p className="text-ink/45 text-sm mt-1">
-            {brand?.name ? <>What <span className="text-ink/70 font-semibold">{brand.name}</span> sells. </> : null}
-            We use these for product-led posts.
-          </p>
+      {/* Header — title + helper text. Primary actions live in their
+          own row below so the metrics + buttons read together. */}
+      <div className="mb-2">
+        <h1 className="text-xl sm:text-2xl font-bold text-ink">Products</h1>
+        <p className="text-ink/45 text-sm mt-1">
+          {brand?.name ? <>What <span className="text-ink/70 font-semibold">{brand.name}</span> sells. </> : null}
+          We use these to plan what to promote next.
+        </p>
+      </div>
+
+      {/* Quick metrics — total / starred / used this month. Three
+          flat tiles on mobile, row of three on desktop. */}
+      <div className="grid grid-cols-3 gap-2 sm:gap-3">
+        <div className="rounded-2xl border border-fog bg-surface p-3 sm:p-4">
+          <p className="text-[10px] sm:text-[11px] uppercase tracking-widest text-ink/45 font-bold">Products</p>
+          <p className="text-2xl sm:text-3xl font-bold text-ink mt-1 leading-none">{stats.total}</p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:flex-shrink-0">
+        <div className="rounded-2xl border border-fog bg-surface p-3 sm:p-4">
+          <p className="text-[10px] sm:text-[11px] uppercase tracking-widest text-ink/45 font-bold flex items-center gap-1">
+            <Star size={10} className="text-amber-500" fill="currentColor" />
+            Starred
+          </p>
+          <p className="text-2xl sm:text-3xl font-bold text-ink mt-1 leading-none">{stats.starred}</p>
+        </div>
+        <div className="rounded-2xl border border-fog bg-surface p-3 sm:p-4">
+          <p className="text-[10px] sm:text-[11px] uppercase tracking-widest text-ink/45 font-bold">Used this month</p>
+          <p className="text-2xl sm:text-3xl font-bold text-ink mt-1 leading-none">{stats.used_this_month}</p>
+        </div>
+      </div>
+
+      {/* Primary actions — add / connect store / generate from products.
+          Order matches the PRD: Add product → Connect store → Generate. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <button
+          type="button"
+          onClick={openAddModal}
+          className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold transition-colors"
+        >
+          <Plus size={14} />
+          Add product
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/dashboard/settings?tab=Apps')}
+          className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 transition-colors"
+        >
+          {brand?.shopify_shop_domain ? 'Manage store' : 'Connect store'}
+        </button>
+        <button
+          type="button"
+          onClick={() => navigate('/dashboard/generate')}
+          disabled={products.length === 0}
+          className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-brand-300 bg-brand-50 text-xs font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          <Sparkles size={14} />
+          Generate from products
+        </button>
+      </div>
+
+      {/* Refresh-from-website is the secondary maintenance action — it
+          stays in the page but loses the prime position to the three
+          PRD primary actions above. */}
+      {brand?.website && (
+        <div className="flex justify-end">
           <button
             type="button"
             onClick={refreshFromWebsite}
-            disabled={websiteSyncing || !brand?.website}
-            className="flex-1 sm:flex-initial px-3 py-2 rounded-lg border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 disabled:opacity-50 whitespace-nowrap"
+            disabled={websiteSyncing}
+            className="text-[11px] font-semibold text-ink/55 hover:text-ink disabled:opacity-50"
           >
             {websiteSyncing ? 'Refreshing…' : 'Refresh from website'}
           </button>
-          <button
-            type="button"
-            onClick={openAddModal}
-            className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold transition-colors whitespace-nowrap"
-          >
-            <Plus size={14} />
-            Add product
-          </button>
         </div>
-      </div>
+      )}
 
       <div className="bg-surface border border-fog rounded-2xl p-5">
         {products.length === 0 && !productsLoading && (
