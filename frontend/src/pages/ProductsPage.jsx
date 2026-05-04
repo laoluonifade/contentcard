@@ -137,6 +137,11 @@ export default function ProductsPage() {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(() => new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
+  // Product detail view — modal/drawer. PRD says the card body should
+  // open into a full view with description, price, variants, and the
+  // four content-generation CTAs (post / offer / carousel / calendar).
+  const [detailProduct, setDetailProduct] = useState(null)
+  const closeDetail = () => setDetailProduct(null)
 
   const exitSelectMode = () => {
     setSelectMode(false)
@@ -403,6 +408,13 @@ export default function ProductsPage() {
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showAddModal])
+
+  useEffect(() => {
+    if (!detailProduct) return
+    const onKey = (e) => { if (e.key === 'Escape') closeDetail() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detailProduct])
 
   const openAddModal = () => {
     setManualProductForm((f) => ({ ...EMPTY_FORM, currency: f.currency || 'NGN' }))
@@ -798,8 +810,17 @@ export default function ProductsPage() {
                     </span>
                   </div>
 
-                  {/* Body */}
-                  <div className="flex-1 p-3 flex flex-col gap-1.5">
+                  {/* Body — clicking it opens the detail view (unless
+                      we're in selectMode, where the image already
+                      handles selection clicks). */}
+                  <div
+                    className={clsx(
+                      'flex-1 p-3 flex flex-col gap-1.5',
+                      !selectMode && 'cursor-pointer',
+                    )}
+                    onClick={selectMode ? undefined : () => setDetailProduct(p)}
+                    role={selectMode ? undefined : 'button'}
+                  >
                     <p className="text-sm font-semibold text-ink line-clamp-1">{p.title}</p>
                     {p.price && (
                       <p className="text-sm font-bold text-ink">
@@ -818,7 +839,7 @@ export default function ProductsPage() {
                           post next." */}
                       <button
                         type="button"
-                        onClick={() => generateForProduct(p)}
+                        onClick={(e) => { e.stopPropagation(); generateForProduct(p) }}
                         className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-[11px] font-semibold transition-colors"
                       >
                         <Sparkles size={12} />
@@ -1039,6 +1060,209 @@ export default function ProductsPage() {
           </div>
         </div>
       )}
+
+      {detailProduct && (
+        <ProductDetailModal
+          product={detailProduct}
+          onClose={closeDetail}
+          onGeneratePost={() => {
+            const p = detailProduct
+            closeDetail()
+            generateForProduct(p, { intent: 'spotlight', format: 'single' })
+          }}
+          onGenerateOffer={() => {
+            const p = detailProduct
+            closeDetail()
+            generateForProduct(p, { intent: 'offer', format: 'single' })
+          }}
+          onGenerateCarousel={() => {
+            const p = detailProduct
+            closeDetail()
+            generateForProduct(p, { intent: 'spotlight', format: 'carousel' })
+          }}
+          onAddToCalendar={() => {
+            const p = detailProduct
+            closeDetail()
+            addProductToPlan(p)
+          }}
+          onToggleStar={() => toggleProductFlag(detailProduct, 'star')}
+          starBusy={flagBusy[detailProduct.id] === 'star'}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Product detail modal ────────────────────────────────────────────────
+// PRD: full image, description, price + currency, variants (when
+// present), and four content-generation actions. Click-outside +
+// Escape close the modal; the parent owns the action callbacks so the
+// router-state plumbing stays in one place.
+function ProductDetailModal({
+  product,
+  onClose,
+  onGeneratePost,
+  onGenerateOffer,
+  onGenerateCarousel,
+  onAddToCalendar,
+  onToggleStar,
+  starBusy,
+}) {
+  const variants = Array.isArray(product?.variants)
+    ? product.variants
+    : Array.isArray(product?.attributes?.variants)
+      ? product.attributes.variants
+      : []
+  const cleanSummary = product?.cleanSummary || stripHtml(product?.summary)
+  const isStarred = !!product?.is_starred
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/55 flex items-end sm:items-center justify-center sm:p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="product-detail-title"
+    >
+      <div
+        className="w-full sm:max-w-2xl bg-surface sm:rounded-2xl rounded-t-2xl border border-fog max-h-[92vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 p-5 border-b border-fog">
+          <div className="min-w-0 flex-1">
+            <h2 id="product-detail-title" className="text-lg font-bold text-ink truncate">{product.title}</h2>
+            <p className="text-xs text-ink/55 mt-1">
+              {[product.product_type, product.vendor].filter(Boolean).join(' · ') || '—'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="text-ink/45 hover:text-ink p-1 rounded-lg"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          <div className="grid sm:grid-cols-[1fr_1fr]">
+            {/* Image */}
+            <div className="relative aspect-square bg-mist/60">
+              {product.image_url ? (
+                <img src={product.image_url} alt={product.title} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-xs text-ink/30">No image</div>
+              )}
+              <button
+                type="button"
+                onClick={onToggleStar}
+                disabled={starBusy}
+                aria-pressed={isStarred}
+                className={clsx(
+                  'absolute top-3 right-3 inline-flex items-center justify-center w-10 h-10 rounded-full shadow-sm border transition-all',
+                  isStarred
+                    ? 'bg-amber-400 border-amber-500 text-white hover:bg-amber-500'
+                    : 'bg-white/90 border-white/60 text-ink/55 hover:text-amber-500',
+                  starBusy && 'opacity-60 cursor-not-allowed',
+                )}
+              >
+                <Star size={18} fill={isStarred ? 'currentColor' : 'none'} strokeWidth={2} />
+              </button>
+            </div>
+
+            {/* Right column: price / description / variants */}
+            <div className="p-5 space-y-3">
+              {(product.price || product.compare_at_price) && (
+                <div className="flex items-baseline gap-2">
+                  <span className="text-xl font-bold text-ink">
+                    {product.currency ? `${product.currency} ` : ''}{product.price}
+                  </span>
+                  {product.compare_at_price && (
+                    <span className="text-sm text-ink/35 line-through font-semibold">
+                      {product.compare_at_price}
+                    </span>
+                  )}
+                </div>
+              )}
+              <p className="text-xs text-ink/55 whitespace-pre-line">
+                {cleanSummary || 'No description available.'}
+              </p>
+
+              {variants.length > 0 && (
+                <div>
+                  <p className="text-[11px] uppercase tracking-widest text-ink/45 font-bold mb-2">Variants</p>
+                  <ul className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                    {variants.slice(0, 12).map((v, i) => {
+                      const label = v?.title || v?.option1 || v?.name || `Variant ${i + 1}`
+                      const price = v?.price || v?.amount
+                      const sku = v?.sku
+                      const available = v?.available !== false
+                      return (
+                        <li
+                          key={v?.id || `${label}-${i}`}
+                          className="flex items-center justify-between gap-2 text-xs px-2.5 py-1.5 rounded-lg border border-fog bg-mist/40"
+                        >
+                          <span className="font-semibold text-ink truncate">{label}</span>
+                          <span className="flex items-center gap-2 flex-shrink-0">
+                            {sku && <span className="text-[10px] text-ink/40">{sku}</span>}
+                            {price && <span className="font-bold text-ink">{product.currency ? `${product.currency} ` : ''}{price}</span>}
+                            {!available && <span className="text-[10px] font-bold text-rose-600">Out</span>}
+                          </span>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              )}
+
+              {product.source_url && (
+                <a
+                  href={product.source_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-block text-[11px] font-semibold text-brand-600 hover:text-brand-700"
+                >
+                  View product page →
+                </a>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-4 border-t border-fog bg-mist/30">
+          <button
+            type="button"
+            onClick={onGeneratePost}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold transition-colors"
+          >
+            <Sparkles size={13} />
+            Generate post
+          </button>
+          <button
+            type="button"
+            onClick={onGenerateOffer}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-rose-300 bg-rose-50 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition-colors"
+          >
+            <Tag size={13} />
+            Generate offer
+          </button>
+          <button
+            type="button"
+            onClick={onGenerateCarousel}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-fog bg-surface text-xs font-semibold text-ink hover:border-brand-400 transition-colors"
+          >
+            Generate carousel
+          </button>
+          <button
+            type="button"
+            onClick={onAddToCalendar}
+            className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl border border-emerald-300 bg-emerald-50 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 transition-colors"
+          >
+            <CalendarPlus size={13} />
+            Add to calendar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
