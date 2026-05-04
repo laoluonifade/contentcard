@@ -111,8 +111,18 @@ function weekdaysRemainingInMonth(from) {
 
 export default function ProductsPage() {
   const navigate = useNavigate()
-  const { activeBrandId, activeWorkspaceId, brands, generateMonth, generatingMonth } = useAppStore()
+  const {
+    activeBrandId,
+    activeWorkspaceId,
+    activeWorkspace,
+    brands,
+    generateMonth,
+    generatingMonth,
+  } = useAppStore()
   const brand = brands?.find?.((b) => b.id === activeBrandId) || null
+  // Workspace-level default currency. Products that don't carry their
+  // own currency inherit this one for display + content generation.
+  const workspaceCurrency = activeWorkspace?.default_currency || ''
 
   const [products, setProducts] = useState([])
   const [productsLoading, setProductsLoading] = useState(false)
@@ -178,8 +188,12 @@ export default function ProductsPage() {
     () => (Array.isArray(products) ? products : []).map((p) => ({
       ...p,
       cleanSummary: stripHtml(p?.summary),
+      // Inherit workspace currency when the product has none of its
+      // own. Display-only — we don't write it back to the row, so a
+      // later workspace-currency change still reflects everywhere.
+      effective_currency: p?.currency || workspaceCurrency || null,
     })),
-    [products],
+    [products, workspaceCurrency],
   )
 
   const filteredProducts = useMemo(() => {
@@ -417,7 +431,13 @@ export default function ProductsPage() {
   }, [detailProduct])
 
   const openAddModal = () => {
-    setManualProductForm((f) => ({ ...EMPTY_FORM, currency: f.currency || 'NGN' }))
+    // Pre-fill the new product with the workspace default currency when
+    // present. Falls back to the previously-used currency, then 'NGN'
+    // as a sensible last resort for the historical default.
+    setManualProductForm((f) => ({
+      ...EMPTY_FORM,
+      currency: workspaceCurrency || f.currency || 'NGN',
+    }))
     setShowAddModal(true)
   }
 
@@ -824,7 +844,7 @@ export default function ProductsPage() {
                     <p className="text-sm font-semibold text-ink line-clamp-1">{p.title}</p>
                     {p.price && (
                       <p className="text-sm font-bold text-ink">
-                        {p.currency ? `${p.currency} ` : ''}{p.price}
+                        {p.effective_currency ? `${p.effective_currency} ` : ''}{p.price}
                         {p.compare_at_price ? (
                           <span className="text-ink/35 ml-1 line-through font-semibold text-xs">{p.compare_at_price}</span>
                         ) : null}
@@ -1175,7 +1195,7 @@ function ProductDetailModal({
               {(product.price || product.compare_at_price) && (
                 <div className="flex items-baseline gap-2">
                   <span className="text-xl font-bold text-ink">
-                    {product.currency ? `${product.currency} ` : ''}{product.price}
+                    {(product.effective_currency || product.currency) ? `${product.effective_currency || product.currency} ` : ''}{product.price}
                   </span>
                   {product.compare_at_price && (
                     <span className="text-sm text-ink/35 line-through font-semibold">
@@ -1205,7 +1225,7 @@ function ProductDetailModal({
                           <span className="font-semibold text-ink truncate">{label}</span>
                           <span className="flex items-center gap-2 flex-shrink-0">
                             {sku && <span className="text-[10px] text-ink/40">{sku}</span>}
-                            {price && <span className="font-bold text-ink">{product.currency ? `${product.currency} ` : ''}{price}</span>}
+                            {price && <span className="font-bold text-ink">{(product.effective_currency || product.currency) ? `${product.effective_currency || product.currency} ` : ''}{price}</span>}
                             {!available && <span className="text-[10px] font-bold text-rose-600">Out</span>}
                           </span>
                         </li>

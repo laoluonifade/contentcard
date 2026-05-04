@@ -8,7 +8,12 @@ class WorkspaceCreate(BaseModel):
 
 
 class WorkspaceUpdate(BaseModel):
-    name: str
+    # Both fields optional so the same endpoint handles renames AND
+    # currency changes without forcing the client to echo unrelated
+    # state. Empty string clears the currency; null leaves it
+    # untouched.
+    name: str | None = None
+    default_currency: str | None = None
 
 
 class WorkspaceOut(BaseModel):
@@ -20,6 +25,9 @@ class WorkspaceOut(BaseModel):
     payment_provider: str | None
     is_active: bool
     created_at: datetime
+    # Default currency for products + content. ISO-4217 (e.g. "NGN",
+    # "USD") or null when the workspace hasn't picked one.
+    default_currency: str | None = None
     # Highest plan across all workspaces you own (same as billing); equals `plan` for invited workspaces.
     effective_plan: str | None = None
 
