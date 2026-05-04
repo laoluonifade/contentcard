@@ -1,9 +1,37 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import clsx from 'clsx'
-import { Plus, X } from 'lucide-react'
+import { Plus, Search, X } from 'lucide-react'
 import { brandApi } from '../api'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
+
+// Strip HTML tags + decode the HTML entities Shopify body_html ships with
+// (&amp;, &nbsp;, &#39; etc.) so product summaries don't read as raw
+// markup ("</p> <p>") in the products list. Defensive against null /
+// undefined / non-string inputs.
+function stripHtml(input) {
+  const raw = String(input || '')
+  if (!raw) return ''
+  return raw
+    // Replace block-level closers / line breaks with spaces so adjacent
+    // paragraphs don't collapse into one run-on word.
+    .replace(/<\/(p|div|li|h[1-6])>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, ' ')
+    // Drop every remaining tag.
+    .replace(/<[^>]*>/g, '')
+    // Decode the most common entities; anything else falls back to the
+    // browser textarea trick which handles the long tail.
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    // Collapse the whitespace the tag-stripping introduced.
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 const inpCls =
   'w-full px-4 py-3 bg-mist border border-fog rounded-xl text-ink placeholder:text-ink/30 ' +
@@ -35,6 +63,36 @@ export default function ProductsPage() {
   const [manualProductForm, setManualProductForm] = useState(EMPTY_FORM)
   const [manualProductSaving, setManualProductSaving] = useState(false)
   const [manualProductRemovingId, setManualProductRemovingId] = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  // Decorate each product with a cleaned summary once so the renderer
+  // (and the search filter) see plain text — Shopify body_html ships
+  // marked-up so the raw `summary` looks like </p> <p> in the list.
+  const productsForDisplay = useMemo(
+    () => (Array.isArray(products) ? products : []).map((p) => ({
+      ...p,
+      cleanSummary: stripHtml(p?.summary),
+    })),
+    [products],
+  )
+
+  const filteredProducts = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase()
+    if (!needle) return productsForDisplay
+    return productsForDisplay.filter((p) => {
+      const haystack = [
+        p.title,
+        p.cleanSummary,
+        p.product_type,
+        p.vendor,
+        Array.isArray(p.tags) ? p.tags.join(' ') : '',
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+      return haystack.includes(needle)
+    })
+  }, [productsForDisplay, searchQuery])
 
   const loadProducts = async () => {
     if (!activeWorkspaceId || !activeBrandId) return
@@ -203,16 +261,56 @@ export default function ProductsPage() {
         )}
 
         {(products.length > 0 || productsLoading) && (
-          <div className="text-xs text-ink/50 mb-3">
-            <span className="font-semibold text-ink">{products.length}</span> product{products.length === 1 ? '' : 's'}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-3">
+            <div className="relative flex-1 max-w-md">
+              <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink/40" />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search by name, summary, type, vendor or tag"
+                aria-label="Search products"
+                className="w-full pl-9 pr-9 py-2 bg-mist border border-fog rounded-lg text-ink text-xs placeholder:text-ink/35 focus:outline-none focus:ring-2 focus:ring-brand-400/50 focus:border-brand-400 transition-all"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Clear search"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-ink/40 hover:text-ink hover:bg-fog transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+            <div className="text-xs text-ink/50">
+              <span className="font-semibold text-ink">{filteredProducts.length}</span>
+              {searchQuery && filteredProducts.length !== products.length
+                ? <> of <span className="font-semibold text-ink">{products.length}</span></>
+                : null}
+              {' '}product{filteredProducts.length === 1 ? '' : 's'}
+            </div>
           </div>
         )}
 
         {productsLoading ? (
           <div className="py-12 text-center text-sm text-ink/45">Loading products…</div>
-        ) : products.length === 0 ? null : (
+        ) : products.length === 0 ? null : filteredProducts.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-fog bg-mist/40 p-6 text-center">
+            <p className="text-sm text-ink/55">
+              No products match <span className="font-semibold text-ink">“{searchQuery}”</span>.
+            </p>
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="mt-2 text-xs font-semibold text-brand-600 hover:text-brand-700"
+            >
+              Clear search
+            </button>
+          </div>
+        ) : (
           <div className="space-y-3">
-            {products.map((p) => {
+            {filteredProducts.map((p) => {
               const availability = String(p.availability || '').toLowerCase()
               const inStock = availability.includes('in') || availability.includes('active')
               return (
@@ -232,8 +330,8 @@ export default function ProductsPage() {
                           {p.availability || 'availability unknown'}
                         </span>
                       </div>
-                      <p className="text-xs text-ink/45 mt-1">
-                        {p.summary || 'No summary available.'}
+                      <p className="text-xs text-ink/45 mt-1 line-clamp-3">
+                        {p.cleanSummary || 'No summary available.'}
                       </p>
                       <div className="mt-2 flex items-center gap-3 flex-wrap text-xs">
                         {p.price && (

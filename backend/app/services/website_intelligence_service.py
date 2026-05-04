@@ -32,6 +32,43 @@ _CHOWDECK_STOP_WORDS = {
 }
 
 
+# Shopify (and most ecommerce CMS) ship product descriptions as
+# `body_html` — raw HTML with <p>, <a>, <span>, <br>, &nbsp;, etc.
+# Storing that verbatim in the entity summary made the products page
+# render literal "</p> <p>" text. Strip on ingestion so all downstream
+# consumers (UI, strategist, captions) see clean prose.
+_HTML_TAG_RE = re.compile(r"<[^>]*>")
+_HTML_BLOCK_CLOSE_RE = re.compile(r"</(?:p|div|li|h[1-6])>", re.IGNORECASE)
+_HTML_BR_RE = re.compile(r"<br\s*/?>", re.IGNORECASE)
+_HTML_ENTITY_REPLACEMENTS = (
+    ("&nbsp;", " "),
+    ("&amp;", "&"),
+    ("&lt;", "<"),
+    ("&gt;", ">"),
+    ("&quot;", '"'),
+    ("&#39;", "'"),
+    ("&apos;", "'"),
+)
+
+
+def _strip_html(raw: str | None) -> str:
+    """Return plain text from a body_html-style string.
+
+    Replaces block-level tag closers with a single space so adjacent
+    paragraphs don't collapse into one run-on word, decodes the most
+    common entities, then drops every remaining tag and collapses
+    whitespace.
+    """
+    if not raw:
+        return ""
+    text = _HTML_BLOCK_CLOSE_RE.sub(" ", str(raw))
+    text = _HTML_BR_RE.sub(" ", text)
+    text = _HTML_TAG_RE.sub("", text)
+    for entity, replacement in _HTML_ENTITY_REPLACEMENTS:
+        text = text.replace(entity, replacement)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -321,7 +358,7 @@ def _extract_products_from_shopify_payload(base_url: str, products: list[dict]) 
                 "entity_type": "product",
                 "external_id": str(product_id) if product_id is not None else None,
                 "title": title,
-                "summary": (p.get("body_html") or "")[:600],
+                "summary": _strip_html(p.get("body_html"))[:600],
                 "attributes": attrs,
                 "source_url": product_url,
                 "confidence_score": 0.95,
