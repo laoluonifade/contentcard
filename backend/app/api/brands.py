@@ -1185,6 +1185,138 @@ async def brand_product_stats(
     }
 
 
+@router.get("/{brand_id}/website/products/suggested", response_model=list[WebsiteProductOut])
+async def suggested_brand_products(
+    workspace_id: str,
+    brand_id: str,
+    limit: int = 3,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return up to `limit` products the user should promote next.
+
+    Ranking (per the PRD): starred → bestseller → new → low usage →
+    everything else. The recent-post-rotation guard skips any product
+    referenced in the brand's three most-recently-saved posts so a
+    "what to post today" card doesn't tell the user to repeat
+    yesterday's post.
+    """
+    await _check_member(workspace_id, current_user.id, db)
+    brand = (
+        await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    ).scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
+
+    # Pull recent posts to extract the products they referenced. Bound
+    # to a small window so the rotation guard doesn't grow unbounded.
+    recent_posts = (
+        await db.execute(
+            select(ContentItem)
+            .where(ContentItem.brand_id == brand_id)
+            .order_by(ContentItem.created_at.desc())
+            .limit(6)
+        )
+    ).scalars().all()
+    recent_eids: set[str] = set()
+    for it in recent_posts[:3]:  # only the three latest count as rotation
+        theme = it.theme if isinstance(it.theme, dict) else {}
+        wg = theme.get("website_grounding") if isinstance(theme.get("website_grounding"), dict) else {}
+        eid = wg.get("entity_id")
+        if not eid and isinstance(wg.get("payload"), dict):
+            eid = wg["payload"].get("entity_id")
+        if eid:
+            recent_eids.add(str(eid))
+
+    rows = (
+        await db.execute(
+            select(WebsiteEntity).where(
+                WebsiteEntity.brand_id == brand_id,
+                WebsiteEntity.entity_type == "product",
+                WebsiteEntity.is_active.is_(True),
+            )
+        )
+    ).scalars().all()
+
+    now = datetime.now(timezone.utc)
+
+    def _rank(row) -> tuple[int, int, int]:
+        attrs = row.attributes if isinstance(row.attributes, dict) else {}
+        starred = bool(attrs.get("is_starred"))
+        bestseller = bool(attrs.get("is_bestseller"))
+        is_new = bool(row.first_seen_at and row.first_seen_at >= now - PRODUCT_NEW_WINDOW)
+        try:
+            usage = int(attrs.get("usage_count") or 0)
+        except (TypeError, ValueError):
+            usage = 0
+        # Tier (lower = higher priority): starred=0, bestseller=1,
+        # new=2, low-usage=3, rest=4.
+        if starred:
+            tier = 0
+        elif bestseller:
+            tier = 1
+        elif is_new:
+            tier = 2
+        elif usage < 2:
+            tier = 3
+        else:
+            tier = 4
+        # Within a tier, prefer LESS-used products so we rotate
+        # naturally. Then prefer newer rows so a fresh starred product
+        # outranks an older starred product.
+        last_seen = row.last_seen_at or row.first_seen_at or now
+        return (tier, usage, -int(last_seen.timestamp()))
+
+    eligible = [r for r in rows if r.id not in recent_eids]
+    # If the rotation guard ate everything, fall back to the full list.
+    pool = eligible if eligible else rows
+    pool.sort(key=_rank)
+    picked = pool[: max(1, min(int(limit or 3), 5))]
+
+    out: list[WebsiteProductOut] = []
+    for row in picked:
+        attrs = row.attributes if isinstance(row.attributes, dict) else {}
+        images = attrs.get("images") if isinstance(attrs.get("images"), list) else []
+        first_img = next((str(x).strip() for x in images if str(x or "").strip()), None)
+        tags_raw = attrs.get("tags")
+        if isinstance(tags_raw, list):
+            tags = [str(t).strip() for t in tags_raw if str(t).strip()][:12]
+        else:
+            tags = []
+        try:
+            usage_count = int(attrs.get("usage_count") or 0)
+        except (TypeError, ValueError):
+            usage_count = 0
+        is_new = bool(row.first_seen_at and row.first_seen_at >= now - PRODUCT_NEW_WINDOW)
+        out.append(
+            WebsiteProductOut(
+                id=row.id,
+                title=row.title,
+                summary=row.summary,
+                source_url=row.source_url,
+                image_url=first_img,
+                price=str(attrs.get("price") or "") or None,
+                compare_at_price=str(attrs.get("compare_at_price") or "") or None,
+                currency=str(attrs.get("currency") or "") or None,
+                availability=str(attrs.get("availability") or attrs.get("status") or "") or None,
+                product_type=str(attrs.get("product_type") or "") or None,
+                vendor=str(attrs.get("vendor") or "") or None,
+                tags=tags,
+                sync_state="manual" if str(attrs.get("source") or "").lower() == "manual" else "unchanged",
+                source_kind="manual" if str(attrs.get("source") or "").lower() == "manual" else "website",
+                last_change_type=None,
+                last_change_at=None,
+                first_seen_at=row.first_seen_at,
+                last_seen_at=row.last_seen_at,
+                is_starred=bool(attrs.get("is_starred")),
+                is_bestseller=bool(attrs.get("is_bestseller")),
+                usage_count=usage_count,
+                is_new=is_new,
+            )
+        )
+    return out
+
+
 @router.get("/{brand_id}/website/products", response_model=list[WebsiteProductOut])
 async def list_brand_website_products(
     workspace_id: str,
