@@ -345,10 +345,20 @@ export default function BrandKitPage() {
   }
 
   // ── Tone selection ────────────────────────────────────────────────────────
+  // Compare case-insensitively because saved tones come back lower-cased
+  // from the backend (see the `.map(t => t.toLowerCase())` on save) but
+  // TONE_OPTIONS uses Title Case. A case-sensitive `includes` made the
+  // pill look active while refusing to toggle off — and once MAX_TONES
+  // was hit, the toast blocked any further click so the user couldn't
+  // recover at all.
   const toggleTone = (tone) => {
     const cur = form.tone_tags
-    if (cur.includes(tone)) {
-      set('tone_tags', cur.filter((t) => t !== tone))
+    const lower = String(tone).toLowerCase()
+    const existingIdx = cur.findIndex((t) => String(t).toLowerCase() === lower)
+    if (existingIdx >= 0) {
+      const next = [...cur]
+      next.splice(existingIdx, 1)
+      set('tone_tags', next)
       return
     }
     if (cur.length >= MAX_TONES) {
