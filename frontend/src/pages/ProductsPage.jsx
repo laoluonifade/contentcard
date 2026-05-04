@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
-import { CalendarPlus, Flame, MoreHorizontal, Plus, Search, Sparkles, Star, Tag, Trash2, X } from 'lucide-react'
+import { CalendarPlus, Check, CheckSquare, Flame, MoreHorizontal, Plus, Search, Sparkles, Star, Tag, Trash2, X } from 'lucide-react'
 import { brandApi } from '../api'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
@@ -78,9 +78,40 @@ const EMPTY_FORM = {
   summary: '',
 }
 
+// Yield the next N weekday ISO dates starting from `from` (inclusive).
+// "Plan week" needs 7 weekdays not 7 calendar days; multi-product
+// "Generate for selected" spreads slots over the rest of the current
+// month so each post lands on a different day.
+function nextWeekdayIsos(from, count) {
+  const out = []
+  const cur = new Date(from)
+  cur.setHours(0, 0, 0, 0)
+  while (out.length < count) {
+    const day = cur.getDay()
+    if (day !== 0 && day !== 6) {
+      out.push(cur.toISOString().slice(0, 10))
+    }
+    cur.setDate(cur.getDate() + 1)
+  }
+  return out
+}
+
+function weekdaysRemainingInMonth(from) {
+  const out = []
+  const cur = new Date(from)
+  cur.setHours(0, 0, 0, 0)
+  const month = cur.getMonth()
+  while (cur.getMonth() === month) {
+    const day = cur.getDay()
+    if (day !== 0 && day !== 6) out.push(cur.toISOString().slice(0, 10))
+    cur.setDate(cur.getDate() + 1)
+  }
+  return out
+}
+
 export default function ProductsPage() {
   const navigate = useNavigate()
-  const { activeBrandId, activeWorkspaceId, brands } = useAppStore()
+  const { activeBrandId, activeWorkspaceId, brands, generateMonth, generatingMonth } = useAppStore()
   const brand = brands?.find?.((b) => b.id === activeBrandId) || null
 
   const [products, setProducts] = useState([])
@@ -100,6 +131,26 @@ export default function ProductsPage() {
   // Single-open semantics so opening one card's menu closes any other.
   const [openMenuId, setOpenMenuId] = useState(null)
   const menuRootRef = useRef(null)
+  // Bulk-selection mode. Cards render checkboxes when active; the
+  // toolbar with the bulk actions shows up sticky at the top once
+  // anything is selected.
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(() => new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+
+  const exitSelectMode = () => {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
+
+  const toggleSelected = (id) => {
+    setSelectedIds((cur) => {
+      const next = new Set(cur)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   // Close the action menu when clicking outside or hitting Escape.
   useEffect(() => {
@@ -171,6 +222,94 @@ export default function ProductsPage() {
         productTitle: product?.title,
       },
     })
+  }
+
+  // ── Bulk actions ────────────────────────────────────────────────
+  // Build a custom_plan from selected products so each post in the
+  // batch is bound to one product. The generate-month endpoint already
+  // accepts custom_plan; we just need to spread one slot per product
+  // across the appropriate dates.
+  const buildSlotsForProducts = (productList, isoDates) => {
+    return productList.map((p, i) => {
+      const date = isoDates[i % isoDates.length]
+      const productImage = p.cutout_url || p.image_url || ''
+      const baseIdea = p.title || p.product_type || 'Featured product'
+      return {
+        date,
+        platform: 'instagram',
+        format: 'single',
+        content_type: 'product_or_service_spotlight',
+        product_image_url: productImage || null,
+        content_idea: baseIdea,
+        visual_direction: `Hero shot of ${baseIdea}.`,
+      }
+    })
+  }
+
+  const runBulkGenerate = async (productList, mode) => {
+    if (!productList.length) return
+    if (generatingMonth) {
+      toast('Already generating this month — wait for the current run to finish.', 'error')
+      return
+    }
+    const today = new Date()
+    const month = today.getMonth() + 1
+    const year = today.getFullYear()
+    const dates =
+      mode === 'week'
+        ? nextWeekdayIsos(today, Math.min(7, Math.max(1, productList.length)))
+        : weekdaysRemainingInMonth(today)
+    if (!dates.length) {
+      toast('No weekdays left in the current month — pick a future month and try again.', 'error')
+      return
+    }
+    const slots = buildSlotsForProducts(productList, dates)
+    setBulkBusy(true)
+    try {
+      await generateMonth({
+        month, year,
+        platforms: ['instagram'],
+        format_mix: 'mixed',
+        posts_per_week: Math.min(5, Math.max(1, Math.round(productList.length / 4) || 1)),
+        topic_override: null,
+        use_website_intelligence: true,
+        only_new_changes: false,
+        use_reference_research: true,
+        variant_count: 2,
+        confirm_duplicate: true,
+        custom_plan: slots,
+      })
+      toast(
+        mode === 'week'
+          ? `Planned ${productList.length} post${productList.length === 1 ? '' : 's'} across the next week.`
+          : `Generating ${productList.length} post${productList.length === 1 ? '' : 's'} for the selected products.`,
+      )
+      exitSelectMode()
+      navigate('/dashboard/calendar')
+    } catch (err) {
+      toast(err.response?.data?.detail || err.message || 'Bulk generation failed', 'error')
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
+  const generateForSelected = () => {
+    const list = productsForDisplay.filter((p) => selectedIds.has(p.id))
+    runBulkGenerate(list, 'spread')
+  }
+
+  const planWeekWithSelected = () => {
+    const list = productsForDisplay.filter((p) => selectedIds.has(p.id))
+    runBulkGenerate(list, 'week')
+  }
+
+  const promoteStarred = () => {
+    const list = productsForDisplay.filter((p) => p.is_starred)
+    if (!list.length) {
+      toast('No starred products yet — star a few first, then promote them in one click.', 'error')
+      return
+    }
+    runBulkGenerate(list, 'spread')
   }
 
   // Optimistically flip a flag in local state so the UI reacts instantly,
@@ -471,12 +610,69 @@ export default function ProductsPage() {
                 </button>
               )}
             </div>
-            <div className="text-xs text-ink/50">
-              <span className="font-semibold text-ink">{filteredProducts.length}</span>
-              {searchQuery && filteredProducts.length !== products.length
-                ? <> of <span className="font-semibold text-ink">{products.length}</span></>
-                : null}
-              {' '}product{filteredProducts.length === 1 ? '' : 's'}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => (selectMode ? exitSelectMode() : setSelectMode(true))}
+                aria-pressed={selectMode}
+                className={clsx(
+                  'inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors',
+                  selectMode
+                    ? 'border-ink bg-ink text-white'
+                    : 'border-fog bg-surface text-ink/70 hover:border-brand-400 hover:text-ink',
+                )}
+              >
+                <CheckSquare size={13} />
+                {selectMode ? 'Done' : 'Select'}
+              </button>
+              <span className="text-xs text-ink/50 whitespace-nowrap">
+                <span className="font-semibold text-ink">{filteredProducts.length}</span>
+                {searchQuery && filteredProducts.length !== products.length
+                  ? <> of <span className="font-semibold text-ink">{products.length}</span></>
+                  : null}
+                {' '}product{filteredProducts.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Bulk-action toolbar — sticky at the top of the list when
+            anything is selected, OR always visible while in selectMode
+            (even with zero selected) so the user knows what they can
+            do once they pick a product. */}
+        {selectMode && (
+          <div className="mb-3 rounded-xl border border-brand-300 bg-brand-50/70 p-3 flex flex-col sm:flex-row sm:items-center gap-2">
+            <span className="text-xs font-semibold text-brand-700">
+              {selectedIds.size} selected
+            </span>
+            <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:ml-auto">
+              <button
+                type="button"
+                onClick={generateForSelected}
+                disabled={selectedIds.size === 0 || bulkBusy || generatingMonth}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-xs font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Sparkles size={12} />
+                Generate for selected
+              </button>
+              <button
+                type="button"
+                onClick={planWeekWithSelected}
+                disabled={selectedIds.size === 0 || bulkBusy || generatingMonth}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-brand-300 bg-surface text-xs font-semibold text-brand-700 hover:bg-brand-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <CalendarPlus size={12} />
+                Plan week with selected
+              </button>
+              <button
+                type="button"
+                onClick={promoteStarred}
+                disabled={bulkBusy || generatingMonth}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-300 bg-amber-50 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Star size={12} fill="currentColor" />
+                Promote starred
+              </button>
             </div>
           </div>
         )}
@@ -504,15 +700,45 @@ export default function ProductsPage() {
               const labels = smartLabelsFor(p)
               const starBusy = flagBusy[p.id] === 'star'
               const isStarred = !!p.is_starred
+              const isSelected = selectedIds.has(p.id)
               return (
-                <div key={p.id} className="group rounded-2xl border border-fog bg-surface overflow-hidden flex flex-col">
-                  {/* Image with overlaid star toggle + smart labels */}
-                  <div className="relative aspect-square bg-mist/60">
+                <div
+                  key={p.id}
+                  className={clsx(
+                    'group rounded-2xl border bg-surface overflow-hidden flex flex-col transition-shadow',
+                    isSelected ? 'border-brand-500 ring-2 ring-brand-500/20' : 'border-fog',
+                  )}
+                >
+                  {/* Image with overlaid star toggle + smart labels.
+                      In selectMode the whole image acts as the selection
+                      target (huge tap area, no fiddly checkbox). */}
+                  <div
+                    className={clsx('relative aspect-square bg-mist/60', selectMode && 'cursor-pointer')}
+                    onClick={selectMode ? () => toggleSelected(p.id) : undefined}
+                    role={selectMode ? 'button' : undefined}
+                    aria-pressed={selectMode ? isSelected : undefined}
+                  >
                     {p.image_url ? (
                       <img src={p.image_url} alt={p.title} className="w-full h-full object-cover" />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-[10px] text-ink/30">
                         No image
+                      </div>
+                    )}
+
+                    {/* Selection checkbox — only visible in selectMode.
+                        Sits top-left in the same area as the smart
+                        labels, then the labels move down a bit. */}
+                    {selectMode && (
+                      <div
+                        className={clsx(
+                          'absolute top-2 left-2 w-6 h-6 rounded-md border-2 flex items-center justify-center pointer-events-none transition-colors',
+                          isSelected
+                            ? 'bg-brand-500 border-brand-500 text-white'
+                            : 'bg-surface/90 border-ink/25',
+                        )}
+                      >
+                        {isSelected && <Check size={14} strokeWidth={3} />}
                       </div>
                     )}
 
@@ -535,9 +761,16 @@ export default function ProductsPage() {
                       <Star size={16} fill={isStarred ? 'currentColor' : 'none'} strokeWidth={2} />
                     </button>
 
-                    {/* Smart label chips — top-left, stacked */}
+                    {/* Smart label chips — top-left, stacked. Slide
+                        right past the selection checkbox in selectMode
+                        so the two affordances don't overlap. */}
                     {labels.length > 0 && (
-                      <div className="absolute top-2 left-2 flex flex-col items-start gap-1">
+                      <div
+                        className={clsx(
+                          'absolute top-2 flex flex-col items-start gap-1',
+                          selectMode ? 'left-10' : 'left-2',
+                        )}
+                      >
                         {labels.map((l) => (
                           <span
                             key={l.key}
