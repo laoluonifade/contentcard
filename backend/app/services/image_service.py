@@ -2505,18 +2505,18 @@ async def generate_post_image(post: dict, brand: dict) -> list[str]:
             logger.info("product-edits: cache hit for '%s'", topic)
             return [str(u) for u in cached if str(u).strip()]
 
-        # Multi-product collage path: when the planner attached 2+ product
-        # images and the post is a bundle / promo / collage theme, fetch every
-        # product PNG up to 4 and submit them all to gpt-image-1 /edits so the
-        # model composes them into one frame instead of picking one.
+        # Multi-product collage path was disabled: the gpt-image-1 /edits model
+        # consistently rendered companion products as awkward inset cutouts in
+        # the corner of the hero (a "Bundle Deal" post showed a secondary
+        # product as a thumbnail floated in the bottom-right). The "Products
+        # featured" section in the calendar popup now lists every grounded
+        # product cleanly next to the caption — that's the right place for the
+        # bundle inventory, so the hero image stays focused on a single primary
+        # product. Multi-product URLs / bundled titles are still persisted on
+        # cc_meta so the popup can render them.
         post_visual_theme = str(post.get("visual_theme") or "").strip().lower()
         post_content_type = str(post.get("content_type") or "").strip().lower()
-        wants_collage = (
-            len(product_image_urls) >= 2 and (
-                post_visual_theme == "collage"
-                or any(k in post_content_type for k in ("promotional", "promo", "offer", "bundle", "upsell"))
-            )
-        )
+        wants_collage = False
         bundled_titles = post.get("bundled_product_titles")
         if not isinstance(bundled_titles, list):
             bundled_titles = []

@@ -333,6 +333,63 @@ class ContentOut(BaseModel):
                 return q if isinstance(q, dict) else None
         return None
 
+    @computed_field
+    def featured_products(self) -> list[dict] | None:
+        # Surface the products that grounded this post so the calendar popup
+        # can list them next to the caption. The data is already on
+        # cc_meta — primary product comes from website_grounding +
+        # product_image_url, bundle companions come from
+        # bundled_product_titles zipped with product_image_urls[1:].
+        t = self.theme
+        if not isinstance(t, dict):
+            return None
+        cm = t.get("cc_meta")
+        if not isinstance(cm, dict):
+            return None
+
+        items: list[dict] = []
+        seen_keys: set[str] = set()
+
+        def _push(title: str | None, image_url: str | None, source_url: str | None, price: str | None) -> None:
+            title_s = (title or "").strip() or None
+            image_s = (image_url or "").strip() or None
+            if not title_s and not image_s:
+                return
+            key = (image_s or "") + "|" + (title_s or "")
+            if key in seen_keys:
+                return
+            seen_keys.add(key)
+            items.append({
+                "title": title_s,
+                "image_url": image_s,
+                "source_url": (source_url or "").strip() or None,
+                "price": (price or "").strip() or None,
+            })
+
+        wg = cm.get("website_grounding") if isinstance(cm.get("website_grounding"), dict) else None
+        primary_url = cm.get("product_image_url")
+        if wg or primary_url:
+            payload = wg.get("payload") if isinstance(wg, dict) and isinstance(wg.get("payload"), dict) else {}
+            _push(
+                title=(wg or {}).get("entity_title") if wg else None,
+                image_url=primary_url,
+                source_url=(wg or {}).get("source_url") if wg else None,
+                price=str(payload.get("price") or "") if payload else None,
+            )
+
+        all_urls = cm.get("product_image_urls") if isinstance(cm.get("product_image_urls"), list) else []
+        extra_urls = all_urls[1:] if all_urls else []
+        bundled_titles = cm.get("bundled_product_titles") if isinstance(cm.get("bundled_product_titles"), list) else []
+        for i in range(max(len(extra_urls), len(bundled_titles))):
+            _push(
+                title=bundled_titles[i] if i < len(bundled_titles) else None,
+                image_url=extra_urls[i] if i < len(extra_urls) else None,
+                source_url=None,
+                price=None,
+            )
+
+        return items or None
+
 
 class ContentListParams(BaseModel):
     brand_id: str

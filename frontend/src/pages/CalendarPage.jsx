@@ -1802,6 +1802,48 @@ export default function CalendarPage() {
                     </div>
                   </div>
 
+                  {/* Products featured */}
+                  {Array.isArray(modal.featured_products) && modal.featured_products.length > 0 && (
+                    <div>
+                      <label className="label">Products featured</label>
+                      <div className="space-y-2">
+                        {modal.featured_products.map((p, i) => {
+                          const Wrapper = p.source_url ? 'a' : 'div'
+                          const wrapperProps = p.source_url
+                            ? { href: p.source_url, target: '_blank', rel: 'noopener noreferrer' }
+                            : {}
+                          return (
+                            <Wrapper
+                              key={(p.image_url || '') + '|' + (p.title || '') + i}
+                              {...wrapperProps}
+                              className={`flex items-center gap-3 p-2 bg-mist border border-fog rounded-xl ${p.source_url ? 'hover:border-brand-300 transition-colors' : ''}`}
+                            >
+                              {p.image_url ? (
+                                <img
+                                  src={p.image_url}
+                                  alt={p.title || 'Product'}
+                                  className="w-12 h-12 rounded-lg object-cover bg-fog flex-shrink-0"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded-lg bg-fog flex-shrink-0" aria-hidden="true" />
+                              )}
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm text-ink font-medium truncate">{p.title || 'Untitled product'}</p>
+                                {p.price && (
+                                  <p className="text-xs text-ink/55 mt-0.5">{p.price}</p>
+                                )}
+                              </div>
+                              {p.source_url && (
+                                <ExternalLink size={14} className="text-ink/40 flex-shrink-0" />
+                              )}
+                            </Wrapper>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                 </div>
               </div>
             </div>
