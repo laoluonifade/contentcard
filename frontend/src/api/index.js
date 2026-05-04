@@ -238,6 +238,10 @@ export const brandApi = {
     api.get(`/workspaces/${wsId}/brands/${brandId}/website/products`, { params }).then(r => r.data),
   websiteProductStats: (wsId, brandId) =>
     api.get(`/workspaces/${wsId}/brands/${brandId}/website/products/stats`).then(r => r.data),
+  websiteProductSuggested: (wsId, brandId, limit = 3) =>
+    api.get(`/workspaces/${wsId}/brands/${brandId}/website/products/suggested`, {
+      params: { limit },
+    }).then(r => r.data),
   createWebsiteProduct: (wsId, brandId, data) =>
     api.post(`/workspaces/${wsId}/brands/${brandId}/website/products`, data).then(r => r.data),
   // Promotion-engine flag toggles. Body fields are optional — pass only

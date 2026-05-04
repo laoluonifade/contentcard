@@ -152,6 +152,11 @@ export default function ProductsPage() {
   // four content-generation CTAs (post / offer / carousel / calendar).
   const [detailProduct, setDetailProduct] = useState(null)
   const closeDetail = () => setDetailProduct(null)
+  // "Suggested for today" picks. Backend ranks by starred → bestseller
+  // → new → low-usage and skips items used in the last few posts so
+  // the row doesn't repeat yesterday's content.
+  const [suggested, setSuggested] = useState([])
+  const [suggestedLoading, setSuggestedLoading] = useState(false)
 
   const exitSelectMode = () => {
     setSelectMode(false)
@@ -348,6 +353,9 @@ export default function ProductsPage() {
       if (updated && updated.id) {
         setProducts((rows) => rows.map((r) => (r.id === updated.id ? { ...r, ...updated } : r)))
       }
+      // Flag flips can change the ranking — reload the suggested row
+      // so a freshly-starred product surfaces immediately.
+      loadSuggested()
     } catch (err) {
       // Revert.
       setProducts((rows) => rows.map((r) => (r.id === product.id ? { ...r, [apiKey]: !next } : r)))
@@ -396,9 +404,23 @@ export default function ProductsPage() {
     }
   }
 
+  const loadSuggested = async () => {
+    if (!activeWorkspaceId || !activeBrandId) return
+    setSuggestedLoading(true)
+    try {
+      const rows = await brandApi.websiteProductSuggested(activeWorkspaceId, activeBrandId, 3)
+      setSuggested(Array.isArray(rows) ? rows : [])
+    } catch {
+      setSuggested([])
+    } finally {
+      setSuggestedLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadProducts()
     loadStats()
+    loadSuggested()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeBrandId, activeWorkspaceId])
 
@@ -534,6 +556,83 @@ export default function ProductsPage() {
           We use these to plan what to promote next.
         </p>
       </div>
+
+      {/* Suggested for today — up to 3 products the strategist would
+          pick next, with a one-click Generate per item. Hidden when
+          the backend can't suggest anything (empty catalog, etc.). */}
+      {(suggestedLoading || suggested.length > 0) && (
+        <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-surface p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2 mb-2 sm:mb-3">
+            <div className="flex items-center gap-1.5">
+              <Sparkles size={14} className="text-brand-600" />
+              <p className="text-[11px] sm:text-xs uppercase tracking-widest text-brand-700 font-bold">
+                Suggested for today
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={loadSuggested}
+              disabled={suggestedLoading}
+              className="text-[11px] text-brand-700/70 hover:text-brand-800 disabled:opacity-50"
+            >
+              Refresh
+            </button>
+          </div>
+          {suggestedLoading && suggested.length === 0 ? (
+            <p className="text-xs text-ink/55">Picking the best products to promote…</p>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3">
+              {suggested.map((p) => {
+                const labels = smartLabelsFor(p)
+                const cleanSummary = stripHtml(p.summary || '')
+                return (
+                  <div
+                    key={p.id}
+                    className="rounded-xl border border-fog bg-surface p-2 sm:p-3 flex gap-2 sm:gap-3"
+                  >
+                    {p.image_url ? (
+                      <img
+                        src={p.image_url}
+                        alt={p.title || 'Product'}
+                        className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg object-cover flex-shrink-0"
+                      />
+                    ) : (
+                      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg bg-fog flex-shrink-0 flex items-center justify-center">
+                        <Tag size={18} className="text-ink/30" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0 flex flex-col">
+                      <p className="text-xs sm:text-sm font-semibold text-ink truncate">{p.title || 'Untitled'}</p>
+                      {labels.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 mt-0.5">
+                          {labels.slice(0, 2).map((l) => (
+                            <span
+                              key={l.key}
+                              className={clsx('text-[9px] sm:text-[10px] px-1.5 py-0.5 rounded-full font-semibold', TONE_CLS[l.tone])}
+                            >
+                              {l.text}
+                            </span>
+                          ))}
+                        </div>
+                      ) : cleanSummary ? (
+                        <p className="text-[10px] sm:text-[11px] text-ink/55 line-clamp-1 mt-0.5">{cleanSummary}</p>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => generateForProduct(p, { intent: 'spotlight', format: 'single' })}
+                        className="mt-auto inline-flex items-center justify-center gap-1 px-2 py-1 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-[11px] font-semibold transition-colors self-start"
+                      >
+                        <Sparkles size={11} />
+                        Generate
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Quick metrics — total / starred / used this month. Three
           flat tiles on mobile, row of three on desktop. */}
