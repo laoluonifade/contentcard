@@ -238,6 +238,23 @@ export const brandApi = {
     api.get(`/workspaces/${wsId}/brands/${brandId}/website/products`, { params }).then(r => r.data),
   createWebsiteProduct: (wsId, brandId, data) =>
     api.post(`/workspaces/${wsId}/brands/${brandId}/website/products`, data).then(r => r.data),
+  // Promotion-engine flag toggles. Body fields are optional — pass only
+  // the flag you want to flip, leave the other undefined.
+  setProductFlags: (wsId, brandId, productId, flags) =>
+    api.patch(
+      `/workspaces/${wsId}/brands/${brandId}/website/products/${productId}`,
+      flags,
+    ).then(r => r.data),
+  setProductStarred: (wsId, brandId, productId, isStarred) =>
+    api.patch(
+      `/workspaces/${wsId}/brands/${brandId}/website/products/${productId}`,
+      { is_starred: !!isStarred },
+    ).then(r => r.data),
+  setProductBestseller: (wsId, brandId, productId, isBestseller) =>
+    api.patch(
+      `/workspaces/${wsId}/brands/${brandId}/website/products/${productId}`,
+      { is_bestseller: !!isBestseller },
+    ).then(r => r.data),
   deleteWebsiteProduct: (wsId, brandId, productId) =>
     api.delete(`/workspaces/${wsId}/brands/${brandId}/website/products/${productId}`).then(r => r.data),
   websiteChanges: (wsId, brandId, params = {}) =>

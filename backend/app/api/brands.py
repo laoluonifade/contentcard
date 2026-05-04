@@ -2,7 +2,12 @@ import asyncio
 import logging
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+
+# Products newer than this are flagged with is_new on the products page.
+# Matches the PRD's "New" smart label intent — recently synced/created
+# products surface above the rest until they age out.
+PRODUCT_NEW_WINDOW = timedelta(days=14)
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
@@ -23,6 +28,7 @@ from app.schemas.website_intelligence import (
     WebsiteAuthCaptureRunRequest,
     WebsiteChangeEventOut,
     WebsiteProductCreateRequest,
+    WebsiteProductFlagsUpdate,
     WebsiteEntityOut,
     WebsiteProductOut,
     WebsiteOpportunityOut,
@@ -1189,6 +1195,20 @@ async def list_brand_website_products(
         if state != "all" and sync_state != state:
             continue
 
+        # Promotion flags + usage tracking — stored on attrs so adding
+        # new flags later is migration-free. is_new is computed here so
+        # the frontend doesn't have to mirror the date math.
+        is_starred = bool(attrs.get("is_starred"))
+        is_bestseller = bool(attrs.get("is_bestseller"))
+        try:
+            usage_count = int(attrs.get("usage_count") or 0)
+        except (TypeError, ValueError):
+            usage_count = 0
+        is_new = bool(
+            row.first_seen_at
+            and row.first_seen_at >= datetime.now(timezone.utc) - PRODUCT_NEW_WINDOW
+        )
+
         out.append(
             WebsiteProductOut(
                 id=row.id,
@@ -1209,6 +1229,10 @@ async def list_brand_website_products(
                 last_change_at=change.created_at if change else None,
                 first_seen_at=row.first_seen_at,
                 last_seen_at=row.last_seen_at,
+                is_starred=is_starred,
+                is_bestseller=is_bestseller,
+                usage_count=usage_count,
+                is_new=is_new,
             )
         )
     return out
@@ -1293,6 +1317,102 @@ async def create_brand_manual_product(
         last_change_at=None,
         first_seen_at=entity.first_seen_at,
         last_seen_at=entity.last_seen_at,
+        # New manual products land starred=False, bestseller=False,
+        # usage_count=0; is_new is true since it was just created.
+        is_starred=False,
+        is_bestseller=False,
+        usage_count=0,
+        is_new=True,
+    )
+
+
+@router.patch("/{brand_id}/website/products/{product_id}", response_model=WebsiteProductOut)
+async def update_brand_product_flags(
+    workspace_id: str,
+    brand_id: str,
+    product_id: str,
+    body: WebsiteProductFlagsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Toggle promotion-engine flags (is_starred / is_bestseller) on a
+    product. Stored on the WebsiteEntity attributes JSON so we can
+    extend the flag set without a schema migration. Either flag can be
+    omitted from the body — partial updates are supported so the UI
+    can flip just one flag without echoing the full state."""
+    m = await _check_member(workspace_id, current_user.id, db)
+    if m.role not in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.EDITOR):
+        raise HTTPException(status_code=403, detail="You need editor access for this. Ask your workspace owner to bump up your role.")
+
+    r = await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == workspace_id))
+    brand = r.scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="We couldn't find that brand. It may have been removed.")
+
+    entity = (
+        await db.execute(
+            select(WebsiteEntity).where(
+                WebsiteEntity.id == product_id,
+                WebsiteEntity.brand_id == brand_id,
+                WebsiteEntity.entity_type == "product",
+            )
+        )
+    ).scalar_one_or_none()
+    if not entity:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    attrs = dict(entity.attributes or {})
+    if body.is_starred is not None:
+        attrs["is_starred"] = bool(body.is_starred)
+    if body.is_bestseller is not None:
+        attrs["is_bestseller"] = bool(body.is_bestseller)
+    entity.attributes = attrs
+    await db.commit()
+    await db.refresh(entity)
+
+    refreshed_attrs = entity.attributes or {}
+    first_img = next(
+        (str(x).strip() for x in (refreshed_attrs.get("images") or []) if str(x or "").strip()),
+        None,
+    )
+    tags_raw = refreshed_attrs.get("tags")
+    if isinstance(tags_raw, list):
+        tags = [str(t).strip() for t in tags_raw if str(t).strip()][:12]
+    else:
+        tags = []
+
+    try:
+        usage_count = int(refreshed_attrs.get("usage_count") or 0)
+    except (TypeError, ValueError):
+        usage_count = 0
+    is_new = bool(
+        entity.first_seen_at
+        and entity.first_seen_at >= datetime.now(timezone.utc) - PRODUCT_NEW_WINDOW
+    )
+
+    return WebsiteProductOut(
+        id=entity.id,
+        title=entity.title,
+        summary=entity.summary,
+        source_url=entity.source_url,
+        image_url=first_img,
+        price=str(refreshed_attrs.get("price") or "") or None,
+        compare_at_price=str(refreshed_attrs.get("compare_at_price") or "") or None,
+        currency=str(refreshed_attrs.get("currency") or "") or None,
+        availability=str(refreshed_attrs.get("availability") or refreshed_attrs.get("status") or "") or None,
+        product_type=str(refreshed_attrs.get("product_type") or "") or None,
+        vendor=str(refreshed_attrs.get("vendor") or "") or None,
+        tags=tags,
+        sync_state="manual" if str(refreshed_attrs.get("source") or "").lower() == "manual" else "unchanged",
+        source_kind="manual" if str(refreshed_attrs.get("source") or "").lower() == "manual" else "website",
+        last_change_type=None,
+        last_change_at=None,
+        first_seen_at=entity.first_seen_at,
+        last_seen_at=entity.last_seen_at,
+        is_starred=bool(refreshed_attrs.get("is_starred")),
+        is_bestseller=bool(refreshed_attrs.get("is_bestseller")),
+        usage_count=usage_count,
+        is_new=is_new,
     )
 
 
