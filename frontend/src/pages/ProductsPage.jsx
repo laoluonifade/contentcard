@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import clsx from 'clsx'
-import { Plus, Search, Star, X } from 'lucide-react'
+import { CalendarPlus, Flame, MoreHorizontal, Plus, Search, Sparkles, Star, Tag, Trash2, X } from 'lucide-react'
 import { brandApi } from '../api'
 import useAppStore from '../stores/appStore'
 import { toast } from '../components/ui/Toast'
@@ -78,6 +79,7 @@ const EMPTY_FORM = {
 }
 
 export default function ProductsPage() {
+  const navigate = useNavigate()
   const { activeBrandId, activeWorkspaceId, brands } = useAppStore()
   const brand = brands?.find?.((b) => b.id === activeBrandId) || null
 
@@ -94,6 +96,27 @@ export default function ProductsPage() {
   // being flipped ('star' | 'best') so we can render a spinner-style
   // disabled state without a global lock.
   const [flagBusy, setFlagBusy] = useState({})
+  // Currently open per-product action menu (null when nothing open).
+  // Single-open semantics so opening one card's menu closes any other.
+  const [openMenuId, setOpenMenuId] = useState(null)
+  const menuRootRef = useRef(null)
+
+  // Close the action menu when clicking outside or hitting Escape.
+  useEffect(() => {
+    if (!openMenuId) return
+    const onDown = (e) => {
+      if (!menuRootRef.current) return
+      if (menuRootRef.current.contains(e.target)) return
+      setOpenMenuId(null)
+    }
+    const onKey = (e) => { if (e.key === 'Escape') setOpenMenuId(null) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [openMenuId])
 
   const productsForDisplay = useMemo(
     () => (Array.isArray(products) ? products : []).map((p) => ({
@@ -120,6 +143,35 @@ export default function ProductsPage() {
       return haystack.includes(needle)
     })
   }, [productsForDisplay, searchQuery])
+
+  // Navigate into the generate / calendar flows pre-bound to this
+  // product. GeneratePage already reads location.state.topic to
+  // pre-fill the topic input; we pass productId + format so it can
+  // also lock cc_meta.use_product_image and pre-pick the format.
+  const generateForProduct = (product, opts = {}) => {
+    const topic = String(product?.title || '').trim()
+    setOpenMenuId(null)
+    navigate('/dashboard/generate', {
+      state: {
+        topic,
+        productId: product?.id,
+        productTitle: topic,
+        format: opts.format || 'single',
+        intent: opts.intent || 'spotlight',
+      },
+    })
+  }
+
+  const addProductToPlan = (product) => {
+    setOpenMenuId(null)
+    navigate('/dashboard/calendar', {
+      state: {
+        autoOpenGeneratePanel: true,
+        productId: product?.id,
+        productTitle: product?.title,
+      },
+    })
+  }
 
   // Optimistically flip a flag in local state so the UI reacts instantly,
   // then call the API. On failure we revert. setProductFlags returns the
@@ -448,25 +500,116 @@ export default function ProductsPage() {
                     {p.cleanSummary && (
                       <p className="text-xs text-ink/45 line-clamp-2">{p.cleanSummary}</p>
                     )}
-                    <div className="mt-auto pt-2 flex items-center gap-3 text-[11px]">
-                      {p.source_url && (
-                        <a
-                          href={p.source_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="font-semibold text-brand-600 hover:text-brand-700"
-                        >
-                          View page
-                        </a>
-                      )}
+                    <div className="mt-auto pt-2 flex items-center gap-1.5">
+                      {/* Primary CTA on every card — promotion-engine
+                          intent: the user should feel "this is what to
+                          post next." */}
                       <button
                         type="button"
-                        onClick={() => removeManualProduct(p.id)}
-                        disabled={manualProductRemovingId === p.id}
-                        className="font-semibold text-red-600 hover:text-red-700 disabled:opacity-60 ml-auto"
+                        onClick={() => generateForProduct(p)}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-brand-500 hover:bg-brand-600 text-white text-[11px] font-semibold transition-colors"
                       >
-                        {manualProductRemovingId === p.id ? 'Removing…' : 'Remove'}
+                        <Sparkles size={12} />
+                        Generate
                       </button>
+
+                      {/* Three-dot menu — secondary actions */}
+                      <div className="relative" ref={openMenuId === p.id ? menuRootRef : null}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOpenMenuId((cur) => (cur === p.id ? null : p.id))
+                          }}
+                          aria-haspopup="menu"
+                          aria-expanded={openMenuId === p.id}
+                          aria-label="More actions"
+                          className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-fog text-ink/60 hover:text-ink hover:bg-mist transition-colors"
+                        >
+                          <MoreHorizontal size={16} />
+                        </button>
+                        {openMenuId === p.id && (
+                          <div
+                            role="menu"
+                            className="absolute right-0 bottom-full mb-1 w-52 rounded-xl border border-fog bg-surface shadow-lg z-20 overflow-hidden"
+                          >
+                            <button
+                              role="menuitem"
+                              type="button"
+                              onClick={() => generateForProduct(p, { intent: 'spotlight' })}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-mist"
+                            >
+                              <Sparkles size={13} className="text-brand-600" />
+                              Generate content
+                            </button>
+                            <button
+                              role="menuitem"
+                              type="button"
+                              onClick={() => generateForProduct(p, { intent: 'offer', format: 'single' })}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-mist"
+                            >
+                              <Tag size={13} className="text-rose-600" />
+                              Generate offer
+                            </button>
+                            <button
+                              role="menuitem"
+                              type="button"
+                              onClick={() => addProductToPlan(p)}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-mist"
+                            >
+                              <CalendarPlus size={13} className="text-emerald-600" />
+                              Add to plan
+                            </button>
+                            <div className="h-px bg-fog" />
+                            <button
+                              role="menuitem"
+                              type="button"
+                              onClick={() => { setOpenMenuId(null); toggleProductFlag(p, 'star') }}
+                              disabled={flagBusy[p.id] === 'star'}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-mist disabled:opacity-60"
+                            >
+                              <Star size={13} className="text-amber-500" fill={p.is_starred ? 'currentColor' : 'none'} />
+                              {p.is_starred ? 'Unstar' : 'Star this product'}
+                            </button>
+                            <button
+                              role="menuitem"
+                              type="button"
+                              onClick={() => { setOpenMenuId(null); toggleProductFlag(p, 'best') }}
+                              disabled={flagBusy[p.id] === 'best'}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-mist disabled:opacity-60"
+                            >
+                              <Flame size={13} className={p.is_bestseller ? 'text-rose-600' : 'text-ink/45'} />
+                              {p.is_bestseller ? 'Unmark bestseller' : 'Mark bestseller'}
+                            </button>
+                            {p.source_url && (
+                              <>
+                                <div className="h-px bg-fog" />
+                                <a
+                                  role="menuitem"
+                                  href={p.source_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={() => setOpenMenuId(null)}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-mist"
+                                >
+                                  View product page
+                                </a>
+                              </>
+                            )}
+                            <div className="h-px bg-fog" />
+                            <button
+                              role="menuitem"
+                              type="button"
+                              onClick={() => { setOpenMenuId(null); removeManualProduct(p.id) }}
+                              disabled={manualProductRemovingId === p.id}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-60"
+                            >
+                              <Trash2 size={13} />
+                              {manualProductRemovingId === p.id ? 'Removing…' : 'Remove'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>

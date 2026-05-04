@@ -93,8 +93,20 @@ export default function GeneratePage() {
   const [variantCount, setVariantCount] = useState(2)
   const [generationElapsedSec, setGenerationElapsedSec] = useState(0)
 
+  // When the user arrived from a product card we pre-fill the topic
+  // with the product title and surface a "Featuring …" pill so they
+  // know which product they're generating for. The pill is dismissable
+  // — clearing it just removes the visual hint; the topic field stays
+  // editable so the user can reshape what's generated.
+  const [featuredProduct, setFeaturedProduct] = useState(null)
   useEffect(() => {
     if (location.state?.topic) { setTopic(location.state.topic); setSelTrend(null) }
+    if (location.state?.productId) {
+      setFeaturedProduct({
+        id: location.state.productId,
+        title: location.state.productTitle || location.state.topic || 'this product',
+      })
+    }
   }, [location.state])
 
   useEffect(() => {
@@ -201,6 +213,20 @@ export default function GeneratePage() {
         <p className="text-ink/40 text-sm">
           {activeBrand ? `Generating for ${activeBrand.name}` : 'Select or create a brand to get started.'}
         </p>
+        {featuredProduct && (
+          <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-brand-200 bg-brand-50 text-xs">
+            <span className="font-semibold text-brand-700">Featuring:</span>
+            <span className="text-ink/80 truncate max-w-[18rem]">{featuredProduct.title}</span>
+            <button
+              type="button"
+              onClick={() => setFeaturedProduct(null)}
+              aria-label="Clear featured product"
+              className="ml-1 text-brand-600 hover:text-brand-800"
+            >
+              ×
+            </button>
+          </div>
+        )}
       </div>
 
       {!activeBrandId && (
