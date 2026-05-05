@@ -11,6 +11,52 @@
 import { useEffect, useState } from 'react'
 import { adminApi } from '../../api'
 
+function MetricsStrip() {
+  const [m, setM] = useState(null)
+  const [err, setErr] = useState('')
+  useEffect(() => {
+    let alive = true
+    adminApi.templateDesignMetrics({ days: 7 })
+      .then(d => { if (alive) setM(d) })
+      .catch(e => { if (alive) setErr(e?.response?.data?.detail || e.message) })
+    return () => { alive = false }
+  }, [])
+  if (err) return <div className="text-red-300 text-sm">{err}</div>
+  if (!m) return null
+  const tierEntries = Object.entries(m.by_fallback_tier || {}).sort()
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-white/55 text-xs font-bold uppercase tracking-widest">
+          Lookup health · last {m.window_days} days
+        </div>
+        <div className="text-white/85 text-sm font-semibold">
+          {m.resolved_count} / {m.total_content_items} resolved
+          <span className="text-white/40 ml-2 text-xs">
+            ({(m.resolved_rate * 100).toFixed(1)}%)
+          </span>
+        </div>
+      </div>
+      {tierEntries.length > 0 ? (
+        <div className="grid grid-cols-5 gap-2 text-center">
+          {tierEntries.map(([tier, n]) => (
+            <div key={tier} className="bg-white/[0.04] rounded-lg p-2">
+              <div className="text-white/40 text-[10px] uppercase tracking-widest">tier {tier}</div>
+              <div className="text-white text-lg font-bold">{n}</div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-white/40 text-xs">
+          Nothing resolved yet — flip TEMPLATE_DESIGN_LOOKUP_ENABLED or
+          set brand_kit.template_design_lookup=true on a brand to populate
+          this view.
+        </div>
+      )}
+    </div>
+  )
+}
+
 const INTENTS = ['promo', 'edu', 'testimonial', 'hiring', 'content', 'hook', 'quote']
 const POST_TYPES = ['single', 'carousel']
 const VARIANTS = ['A', 'B', 'C']
@@ -56,6 +102,8 @@ export default function TemplateDesignCoverage({ onOpenDesign }) {
 
   return (
     <div className="space-y-5">
+      <MetricsStrip />
+
       <div className="grid grid-cols-3 gap-3">
         <CountChip label="Pass" n={data.counts.pass} total={data.expected_cells} status="pass" />
         <CountChip label="Degraded" n={data.counts.degraded} total={data.expected_cells} status="degraded" />

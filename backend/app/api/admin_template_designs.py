@@ -13,6 +13,7 @@ used by `app/api/admin.py`.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -133,6 +134,83 @@ async def list_template_designs(
             "premium_score_gte": premium_score_gte,
             "is_active": is_active,
         },
+    }
+
+
+@router.get("/metrics")
+async def lookup_metrics(
+    days: int = Query(7, ge=1, le=90),
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Generation-time lookup health (PR 3.4).
+
+    Reports across the last `days` days of content_items rows that have
+    a non-NULL resolved_template_design_id:
+      - count by fallback_tier
+      - count by intent_family
+      - count by art_direction_variant
+      - total resolved vs total generated (resolved-rate)
+
+    A high tier-5 rate is expected in v1 (every brand resolves there
+    by design). What's worth alerting on is `resolved=0` for >= a day
+    after the flag is flipped, or a sudden swing in intent_family
+    distribution.
+    """
+    from datetime import timedelta
+    from sqlalchemy import func
+    from app.models.content import ContentItem
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+
+    total = (await db.execute(
+        select(func.count(ContentItem.id)).where(ContentItem.created_at >= cutoff)
+    )).scalar() or 0
+
+    resolved = (await db.execute(
+        select(func.count(ContentItem.id))
+        .where(ContentItem.created_at >= cutoff)
+        .where(ContentItem.resolved_template_design_id.isnot(None))
+    )).scalar() or 0
+
+    by_tier = dict((await db.execute(
+        select(
+            ContentItem.resolved_template_design_fallback_tier,
+            func.count(ContentItem.id),
+        )
+        .where(ContentItem.created_at >= cutoff)
+        .where(ContentItem.resolved_template_design_id.isnot(None))
+        .group_by(ContentItem.resolved_template_design_fallback_tier)
+    )).all())
+
+    by_intent = dict((await db.execute(
+        select(
+            ContentItem.resolved_intent_family,
+            func.count(ContentItem.id),
+        )
+        .where(ContentItem.created_at >= cutoff)
+        .where(ContentItem.resolved_template_design_id.isnot(None))
+        .group_by(ContentItem.resolved_intent_family)
+    )).all())
+
+    by_variant = dict((await db.execute(
+        select(
+            ContentItem.resolved_art_direction_variant,
+            func.count(ContentItem.id),
+        )
+        .where(ContentItem.created_at >= cutoff)
+        .where(ContentItem.resolved_template_design_id.isnot(None))
+        .group_by(ContentItem.resolved_art_direction_variant)
+    )).all())
+
+    return {
+        "window_days": days,
+        "total_content_items": total,
+        "resolved_count": resolved,
+        "resolved_rate": (resolved / total) if total else 0.0,
+        "by_fallback_tier": {str(k): v for k, v in by_tier.items()},
+        "by_intent_family": {str(k): v for k, v in by_intent.items()},
+        "by_art_direction_variant": {str(k): v for k, v in by_variant.items()},
     }
 
 

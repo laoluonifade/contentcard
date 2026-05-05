@@ -134,10 +134,15 @@ async def shadow_lookup_for_post(
                 error=f"no_match: {e}",
             )
 
+        # Structured single-line log so PR X.1 dashboards can ingest
+        # without a custom parser. Keep keys stable.
         logger.info(
-            "template_design shadow_lookup: intent=%s tier=%s design_id=%s variant=%s",
-            cls.intent_family, resolved.fallback_tier,
-            resolved.design_id, resolved.art_direction_variant,
+            "template_design.shadow_lookup "
+            "brand_id=%s idea_id=%s intent=%s rule=%s confidence=%.2f "
+            "tier=%s design_id=%s variant=%s sub_industry=%s",
+            brand_id, idea_id, cls.intent_family, cls.rule, cls.confidence,
+            resolved.fallback_tier, resolved.design_id,
+            resolved.art_direction_variant, sub_industry,
         )
         return ShadowLookupResult(
             enabled=True,
