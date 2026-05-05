@@ -90,29 +90,46 @@ async def _generate_background_bytes(post: dict[str, Any], brand: dict[str, Any]
     """Call OpenAI Images with the clean-background prompt and return
     the PNG bytes. Returns None on any failure or when the API key is
     missing — caller falls back to a flat color block.
+
+    `gpt-image-1` returns base64 by default and rejects `response_format`;
+    `dall-e-2`/`dall-e-3` accept both. We branch on model, mirroring the
+    pattern in image_service.py.
     """
     if not settings.OPENAI_API_KEY:
         return None
     try:
+        import base64
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
         prompt = build_clean_background_prompt(post, brand)
-        resp = await client.images.generate(
-            model=settings.IMAGE_MODEL,
-            prompt=prompt,
-            size="1024x1024",
-            n=1,
-            response_format="url",
-        )
-        url = resp.data[0].url if resp.data else None
-        if not url:
+        model = settings.IMAGE_MODEL
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "prompt": prompt,
+            "size": "1024x1024",
+            "n": 1,
+        }
+        if model == "gpt-image-1":
+            kwargs["quality"] = "high"
+        else:
+            kwargs["quality"] = "hd"
+            kwargs["response_format"] = "url"
+        resp = await client.images.generate(**kwargs)
+        if not resp.data:
             return None
-        async with httpx.AsyncClient(timeout=60) as http:
-            r = await http.get(url, follow_redirects=True)
-            if r.status_code != 200:
-                logger.warning("template runtime: bg fetch HTTP %s", r.status_code)
-                return None
-            return r.content
+        item = resp.data[0]
+        b64 = getattr(item, "b64_json", None)
+        if b64:
+            return base64.b64decode(b64)
+        url = getattr(item, "url", None)
+        if url:
+            async with httpx.AsyncClient(timeout=60) as http:
+                r = await http.get(url, follow_redirects=True)
+                if r.status_code != 200:
+                    logger.warning("template runtime: bg fetch HTTP %s", r.status_code)
+                    return None
+                return r.content
+        return None
     except Exception as e:
         logger.warning("template runtime: bg generation failed: %s", e)
         return None
