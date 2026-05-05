@@ -22,6 +22,11 @@ from app.services.template_design.resolve import (
     fetch_carousel_slides,
     resolve_template_design,
 )
+from app.services.template_design.render import (
+    RenderPayload,
+    RenderedSlide,
+    render_template_design,
+)
 
 __all__ = [
     "SLOT_DEFINITIONS",
@@ -38,4 +43,7 @@ __all__ = [
     "ResolvedDesign",
     "fetch_carousel_slides",
     "resolve_template_design",
+    "RenderPayload",
+    "RenderedSlide",
+    "render_template_design",
 ]
