@@ -481,14 +481,13 @@ adminAxios.interceptors.response.use(
     if (err.response?.status === 401) {
       localStorage.removeItem('contentcard-admin-token')
       localStorage.removeItem('contentcard-admin')
-      window.location.href = '/adminlogin'
+      window.location.href = '/admindash/login'
     }
     return Promise.reject(err)
   }
 )
 
 export const adminApi = {
-  login:              (data)    => postPublicAuth('/auth/login', data),
   stats:              ()        => adminAxios.get('/admin/stats').then(r => r.data),
   users:              (params)  => adminAxios.get('/admin/users', { params }).then(r => r.data),
   bootstrapSalesSandbox: (data) => adminAxios.post('/admin/sales-sandbox/bootstrap', data).then(r => r.data),
