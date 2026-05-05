@@ -31,6 +31,12 @@ from app.services.template_design.intent_classifier import (
     IntentClassification,
     classify_intent_family,
 )
+from app.services.template_design.compositor import composite_template_image
+from app.services.template_design.runtime_render import (
+    build_clean_background_prompt,
+    render_post_with_template,
+    should_use_template_render,
+)
 
 __all__ = [
     "SLOT_DEFINITIONS",
@@ -52,4 +58,8 @@ __all__ = [
     "render_template_design",
     "IntentClassification",
     "classify_intent_family",
+    "composite_template_image",
+    "build_clean_background_prompt",
+    "render_post_with_template",
+    "should_use_template_render",
 ]

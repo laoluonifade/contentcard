@@ -1835,7 +1835,38 @@ async def _render_with_quality_gate(
                 ] if x
             ).strip()
 
-        bg_urls = await generate_post_image(render_post, brand_dict)
+        # Template-design runtime render (closes the gap from #357 / #361):
+        # if the shadow lookup resolved a design, route through the
+        # Pillow compositor first. Falls back to the legacy AI-image
+        # path on any failure so a bad render never breaks generation.
+        bg_urls: list[str] = []
+        shadow_result = post_data.get("_template_design_shadow")
+        if shadow_result is not None and getattr(shadow_result, "resolved_design_id", None):
+            try:
+                from app.services.template_design.runtime_render import (
+                    render_post_with_template,
+                    should_use_template_render,
+                )
+                from app.models.content_template_design import ContentTemplateDesign
+                if should_use_template_render(brand_dict, shadow_result):
+                    design = await db.get(
+                        ContentTemplateDesign, shadow_result.resolved_design_id
+                    )
+                    if design is not None and design.is_active:
+                        bg_urls = await render_post_with_template(
+                            db, design=design, brand_kit=brand_dict, post=render_post
+                        )
+                        if bg_urls:
+                            logger.info(
+                                "template runtime: rendered post via design %s (variant %s)",
+                                design.design_id, design.art_direction_variant,
+                            )
+            except Exception as e:
+                logger.warning("template runtime: dispatch failed, falling back: %s", e)
+                bg_urls = []
+
+        if not bg_urls:
+            bg_urls = await generate_post_image(render_post, brand_dict)
         if bg_urls:
             item.image_url = bg_urls[0]
 
