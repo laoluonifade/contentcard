@@ -10,9 +10,10 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Filter, Layers, RefreshCw, Sparkles } from 'lucide-react'
+import { Filter, Layers, RefreshCw, Sparkles, Grid, BarChart2 } from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
 import TemplateDesignDrawer from '../components/admin/TemplateDesignDrawer'
+import TemplateDesignCoverage from '../components/admin/TemplateDesignCoverage'
 import { adminApi } from '../api'
 
 const INTENT_FAMILIES = ['promo', 'edu', 'testimonial', 'hiring', 'content', 'hook', 'quote']
@@ -114,6 +115,7 @@ export default function AdminTemplateDesignsPage() {
   })
 
   const [openDesignId, setOpenDesignId] = useState(null)
+  const [viewMode, setViewMode] = useState('grid') // 'grid' | 'coverage'
 
   useEffect(() => {
     let alive = true
@@ -164,6 +166,24 @@ export default function AdminTemplateDesignsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center bg-white/[0.04] border border-white/10 rounded-xl p-0.5">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                viewMode === 'grid' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70'
+              }`}
+            >
+              <Grid size={12} /> Grid
+            </button>
+            <button
+              onClick={() => setViewMode('coverage')}
+              className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                viewMode === 'coverage' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70'
+              }`}
+            >
+              <BarChart2 size={12} /> Coverage
+            </button>
+          </div>
           <button
             onClick={() => setDemoMode(d => !d)}
             className={`flex items-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-xl border transition-all ${
@@ -186,6 +206,11 @@ export default function AdminTemplateDesignsPage() {
         </div>
       </div>
 
+      {viewMode === 'coverage' && (
+        <TemplateDesignCoverage onOpenDesign={setOpenDesignId} />
+      )}
+
+      {viewMode === 'grid' && (<>
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
         <div className="flex items-center gap-2 mb-3">
           <Filter size={13} className="text-white/35" />
@@ -257,6 +282,7 @@ export default function AdminTemplateDesignsPage() {
           </div>
         ))}
       </div>
+      </>)}
     </AdminLayout>
   )
 }

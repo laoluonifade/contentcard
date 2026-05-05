@@ -136,6 +136,75 @@ async def list_template_designs(
     }
 
 
+_V1_INTENT_FAMILIES = (
+    "promo", "edu", "testimonial", "hiring", "content", "hook", "quote",
+)
+_V1_POST_TYPES = ("single", "carousel")
+_V1_VARIANTS = ("A", "B", "C")
+
+
+@router.get("/coverage")
+async def coverage_report(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """v1 coverage report: 7 intent_families x 2 post_types x 3 variants
+    = 42 expected cells (PRD §15). Each cell rolls up to one of:
+
+      pass     — at least one active row with premium_score >= 4 exists
+      degraded — row exists but inactive or premium_score < 4
+      missing  — no row exists for that cell
+
+    Also returns per-axis totals so the admin UI can render summary
+    cards without re-aggregating.
+    """
+    rows = (
+        await db.execute(select(ContentTemplateDesign))
+    ).scalars().all()
+
+    by_cell: dict[tuple[str, str, str], list[ContentTemplateDesign]] = {}
+    for row in rows:
+        key = (row.intent_family, row.post_type, row.art_direction_variant)
+        by_cell.setdefault(key, []).append(row)
+
+    cells: list[dict[str, Any]] = []
+    for intent in _V1_INTENT_FAMILIES:
+        for pt in _V1_POST_TYPES:
+            for variant in _V1_VARIANTS:
+                bucket = by_cell.get((intent, pt, variant), [])
+                status = _cell_status(bucket)
+                cells.append({
+                    "intent_family": intent,
+                    "post_type": pt,
+                    "art_direction_variant": variant,
+                    "status": status,
+                    "design_count": len(bucket),
+                    "design_ids": [r.design_id for r in bucket],
+                })
+
+    counts = {"pass": 0, "degraded": 0, "missing": 0}
+    for c in cells:
+        counts[c["status"]] += 1
+
+    return {
+        "expected_cells": len(_V1_INTENT_FAMILIES) * len(_V1_POST_TYPES) * len(_V1_VARIANTS),
+        "counts": counts,
+        "cells": cells,
+    }
+
+
+def _cell_status(bucket: list[ContentTemplateDesign]) -> str:
+    if not bucket:
+        return "missing"
+    has_passing = any(
+        r.is_active and (r.premium_score or 0) >= 4 and r.coverage_status != "missing"
+        for r in bucket
+    )
+    if has_passing:
+        return "pass"
+    return "degraded"
+
+
 @router.get("/{design_id}")
 async def get_template_design(
     design_id: str,
