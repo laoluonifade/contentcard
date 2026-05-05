@@ -14,6 +14,7 @@ used by `app/api/admin.py`.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -355,22 +356,126 @@ async def get_used_in(
 ) -> dict[str, Any]:
     """Last N content items that resolved to this design.
 
-    Disabled in this hotfix: the underlying `resolved_template_design_id`
-    column on content_items isn't on prod yet (migration 20260505_03
-    didn't apply). Returning [] until the migration is confirmed applied
-    and the model columns are restored. The drawer's Used-in tab handles
-    empty lists gracefully today.
+    Backed by the `resolved_template_design_id` column on content_items
+    (PR B). Items where the lookup flag was off have NULL there and
+    won't appear here. Returns [] gracefully when the column doesn't
+    exist (migration 20260505_03 hasn't applied yet).
     """
     row = await db.get(ContentTemplateDesign, design_id)
     if row is None:
         raise HTTPException(status_code=404, detail="design not found")
+    from app.models.content import ContentItem
+    try:
+        items = (
+            await db.execute(
+                select(ContentItem)
+                .where(ContentItem.resolved_template_design_id == design_id)
+                .order_by(ContentItem.created_at.desc())
+                .limit(limit)
+            )
+        ).scalars().all()
+    except Exception as e:
+        # Most likely cause: migration 20260505_03 hasn't applied; column
+        # doesn't exist yet. Surface the empty list so the drawer doesn't
+        # error, but tell the operator how to fix.
+        return {
+            "items": [],
+            "limit": limit,
+            "note": (
+                "Underlying column missing — run admin → Apply migrations "
+                f"or check Render preDeployCommand. ({type(e).__name__})"
+            ),
+        }
     return {
-        "items": [],
+        "items": [
+            {
+                "id": i.id,
+                "brand_id": i.brand_id,
+                "topic": i.topic,
+                "platform": i.platform.value if i.platform else None,
+                "format": i.format.value if i.format else None,
+                "status": i.status.value if i.status else None,
+                "scheduled_date": i.scheduled_date.isoformat() if i.scheduled_date else None,
+                "created_at": i.created_at.isoformat() if i.created_at else None,
+                "fallback_tier": i.resolved_template_design_fallback_tier,
+                "intent_family": i.resolved_intent_family,
+                "variant": i.resolved_art_direction_variant,
+            }
+            for i in items
+        ],
         "limit": limit,
-        "note": (
-            "Used-in is paused until migration 20260505_03 applies on prod."
-        ),
     }
+
+
+@router.get("/migrations-status")
+async def migrations_status(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Return the alembic head Render's prod DB is currently at, plus
+    a list of revisions in the codebase. Lets the admin see whether
+    migration `20260505_03` (and any others) have actually applied
+    on prod — preDeployCommand sometimes mysteriously skips them.
+    """
+    import asyncio
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+    from sqlalchemy import text
+
+    cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    script = ScriptDirectory.from_config(cfg)
+    head_in_code = script.get_current_head()
+    revisions_in_code = [r.revision for r in script.walk_revisions()]
+    try:
+        row = (
+            await db.execute(text("SELECT version_num FROM alembic_version"))
+        ).scalar_one_or_none()
+    except Exception:
+        row = None
+    return {
+        "current_head_in_db": row,
+        "head_in_code": head_in_code,
+        "revisions_in_code_latest_first": revisions_in_code[:10],
+        "in_sync": (row == head_in_code),
+    }
+
+
+@router.post("/apply-migrations")
+async def apply_migrations(
+    _: User = Depends(require_admin),
+) -> dict[str, Any]:
+    """Idempotently run `alembic upgrade head`.
+
+    Use when Render's preDeployCommand didn't apply pending migrations
+    (the behaviour that broke generation in #363's incident). Safe to
+    call repeatedly: alembic tracks applied revisions and skips ones
+    already at head.
+
+    Runs in a thread executor because alembic's env.py drives an async
+    engine via asyncio.run() internally — calling it from this async
+    request handler directly would collide with the running event loop.
+    """
+    import asyncio
+    from alembic import command
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    def _run_upgrade() -> tuple[str | None, str]:
+        cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+        script = ScriptDirectory.from_config(cfg)
+        head_before = script.get_current_head() or ""
+        command.upgrade(cfg, "head")
+        return head_before, "ok"
+
+    try:
+        loop = asyncio.get_running_loop()
+        head, _status = await loop.run_in_executor(None, _run_upgrade)
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"alembic upgrade failed: {type(e).__name__}: {e}",
+        )
+    return {"applied_to_head": head, "status": "ok"}
 
 
 @router.post("/{design_id}/rerender-demo")
