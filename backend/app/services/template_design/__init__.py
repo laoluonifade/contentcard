@@ -27,6 +27,10 @@ from app.services.template_design.render import (
     RenderedSlide,
     render_template_design,
 )
+from app.services.template_design.intent_classifier import (
+    IntentClassification,
+    classify_intent_family,
+)
 
 __all__ = [
     "SLOT_DEFINITIONS",
@@ -46,4 +50,6 @@ __all__ = [
     "RenderPayload",
     "RenderedSlide",
     "render_template_design",
+    "IntentClassification",
+    "classify_intent_family",
 ]
