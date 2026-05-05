@@ -4510,10 +4510,9 @@ async def _do_generate_month(
                 db.add(item)
                 saved_items.append((item, post))
 
-                # Shadow-mode template design lookup (PR 3.2). Off by default;
+                # Template design lookup (PR 3.2 + PR 3.3). Off by default;
                 # enable per-brand via brand_kit.template_design_lookup or
                 # globally via TEMPLATE_DESIGN_LOOKUP_ENABLED. Never raises.
-                # PR 3.3 will persist the resolved IDs onto ContentItem.
                 from app.services.template_design.shadow_lookup import (
                     shadow_lookup_for_post,
                 )
@@ -4526,7 +4525,11 @@ async def _do_generate_month(
                     brand_id=brand_id,
                     idea_id=str(post.get("topic") or post.get("content_idea") or ""),
                 )
-                # Stash on the post dict for PR 3.3 to read when persisting.
+                if shadow_result.enabled:
+                    item.resolved_template_design_id = shadow_result.resolved_design_id
+                    item.resolved_intent_family = shadow_result.intent_family
+                    item.resolved_template_design_fallback_tier = shadow_result.fallback_tier
+                    item.resolved_art_direction_variant = shadow_result.art_direction_variant
                 post["_template_design_shadow"] = shadow_result
 
             # ── Commit 1: text content saved immediately ───────────────────────────

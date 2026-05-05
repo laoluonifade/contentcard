@@ -154,6 +154,57 @@ function SlotContractTable({ contract, slots }) {
   )
 }
 
+function UsedInTab({ designId }) {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    adminApi.templateDesignUsedIn(designId, { limit: 50 })
+      .then(d => { if (alive) { setData(d); setError('') } })
+      .catch(e => { if (alive) setError(e?.response?.data?.detail || e.message) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [designId])
+  if (loading) return <div className="text-white/40 text-sm">Loading…</div>
+  if (error) return <div className="text-red-300 text-sm">{error}</div>
+  if (!data || !data.items?.length) {
+    return (
+      <div className="text-white/40 text-sm">
+        No content items yet. Items appear here once generation runs with
+        the template design lookup flag enabled.
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      {data.items.map(it => (
+        <div key={it.id} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-white/85 text-sm font-medium truncate flex-1">{it.topic || '(untitled)'}</span>
+            <span className="text-white/40 text-xs">{it.scheduled_date || it.created_at?.slice(0, 10)}</span>
+          </div>
+          <div className="flex items-center gap-2 mt-1 text-xs text-white/45">
+            <span>{it.platform}</span>
+            <span>·</span>
+            <span>{it.format}</span>
+            <span>·</span>
+            <span>tier {it.fallback_tier}</span>
+            <span>·</span>
+            <span>variant {it.variant}</span>
+            <span>·</span>
+            <span className={
+              it.status === 'approved' ? 'text-emerald-300' :
+              it.status === 'failed' ? 'text-red-300' : 'text-white/45'
+            }>{it.status}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function JSONBlock({ data }) {
   return (
     <pre className="bg-black/30 border border-white/[0.06] rounded-xl p-3 text-xs text-white/70 overflow-x-auto">
@@ -322,10 +373,7 @@ export default function TemplateDesignDrawer({ designId, onClose }) {
               {tab === 'art' && <JSONBlock data={detail.art_direction} />}
 
               {tab === 'used' && (
-                <div className="text-white/40 text-sm">
-                  Wired by PR 3.3 — content items will list here once
-                  generation persists resolved_template_design_id.
-                </div>
+                <UsedInTab designId={designId} />
               )}
 
               {tab === 'versions' && (

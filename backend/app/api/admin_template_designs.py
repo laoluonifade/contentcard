@@ -277,14 +277,42 @@ async def get_used_in(
 ) -> dict[str, Any]:
     """Last N content items that resolved to this design.
 
-    Stubbed in v1: ContentItem doesn't yet persist resolved_design_id —
-    that lands in PR 3.3. Returning [] keeps the drawer Used-in tab
-    functional today; PR 3.3 hooks the real query in.
+    Backed by the resolved_template_design_id column on content_items
+    (added in PR 3.3 migration). Items where the lookup flag was off
+    have NULL in that column and won't appear here.
     """
     row = await db.get(ContentTemplateDesign, design_id)
     if row is None:
         raise HTTPException(status_code=404, detail="design not found")
-    return {"items": [], "limit": limit, "note": "Populated by PR 3.3"}
+
+    from app.models.content import ContentItem
+    items = (
+        await db.execute(
+            select(ContentItem)
+            .where(ContentItem.resolved_template_design_id == design_id)
+            .order_by(ContentItem.created_at.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return {
+        "items": [
+            {
+                "id": i.id,
+                "brand_id": i.brand_id,
+                "topic": i.topic,
+                "platform": i.platform.value if i.platform else None,
+                "format": i.format.value if i.format else None,
+                "status": i.status.value if i.status else None,
+                "scheduled_date": i.scheduled_date.isoformat() if i.scheduled_date else None,
+                "created_at": i.created_at.isoformat() if i.created_at else None,
+                "fallback_tier": i.resolved_template_design_fallback_tier,
+                "intent_family": i.resolved_intent_family,
+                "variant": i.resolved_art_direction_variant,
+            }
+            for i in items
+        ],
+        "limit": limit,
+    }
 
 
 @router.post("/{design_id}/rerender-demo")
