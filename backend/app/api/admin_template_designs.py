@@ -424,3 +424,32 @@ async def rerender_demo_all(
         "with_payload": with_payload,
         "skipped": processed - with_payload,
     }
+
+
+@router.post("/seed-v1")
+async def seed_v1_library(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Idempotent seed of the v1 generic premium library (42 templates).
+
+    Equivalent to running `python scripts/seed_template_designs_v1.py
+    --rerender-demos` from the Render shell, but reachable through the
+    admin UI for environments where shell access is unavailable.
+
+    Re-running is safe: the upsert keys on
+    `(intent_family, post_type, art_direction_variant, bannerbear_uid)`
+    so existing rows aren't duplicated. Demo renders are also idempotent
+    against the McDonald's fixture.
+    """
+    from app.seed.template_designs.v1_generic_premium import upsert_v1
+    seed_result = await upsert_v1(db)
+    processed, with_payload = await render_demo_for_all_active(db)
+    return {
+        "seed": seed_result,
+        "demo_renders": {
+            "processed": processed,
+            "with_payload": with_payload,
+            "skipped": processed - with_payload,
+        },
+    }

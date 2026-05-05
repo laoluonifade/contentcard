@@ -116,6 +116,23 @@ export default function AdminTemplateDesignsPage() {
 
   const [openDesignId, setOpenDesignId] = useState(null)
   const [viewMode, setViewMode] = useState('grid') // 'grid' | 'coverage'
+  const [seeding, setSeeding] = useState(false)
+  const [seedResult, setSeedResult] = useState(null)
+
+  const handleSeedV1 = async () => {
+    setSeeding(true)
+    setSeedResult(null)
+    try {
+      const out = await adminApi.templateDesignSeedV1()
+      setSeedResult(out)
+      // Re-fire the list query so the grid populates.
+      setFilters(f => ({ ...f }))
+    } catch (e) {
+      setError(e?.response?.data?.detail || e.message || 'Seed failed')
+    } finally {
+      setSeeding(false)
+    }
+  }
 
   useEffect(() => {
     let alive = true
@@ -252,10 +269,28 @@ export default function AdminTemplateDesignsPage() {
 
       {!loading && rows.length === 0 && (
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-10 text-center">
-          <p className="text-white/55 text-sm">
-            No template designs yet. Run the v1 seed (PR 2.1) to populate the
-            42-row generic premium library.
+          <p className="text-white/55 text-sm mb-4">
+            No template designs yet. Click below to seed the 42-row generic
+            premium library and render the McDonald's demo previews.
           </p>
+          <button
+            onClick={handleSeedV1}
+            disabled={seeding}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all"
+          >
+            <Sparkles size={14} className={seeding ? 'animate-spin' : ''} />
+            {seeding ? 'Seeding…' : 'Seed v1 library'}
+          </button>
+          <p className="text-white/30 text-xs mt-3">
+            Idempotent — safe to click again. Equivalent to running
+            <code className="mx-1 text-white/55">scripts/seed_template_designs_v1.py</code>
+            from the Render shell.
+          </p>
+          {seedResult && (
+            <pre className="mt-4 mx-auto max-w-md text-left bg-black/40 border border-white/[0.06] rounded-xl p-3 text-xs text-emerald-200">
+{JSON.stringify(seedResult, null, 2)}
+            </pre>
+          )}
         </div>
       )}
 
