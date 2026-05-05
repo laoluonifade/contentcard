@@ -16,6 +16,12 @@ from app.services.template_design.slot_contract import (
     validate_contract,
     validate_filled_values,
 )
+from app.services.template_design.resolve import (
+    NoTemplateDesignError,
+    ResolvedDesign,
+    fetch_carousel_slides,
+    resolve_template_design,
+)
 
 __all__ = [
     "SLOT_DEFINITIONS",
@@ -28,4 +34,8 @@ __all__ = [
     "truncate_value",
     "validate_contract",
     "validate_filled_values",
+    "NoTemplateDesignError",
+    "ResolvedDesign",
+    "fetch_carousel_slides",
+    "resolve_template_design",
 ]
