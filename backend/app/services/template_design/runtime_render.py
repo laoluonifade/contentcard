@@ -86,6 +86,62 @@ def build_clean_background_prompt(post: dict[str, Any], brand: dict[str, Any]) -
     )
 
 
+async def _fetch_product_image_bytes(post: dict[str, Any]) -> bytes | None:
+    """If the post has product images attached, fetch the first one and
+    return its bytes for use as the template's photographic background.
+
+    Posts with `product_image_urls` set are typically commerce / sale /
+    product-spotlight posts where the brand's actual product is the
+    visual focus — much stronger than an AI-generated stock shot. The
+    rest of the runtime (AI clean-background generation) only runs when
+    the post has no product attached.
+    """
+    urls = post.get("product_image_urls") if isinstance(post.get("product_image_urls"), list) else []
+    if not urls:
+        single = post.get("product_image_url")
+        if isinstance(single, str) and single.strip():
+            urls = [single]
+    for url in urls:
+        if not isinstance(url, str) or not url.strip():
+            continue
+        try:
+            async with httpx.AsyncClient(timeout=30) as http:
+                r = await http.get(url, follow_redirects=True)
+                if r.status_code != 200:
+                    logger.warning("template runtime: product fetch HTTP %s for %s",
+                                   r.status_code, url)
+                    continue
+                if not r.content:
+                    continue
+                return r.content
+        except Exception as e:
+            logger.warning("template runtime: product fetch failed for %s: %s", url, e)
+    return None
+
+
+async def _resolve_background_bytes(post: dict[str, Any], brand: dict[str, Any]) -> bytes | None:
+    """Pick the photographic background for the template render.
+
+    Preference order:
+      1. brand product image attached to the post (skips OpenAI entirely)
+      2. AI-generated clean background (no text, no UI)
+      3. None — compositor falls back to a brand-color block
+
+    Result is passed into the compositor as `background_bytes`; the
+    layout engine handles the gradient scrim under text either way.
+    """
+    product_bytes = await _fetch_product_image_bytes(post)
+    if product_bytes:
+        logger.info(
+            "template runtime: using product image as background "
+            "(%d bytes, %s)",
+            len(product_bytes),
+            (post.get("product_image_urls") or [post.get("product_image_url")])[0],
+        )
+        return product_bytes
+    return await _generate_background_bytes(post, brand)
+
+
 async def _generate_background_bytes(post: dict[str, Any], brand: dict[str, Any]) -> bytes | None:
     """Call OpenAI Images with the clean-background prompt and return
     the PNG bytes. Returns None on any failure or when the API key is
@@ -182,7 +238,7 @@ async def render_post_with_template(
         logger.warning("template runtime: payload build failed: %s", e)
         return []
 
-    bg_bytes = await _generate_background_bytes(post, brand_kit)
+    bg_bytes = await _resolve_background_bytes(post, brand_kit)
     logo_bytes = await _fetch_logo_bytes(brand_kit)
 
     out_urls: list[str] = []

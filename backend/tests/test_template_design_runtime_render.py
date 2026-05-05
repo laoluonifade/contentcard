@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.models.content_template_design import ContentTemplateDesign
 from app.services.template_design.runtime_render import (
+    _fetch_product_image_bytes,
+    _resolve_background_bytes,
     build_clean_background_prompt,
     render_post_with_template,
     should_use_template_render,
@@ -231,6 +233,61 @@ class RenderPostWithTemplateTests(unittest.IsolatedAsyncioTestCase):
                     post={"headline": "20% off", "cta": "Shop"},
                 )
         self.assertEqual(urls, [])
+
+
+class BackgroundPickerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_skips_when_no_product_urls(self):
+        out = await _fetch_product_image_bytes({})
+        self.assertIsNone(out)
+
+    async def test_skips_when_urls_empty_string(self):
+        out = await _fetch_product_image_bytes({"product_image_urls": ["  ", ""]})
+        self.assertIsNone(out)
+
+    async def test_picks_product_when_available(self):
+        # Mock httpx to return a known byte payload for the first product URL.
+        with patch(
+            "app.services.template_design.runtime_render.httpx.AsyncClient"
+        ) as MockClient:
+            class FakeResp:
+                status_code = 200
+                content = b"\x89PNG-fake"
+            class FakeCtx:
+                async def __aenter__(self_): return self_
+                async def __aexit__(self_, *a): return False
+                async def get(self_, *a, **k): return FakeResp()
+            MockClient.return_value = FakeCtx()
+            out = await _fetch_product_image_bytes(
+                {"product_image_urls": ["https://cdn/product.png"]}
+            )
+        self.assertEqual(out, b"\x89PNG-fake")
+
+    async def test_resolve_prefers_product_over_ai(self):
+        # When a product image is available, AI generation must NOT be called.
+        with patch(
+            "app.services.template_design.runtime_render._fetch_product_image_bytes",
+            return_value=b"\x89PNG-product",
+        ) as mock_product, patch(
+            "app.services.template_design.runtime_render._generate_background_bytes",
+        ) as mock_ai:
+            out = await _resolve_background_bytes(
+                {"product_image_urls": ["https://cdn/p.png"]},
+                {"name": "Acme"},
+            )
+        self.assertEqual(out, b"\x89PNG-product")
+        mock_product.assert_awaited_once()
+        mock_ai.assert_not_awaited()
+
+    async def test_resolve_falls_back_to_ai_when_no_product(self):
+        with patch(
+            "app.services.template_design.runtime_render._fetch_product_image_bytes",
+            return_value=None,
+        ), patch(
+            "app.services.template_design.runtime_render._generate_background_bytes",
+            return_value=b"\x89PNG-ai",
+        ):
+            out = await _resolve_background_bytes({}, {"name": "Acme"})
+        self.assertEqual(out, b"\x89PNG-ai")
 
 
 if __name__ == "__main__":
