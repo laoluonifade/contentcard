@@ -45,6 +45,8 @@ async def _setup_db():
                 is_active BOOLEAN NOT NULL DEFAULT 0,
                 coverage_status VARCHAR(16) NOT NULL DEFAULT 'missing',
                 notes TEXT,
+                demo_render_payload JSON,
+                demo_render_at DATETIME,
                 created_at DATETIME NOT NULL,
                 updated_at DATETIME NOT NULL
             )

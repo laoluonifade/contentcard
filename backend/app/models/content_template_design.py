@@ -115,6 +115,16 @@ class ContentTemplateDesign(Base):
     preview_image_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     demo_preview_url: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
+    # Rendered slot values from the McDonald's fixture (PR 1.7). Populated
+    # by the demo render job; consumed by the admin browse drawer (PR 1.8)
+    # which renders the preview client-side. Bannerbear was removed from
+    # the runtime pipeline, so until a server-side renderer comes back
+    # online we ship the payload, not a rendered image URL.
+    demo_render_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    demo_render_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     coverage_status: Mapped[str] = mapped_column(

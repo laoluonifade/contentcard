@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,11 @@ from app.api.admin import require_admin
 from app.db.database import get_db
 from app.models.content_template_design import ContentTemplateDesign
 from app.models.user import User
+from app.services.template_design.demo_render_job import (
+    DemoRendererError,
+    render_demo_for_all_active,
+    render_demo_for_design,
+)
 
 
 router = APIRouter(prefix="/admin/template-designs", tags=["admin", "template-designs"])
@@ -47,6 +52,8 @@ def _row_to_summary(row: ContentTemplateDesign) -> dict[str, Any]:
         "premium_score": row.premium_score,
         "preview_image_url": row.preview_image_url,
         "demo_preview_url": row.demo_preview_url,
+        "demo_render_payload": row.demo_render_payload,
+        "demo_render_at": row.demo_render_at.isoformat() if row.demo_render_at else None,
         "version": row.version,
         "is_active": row.is_active,
         "coverage_status": row.coverage_status,
@@ -126,4 +133,37 @@ async def list_template_designs(
             "premium_score_gte": premium_score_gte,
             "is_active": is_active,
         },
+    }
+
+
+@router.post("/{design_id}/rerender-demo")
+async def rerender_demo(
+    design_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Re-render the McDonald's demo for one design and return the row."""
+    try:
+        row = await render_demo_for_design(db, design_id=design_id)
+    except DemoRendererError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"row": _row_to_summary(row)}
+
+
+@router.post("/rerender-demo-all")
+async def rerender_demo_all(
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Re-render the McDonald's demo for every active design.
+
+    Synchronous in v1 — Tier-1 library is 42 rows so the full sweep
+    finishes in milliseconds. Move to a background task if/when v2
+    sub-industry rows push the count past a few thousand.
+    """
+    processed, with_payload = await render_demo_for_all_active(db)
+    return {
+        "processed": processed,
+        "with_payload": with_payload,
+        "skipped": processed - with_payload,
     }
