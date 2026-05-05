@@ -37,6 +37,14 @@ from app.models.social import (
 from app.models.shopify import ShopifyConnectionStatus, ShopifyConnection, ShopifyProductSnapshot
 from app.models.email_send import EmailSend
 from app.models.email_otp import EmailOtp
+from app.models.content_template_design import (
+    ContentTemplateDesign,
+    IntentFamily,
+    TemplateContentType,
+    TemplatePostType,
+    TemplateCanvas,
+    TemplateCoverageStatus,
+)
 
 __all__ = [
     "User",
@@ -56,4 +64,6 @@ __all__ = [
     "ShopifyConnectionStatus", "ShopifyConnection", "ShopifyProductSnapshot",
     "EmailSend",
     "EmailOtp",
+    "ContentTemplateDesign",
+    "IntentFamily", "TemplateContentType", "TemplatePostType", "TemplateCanvas", "TemplateCoverageStatus",
 ]

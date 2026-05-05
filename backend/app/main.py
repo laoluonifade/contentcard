@@ -35,6 +35,7 @@ from app.api.trends import router as trends_router
 from app.api.upload import router as upload_router
 from app.api.holidays import router as holidays_router
 from app.api.admin import router as admin_router
+from app.api.admin_template_designs import router as admin_template_designs_router
 from app.api.public import router as public_router
 from app.api.social import router as social_router
 from app.api.telemetry import router as telemetry_router  # noqa: E402  (model registers on import)
@@ -358,6 +359,7 @@ app.include_router(trends_router, prefix="/api/v1")
 app.include_router(upload_router, prefix="/api/v1")
 app.include_router(holidays_router, prefix="/api/v1")
 app.include_router(admin_router, prefix="/api/v1")
+app.include_router(admin_template_designs_router, prefix="/api/v1")
 app.include_router(public_router, prefix="/api/v1")
 app.include_router(social_router, prefix="/api/v1")
 app.include_router(telemetry_router, prefix="/api/v1")

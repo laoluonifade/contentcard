@@ -89,6 +89,22 @@ class ContentItem(Base):
     # Campaign banding (R2.4) — posts sharing a campaign_id render under a coloured ribbon
     campaign_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
 
+    # Premium Social Template Library — design lookup result (PR 3.3).
+    # Populated only when the per-brand or global lookup flag is on. The
+    # foreign-key column is intentionally NOT a real FK constraint because
+    # template designs are seed data that may be replaced/versioned and we
+    # don't want a CASCADE side-effect; the column is just a soft pointer.
+    resolved_template_design_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True
+    )
+    resolved_intent_family: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    resolved_template_design_fallback_tier: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    resolved_art_direction_variant: Mapped[str | None] = mapped_column(
+        String(8), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 

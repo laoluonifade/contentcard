@@ -527,6 +527,20 @@ export const adminApi = {
   syncAllAssistants:  ()        => adminAxios.post('/admin/sync-all-assistants').then(r => r.data),
   syncAssistant:      (brandId) => adminAxios.post(`/admin/sync-assistant/${brandId}`).then(r => r.data),
   creativeQualityV2:  (params)  => adminAxios.get('/admin/creative-quality-report-v2', { params }).then(r => r.data),
+  // Premium Social Template Library (PRD-premium-social-template-library)
+  templateDesigns:    (params)  => adminAxios.get('/admin/template-designs', { params }).then(r => r.data),
+  templateDesignDetail: (designId) =>
+    adminAxios.get(`/admin/template-designs/${encodeURIComponent(designId)}`).then(r => r.data),
+  templateDesignUpdate: (designId, data) =>
+    adminAxios.patch(`/admin/template-designs/${encodeURIComponent(designId)}`, data).then(r => r.data),
+  templateDesignRerenderDemo: (designId) =>
+    adminAxios.post(`/admin/template-designs/${encodeURIComponent(designId)}/rerender-demo`).then(r => r.data),
+  templateDesignUsedIn: (designId, params) =>
+    adminAxios.get(`/admin/template-designs/${encodeURIComponent(designId)}/used-in`, { params }).then(r => r.data),
+  templateDesignCoverage: (params) =>
+    adminAxios.get('/admin/template-designs/coverage', { params }).then(r => r.data),
+  templateDesignMetrics: (params) =>
+    adminAxios.get('/admin/template-designs/metrics', { params }).then(r => r.data),
 }
 
 export default api

@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     AI_IMAGE_VARIANT_MIN_MODE: bool = True
     AI_HIGH_QUALITY_FINAL_ONLY: bool = True
 
+    # Premium Social Template Library lookup (docs/PRD-premium-social-template-library.md).
+    # When True, generation calls the intent classifier + design resolver in
+    # shadow mode (logs the resolved design but does not change the render
+    # path). Per-brand override via the brand-level flag persisted in
+    # brand_kit. PR 3.4 flips this once telemetry confirms the shadow
+    # output is healthy.
+    TEMPLATE_DESIGN_LOOKUP_ENABLED: bool = False
+
     # Experiment: when False, the brand's design playbook (industry-curated
     # content_type rotation, visual-direction slots, template-depth gate)
     # is bypassed entirely. The model decides content_type, format, and
