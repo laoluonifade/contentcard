@@ -14,6 +14,7 @@ import { Filter, Layers, RefreshCw, Sparkles, Grid, BarChart2 } from 'lucide-rea
 import AdminLayout from '../components/layout/AdminLayout'
 import TemplateDesignDrawer from '../components/admin/TemplateDesignDrawer'
 import TemplateDesignCoverage from '../components/admin/TemplateDesignCoverage'
+import TemplateLayout from '../components/admin/TemplateLayouts'
 import { adminApi } from '../api'
 
 const INTENT_FAMILIES = ['promo', 'edu', 'testimonial', 'hiring', 'content', 'hook', 'quote']
@@ -47,15 +48,36 @@ function Chip({ children, className = '' }) {
 }
 
 function PreviewTile({ row, demoMode }) {
-  const url = demoMode ? row.demo_preview_url : row.preview_image_url
+  // Demo mode: paint client-side from the rendered slot payload
+  // (PR 1.7 demo render job). Brand-neutral mode: fall back to
+  // preview_image_url string when one exists, else neutral placeholder
+  // (server-side renderer is a future PR).
+  if (demoMode) {
+    const slides = row.demo_render_payload?.slides || []
+    const cover = slides[0]
+    if (cover?.used_slots) {
+      return (
+        <div className="aspect-square w-full">
+          <TemplateLayout
+            intentFamily={row.intent_family}
+            variant={row.art_direction_variant}
+            slotValues={cover.used_slots}
+            brandTokens={row.demo_render_payload?.brand_tokens}
+          />
+        </div>
+      )
+    }
+  } else if (row.preview_image_url) {
+    return (
+      <div className="aspect-square w-full bg-white/[0.03] border border-white/5 rounded-xl overflow-hidden">
+        <img src={row.preview_image_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+      </div>
+    )
+  }
   const fallbackLabel = demoMode ? "Demo render pending" : "Preview pending"
   return (
     <div className="aspect-square w-full bg-white/[0.03] border border-white/5 rounded-xl overflow-hidden flex items-center justify-center">
-      {url ? (
-        <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
-      ) : (
-        <div className="text-white/30 text-xs">{fallbackLabel}</div>
-      )}
+      <div className="text-white/30 text-xs">{fallbackLabel}</div>
     </div>
   )
 }

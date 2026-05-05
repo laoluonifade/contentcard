@@ -20,6 +20,7 @@ import {
   Eye, EyeOff, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { adminApi } from '../../api'
+import TemplateLayout from './TemplateLayouts'
 
 const TAB_DEFS = [
   { key: 'preview',  label: 'Preview',       icon: ImageIcon },
@@ -29,10 +30,9 @@ const TAB_DEFS = [
   { key: 'versions', label: 'Versions',      icon: GitBranch },
 ]
 
-function PreviewCanvas({ slide, brandTokens, intentFamily }) {
-  // Renders a designed preview from used_slots client-side. Intentionally
-  // simple — meant to convey "what the template would look like with this
-  // brand" without re-implementing the full Bannerbear renderer.
+function PreviewCanvas({ slide, brandTokens, intentFamily, variant }) {
+  // Dispatches to a per-(intent, variant) designed layout. See
+  // TemplateLayouts.jsx for the 21 layout components.
   if (!slide || !slide.used_slots) {
     return (
       <div className="aspect-square bg-white/[0.03] border border-white/5 rounded-xl flex items-center justify-center text-white/30 text-sm">
@@ -40,87 +40,13 @@ function PreviewCanvas({ slide, brandTokens, intentFamily }) {
       </div>
     )
   }
-  const slots = slide.used_slots
-  const accent = slots.accent_color || brandTokens?.primary || '#FFC72C'
-  const accentAlt = slots.accent_color_alt || brandTokens?.secondary || '#DA291C'
-  const onAccent = slots.text_on_accent || '#000000'
-  const dark = brandTokens?.neutral_dark || '#1A1A1A'
-
   return (
-    <div
-      className="aspect-square w-full rounded-xl overflow-hidden relative"
-      style={{ background: `linear-gradient(135deg, ${dark} 0%, #0A0914 100%)` }}
-    >
-      {/* Top badge */}
-      {slots.badge && (
-        <div className="absolute top-4 left-4">
-          <span
-            className="inline-block px-3 py-1 rounded-full text-[10px] font-extrabold tracking-widest uppercase"
-            style={{ background: accentAlt, color: '#fff' }}
-          >
-            {slots.badge}
-          </span>
-        </div>
-      )}
-      {/* Brand mark / name */}
-      {slots.brand_name && (
-        <div className="absolute bottom-4 right-4 text-white/80 text-xs font-bold">
-          {slots.brand_name}
-        </div>
-      )}
-      {/* Headline + subhead */}
-      <div className="absolute inset-x-6 top-1/3 -translate-y-1/4">
-        {slots.headline && (
-          <div
-            className="text-white text-2xl md:text-3xl font-extrabold leading-tight"
-            style={{ fontFamily: 'Inter, sans-serif' }}
-          >
-            {slots.headline}
-          </div>
-        )}
-        {slots.subhead && (
-          <div className="text-white/70 text-sm mt-2 leading-snug">
-            {slots.subhead}
-          </div>
-        )}
-        {slots.body && !slots.subhead && (
-          <div className="text-white/70 text-sm mt-2 leading-snug">
-            {slots.body}
-          </div>
-        )}
-      </div>
-      {/* CTA pill */}
-      {slots.cta && (
-        <div className="absolute bottom-12 left-6">
-          <span
-            className="inline-block px-4 py-2 rounded-full text-xs font-extrabold"
-            style={{ background: accent, color: onAccent }}
-          >
-            {slots.cta}
-          </span>
-        </div>
-      )}
-      {/* Quote */}
-      {slots.quote_text && (
-        <div className="absolute inset-6 flex items-center">
-          <div
-            className="text-white text-xl font-bold italic leading-snug"
-            style={{ fontFamily: 'Inter, serif' }}
-          >
-            "{slots.quote_text}"
-            {slots.proof_attribution && (
-              <div className="mt-3 text-white/60 text-xs not-italic font-normal">
-                {slots.proof_attribution}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-      {/* Tier indicator */}
-      <div className="absolute top-4 right-4 text-white/40 text-[10px] uppercase tracking-widest">
-        {intentFamily}
-      </div>
-    </div>
+    <TemplateLayout
+      intentFamily={intentFamily}
+      variant={variant}
+      slotValues={slide.used_slots}
+      brandTokens={brandTokens}
+    />
   )
 }
 
@@ -346,6 +272,7 @@ export default function TemplateDesignDrawer({ designId, onClose }) {
                         slide={slides[slide]}
                         brandTokens={detail.row.demo_render_payload?.brand_tokens}
                         intentFamily={detail.row.intent_family}
+                        variant={detail.row.art_direction_variant}
                       />
                       <div className="text-white/35 text-xs">
                         Rendered {detail.row.demo_render_at ? `at ${new Date(detail.row.demo_render_at).toLocaleString()}` : 'never'}
