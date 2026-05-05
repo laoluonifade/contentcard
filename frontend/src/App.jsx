@@ -43,6 +43,7 @@ import AdminBillingPage     from './pages/AdminBillingPage'
 import AdminAnalyticsPage   from './pages/AdminAnalyticsPage'
 import AdminTrendsPage      from './pages/AdminTrendsPage'
 import AdminTemplatesPage   from './pages/AdminTemplatesPage'
+import AdminTemplateDesignsPage from './pages/AdminTemplateDesignsPage'
 import AdminSettingsPage    from './pages/AdminSettingsPage'
 import AdminDesignPlaybookPage from './pages/AdminDesignPlaybookPage'
 import AdminMemesPage       from './pages/AdminMemesPage'
@@ -168,6 +169,7 @@ export default function App() {
         <Route path="/admindash/analytics"   element={<AdminRoute><AdminAnalyticsPage /></AdminRoute>} />
         <Route path="/admindash/trends"      element={<AdminRoute><AdminTrendsPage /></AdminRoute>} />
         <Route path="/admindash/templates"   element={<AdminRoute><AdminTemplatesPage /></AdminRoute>} />
+        <Route path="/admindash/template-designs" element={<AdminRoute><AdminTemplateDesignsPage /></AdminRoute>} />
         <Route path="/admindash/design-playbook" element={<AdminRoute><AdminDesignPlaybookPage /></AdminRoute>} />
         <Route path="/admindash/memes"       element={<AdminRoute><AdminMemesPage /></AdminRoute>} />
         <Route path="/admindash/settings"    element={<AdminRoute><AdminSettingsPage /></AdminRoute>} />
