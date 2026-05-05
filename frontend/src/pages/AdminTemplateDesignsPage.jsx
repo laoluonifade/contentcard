@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Filter, Layers, RefreshCw, Sparkles } from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
+import TemplateDesignDrawer from '../components/admin/TemplateDesignDrawer'
 import { adminApi } from '../api'
 
 const INTENT_FAMILIES = ['promo', 'edu', 'testimonial', 'hiring', 'content', 'hook', 'quote']
@@ -58,9 +59,12 @@ function PreviewTile({ row, demoMode }) {
   )
 }
 
-function DesignCard({ row, demoMode }) {
+function DesignCard({ row, demoMode, onOpen }) {
   return (
-    <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-3 hover:border-brand-500/30 transition-all">
+    <button
+      onClick={() => onOpen(row.design_id)}
+      className="text-left bg-white/[0.03] border border-white/[0.06] rounded-2xl p-3 hover:border-brand-500/30 transition-all"
+    >
       <PreviewTile row={row} demoMode={demoMode} />
       <div className="mt-3 space-y-1.5">
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -90,7 +94,7 @@ function DesignCard({ row, demoMode }) {
           </span>
         </div>
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -108,6 +112,8 @@ export default function AdminTemplateDesignsPage() {
     sub_industry: '',
     is_active: '',
   })
+
+  const [openDesignId, setOpenDesignId] = useState(null)
 
   useEffect(() => {
     let alive = true
@@ -228,6 +234,10 @@ export default function AdminTemplateDesignsPage() {
         </div>
       )}
 
+      {openDesignId && (
+        <TemplateDesignDrawer designId={openDesignId} onClose={() => setOpenDesignId(null)} />
+      )}
+
       <div className="space-y-6">
         {grouped.map(([groupName, groupRows]) => (
           <div key={groupName}>
@@ -236,7 +246,12 @@ export default function AdminTemplateDesignsPage() {
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
               {groupRows.map(row => (
-                <DesignCard key={row.design_id} row={row} demoMode={demoMode} />
+                <DesignCard
+                  key={row.design_id}
+                  row={row}
+                  demoMode={demoMode}
+                  onOpen={setOpenDesignId}
+                />
               ))}
             </div>
           </div>

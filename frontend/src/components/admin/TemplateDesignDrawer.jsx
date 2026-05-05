@@ -1,0 +1,344 @@
+/**
+ * Detail drawer for a single template design.
+ *
+ * Tabs:
+ *  - Preview: brand-neutral <-> Demo: McDonald's toggle. Demo mode
+ *    renders the preview client-side from `demo_render_payload`
+ *    (populated by the demo render job, PR 1.7).
+ *  - Slot contract: table of declared slot names + filled demo values.
+ *  - Art direction: palette intent, photo style, anti-motifs JSON.
+ *  - Used in: stub today; PR 3.3 wires the real query.
+ *  - Versions: shown when more than one version exists; placeholder for
+ *    a future history endpoint.
+ *
+ * Spec: docs/PRD-premium-social-template-library.md §9.3.
+ */
+
+import { useEffect, useMemo, useState } from 'react'
+import {
+  X, RefreshCw, Image as ImageIcon, Layers, Palette, Activity, GitBranch,
+  Eye, EyeOff, ChevronLeft, ChevronRight,
+} from 'lucide-react'
+import { adminApi } from '../../api'
+
+const TAB_DEFS = [
+  { key: 'preview',  label: 'Preview',       icon: ImageIcon },
+  { key: 'slots',    label: 'Slot contract', icon: Layers },
+  { key: 'art',      label: 'Art direction', icon: Palette },
+  { key: 'used',     label: 'Used in',       icon: Activity },
+  { key: 'versions', label: 'Versions',      icon: GitBranch },
+]
+
+function PreviewCanvas({ slide, brandTokens, intentFamily }) {
+  // Renders a designed preview from used_slots client-side. Intentionally
+  // simple — meant to convey "what the template would look like with this
+  // brand" without re-implementing the full Bannerbear renderer.
+  if (!slide || !slide.used_slots) {
+    return (
+      <div className="aspect-square bg-white/[0.03] border border-white/5 rounded-xl flex items-center justify-center text-white/30 text-sm">
+        Demo render pending — click "Rerender demo" to populate.
+      </div>
+    )
+  }
+  const slots = slide.used_slots
+  const accent = slots.accent_color || brandTokens?.primary || '#FFC72C'
+  const accentAlt = slots.accent_color_alt || brandTokens?.secondary || '#DA291C'
+  const onAccent = slots.text_on_accent || '#000000'
+  const dark = brandTokens?.neutral_dark || '#1A1A1A'
+
+  return (
+    <div
+      className="aspect-square w-full rounded-xl overflow-hidden relative"
+      style={{ background: `linear-gradient(135deg, ${dark} 0%, #0A0914 100%)` }}
+    >
+      {/* Top badge */}
+      {slots.badge && (
+        <div className="absolute top-4 left-4">
+          <span
+            className="inline-block px-3 py-1 rounded-full text-[10px] font-extrabold tracking-widest uppercase"
+            style={{ background: accentAlt, color: '#fff' }}
+          >
+            {slots.badge}
+          </span>
+        </div>
+      )}
+      {/* Brand mark / name */}
+      {slots.brand_name && (
+        <div className="absolute bottom-4 right-4 text-white/80 text-xs font-bold">
+          {slots.brand_name}
+        </div>
+      )}
+      {/* Headline + subhead */}
+      <div className="absolute inset-x-6 top-1/3 -translate-y-1/4">
+        {slots.headline && (
+          <div
+            className="text-white text-2xl md:text-3xl font-extrabold leading-tight"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            {slots.headline}
+          </div>
+        )}
+        {slots.subhead && (
+          <div className="text-white/70 text-sm mt-2 leading-snug">
+            {slots.subhead}
+          </div>
+        )}
+        {slots.body && !slots.subhead && (
+          <div className="text-white/70 text-sm mt-2 leading-snug">
+            {slots.body}
+          </div>
+        )}
+      </div>
+      {/* CTA pill */}
+      {slots.cta && (
+        <div className="absolute bottom-12 left-6">
+          <span
+            className="inline-block px-4 py-2 rounded-full text-xs font-extrabold"
+            style={{ background: accent, color: onAccent }}
+          >
+            {slots.cta}
+          </span>
+        </div>
+      )}
+      {/* Quote */}
+      {slots.quote_text && (
+        <div className="absolute inset-6 flex items-center">
+          <div
+            className="text-white text-xl font-bold italic leading-snug"
+            style={{ fontFamily: 'Inter, serif' }}
+          >
+            "{slots.quote_text}"
+            {slots.proof_attribution && (
+              <div className="mt-3 text-white/60 text-xs not-italic font-normal">
+                {slots.proof_attribution}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {/* Tier indicator */}
+      <div className="absolute top-4 right-4 text-white/40 text-[10px] uppercase tracking-widest">
+        {intentFamily}
+      </div>
+    </div>
+  )
+}
+
+function SlotContractTable({ contract, slots }) {
+  const declared = contract?.slots || []
+  if (!declared.length) {
+    return <div className="text-white/40 text-sm">No slots declared.</div>
+  }
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-white/5">
+            {['Slot', 'Demo value'].map(h => (
+              <th key={h} className="text-left text-white/30 text-[10px] font-bold uppercase tracking-widest px-4 py-2">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {declared.map(name => (
+            <tr key={name} className="border-b border-white/[0.04]">
+              <td className="px-4 py-2 text-white font-mono text-xs">{name}</td>
+              <td className="px-4 py-2 text-white/60 text-xs whitespace-pre-wrap break-words max-w-[420px]">
+                {slots && slots[name] !== undefined ? String(slots[name]) : <span className="text-white/30">—</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function JSONBlock({ data }) {
+  return (
+    <pre className="bg-black/30 border border-white/[0.06] rounded-xl p-3 text-xs text-white/70 overflow-x-auto">
+      {JSON.stringify(data || {}, null, 2)}
+    </pre>
+  )
+}
+
+export default function TemplateDesignDrawer({ designId, onClose }) {
+  const [detail, setDetail] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [tab, setTab] = useState('preview')
+  const [demoMode, setDemoMode] = useState(true)
+  const [slide, setSlide] = useState(0)
+  const [rerendering, setRerendering] = useState(false)
+
+  useEffect(() => {
+    if (!designId) return
+    let alive = true
+    setLoading(true)
+    adminApi.templateDesignDetail(designId)
+      .then((data) => { if (alive) { setDetail(data); setError('') } })
+      .catch((e) => { if (alive) setError(e?.response?.data?.detail || e.message) })
+      .finally(() => { if (alive) setLoading(false) })
+    return () => { alive = false }
+  }, [designId])
+
+  const slides = useMemo(() => {
+    if (!detail) return []
+    const row = detail.row
+    if (row.post_type === 'carousel' && detail.carousel_siblings?.length) {
+      return detail.carousel_siblings
+        .filter(s => s.demo_render_payload)
+        .flatMap(s => s.demo_render_payload.slides || [])
+    }
+    return row.demo_render_payload?.slides || []
+  }, [detail])
+
+  const handleRerender = async () => {
+    if (!designId) return
+    setRerendering(true)
+    try {
+      const out = await adminApi.templateDesignRerenderDemo(designId)
+      // refetch full detail so siblings come back too
+      const d = await adminApi.templateDesignDetail(designId)
+      setDetail(d)
+    } catch (e) {
+      setError(e?.response?.data?.detail || e.message)
+    } finally {
+      setRerendering(false)
+    }
+  }
+
+  if (!designId) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="w-full max-w-2xl h-full bg-[#0A0914] border-l border-white/10 overflow-y-auto">
+        <div className="sticky top-0 z-10 bg-[#0A0914]/95 backdrop-blur border-b border-white/10 px-5 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-white font-bold text-base">Template design</h2>
+            <p className="text-white/40 text-xs mt-0.5">
+              {loading ? 'Loading…' : `${detail?.row?.intent_family} · ${detail?.row?.post_type} · variant ${detail?.row?.art_direction_variant}`}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/55">
+            <X size={16} />
+          </button>
+        </div>
+
+        {error && <div className="m-5 bg-red-500/10 border border-red-500/20 text-red-300 text-sm rounded-xl p-3">{error}</div>}
+
+        {detail && (
+          <>
+            <div className="px-5 pt-4 flex gap-1 border-b border-white/5">
+              {TAB_DEFS.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setTab(key)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold uppercase tracking-widest rounded-t-lg transition-all ${
+                    tab === key
+                      ? 'bg-white/[0.04] text-white border-x border-t border-white/10'
+                      : 'text-white/40 hover:text-white/70'
+                  }`}
+                >
+                  <Icon size={12} /> {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="p-5 space-y-4">
+              {tab === 'preview' && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => setDemoMode(d => !d)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl border transition-all ${
+                        demoMode
+                          ? 'bg-yellow-500/10 text-yellow-300 border-yellow-500/30'
+                          : 'bg-white/5 text-white/55 border-white/10'
+                      }`}
+                    >
+                      {demoMode ? <Eye size={12} /> : <EyeOff size={12} />}
+                      {demoMode ? "Demo: McDonald's" : 'Brand-neutral'}
+                    </button>
+                    <button
+                      onClick={handleRerender}
+                      disabled={rerendering}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-white/5 text-white/55 border border-white/10 hover:bg-white/10 disabled:opacity-50"
+                    >
+                      <RefreshCw size={12} className={rerendering ? 'animate-spin' : ''} />
+                      Rerender demo
+                    </button>
+                  </div>
+                  {demoMode ? (
+                    <>
+                      {slides.length > 1 && (
+                        <div className="flex items-center justify-between mb-2">
+                          <button
+                            onClick={() => setSlide(s => Math.max(0, s - 1))}
+                            disabled={slide === 0}
+                            className="p-1 rounded-lg bg-white/5 disabled:opacity-30">
+                            <ChevronLeft size={14} className="text-white/55" />
+                          </button>
+                          <span className="text-white/40 text-xs">
+                            Slide {slide + 1} / {slides.length}
+                          </span>
+                          <button
+                            onClick={() => setSlide(s => Math.min(slides.length - 1, s + 1))}
+                            disabled={slide >= slides.length - 1}
+                            className="p-1 rounded-lg bg-white/5 disabled:opacity-30">
+                            <ChevronRight size={14} className="text-white/55" />
+                          </button>
+                        </div>
+                      )}
+                      <PreviewCanvas
+                        slide={slides[slide]}
+                        brandTokens={detail.row.demo_render_payload?.brand_tokens}
+                        intentFamily={detail.row.intent_family}
+                      />
+                      <div className="text-white/35 text-xs">
+                        Rendered {detail.row.demo_render_at ? `at ${new Date(detail.row.demo_render_at).toLocaleString()}` : 'never'}
+                      </div>
+                    </>
+                  ) : (
+                    detail.row.preview_image_url ? (
+                      <img src={detail.row.preview_image_url} alt="" className="w-full rounded-xl" />
+                    ) : (
+                      <div className="aspect-square bg-white/[0.03] border border-white/5 rounded-xl flex items-center justify-center text-white/30 text-sm">
+                        Brand-neutral preview pending.
+                      </div>
+                    )
+                  )}
+                </>
+              )}
+
+              {tab === 'slots' && (
+                <SlotContractTable
+                  contract={detail.slot_contract}
+                  slots={slides[slide]?.used_slots}
+                />
+              )}
+
+              {tab === 'art' && <JSONBlock data={detail.art_direction} />}
+
+              {tab === 'used' && (
+                <div className="text-white/40 text-sm">
+                  Wired by PR 3.3 — content items will list here once
+                  generation persists resolved_template_design_id.
+                </div>
+              )}
+
+              {tab === 'versions' && (
+                <div className="text-white/40 text-sm">
+                  Version {detail.row.version}. Full version history endpoint
+                  is reserved for a follow-up; today only the active row
+                  is shown.
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}

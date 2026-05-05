@@ -136,6 +136,88 @@ async def list_template_designs(
     }
 
 
+@router.get("/{design_id}")
+async def get_template_design(
+    design_id: str,
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Full detail for the drawer: row summary + slot contract +
+    art direction + carousel sibling slides if any.
+    """
+    row = await db.get(ContentTemplateDesign, design_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="design not found")
+
+    siblings: list[dict[str, Any]] = []
+    if row.post_type == "carousel" and row.carousel_group_id:
+        sibling_rows = (
+            await db.execute(
+                select(ContentTemplateDesign)
+                .where(ContentTemplateDesign.carousel_group_id == row.carousel_group_id)
+                .order_by(ContentTemplateDesign.slide_index.asc())
+            )
+        ).scalars().all()
+        siblings = [
+            {
+                "design_id": s.design_id,
+                "slide_index": s.slide_index,
+                "bannerbear_uid": s.bannerbear_uid,
+                "demo_render_payload": s.demo_render_payload,
+            }
+            for s in sibling_rows
+        ]
+
+    return {
+        "row": _row_to_summary(row),
+        "slot_contract": row.slot_contract or {},
+        "art_direction": row.art_direction or {},
+        "carousel_siblings": siblings,
+    }
+
+
+@router.patch("/{design_id}")
+async def patch_template_design(
+    design_id: str,
+    payload: dict[str, Any],
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Limited admin patches: toggle is_active, update notes, set
+    coverage_status, bump premium_score. Avoids opening up structural
+    fields that would invalidate cached previews."""
+    row = await db.get(ContentTemplateDesign, design_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="design not found")
+
+    allowed = {"is_active", "notes", "coverage_status", "premium_score"}
+    for key in allowed:
+        if key in payload:
+            setattr(row, key, payload[key])
+    await db.commit()
+    await db.refresh(row)
+    return {"row": _row_to_summary(row)}
+
+
+@router.get("/{design_id}/used-in")
+async def get_used_in(
+    design_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Last N content items that resolved to this design.
+
+    Stubbed in v1: ContentItem doesn't yet persist resolved_design_id —
+    that lands in PR 3.3. Returning [] keeps the drawer Used-in tab
+    functional today; PR 3.3 hooks the real query in.
+    """
+    row = await db.get(ContentTemplateDesign, design_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="design not found")
+    return {"items": [], "limit": limit, "note": "Populated by PR 3.3"}
+
+
 @router.post("/{design_id}/rerender-demo")
 async def rerender_demo(
     design_id: str,
