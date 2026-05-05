@@ -186,16 +186,16 @@ Goal: schema, services, and admin browse skeleton in place. Generator pipeline u
 ### PR 1.9 — Coverage report
 
 **Scope**
-- `GET /admin/template-designs/coverage` returns matrix of `(sub_industry × content_type × post_type)` with `pass | degraded | missing`.
+- `GET /admin/template-designs/coverage` returns matrix of `(intent_family × post_type × art_direction_variant)` with `pass | degraded | missing` for v1, plus the `(sub_industry × content_type × post_type)` matrix for v2 visibility (mostly `missing` in v1).
 - Admin view as third browse mode (PRD §9.1).
-- "Missing" computed from PRD §15 Tier-1 expectations.
+- "Missing" computed from PRD §15 v1 expectations (42 cells).
 
 **Files**
 - `backend/app/api/admin/template_designs.py` (extend)
 - `frontend/src/components/admin/TemplateDesignCoverage.jsx`
 
 **Acceptance**
-- Coverage view shows red / yellow / green per cell.
+- v1 coverage view shows green for the 42-cell grid when fully seeded.
 - CSV export for designer triage.
 
 **Depends on**: 1.6.
@@ -203,47 +203,34 @@ Goal: schema, services, and admin browse skeleton in place. Generator pipeline u
 
 ---
 
-## Phase 2 — Tier-1 design wave
+## Phase 2 — v1 design wave (single PR)
 
-Goal: ship the 1,400-row library across 10 sub-industries, one PR per sub-industry. Each PR is a data + Bannerbear-asset PR, not new code.
+Goal: ship the 42-row generic premium library in one PR. Replaces the previous 10-PR sub-industry wave; sub-industry-scoped rows move to v2 (Phase 4).
 
-Ordering chosen so the canonical demo (QSR) lands first.
+### PR 2.1 — Generic premium library (42 rows)
 
-| PR | Sub-industry | Parent industry | Notes |
-|---|---|---|---|
-| 2.1 | Quick Service Restaurant | Food & Beverage | First; doubles as McDonald's demo home. |
-| 2.2 | Cafe | Food & Beverage | Reuses many F&B art-direction notes from 2.1. |
-| 2.3 | Digital Banking | Finance & Fintech | First fintech; sets cool/trust palette tone. |
-| 2.4 | Cross-border Payments | Finance & Fintech | |
-| 2.5 | SaaS | Technology | First B2B; sets workflow / dashboard imagery tone. |
-| 2.6 | Fintech | Technology | |
-| 2.7 | D2C Fashion | E-commerce & Retail | Sets editorial fashion photography tone. |
-| 2.8 | Beauty Retail | E-commerce & Retail | |
-| 2.9 | Fitness | Health & Wellness | |
-| 2.10 | Hotels | Travel & Hospitality | |
+**Scope**
+- 7 intent families × 2 post types × 3 art-direction variants (A photo-led, B type-led, C surface-led) = **42 design rows**.
+- All rows have `sub_industry = NULL`, `content_type = NULL`, populating the **tier-5 generic** layer of the resolution chain.
+- Bannerbear UIDs for every cell (designed upstream by design partner).
+- `slot_contract` JSON per design (canonical slot names from PRD §7.1).
+- `art_direction` JSON per design declaring `variant_intent` (A/B/C) plus palette intent, photo style, anti-motifs.
+- All rows pass PRD §11 QA gate (`premium_score >= 4`).
+- Demo render generated for every row via PR 1.7 pipeline using the McDonald's fixture.
 
-### Per-PR scope (each one of 2.1–2.10)
-
-**Each sub-industry PR ships**:
-- 7 intent families × 10 content types × 2 post types = **140 design rows**
-- Bannerbear UIDs for every cell (designed upstream)
-- `slot_contract` JSON per design
-- `art_direction` JSON per design (palette intent, photo style, anti-motifs)
-- All rows pass §11 QA gate (`premium_score ≥ 4`)
-- Demo render generated for every row (depends on 1.7 from Phase 1)
-
-**Files (template per sub-industry PR)**
-- `backend/app/seed/template_designs/<sub_industry_slug>.py`
-- `backend/app/seed/template_designs/<sub_industry_slug>__art_direction.json`
-- Migration row inserts via Alembic data migration or seed runner.
+**Files**
+- `backend/app/seed/template_designs/v1_generic_premium.py` (42-row seed)
+- `backend/app/seed/template_designs/v1_generic_premium__art_direction.json`
+- Alembic data migration applying the seed (or seed runner script).
 
 **Acceptance**
-- Coverage report shows green for that sub-industry.
+- Coverage report shows green for all 42 cells.
 - Admin demo render works for every cell.
 - Snapshot tests pass for 3 headline lengths × 2 background complexities per design.
+- Brand-token swap test (PRD §11) passes for 2 alternate brand kits per design.
 
 **Depends on**: all of Phase 1 merged.
-**Behind flag**: no (admin-only data; not yet wired into generator).
+**Behind flag**: no (admin-only data; generator wiring lands in Phase 3).
 
 ---
 
@@ -331,36 +318,41 @@ Goal: connect the library to the live generation pipeline. Behind a flag until c
 
 **Acceptance**
 - Used-in tab populated for active brands.
-- Staging A/B shows fallback-tier-5 rate < 5% on Tier-1 sub-industries.
-- Production flip per parent industry on green coverage.
+- In v1, every generation lands on tier 5 (no sub-industry rows yet); telemetry confirms 100% tier-5 rate as expected.
+- Production flip is global once 42-cell coverage is green and Phase-3 telemetry looks healthy.
 
 **Depends on**: 3.3.
 **Behind flag**: rollout flag.
 
 ---
 
-## Phase 4 — Tier-2 expansion (ongoing)
+## Phase 4 — v2 sub-industry expansion (ongoing, telemetry-driven)
 
-Goal: extend coverage from 10 sub-industries to all 100, prioritized by signup volume. No new code; data PRs only.
+Goal: incrementally add sub-industry-scoped rows where v1 telemetry shows generic tier-5 templates are hurting brand fidelity. No new code; data PRs only.
 
-### PR 4.x — One PR per parent industry batch
+### PR 4.x — One PR per sub-industry batch
 
-Group remaining sub-industries by parent industry; ship 10 sub-industries per batch (one parent industry's full set).
+Triggered by signal, not by schedule. A batch ships only when the v1 telemetry meets the gate:
 
-| Batch | Parent industry | Sub-industries (count) | Trigger |
+- tier-5 hit rate × signup volume × low brand-fidelity lint score for that sub-industry crosses the threshold defined in `PRD-brand-visual-excellence.md`.
+
+Suggested ordering once gates open (per PRD §15.1):
+
+| Batch | Sub-industry | Parent industry | Notes |
 |---|---|---|---|
-| 4.1 | Food & Beverage (rest) | 8 remaining | After 2.1, 2.2 stable. |
-| 4.2 | Finance & Fintech (rest) | 8 remaining | |
-| 4.3 | Technology (rest) | 8 remaining | |
-| 4.4 | E-commerce & Retail (rest) | 8 remaining | |
-| 4.5 | Health & Wellness (rest) | 9 remaining | |
-| 4.6 | Travel & Hospitality (rest) | 9 remaining | |
-| 4.7 | Education | 10 | |
-| 4.8 | Real Estate | 10 | |
-| 4.9 | Professional Services | 10 | |
-| 4.10 | Media & Entertainment | 10 | |
+| 4.1 | Quick Service Restaurant | Food & Beverage | First v2 candidate; matches McDonald's demo home. |
+| 4.2 | Cafe | Food & Beverage | Reuses many F&B art-direction notes from 4.1. |
+| 4.3 | Digital Banking | Finance & Fintech | First fintech; sets cool/trust palette tone. |
+| 4.4 | Cross-border Payments | Finance & Fintech | |
+| 4.5 | SaaS | Technology | First B2B; sets workflow / dashboard imagery tone. |
+| 4.6 | Fintech | Technology | |
+| 4.7 | D2C Fashion | E-commerce & Retail | |
+| 4.8 | Beauty Retail | E-commerce & Retail | |
+| 4.9 | Fitness | Health & Wellness | |
+| 4.10 | Hotels | Travel & Hospitality | |
+| 4.11+ | Remaining sub-industries | various | Driven by signup mix; not pre-scheduled. |
 
-Each batch follows the Phase 2 PR template: rows + art direction + Bannerbear UIDs + demo renders + QA gate. Flip the rollout flag for that parent industry once its coverage is green.
+Each batch ships sub-industry-scoped rows that override tier-5 for the relevant `(intent_family, content_type, post_type)` cells. Same QA gate as PR 2.1.
 
 ---
 
@@ -395,20 +387,20 @@ These do not gate phases but should land before Phase 3 flips on for production.
 ## Sequencing summary
 
 ```
-Phase 1 (8 PRs) ─┬─> Phase 2 (10 PRs, parallelizable across designers)
+Phase 1 (9 PRs) ─┬─> Phase 2 (1 PR: 42-row generic premium library)
                  │
                  └─> Phase 3 (4 PRs)
                           │
-                          └─> Phase 4 (10 batches, ongoing)
+                          └─> Phase 4 (per-sub-industry, telemetry-driven)
 
 Cross-cutting: X.2 before Phase 2; X.3 before 1.5; X.1 before 3.4 flip.
 ```
 
 Reviewer load:
 - **Phase 1**: ~1 senior backend + 1 frontend reviewer per PR.
-- **Phase 2**: design QA reviewer required (premium score sign-off).
+- **Phase 2**: design QA reviewer required (premium score sign-off on all 42).
 - **Phase 3**: backend lead + observability reviewer.
-- **Phase 4**: design QA only; ops-style merges.
+- **Phase 4**: design QA + telemetry sign-off per batch.
 
 ---
 
@@ -416,6 +408,6 @@ Reviewer load:
 
 1. Should slot contract live as a Pydantic schema or JSON Schema? (affects 1.2 file layout)
 2. Render service (1.4) — direct Bannerbear call or queued via existing async job system?
-3. Coverage report (1.9) — is "missing" defined only by Tier-1 expectations or by full 100-sub-industry expectations? (affects coverage UI red-noise)
+3. Coverage report (1.9) — v1 ships with the 42-cell view as primary; should the v2 sub-industry × content-type matrix be hidden until v2 batches start, or always visible (mostly red)?
 4. Should `template_design_lookup_enabled` be brand-level, sub-industry-level, or workspace-level?
-5. PR 4.x batches — 1 PR per parent industry (10 PRs) vs 1 PR per sub-industry (90 PRs)? (affects review fatigue)
+5. Telemetry gate for v2 batches — what specific tier-5 hit-rate × signup-volume × lint-score threshold opens a sub-industry batch?

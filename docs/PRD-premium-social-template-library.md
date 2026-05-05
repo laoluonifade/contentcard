@@ -16,9 +16,11 @@
 We will ship a **Premium Social Template Library** as a versioned, admin-managed asset bundle.
 
 - Each entry is a **rendered design** (Bannerbear UID + layout spec), not a free-form prompt.
-- The library spans three axes: `sub_industry` × `intent_family` × `content_type`, with `single` and `carousel` post types per cell.
+- The library is keyed by three axes: `sub_industry` × `intent_family` × `content_type`, with `single` and `carousel` post types per cell. Schema and resolution support the full matrix.
 - Every template defines a **slot contract** the generator fills from `brand_kit` (visual identity) and the `content_idea` (copy + photo intent).
-- Admin dashboard renders the full grid with a **McDonald's demo prefill** so reviewers can see "what the template looks like with real content" before any user signs up.
+- Admin dashboard renders the seeded library with a **McDonald's demo prefill** so reviewers can see "what the template looks like with real content" before any user signs up.
+
+**v1 ships a lean seed of 42 generic premium templates** (`intent_family × post_type × 3 art-direction variants`). They populate the **tier-5 generic** layer of the resolution chain (§8.2). Sub-industry-scoped and content-type-scoped rows are added in v2, driven by telemetry on which generic fallbacks are hurting brand fidelity. The schema, slot contract, admin UX, and McDonald's demo are unchanged from the full vision; only the seeded row count is reduced.
 
 **This PRD does not change resolution semantics defined in `PRD-content-template-system.md` §9.** It defines the design layer and admin UX that sit underneath the existing strategy resolver.
 
@@ -126,7 +128,13 @@ Per the existing scope rule in `PRD-content-template-system.md`:
 - Each content type has 10 visual directions: `VD01–VD05` single, `VD06–VD10` carousel
 - 100 sub-industries
 
-**Scoping decision for v1**: ship the full design library only for the **Tier-1 launch sub-industries** (see §15). For all other sub-industries, fall back deterministically to the **parent-industry default** template, then to a **generic premium template**, per existing fallback rules. Coverage gaps surface in the admin coverage report.
+**Scoping decision for v1**: ship **zero sub-industry-scoped rows**. v1 seeds only the tier-5 generic layer with 42 premium templates (see §15). All sub-industries resolve to the same 42 templates, with sub-industry differentiation expressed entirely through:
+
+- `brand_kit` token injection (color, type, logo)
+- `art_direction` metadata on each template (sub-industry-aware photo briefs and anti-motifs at fill time)
+- the 3 art-direction variants per `intent_family × post_type` cell (variant selection considers sub-industry — see §6.1)
+
+Sub-industry-scoped templates ship in v2, prioritized by telemetry on tier-5 hit rate per sub-industry. Coverage gaps surface in the admin coverage report.
 
 ---
 
@@ -136,28 +144,43 @@ Extends the `content_templates` table from `PRD-template-first-generation.md`.
 
 ```
 content_template_design
-├── design_id              uuid, pk
-├── template_id            fk -> content_templates.template_id
-├── intent_family          enum  ('promo','edu','testimonial','hiring','content','hook','quote')
-├── content_type           enum  (10 from PRD §7.1)
-├── sub_industry           string nullable  (null = parent or generic fallback)
-├── industry_key           string
-├── post_type              enum  ('single','carousel')
-├── slide_index            int   nullable  (carousel only; null on single)
-├── bannerbear_uid         string  (rendered template UID)
-├── canvas                 enum  ('1080x1080','1080x1350','1080x1920')
-├── slot_contract          jsonb  (see §7)
-├── art_direction          jsonb  (palette intent, photo style, anti-motifs)
-├── premium_score          int    (1-5; ship gate >= 4)
-├── preview_image_url      string (admin preview, brand-neutral fill)
-├── demo_preview_url       string (admin preview, McDonald's prefill)
-├── version                int
-├── is_active              bool
-├── coverage_status        enum  ('pass','degraded','missing')
+├── design_id                uuid, pk
+├── template_id              fk -> content_templates.template_id, nullable
+├── intent_family            enum   ('promo','edu','testimonial','hiring','content','hook','quote')
+├── content_type             enum   (10 from PRD §7.1), nullable
+├── sub_industry             string nullable  (null = generic / fallback tier)
+├── industry_key             string nullable
+├── post_type                enum   ('single','carousel')
+├── art_direction_variant    string ('A','B','C')   -- 3 variants per (intent_family, post_type) in v1
+├── carousel_group_id        uuid   nullable  (groups slide rows of one carousel template)
+├── slide_index              int    nullable  (carousel only; null on single)
+├── bannerbear_uid           string  (rendered template UID)
+├── canvas                   enum  ('1080x1080','1080x1350','1080x1920')
+├── slot_contract            jsonb  (see §7)
+├── art_direction            jsonb  (palette intent, photo style, anti-motifs; may include sub-industry overrides)
+├── premium_score            int    (1-5; ship gate >= 4)
+├── preview_image_url        string (admin preview, brand-neutral fill)
+├── demo_preview_url         string (admin preview, McDonald's prefill)
+├── version                  int
+├── is_active                bool
+├── coverage_status          enum  ('pass','degraded','missing')
 └── created_at, updated_at
 ```
 
 Carousel templates are stored as **one row per slide** sharing a `carousel_group_id`. The renderer composes slides in `slide_index` order.
+
+### 6.1 Art-direction variant selection
+
+When multiple variants exist for the same `(intent_family, post_type)` cell (the v1 case: 3 each), the resolver picks one deterministically per content idea:
+
+1. If the brand kit declares a preferred variant (`brand_kit.template_variant_preference`), use it.
+2. Else hash `(brand_id, content_idea_id)` modulo variants and pick the result. This guarantees stable selection on regenerate but spreads usage across variants.
+3. Variant intent is encoded in `art_direction.variant_intent`:
+   - `A` = photo-led (hero subject, editorial)
+   - `B` = type-led (display headline, restrained imagery)
+   - `C` = surface-led (color block / pattern, minimal photo)
+
+Sub-industry-aware steering at fill time can bias the hash by adding `sub_industry` to the hash key (e.g. food sub-industries skew to A, fintech skews to B). This stays in `select_variant()` rather than the schema.
 
 ---
 
@@ -477,8 +500,8 @@ All admin endpoints require admin scope. Internal endpoints are service-to-servi
 ## 14. Acceptance criteria
 
 - [ ] `content_template_design` table exists with the schema in §6.
-- [ ] All Tier-1 sub-industries (§15) ship full coverage: 7 intent families × 10 content types × 2 post types, all `coverage_status = pass`.
-- [ ] All non-Tier-1 sub-industries resolve via fallback chain with no `missing` tier.
+- [ ] v1 ships full coverage of the 42-row generic premium library (§15): every `(intent_family, post_type, art_direction_variant)` cell has an active row with `premium_score >= 4`.
+- [ ] All sub-industries resolve via the fallback chain with no `missing` tier (every request lands on tier 5 in v1).
 - [ ] Every active template design has a McDonald's demo render visible in admin.
 - [ ] Generation flow records `resolved_template_design_id` and `resolved_intent_family` on every content item.
 - [ ] Admin dashboard supports all three browse modes (§9.1) and the detail drawer (§9.3).
@@ -487,24 +510,43 @@ All admin endpoints require admin scope. Internal endpoints are service-to-servi
 
 ---
 
-## 15. Tier-1 launch sub-industries
+## 15. v1 launch scope (42 generic premium templates)
 
-Initial library coverage. Chosen for category breadth and demo strength.
+v1 ships **42 generic premium templates** as the tier-5 fallback layer. No sub-industry-scoped or content-type-scoped rows in v1.
 
-1. Quick Service Restaurant (Food & Beverage) — primary demo sub-industry
-2. Cafe (Food & Beverage)
-3. Digital Banking (Finance & Fintech)
-4. Cross-border Payments (Finance & Fintech)
-5. SaaS (Technology)
-6. Fintech (Technology)
-7. D2C Fashion (E-commerce & Retail)
-8. Beauty Retail (E-commerce & Retail)
-9. Fitness (Health & Wellness)
-10. Hotels (Travel & Hospitality)
+Coverage = `7 intent_families × 2 post_types × 3 art_direction_variants = 42 design rows`.
 
-Coverage = `10 sub-industries × 7 intent families × 10 content types × 2 post types = 1,400 design rows` for v1. Carousels expand by slide count but reuse the cover/body/CTA template definitions (one row per slide template, not per slide instance).
+| intent_family | post_type | variant A (photo-led) | variant B (type-led) | variant C (surface-led) |
+|---|---|---|---|---|
+| promo | single | row | row | row |
+| promo | carousel | row | row | row |
+| edu | single | row | row | row |
+| edu | carousel | row | row | row |
+| testimonial | single | row | row | row |
+| testimonial | carousel | row | row | row |
+| hiring | single | row | row | row |
+| hiring | carousel | row | row | row |
+| content | single | row | row | row |
+| content | carousel | row | row | row |
+| hook | single | row | row | row |
+| hook | carousel | row | row | row |
+| quote | single | row | row | row |
+| quote | carousel | row | row | row |
 
-Tiers 2 and 3 (rest of the 100 sub-industries) follow per the rollout in §17.
+**Why 42, not 1,400**: the bottleneck for "looks generic" is brand-token discipline + photo art direction, not layout count. 42 *excellent* templates with strict brand-token injection beat 1,400 average ones. Once telemetry shows which sub-industries are hurting on the tier-5 fallback, v2 expands selectively.
+
+Carousels expand by slide count but reuse the cover/body/CTA template definitions (one row per slide template, not per slide instance).
+
+### 15.1 v2 expansion (deferred, telemetry-driven)
+
+After v1 is in production with `template_design_lookup_enabled` flipped on:
+
+- monitor tier-5 hit rate per sub-industry from the resolution log
+- monitor brand fidelity lint scores per sub-industry (from `PRD-brand-visual-excellence.md`)
+- prioritize sub-industries where tier-5 hit rate × signup volume × low lint score is highest
+- ship sub-industry-scoped rows in batches per parent industry, following the original Tier-1 list as a starting prioritization (QSR, Digital Banking, SaaS, D2C Fashion, Fitness, Hotels, etc.)
+
+The schema, slot contract, admin UX, and resolution chain are unchanged — v2 is purely seeding more rows.
 
 ---
 
@@ -512,7 +554,7 @@ Tiers 2 and 3 (rest of the 100 sub-industries) follow per the rollout in §17.
 
 | Risk | Mitigation |
 |---|---|
-| Library scope explodes (1,400 rows × variants) | Restrict v1 to Tier-1; rely on fallback chain elsewhere; track coverage report. |
+| Library scope creeps back toward 1,400 rows | v1 hard-capped at 42 generic rows; v2 expansion gated by telemetry (tier-5 hit rate × signup volume × lint score), not by feature requests. |
 | McDonald's trademark exposure | Demo is admin-only; never user-facing; logo asset stored under `internal/demo/`; written rights note in seed metadata; no public API exposes the demo. |
 | Premium QA bottleneck | Hire/contract one design QA reviewer per intent family for v1 wave; automate snapshot diff checks. |
 | Slot contract drift between renderer and generator | Treat slot names in §7.1 as a hard schema; CI lints generator code for unknown slot keys. |
@@ -528,9 +570,9 @@ Tiers 2 and 3 (rest of the 100 sub-industries) follow per the rollout in §17.
 - Wire McDonald's demo fixture and render pipeline.
 - No new templates yet; existing Bannerbear UIDs map into the table.
 
-### Phase 2 — Tier-1 design wave (4–6 weeks)
+### Phase 2 — v1 design wave (1–2 weeks)
 
-- Design + ship the 1,400-row Tier-1 library.
+- Design + ship the 42-row generic premium library.
 - Pass §11 QA gate per template.
 - Backfill `demo_preview_url` for every active row.
 
