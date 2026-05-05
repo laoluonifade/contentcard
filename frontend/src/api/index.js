@@ -541,6 +541,8 @@ export const adminApi = {
     adminAxios.get('/admin/template-designs/coverage', { params }).then(r => r.data),
   templateDesignMetrics: (params) =>
     adminAxios.get('/admin/template-designs/metrics', { params }).then(r => r.data),
+  templateDesignSeedV1: () =>
+    adminAxios.post('/admin/template-designs/seed-v1').then(r => r.data),
 }
 
 export default api
