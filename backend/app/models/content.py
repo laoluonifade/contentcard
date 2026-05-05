@@ -89,21 +89,13 @@ class ContentItem(Base):
     # Campaign banding (R2.4) — posts sharing a campaign_id render under a coloured ribbon
     campaign_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
 
-    # Premium Social Template Library — design lookup result (PR 3.3).
-    # Populated only when the per-brand or global lookup flag is on. The
-    # foreign-key column is intentionally NOT a real FK constraint because
-    # template designs are seed data that may be replaced/versioned and we
-    # don't want a CASCADE side-effect; the column is just a soft pointer.
-    resolved_template_design_id: Mapped[str | None] = mapped_column(
-        String, nullable=True, index=True
-    )
-    resolved_intent_family: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    resolved_template_design_fallback_tier: Mapped[int | None] = mapped_column(
-        Integer, nullable=True
-    )
-    resolved_art_direction_variant: Mapped[str | None] = mapped_column(
-        String(8), nullable=True
-    )
+    # NOTE: 4 `resolved_*` columns from PR 3.3 are temporarily disabled in
+    # the model because migration 20260505_03 didn't apply on prod, causing
+    # every INSERT to fail with `column "resolved_template_design_id" of
+    # relation "content_items" does not exist`. They will be re-added in a
+    # follow-up PR once the migration is confirmed applied. The shadow
+    # lookup still runs and logs telemetry; it just doesn't persist the
+    # resolved IDs onto the row until the schema catches up.
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
