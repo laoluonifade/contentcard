@@ -243,6 +243,16 @@ export default function AdminTemplateDesignsPage() {
     unclassified:       'Unclassified (legacy)',
   }
 
+  // Detect rows that pre-date the v2 archetype seed: variant is A/B/C
+  // (not a VD code) OR content_type is null. The /seed-v1 endpoint
+  // (which now invokes upsert_v2) deletes these and inserts the v2 set.
+  const legacyRowCount = useMemo(() => {
+    return rows.filter(r => {
+      const v = String(r.art_direction_variant || '')
+      return !r.content_type || !v.startsWith('VD')
+    }).length
+  }, [rows])
+
   return (
     <AdminLayout>
       <div className="flex items-start justify-between gap-4 mb-6">
@@ -276,6 +286,15 @@ export default function AdminTemplateDesignsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleSeedV1}
+            disabled={seeding}
+            className="flex items-center gap-1.5 px-3 py-2 bg-brand-500/10 text-brand-300 border border-brand-500/30 hover:bg-brand-500/20 text-sm font-semibold rounded-xl transition-all disabled:opacity-50"
+            title="Re-seed the v2 archetype library. Idempotent — safe to click anytime."
+          >
+            <Sparkles size={14} className={seeding ? 'animate-spin' : ''} />
+            {seeding ? 'Seeding…' : 'Re-seed library'}
+          </button>
           <div className="flex items-center bg-white/[0.04] border border-white/10 rounded-xl p-0.5">
             <button
               onClick={() => setViewMode('grid')}
@@ -321,6 +340,30 @@ export default function AdminTemplateDesignsPage() {
       )}
 
       {viewMode === 'grid' && (<>
+      {legacyRowCount > 0 && (
+        <div className="bg-yellow-500/[0.06] border border-yellow-500/30 rounded-2xl p-4 mb-4 flex items-center gap-4">
+          <Sparkles size={18} className="text-yellow-300 flex-none" />
+          <div className="flex-1">
+            <div className="text-yellow-300 text-sm font-semibold mb-0.5">
+              Legacy v1 templates detected ({legacyRowCount} rows)
+            </div>
+            <div className="text-white/55 text-xs">
+              The previous A/B/C-variant templates are still in the database
+              and showing as "Unclassified (legacy)" with "not implemented" cards.
+              Click Re-seed library to delete them and install the v2 archetype
+              library (10 archetypes × 10 content types = 100 templates).
+            </div>
+          </div>
+          <button
+            onClick={handleSeedV1}
+            disabled={seeding}
+            className="flex items-center gap-1.5 px-3 py-2 bg-yellow-500/15 text-yellow-200 border border-yellow-500/40 hover:bg-yellow-500/25 text-sm font-semibold rounded-xl whitespace-nowrap disabled:opacity-50"
+          >
+            <Sparkles size={14} className={seeding ? 'animate-spin' : ''} />
+            {seeding ? 'Migrating…' : 'Migrate to v2'}
+          </button>
+        </div>
+      )}
       <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-4 mb-5">
         <div className="flex items-center gap-2 mb-3">
           <Filter size={13} className="text-white/35" />
