@@ -89,21 +89,16 @@ class ContentItem(Base):
     # Campaign banding (R2.4) — posts sharing a campaign_id render under a coloured ribbon
     campaign_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
 
-    # Premium Social Template Library — design lookup result (PR B,
-    # restored after migration 20260505_03 applies on prod). Soft pointer:
-    # not a FK constraint because template designs are seed data that may
-    # be replaced/versioned and we don't want a CASCADE side-effect.
-    # When the lookup flag is off these stay NULL.
-    resolved_template_design_id: Mapped[str | None] = mapped_column(
-        String, nullable=True, index=True
-    )
-    resolved_intent_family: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    resolved_template_design_fallback_tier: Mapped[int | None] = mapped_column(
-        Integer, nullable=True
-    )
-    resolved_art_direction_variant: Mapped[str | None] = mapped_column(
-        String(8), nullable=True
-    )
+    # NOTE: 4 `resolved_*` columns from PR 3.3 / #367 are temporarily
+    # OUT of the model again because Render's preDeployCommand has not
+    # been applying migration 20260505_03 reliably (this is now the
+    # second hotfix for the same root cause — see #363, this PR).
+    # SQLAlchemy includes every mapped column in INSERTs even when the
+    # value is None; with the column missing on prod, every INSERT into
+    # content_items fails with `column "resolved_template_design_id"
+    # does not exist`, which surfaces as "Network error" on Generate.
+    # Re-add these once the migration is confirmed applied (admin →
+    # Apply pending migrations + verify migrations chip turns green).
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
