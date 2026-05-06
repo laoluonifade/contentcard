@@ -4556,10 +4556,16 @@ async def _do_generate_month(
                     brand_id=brand_id,
                     idea_id=str(post.get("topic") or post.get("content_idea") or ""),
                 )
-                # Persist on the post dict so downstream renderer (PR 3.2 / 3.4)
-                # can use it. ContentItem column writes are disabled until
-                # migration 20260505_03 applies on prod — see hotfix note in
-                # app/models/content.py.
+                # Persist the resolved template design on the row (PR B).
+                # Restored after migration 20260505_03 applied — see admin
+                # apply-migrations endpoint if you need to force it.
+                if shadow_result.enabled:
+                    item.resolved_template_design_id = shadow_result.resolved_design_id
+                    item.resolved_intent_family = shadow_result.intent_family
+                    item.resolved_template_design_fallback_tier = shadow_result.fallback_tier
+                    item.resolved_art_direction_variant = shadow_result.art_direction_variant
+                # Stash on the post dict so the runtime compositor can read
+                # it within the same request without another DB round-trip.
                 post["_template_design_shadow"] = shadow_result
 
             # ── Commit 1: text content saved immediately ───────────────────────────

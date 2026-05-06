@@ -140,6 +140,7 @@ export default function AdminTemplateDesignsPage() {
   const [viewMode, setViewMode] = useState('grid') // 'grid' | 'coverage'
   const [seeding, setSeeding] = useState(false)
   const [seedResult, setSeedResult] = useState(null)
+  const [migratingState, setMigratingState] = useState({ status: null, head: null, in_sync: null, applying: false })
 
   const handleSeedV1 = async () => {
     setSeeding(true)
@@ -155,6 +156,45 @@ export default function AdminTemplateDesignsPage() {
       setSeeding(false)
     }
   }
+
+  const handleApplyMigrations = async () => {
+    setMigratingState((s) => ({ ...s, applying: true }))
+    try {
+      await adminApi.templateDesignApplyMigrations()
+      const status = await adminApi.templateDesignMigrationsStatus()
+      setMigratingState({
+        status: 'applied',
+        head: status.current_head_in_db,
+        in_sync: status.in_sync,
+        applying: false,
+      })
+    } catch (e) {
+      setMigratingState({
+        status: 'error',
+        head: null,
+        in_sync: null,
+        applying: false,
+      })
+      setError(e?.response?.data?.detail || e.message || 'Apply migrations failed')
+    }
+  }
+
+  // Pre-fetch migrations status once so the operator sees in-sync state at a glance.
+  useEffect(() => {
+    let alive = true
+    adminApi.templateDesignMigrationsStatus()
+      .then((s) => {
+        if (!alive) return
+        setMigratingState((m) => ({
+          ...m,
+          status: 'loaded',
+          head: s.current_head_in_db,
+          in_sync: s.in_sync,
+        }))
+      })
+      .catch(() => {})
+    return () => { alive = false }
+  }, [])
 
   useEffect(() => {
     let alive = true
@@ -203,6 +243,26 @@ export default function AdminTemplateDesignsPage() {
           <p className="text-white/40 text-sm mt-0.5">
             {loading ? 'Loading…' : `${total} designs · grouped by sub-industry`}
           </p>
+          <div className="flex items-center gap-2 mt-2 text-xs">
+            {migratingState.head && (
+              <span className={`px-2 py-0.5 rounded-full border ${
+                migratingState.in_sync
+                  ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                  : 'bg-red-500/10 text-red-300 border-red-500/30'
+              }`}>
+                migrations: {migratingState.in_sync ? 'in sync' : 'pending'} ({migratingState.head})
+              </span>
+            )}
+            {(!migratingState.in_sync || migratingState.status === 'error') && (
+              <button
+                onClick={handleApplyMigrations}
+                disabled={migratingState.applying}
+                className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-brand-500/10 text-brand-300 border border-brand-500/30 hover:bg-brand-500/20 disabled:opacity-50"
+              >
+                {migratingState.applying ? 'applying…' : 'apply pending migrations'}
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center bg-white/[0.04] border border-white/10 rounded-xl p-0.5">

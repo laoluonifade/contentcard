@@ -543,6 +543,10 @@ export const adminApi = {
     adminAxios.get('/admin/template-designs/metrics', { params }).then(r => r.data),
   templateDesignSeedV1: () =>
     adminAxios.post('/admin/template-designs/seed-v1').then(r => r.data),
+  templateDesignMigrationsStatus: () =>
+    adminAxios.get('/admin/template-designs/migrations-status').then(r => r.data),
+  templateDesignApplyMigrations: () =>
+    adminAxios.post('/admin/template-designs/apply-migrations').then(r => r.data),
 }
 
 export default api
