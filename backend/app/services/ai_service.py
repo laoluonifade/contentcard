@@ -4065,13 +4065,35 @@ Return a JSON object with a single key "posts" containing the array:
 
             if raw is None:
                 # Chat completions fallback (or subsequent retry attempts)
+                # When template_design lookup is on globally (or per-brand
+                # via brand_kit.template_design_lookup), inject the slot
+                # contract bounds + intent guidance so the AI generates
+                # copy that fits the templates upfront. Avoids downstream
+                # truncation that loses meaning.
+                from app.core.config import settings as _settings
+                from app.services.template_design.copy_prompt import (
+                    template_slot_contracts_prompt,
+                )
+                _kit = brand_dict.get("brand_kit") if isinstance(brand_dict.get("brand_kit"), dict) else {}
+                _per_brand = _kit.get("template_design_lookup") if isinstance(_kit, dict) else None
+                _template_aware = (
+                    bool(_per_brand) if _per_brand is not None
+                    else bool(_settings.TEMPLATE_DESIGN_LOOKUP_ENABLED)
+                )
+                _messages = [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
+                ]
+                if _template_aware:
+                    _messages.append(
+                        {"role": "system", "content": template_slot_contracts_prompt()}
+                    )
+                _messages.extend([
+                    {"role": "user", "content": brand_system},
+                    {"role": "user", "content": creative_brief},
+                ])
                 raw = await _openai_chat(
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "system", "content": DESIGN_SYSTEM_PROMPT},
-                        {"role": "user", "content": brand_system},
-                        {"role": "user", "content": creative_brief},
-                    ],
+                    messages=_messages,
                     max_tokens=12000,
                     temperature=0.4,
                     json_mode=True,
