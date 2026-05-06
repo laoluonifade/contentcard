@@ -147,74 +147,34 @@ async def lookup_metrics(
     _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Generation-time lookup health (PR 3.4).
+    """Generation-time lookup health.
 
-    Reports across the last `days` days of content_items rows that have
-    a non-NULL resolved_template_design_id:
-      - count by fallback_tier
-      - count by intent_family
-      - count by art_direction_variant
-      - total resolved vs total generated (resolved-rate)
-
-    A high tier-5 rate is expected in v1 (every brand resolves there
-    by design). What's worth alerting on is `resolved=0` for >= a day
-    after the flag is flipped, or a sudden swing in intent_family
-    distribution.
+    Disabled in this hotfix while the resolved_* columns are out of the
+    model (migration 20260505_03 hasn't applied because of the env.py
+    asyncpg bug also fixed in this PR). Returns zeroes with a note.
+    Once the migration applies cleanly, a follow-up PR re-adds the
+    columns and the real aggregation.
     """
     from datetime import timedelta
     from sqlalchemy import func
     from app.models.content import ContentItem
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
-
     total = (await db.execute(
         select(func.count(ContentItem.id)).where(ContentItem.created_at >= cutoff)
     )).scalar() or 0
-
-    resolved = (await db.execute(
-        select(func.count(ContentItem.id))
-        .where(ContentItem.created_at >= cutoff)
-        .where(ContentItem.resolved_template_design_id.isnot(None))
-    )).scalar() or 0
-
-    by_tier = dict((await db.execute(
-        select(
-            ContentItem.resolved_template_design_fallback_tier,
-            func.count(ContentItem.id),
-        )
-        .where(ContentItem.created_at >= cutoff)
-        .where(ContentItem.resolved_template_design_id.isnot(None))
-        .group_by(ContentItem.resolved_template_design_fallback_tier)
-    )).all())
-
-    by_intent = dict((await db.execute(
-        select(
-            ContentItem.resolved_intent_family,
-            func.count(ContentItem.id),
-        )
-        .where(ContentItem.created_at >= cutoff)
-        .where(ContentItem.resolved_template_design_id.isnot(None))
-        .group_by(ContentItem.resolved_intent_family)
-    )).all())
-
-    by_variant = dict((await db.execute(
-        select(
-            ContentItem.resolved_art_direction_variant,
-            func.count(ContentItem.id),
-        )
-        .where(ContentItem.created_at >= cutoff)
-        .where(ContentItem.resolved_template_design_id.isnot(None))
-        .group_by(ContentItem.resolved_art_direction_variant)
-    )).all())
-
     return {
         "window_days": days,
         "total_content_items": total,
-        "resolved_count": resolved,
-        "resolved_rate": (resolved / total) if total else 0.0,
-        "by_fallback_tier": {str(k): v for k, v in by_tier.items()},
-        "by_intent_family": {str(k): v for k, v in by_intent.items()},
-        "by_art_direction_variant": {str(k): v for k, v in by_variant.items()},
+        "resolved_count": 0,
+        "resolved_rate": 0.0,
+        "by_fallback_tier": {},
+        "by_intent_family": {},
+        "by_art_direction_variant": {},
+        "note": (
+            "Aggregation paused until migration 20260505_03 applies and "
+            "the resolved_* columns are restored on ContentItem."
+        ),
     }
 
 
@@ -362,54 +322,22 @@ async def get_used_in(
 ) -> dict[str, Any]:
     """Last N content items that resolved to this design.
 
-    Backed by the `resolved_template_design_id` column on content_items
-    (PR B). Items where the lookup flag was off have NULL there and
-    won't appear here. Returns [] gracefully when the column doesn't
-    exist (migration 20260505_03 hasn't applied yet).
+    Disabled in this hotfix while the resolved_* columns are out of the
+    model (migration 20260505_03 hasn't applied because of the env.py
+    asyncpg bug also fixed in this PR). Returns [] with a note. Once
+    the migration applies cleanly, a follow-up PR re-adds the columns
+    and the real query.
     """
     row = await db.get(ContentTemplateDesign, design_id)
     if row is None:
         raise HTTPException(status_code=404, detail="design not found")
-    from app.models.content import ContentItem
-    try:
-        items = (
-            await db.execute(
-                select(ContentItem)
-                .where(ContentItem.resolved_template_design_id == design_id)
-                .order_by(ContentItem.created_at.desc())
-                .limit(limit)
-            )
-        ).scalars().all()
-    except Exception as e:
-        # Most likely cause: migration 20260505_03 hasn't applied; column
-        # doesn't exist yet. Surface the empty list so the drawer doesn't
-        # error, but tell the operator how to fix.
-        return {
-            "items": [],
-            "limit": limit,
-            "note": (
-                "Underlying column missing — run admin → Apply migrations "
-                f"or check Render preDeployCommand. ({type(e).__name__})"
-            ),
-        }
     return {
-        "items": [
-            {
-                "id": i.id,
-                "brand_id": i.brand_id,
-                "topic": i.topic,
-                "platform": i.platform.value if i.platform else None,
-                "format": i.format.value if i.format else None,
-                "status": i.status.value if i.status else None,
-                "scheduled_date": i.scheduled_date.isoformat() if i.scheduled_date else None,
-                "created_at": i.created_at.isoformat() if i.created_at else None,
-                "fallback_tier": i.resolved_template_design_fallback_tier,
-                "intent_family": i.resolved_intent_family,
-                "variant": i.resolved_art_direction_variant,
-            }
-            for i in items
-        ],
+        "items": [],
         "limit": limit,
+        "note": (
+            "Used-in is paused until migration 20260505_03 applies and "
+            "the resolved_* columns are restored on ContentItem."
+        ),
     }
 
 
