@@ -1,0 +1,2233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ContentCard · Education Templates Reference</title>
+<!--
+  Education templates reference (PR 1 of the Pentagram-grade redesign).
+  Ten 1080×1080 education templates. Every one a different design language:
+  different palette, fonts, product-imagery integration, logo placement,
+  and at least one deliberate designed detail. This file is the bar.
+
+  Open it in a browser. Each frame renders at intrinsic 1080×1080 and is
+  scaled down 50% for review (CSS transform). Right-click "open in new
+  tab" or zoom in your browser to see actual size. To export a PNG,
+  screenshot the frame element with the inspector or print to PDF.
+
+  No JavaScript — the file is self-contained. Product photography is
+  loaded from Unsplash's CDN; if any photo URL drifts, the brand-palette
+  fallback colour fills the photo slot so the layout still reads.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,700;12..96,800&family=Caveat:wght@400;600;700&family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;0,700;1,400;1,500;1,600;1,700&family=DM+Mono:wght@400;500&family=DM+Serif+Display:ital@0;1&family=Familjen+Grotesk:wght@400;500;600;700&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;0,9..144,800;1,9..144,400;1,9..144,500;1,9..144,600;1,9..144,700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: #0E0E10;
+    color: #E9E5DD;
+    font-family: 'Manrope', system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    padding: 64px 24px 120px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* PAGE CHROME ---------------------------------------------------- */
+  .doc-header {
+    max-width: 720px;
+    margin: 0 auto 64px;
+    text-align: center;
+  }
+  .doc-eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: #8C8579;
+    margin-bottom: 16px;
+  }
+  .doc-title {
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    font-size: 44px;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: #F4EFE6;
+    margin: 0 0 16px;
+  }
+  .doc-title em {
+    font-style: italic;
+    font-variation-settings: "opsz" 144, "SOFT" 100;
+    color: #C5CCB7;
+  }
+  .doc-lede {
+    font-size: 15px;
+    color: #B5AE9F;
+    max-width: 560px;
+    margin: 0 auto;
+  }
+  .doc-meta {
+    margin-top: 28px;
+    display: flex;
+    justify-content: center;
+    gap: 32px;
+    flex-wrap: wrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #6E6A60;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .doc-meta strong { color: #E9E5DD; font-weight: 500; }
+
+  /* TEMPLATE WRAPPER + SPEC CARD ----------------------------------- */
+  .template {
+    margin: 0 auto 96px;
+    max-width: 540px;
+  }
+  .template-eyebrow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #8C8579;
+    margin-bottom: 14px;
+    padding: 0 4px;
+  }
+  .template-eyebrow .num { color: #E9E5DD; }
+  .template-eyebrow .industry { color: #C5CCB7; }
+
+  .frame-wrap {
+    width: 540px;
+    height: 540px;
+    overflow: hidden;
+    position: relative;
+    border-radius: 4px;
+    box-shadow: 0 24px 60px -20px rgba(0,0,0,0.6),
+                0 2px 8px rgba(0,0,0,0.3);
+  }
+  .frame {
+    width: 1080px;
+    height: 1080px;
+    transform-origin: top left;
+    transform: scale(0.5);
+    position: relative;
+    overflow: hidden;
+  }
+  .spec-card {
+    margin-top: 18px;
+    padding: 16px 18px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 6px;
+    display: grid;
+    grid-template-columns: 130px 1fr;
+    gap: 6px 16px;
+    font-size: 12px;
+  }
+  .spec-card dt {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: #6E6A60;
+    padding-top: 1px;
+  }
+  .spec-card dd {
+    margin: 0;
+    color: #C9C2B3;
+  }
+  .spec-card dd strong { color: #F4EFE6; font-weight: 500; }
+
+  /* TEMPLATE 01 — APOTHECARY · Skincare ---------------------------- */
+  /* Sage editorial. Pedestal hero. Monogram seal. Italic accent + bar. */
+  .t01 {
+    --sage: #C5CCB7;
+    --cream: #F4EFE6;
+    --ink: #1B1F1A;
+    --cocoa: #5C3A24;
+    background: var(--cream);
+    color: var(--ink);
+    padding: 88px 96px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: auto 1fr auto;
+    gap: 0;
+  }
+  .t01 .head {
+    grid-column: 1 / 3;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--ink);
+    padding-bottom: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .t01 .head .ix { color: var(--ink); }
+  .t01 .head .vol { color: var(--ink); opacity: 0.55; }
+  .t01 .copy {
+    grid-column: 1 / 2;
+    align-self: end;
+    padding-right: 32px;
+  }
+  .t01 .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cocoa);
+    margin-bottom: 28px;
+  }
+  .t01 h1 {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144, "SOFT" 50;
+    font-weight: 400;
+    font-size: 88px;
+    line-height: 0.94;
+    letter-spacing: -0.025em;
+    color: var(--ink);
+    margin: 0 0 28px;
+  }
+  .t01 h1 em {
+    font-style: italic;
+    background: linear-gradient(transparent 60%, var(--sage) 60%);
+    padding: 0 4px;
+  }
+  .t01 .body {
+    font-family: 'Manrope', sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    color: var(--ink);
+    max-width: 360px;
+    margin: 0;
+  }
+  .t01 .body strong {
+    font-weight: 600;
+    border-bottom: 1px solid var(--ink);
+  }
+  .t01 .product {
+    grid-column: 2 / 3;
+    grid-row: 2 / 3;
+    align-self: center;
+    justify-self: end;
+    width: 360px;
+    height: 460px;
+    background: var(--sage);
+    background-image: url("https://images.unsplash.com/photo-1556228720-195a672e8a03?w=900&q=80&auto=format&fit=crop");
+    background-size: cover;
+    background-position: center;
+    position: relative;
+  }
+  .t01 .product::after {
+    content: "01 · CERAMIDE COMPLEX";
+    position: absolute;
+    left: 14px;
+    bottom: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--cream);
+    background: var(--ink);
+    padding: 4px 8px;
+  }
+  .t01 .museum {
+    grid-column: 1 / 3;
+    grid-row: 3 / 4;
+    margin-top: 36px;
+    padding-top: 14px;
+    border-top: 1px solid var(--ink);
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr auto;
+    gap: 24px;
+    align-items: end;
+  }
+  .t01 .museum dt {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cocoa);
+    margin: 0 0 4px;
+  }
+  .t01 .museum dd {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 1.2;
+    color: var(--ink);
+    margin: 0;
+  }
+  .t01 .seal {
+    width: 90px;
+    height: 90px;
+    border: 1.5px solid var(--ink);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    line-height: 1;
+  }
+  .t01 .seal .mark {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 32px;
+    color: var(--ink);
+  }
+  .t01 .seal .name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 7px;
+    letter-spacing: 0.16em;
+    margin-top: 6px;
+    color: var(--ink);
+  }
+
+  /* TEMPLATE 02 — TUTORIAL · Coffee -------------------------------- */
+  /* Documentary cocoa. Process photography. Footer rule. Marquee. */
+  .t02 {
+    --cocoa: #3B2718;
+    --ochre: #C18230;
+    --cream: #EFE6D8;
+    --ink: #1A0F08;
+    background: var(--cocoa);
+    color: var(--cream);
+    padding: 76px 80px 68px;
+    display: flex;
+    flex-direction: column;
+  }
+  .t02 .marquee {
+    border-top: 1px solid var(--ochre);
+    border-bottom: 1px solid var(--ochre);
+    padding: 10px 0;
+    overflow: hidden;
+    white-space: nowrap;
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.3em;
+    color: var(--ochre);
+    text-transform: uppercase;
+  }
+  .t02 .marquee span { padding: 0 24px; }
+  .t02 .copy {
+    margin-top: 60px;
+    flex: 0 0 auto;
+  }
+  .t02 .label {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ochre);
+    margin-bottom: 22px;
+  }
+  .t02 h1 {
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-variation-settings: "opsz" 96;
+    font-weight: 700;
+    font-size: 90px;
+    line-height: 0.95;
+    letter-spacing: -0.03em;
+    color: var(--cream);
+    margin: 0 0 12px;
+    max-width: 850px;
+  }
+  .t02 h1 em {
+    font-style: italic;
+    color: var(--ochre);
+    font-weight: 500;
+  }
+  .t02 .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+    margin-top: 56px;
+    flex: 1 1 auto;
+  }
+  .t02 .step {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .t02 .step .img {
+    height: 280px;
+    background: var(--ink);
+    background-size: cover;
+    background-position: center;
+    position: relative;
+  }
+  .t02 .step:nth-child(1) .img {
+    background-image: url("https://images.unsplash.com/photo-1611854779393-1b2da9d400fe?w=600&q=80&auto=format&fit=crop");
+  }
+  .t02 .step:nth-child(2) .img {
+    background-image: url("https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600&q=80&auto=format&fit=crop");
+  }
+  .t02 .step:nth-child(3) .img {
+    background-image: url("https://images.unsplash.com/photo-1497636577773-f1231844b336?w=600&q=80&auto=format&fit=crop");
+  }
+  .t02 .step .num {
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    color: var(--ochre);
+    letter-spacing: 0.2em;
+  }
+  .t02 .step .name {
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 700;
+    font-size: 26px;
+    color: var(--cream);
+    line-height: 1.05;
+    letter-spacing: -0.01em;
+  }
+  .t02 .step .body {
+    font-family: 'Manrope', sans-serif;
+    font-size: 13px;
+    color: var(--cream);
+    opacity: 0.7;
+    line-height: 1.5;
+  }
+  .t02 .footer {
+    margin-top: 36px;
+    padding-top: 20px;
+    border-top: 1px solid rgba(239, 230, 216, 0.25);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cream);
+    opacity: 0.85;
+  }
+  .t02 .footer .logo {
+    font-family: 'Bricolage Grotesque', sans-serif;
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: -0.01em;
+    text-transform: none;
+    opacity: 1;
+    color: var(--cream);
+  }
+
+  /* TEMPLATE 03 — MYTH × FACT · Supplements ------------------------ */
+  /* Caution poster. Pedestal product. Stamp. Diagonal split. */
+  .t03 {
+    --yellow: #F2CB05;
+    --ink: #0E0E0E;
+    --bone: #FBF7EC;
+    background: var(--yellow);
+    color: var(--ink);
+    padding: 76px 84px;
+    position: relative;
+    overflow: hidden;
+  }
+  .t03::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(112deg, transparent 0%, transparent 49.6%, var(--ink) 49.6%, var(--ink) 50.4%, transparent 50.4%);
+    pointer-events: none;
+  }
+  .t03 .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: relative;
+    z-index: 1;
+  }
+  .t03 .lockup { display: flex; align-items: center; gap: 14px; }
+  .t03 .lockup .mono {
+    width: 44px;
+    height: 44px;
+    background: var(--ink);
+    color: var(--yellow);
+    display: grid;
+    place-items: center;
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 22px;
+    line-height: 1;
+  }
+  .t03 .lockup .word {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 22px;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+  }
+  .t03 .vol {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .t03 .grid {
+    margin-top: 56px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    position: relative;
+    z-index: 2;
+    height: 720px;
+  }
+  .t03 .side {
+    padding: 28px 28px 28px 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .t03 .side.fact { padding: 28px 0 28px 28px; }
+  .t03 .tag {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 24px;
+    letter-spacing: 0.04em;
+    color: var(--ink);
+  }
+  .t03 .side.fact .tag { color: var(--bone); background: var(--ink); padding: 4px 12px; align-self: flex-start; }
+  .t03 .side h2 {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 80px;
+    line-height: 0.92;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin: 28px 0;
+    max-width: 380px;
+  }
+  .t03 .side.myth h2 {
+    text-decoration: line-through;
+    text-decoration-thickness: 6px;
+    text-decoration-color: var(--ink);
+  }
+  .t03 .side.fact { color: var(--bone); }
+  .t03 .side.fact h2 { color: var(--bone); }
+  .t03 .side .body {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 500;
+    font-size: 15px;
+    line-height: 1.5;
+    color: inherit;
+    max-width: 360px;
+  }
+  .t03 .product {
+    position: absolute;
+    width: 220px;
+    height: 280px;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) rotate(-3deg);
+    background: var(--bone);
+    background-image: url("https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=600&q=80&auto=format&fit=crop");
+    background-size: cover;
+    background-position: center;
+    border: 2px solid var(--ink);
+    box-shadow: 8px 8px 0 var(--ink);
+    z-index: 3;
+  }
+  .t03 .stamp {
+    position: absolute;
+    right: 84px;
+    bottom: 84px;
+    width: 130px;
+    height: 130px;
+    border: 2px dashed var(--ink);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    transform: rotate(8deg);
+    text-align: center;
+    line-height: 1.05;
+    background: var(--yellow);
+    z-index: 4;
+  }
+  .t03 .stamp .top {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 16px;
+    letter-spacing: 0.02em;
+    color: var(--ink);
+  }
+  .t03 .stamp .mid {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    color: var(--ink);
+    margin: 4px 0;
+    text-transform: uppercase;
+  }
+  .t03 .stamp .bot {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 11px;
+    color: var(--ink);
+    letter-spacing: 0.04em;
+  }
+
+  /* TEMPLATE 04 — DID YOU KNOW · Hot Sauce ------------------------- */
+  /* Vibrant retail magazine. Flat-lay. Watermark logo. Caveat scribbles. */
+  .t04 {
+    --brick: #C44531;
+    --cream: #F2EBDB;
+    --ink: #181210;
+    --mustard: #E2A02D;
+    background: var(--brick);
+    color: var(--cream);
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .t04 .photo {
+    position: absolute;
+    inset: 0;
+    background-color: var(--brick);
+    background-image: url("https://images.unsplash.com/photo-1583394838336-acd977736f90?w=1200&q=80&auto=format&fit=crop");
+    background-size: cover;
+    background-position: center;
+    filter: brightness(0.78) saturate(1.15);
+  }
+  .t04 .scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(196,69,49,0.55) 0%, rgba(24,18,16,0.7) 100%);
+  }
+  .t04 .watermark {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 320px;
+    letter-spacing: -0.04em;
+    color: var(--cream);
+    opacity: 0.07;
+    line-height: 1;
+    pointer-events: none;
+  }
+  .t04 .inner {
+    position: relative;
+    padding: 84px 92px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .t04 .top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+  }
+  .t04 .eyebrow {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--mustard);
+    background: var(--ink);
+    padding: 6px 12px;
+  }
+  .t04 .iss {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cream);
+    opacity: 0.85;
+  }
+  .t04 .copy { max-width: 880px; }
+  .t04 h1 {
+    font-family: 'Instrument Serif', serif;
+    font-weight: 400;
+    font-size: 110px;
+    line-height: 0.96;
+    letter-spacing: -0.01em;
+    color: var(--cream);
+    margin: 0 0 36px;
+  }
+  .t04 h1 em {
+    font-style: italic;
+    color: var(--mustard);
+    text-decoration: underline;
+    text-decoration-color: var(--mustard);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 8px;
+  }
+  .t04 .body {
+    font-family: 'Manrope', sans-serif;
+    font-size: 18px;
+    line-height: 1.5;
+    color: var(--cream);
+    max-width: 700px;
+  }
+  .t04 .scribble {
+    position: absolute;
+    font-family: 'Caveat', cursive;
+    font-weight: 600;
+    font-size: 28px;
+    color: var(--mustard);
+    line-height: 1;
+    transform: rotate(-3deg);
+    text-shadow: 0 1px 0 rgba(0,0,0,0.3);
+  }
+  .t04 .scribble.s1 { top: 290px; right: 80px; }
+  .t04 .scribble.s1::before {
+    content: "";
+    position: absolute;
+    left: -56px;
+    top: 18px;
+    width: 50px;
+    height: 18px;
+    border-bottom: 2px solid var(--mustard);
+    border-left: 2px solid var(--mustard);
+    border-bottom-left-radius: 24px;
+    transform: rotate(-12deg);
+  }
+  .t04 .scribble.s2 { bottom: 220px; right: 110px; transform: rotate(2deg); }
+  .t04 .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--cream);
+  }
+  .t04 .footer .brand {
+    font-family: 'Instrument Serif', serif;
+    font-style: italic;
+    font-size: 32px;
+    letter-spacing: -0.01em;
+    text-transform: none;
+    color: var(--cream);
+    line-height: 1;
+  }
+
+  /* TEMPLATE 05 — SIDE BY SIDE · Hair care ------------------------- */
+  /* Mocha mousse editorial. Before/after. Retail tag w/ kraft string. */
+  .t05 {
+    --mocha: #6F4E37;
+    --blush: #E8D2C2;
+    --cream: #F6EEE3;
+    --ink: #2A1B12;
+    background: var(--cream);
+    color: var(--ink);
+    padding: 0;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    height: 1080px;
+  }
+  .t05 .head {
+    padding: 64px 80px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .t05 .head .label {
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--mocha);
+  }
+  .t05 .head .iss {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--mocha);
+    opacity: 0.7;
+  }
+  .t05 .copy {
+    padding: 28px 80px 32px;
+  }
+  .t05 h1 {
+    font-family: 'DM Serif Display', serif;
+    font-weight: 400;
+    font-size: 72px;
+    line-height: 1;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin: 0 0 8px;
+  }
+  .t05 h1 em {
+    font-style: italic;
+    color: var(--mocha);
+  }
+  .t05 .sub {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 400;
+    font-size: 17px;
+    color: var(--mocha);
+    max-width: 720px;
+  }
+  .t05 .split {
+    display: grid;
+    grid-template-columns: 1fr 1px 1fr;
+    margin: 0 80px;
+    border-top: 1px solid var(--mocha);
+    border-bottom: 1px solid var(--mocha);
+  }
+  .t05 .col {
+    padding: 18px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+  .t05 .col .when {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--mocha);
+  }
+  .t05 .col .img {
+    width: 100%;
+    height: 480px;
+    background-color: var(--blush);
+    background-size: cover;
+    background-position: center top;
+  }
+  .t05 .col.before .img {
+    background-image: url("https://images.unsplash.com/photo-1605497788044-5a32c7078486?w=900&q=80&auto=format&fit=crop");
+  }
+  .t05 .col.after .img {
+    background-image: url("https://images.unsplash.com/photo-1492106087820-71f1a00d2b11?w=900&q=80&auto=format&fit=crop");
+  }
+  .t05 .col .caption {
+    font-family: 'DM Serif Display', serif;
+    font-style: italic;
+    font-size: 22px;
+    color: var(--ink);
+  }
+  .t05 .rule {
+    background: var(--mocha);
+  }
+  .t05 .footer {
+    padding: 36px 80px 64px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .t05 .body-tag {
+    font-family: 'Manrope', sans-serif;
+    font-size: 13px;
+    color: var(--mocha);
+    max-width: 360px;
+    line-height: 1.4;
+  }
+  .t05 .retail-tag {
+    position: relative;
+    padding: 14px 22px 14px 40px;
+    background: var(--ink);
+    color: var(--cream);
+    font-family: 'DM Serif Display', serif;
+    font-size: 24px;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    border-radius: 0 4px 4px 0;
+  }
+  .t05 .retail-tag::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 18px;
+    height: 18px;
+    background: var(--cream);
+    border: 2px solid var(--ink);
+    border-radius: 50%;
+  }
+  .t05 .retail-tag::after {
+    content: "";
+    position: absolute;
+    left: -64px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 60px;
+    height: 1px;
+    border-top: 1px dashed var(--mocha);
+  }
+  .t05 .retail-tag .tagline {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--blush);
+    display: block;
+    margin-top: 4px;
+  }
+
+  /* TEMPLATE 06 — FOUNDER'S NOTES · Slow fashion ------------------- */
+  /* Bone editorial intimate. Polaroid stack. Caveat signature. Watermark. */
+  .t06 {
+    --bone: #ECE5D5;
+    --ink: #1A1814;
+    --brick: #B85042;
+    background: var(--bone);
+    color: var(--ink);
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .t06 .watermark {
+    position: absolute;
+    bottom: -120px;
+    left: -40px;
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 460px;
+    line-height: 0.85;
+    color: var(--ink);
+    opacity: 0.06;
+    letter-spacing: -0.04em;
+    pointer-events: none;
+  }
+  .t06 .inner {
+    position: relative;
+    z-index: 1;
+    padding: 80px 88px;
+    display: grid;
+    grid-template-columns: 1fr 0.85fr;
+    grid-template-rows: auto 1fr auto;
+    gap: 36px 60px;
+    height: 100%;
+  }
+  .t06 .head {
+    grid-column: 1 / 3;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 14px;
+    border-bottom: 0.5px solid var(--ink);
+  }
+  .t06 .head .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .t06 .stamp {
+    transform: rotate(-2deg);
+    border: 1.5px solid var(--brick);
+    color: var(--brick);
+    padding: 6px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .t06 .copy {
+    grid-column: 1 / 2;
+    align-self: center;
+  }
+  .t06 h1 {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 86px;
+    line-height: 0.96;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+    margin: 0 0 24px;
+  }
+  .t06 .body {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: 22px;
+    line-height: 1.4;
+    color: var(--ink);
+    max-width: 480px;
+    margin-bottom: 32px;
+  }
+  .t06 .signature {
+    font-family: 'Caveat', cursive;
+    font-weight: 600;
+    font-size: 56px;
+    color: var(--brick);
+    line-height: 1;
+    transform: rotate(-2deg);
+    margin-bottom: 6px;
+  }
+  .t06 .role {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.7;
+  }
+  .t06 .polaroids {
+    grid-column: 2 / 3;
+    grid-row: 2 / 3;
+    position: relative;
+    height: 600px;
+  }
+  .t06 .pola {
+    position: absolute;
+    background: var(--bone);
+    padding: 16px 16px 56px;
+    border: 1px solid rgba(26,24,20,0.18);
+    box-shadow: 0 18px 40px -18px rgba(0,0,0,0.4),
+                0 1px 2px rgba(0,0,0,0.06);
+  }
+  .t06 .pola .img {
+    width: 100%;
+    height: 100%;
+    background-color: #806c5b;
+    background-size: cover;
+    background-position: center;
+    filter: sepia(0.18) saturate(0.92);
+  }
+  .t06 .pola .cap {
+    position: absolute;
+    left: 16px;
+    right: 16px;
+    bottom: 18px;
+    font-family: 'Caveat', cursive;
+    font-weight: 600;
+    font-size: 22px;
+    color: var(--ink);
+    line-height: 1;
+    text-align: center;
+  }
+  .t06 .pola.p1 {
+    width: 280px;
+    height: 320px;
+    top: 30px;
+    right: 80px;
+    transform: rotate(-6deg);
+  }
+  .t06 .pola.p1 .img {
+    background-image: url("https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=600&q=80&auto=format&fit=crop");
+  }
+  .t06 .pola.p2 {
+    width: 260px;
+    height: 300px;
+    top: 220px;
+    left: 30px;
+    transform: rotate(4deg);
+    z-index: 2;
+  }
+  .t06 .pola.p2 .img {
+    background-image: url("https://images.unsplash.com/photo-1576566588028-4147f3842f27?w=600&q=80&auto=format&fit=crop");
+  }
+  .t06 .footer {
+    grid-column: 1 / 3;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-top: 20px;
+    border-top: 0.5px solid var(--ink);
+  }
+  .t06 .footer .col {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.85;
+  }
+  .t06 .monogram {
+    width: 66px;
+    height: 66px;
+    border: 1.5px solid var(--ink);
+    display: grid;
+    place-items: center;
+    text-align: center;
+    line-height: 1;
+  }
+  .t06 .monogram .mark {
+    font-family: 'Cormorant Garamond', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 30px;
+    color: var(--ink);
+  }
+  .t06 .monogram .name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 6px;
+    letter-spacing: 0.2em;
+    margin-top: 2px;
+    color: var(--ink);
+  }
+
+  /* TEMPLATE 07 — GLOSSARY · Tech accessories ---------------------- */
+  /* Industrial minimalism. Single hero exploded. Footer rule + URL. */
+  .t07 {
+    --bone: #E9E4DA;
+    --ink: #0F0F10;
+    --blue: #2353F2;
+    background: var(--bone);
+    color: var(--ink);
+    padding: 80px 92px;
+    display: grid;
+    grid-template-columns: 1.05fr 1fr;
+    grid-template-rows: auto 1fr auto;
+    gap: 48px 60px;
+  }
+  .t07 .head {
+    grid-column: 1 / 3;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--ink);
+  }
+  .t07 .head .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .t07 .head .iss {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.5;
+  }
+  .t07 .term {
+    grid-column: 1 / 2;
+    align-self: center;
+  }
+  .t07 h1 {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 132px;
+    line-height: 0.95;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    margin: 0 0 6px;
+  }
+  .t07 .term .ipa {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 22px;
+    color: var(--blue);
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+  .t07 .term .pos {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--ink);
+    opacity: 0.55;
+    letter-spacing: 0.04em;
+    margin-bottom: 32px;
+  }
+  .t07 .term .pos em { font-style: italic; }
+  .t07 .term .def {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 400;
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--ink);
+    max-width: 460px;
+    margin-bottom: 18px;
+  }
+  .t07 .term .def strong { font-weight: 600; }
+  .t07 .term .ety {
+    font-family: 'Manrope', sans-serif;
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink);
+    opacity: 0.6;
+    line-height: 1.4;
+    border-left: 2px solid var(--blue);
+    padding-left: 14px;
+    max-width: 440px;
+  }
+  .t07 .product-side {
+    grid-column: 2 / 3;
+    grid-row: 2 / 3;
+    position: relative;
+    background: var(--bone);
+    border: 1px solid var(--ink);
+  }
+  .t07 .product-side::before {
+    content: "FIG. 03";
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--ink);
+    z-index: 2;
+  }
+  .t07 .product-side::after {
+    content: "EXPLODED · 1:1";
+    position: absolute;
+    bottom: 14px;
+    right: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: var(--blue);
+  }
+  .t07 .product-side .img {
+    position: absolute;
+    inset: 28px;
+    background-color: var(--bone);
+    background-image: url("https://images.unsplash.com/photo-1606229365485-93a3b8ee0385?w=900&q=80&auto=format&fit=crop");
+    background-size: contain;
+    background-position: center;
+    background-repeat: no-repeat;
+    mix-blend-mode: multiply;
+  }
+  .t07 .callout {
+    position: absolute;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--blue);
+  }
+  .t07 .callout::before {
+    content: "";
+    position: absolute;
+    width: 60px;
+    height: 1px;
+    background: var(--blue);
+    top: 7px;
+  }
+  .t07 .c1 { top: 80px; right: 28px; padding-right: 70px; }
+  .t07 .c1::before { right: 0; }
+  .t07 .c2 { bottom: 90px; left: 28px; padding-left: 70px; }
+  .t07 .c2::before { left: 0; }
+  .t07 .footer {
+    grid-column: 1 / 3;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 20px;
+    border-top: 1px solid var(--ink);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .t07 .footer .logo {
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: 0.04em;
+    text-transform: none;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .t07 .footer .logo::before {
+    content: "";
+    width: 22px;
+    height: 22px;
+    background: var(--blue);
+  }
+
+  /* TEMPLATE 08 — QUICK TIP · Activewear --------------------------- */
+  /* Athletic bold monochrome. Lifestyle in-use. Big numeral. Ticker. */
+  .t08 {
+    --ink: #0A0A0A;
+    --offwhite: #F1F1F0;
+    --red: #E63946;
+    background: var(--ink);
+    color: var(--offwhite);
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .t08 .photo {
+    position: absolute;
+    inset: 0;
+    background-color: #2c2c2c;
+    background-image: url("https://images.unsplash.com/photo-1517836357463-d25dfeac3438?w=1200&q=80&auto=format&fit=crop");
+    background-size: cover;
+    background-position: center top;
+    filter: contrast(1.1) brightness(0.7);
+  }
+  .t08 .scrim {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(10,10,10,0.45) 0%, rgba(10,10,10,0.85) 100%);
+  }
+  .t08 .inner {
+    position: relative;
+    z-index: 2;
+    padding: 76px 88px;
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+  }
+  .t08 .lockup {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-family: 'Familjen Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 22px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--offwhite);
+  }
+  .t08 .lockup::before {
+    content: "";
+    width: 26px;
+    height: 26px;
+    background: var(--red);
+    transform: rotate(45deg);
+  }
+  .t08 .ticker {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    padding: 12px 0;
+    background: var(--red);
+    color: var(--ink);
+    font-family: 'Familjen Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    overflow: hidden;
+    white-space: nowrap;
+    z-index: 3;
+    text-align: center;
+  }
+  .t08 .center {
+    align-self: center;
+    margin-top: 64px;
+  }
+  .t08 .num {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 360px;
+    line-height: 0.85;
+    letter-spacing: -0.06em;
+    color: var(--red);
+    margin: 0 0 -24px -16px;
+  }
+  .t08 .num span {
+    color: var(--offwhite);
+  }
+  .t08 h1 {
+    font-family: 'Archivo Black', sans-serif;
+    font-size: 96px;
+    line-height: 0.92;
+    letter-spacing: -0.025em;
+    color: var(--offwhite);
+    margin: 0 0 24px;
+    max-width: 880px;
+    text-transform: uppercase;
+  }
+  .t08 h1 em {
+    font-style: italic;
+    font-family: 'Familjen Grotesk', sans-serif;
+    font-weight: 400;
+    color: var(--red);
+    text-transform: none;
+  }
+  .t08 .body {
+    font-family: 'Manrope', sans-serif;
+    font-weight: 500;
+    font-size: 17px;
+    line-height: 1.5;
+    color: var(--offwhite);
+    max-width: 620px;
+    opacity: 0.92;
+  }
+  .t08 .footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--offwhite);
+    opacity: 0.85;
+  }
+
+  /* TEMPLATE 09 — HOW IT'S MADE · Cocoa ---------------------------- */
+  /* Kraft documentary. Detail crop. Circular stamp. Torn-paper edge. */
+  .t09 {
+    --kraft: #B89977;
+    --ink: #1F140C;
+    --cream: #F2EBDB;
+    --inkx: #3a2a18;
+    background: var(--kraft);
+    color: var(--ink);
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+  }
+  .t09::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+      radial-gradient(circle at 12% 22%, rgba(31,20,12,0.05) 0px, transparent 40px),
+      radial-gradient(circle at 80% 60%, rgba(31,20,12,0.04) 0px, transparent 60px),
+      radial-gradient(circle at 50% 90%, rgba(31,20,12,0.04) 0px, transparent 50px);
+    pointer-events: none;
+  }
+  .t09 .layout {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+  }
+  .t09 .left {
+    padding: 80px 64px 80px 88px;
+    display: flex;
+    flex-direction: column;
+  }
+  .t09 .head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--ink);
+  }
+  .t09 .head .lot {
+    font-family: 'DM Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    text-transform: uppercase;
+    color: var(--ink);
+  }
+  .t09 .head .est {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.75;
+  }
+  .t09 h1 {
+    font-family: 'DM Serif Display', serif;
+    font-weight: 400;
+    font-size: 110px;
+    line-height: 0.92;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin: 56px 0 40px;
+  }
+  .t09 h1 em {
+    font-family: 'DM Serif Display', serif;
+    font-style: italic;
+  }
+  .t09 .timeline {
+    border-top: 1px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    padding: 18px 0;
+    margin: 24px 0 36px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  .t09 .stage .day {
+    font-family: 'DM Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.7;
+    margin-bottom: 4px;
+  }
+  .t09 .stage .name {
+    font-family: 'DM Serif Display', serif;
+    font-style: italic;
+    font-size: 26px;
+    color: var(--ink);
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .t09 .stage .note {
+    font-family: 'Manrope', sans-serif;
+    font-size: 12px;
+    color: var(--ink);
+    opacity: 0.85;
+    line-height: 1.4;
+  }
+  .t09 .body {
+    font-family: 'Manrope', sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--ink);
+    max-width: 460px;
+    margin-top: auto;
+  }
+  .t09 .right {
+    position: relative;
+    background-color: var(--inkx);
+    background-image: url("https://images.unsplash.com/photo-1526738549149-8e07eca6c147?w=900&q=80&auto=format&fit=crop");
+    background-size: cover;
+    background-position: center;
+    border-left: 2px solid var(--ink);
+  }
+  .t09 .right::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background:
+      linear-gradient(90deg,
+        rgba(184,153,119,0.0) 0%,
+        rgba(184,153,119,0.18) 100%);
+  }
+  .t09 .stamp {
+    position: absolute;
+    top: 56px;
+    right: 56px;
+    width: 144px;
+    height: 144px;
+    border: 2px solid var(--cream);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    line-height: 1.05;
+    transform: rotate(-6deg);
+    color: var(--cream);
+    background: rgba(31,20,12,0.55);
+    backdrop-filter: blur(2px);
+  }
+  .t09 .stamp::before {
+    content: "";
+    position: absolute;
+    inset: 8px;
+    border: 1px dashed var(--cream);
+    border-radius: 50%;
+  }
+  .t09 .stamp .top {
+    font-family: 'DM Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-top: 6px;
+  }
+  .t09 .stamp .mid {
+    font-family: 'DM Serif Display', serif;
+    font-style: italic;
+    font-size: 32px;
+    margin: 4px 0;
+    line-height: 1;
+  }
+  .t09 .stamp .bot {
+    font-family: 'DM Mono', monospace;
+    font-size: 8px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+  .t09 .torn {
+    position: absolute;
+    left: -2px;
+    top: 0;
+    bottom: 0;
+    width: 12px;
+    background: var(--kraft);
+    clip-path: polygon(
+      0 0%, 50% 1%, 30% 4%, 80% 7%, 20% 11%, 70% 15%, 10% 18%, 90% 22%,
+      30% 26%, 70% 30%, 10% 34%, 80% 38%, 20% 42%, 90% 46%, 30% 50%, 70% 54%,
+      10% 58%, 80% 62%, 30% 66%, 70% 70%, 20% 74%, 90% 78%, 10% 82%, 80% 86%,
+      30% 90%, 70% 94%, 20% 98%, 100% 100%, 0 100%
+    );
+  }
+
+  /* TEMPLATE 10 — COMMON MISTAKE · Sunscreen ----------------------- */
+  /* Bone editorial museum. Pedestal hero. Strikethrough. Hairline rule. */
+  .t10 {
+    --bone: #EFEAE0;
+    --ink: #0E0E0E;
+    --cocoa: #6B3F1D;
+    --ash: #B5AD9D;
+    background: var(--bone);
+    color: var(--ink);
+    padding: 88px 96px 76px;
+    display: grid;
+    grid-template-columns: 1fr 0.85fr;
+    grid-template-rows: auto 1fr auto;
+    column-gap: 64px;
+    row-gap: 36px;
+  }
+  .t10 .head {
+    grid-column: 1 / 3;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 12px;
+    border-bottom: 0.5px solid var(--ink);
+  }
+  .t10 .head .label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--cocoa);
+  }
+  .t10 .head .iss {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.55;
+  }
+  .t10 .copy {
+    grid-column: 1 / 2;
+    align-self: center;
+  }
+  .t10 h1 {
+    font-family: 'Fraunces', serif;
+    font-variation-settings: "opsz" 144, "SOFT" 50;
+    font-weight: 400;
+    font-size: 92px;
+    line-height: 0.96;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin: 0 0 24px;
+  }
+  .t10 h1 .cross {
+    text-decoration: line-through;
+    text-decoration-thickness: 3px;
+    text-decoration-color: var(--cocoa);
+    color: var(--ash);
+    font-style: italic;
+  }
+  .t10 h1 em {
+    font-style: italic;
+    color: var(--cocoa);
+  }
+  .t10 .body {
+    font-family: 'Manrope', sans-serif;
+    font-size: 17px;
+    line-height: 1.55;
+    color: var(--ink);
+    max-width: 460px;
+    margin-bottom: 32px;
+  }
+  .t10 .museum {
+    border: 0.5px solid var(--ink);
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 18px;
+    max-width: 460px;
+  }
+  .t10 .museum dt {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--cocoa);
+    margin: 0;
+  }
+  .t10 .museum dd {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-size: 14px;
+    color: var(--ink);
+    margin: 0;
+  }
+  .t10 .product {
+    grid-column: 2 / 3;
+    grid-row: 2 / 3;
+    align-self: stretch;
+    position: relative;
+    background:
+      radial-gradient(ellipse at 50% 65%,
+        rgba(0,0,0,0.18) 0%,
+        rgba(0,0,0,0.10) 30%,
+        transparent 65%),
+      linear-gradient(180deg, var(--bone) 0%, #E1D9C8 100%);
+    overflow: hidden;
+  }
+  .t10 .product .img {
+    position: absolute;
+    inset: 0;
+    background-image: url("https://images.unsplash.com/photo-1620916566398-39f1143ab7be?w=900&q=80&auto=format&fit=crop");
+    background-size: contain;
+    background-position: center 55%;
+    background-repeat: no-repeat;
+  }
+  .t10 .product .pedestal {
+    position: absolute;
+    left: 50%;
+    bottom: 36px;
+    transform: translateX(-50%);
+    width: 220px;
+    height: 8px;
+    background: var(--ink);
+    opacity: 0.18;
+    border-radius: 50%;
+    filter: blur(4px);
+  }
+  .t10 .product .ix {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.55;
+  }
+  .t10 .footer {
+    grid-column: 1 / 3;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding-top: 20px;
+    border-top: 0.5px solid var(--ink);
+  }
+  .t10 .signature {
+    text-align: center;
+    line-height: 1;
+  }
+  .t10 .signature .rule {
+    width: 40px;
+    height: 1px;
+    background: var(--ink);
+    margin: 0 auto 8px;
+  }
+  .t10 .signature .name {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 30px;
+    color: var(--ink);
+  }
+  .t10 .signature .meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.55;
+    margin-top: 8px;
+  }
+</style>
+</head>
+<body>
+
+<header class="doc-header">
+  <div class="doc-eyebrow">CONTENTCARD · DESIGN SYSTEM · PR 1</div>
+  <h1 class="doc-title">Education templates, <em>actually</em>.</h1>
+  <p class="doc-lede">
+    Ten 1080×1080 references for the education content type. Every template
+    is a different design language — different palette, fonts, mood, layout,
+    product imagery integration, logo placement, and at least one
+    deliberate designed detail. This is the bar.
+  </p>
+  <div class="doc-meta">
+    <span><strong>10</strong> templates</span>
+    <span><strong>10</strong> palettes</span>
+    <span><strong>9</strong> product modes</span>
+    <span><strong>8</strong> logo placements</span>
+    <span><strong>1080×1080</strong> · scaled 50% for review</span>
+  </div>
+</header>
+
+<!-- TEMPLATE 01 — APOTHECARY · Skincare ============================ -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">01</span> · Apothecary</span>
+    <span class="industry">Skincare · Helia &amp; Roe</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t01">
+      <div class="head">
+        <span class="ix">N°01 · CERAMIDES</span>
+        <span class="vol">VOL. 02 · ESSAYS</span>
+      </div>
+      <div class="copy">
+        <div class="label">02 · INGREDIENT NOTES</div>
+        <h1>Ceramides <em>actually</em> need a humectant to work.</h1>
+        <p class="body">
+          Without something to draw water into the skin, ceramides only
+          seal in what's already there. Pair them with <strong>glycerin</strong>
+          or <strong>hyaluronic acid</strong> in the same step.
+        </p>
+      </div>
+      <div class="product"></div>
+      <dl class="museum">
+        <div><dt>Function</dt><dd>Barrier repair</dd></div>
+        <div><dt>Pairs with</dt><dd>Glycerin · Niacinamide</dd></div>
+        <div><dt>Use</dt><dd>PM · After cleanse</dd></div>
+        <div class="seal">
+          <div>
+            <div class="mark">H&amp;R</div>
+            <div class="name">EST · 2024</div>
+          </div>
+        </div>
+      </dl>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Sage editorial — clinical, slow, considered.</dd>
+    <dt>Palette</dt><dd>Sage <strong>#C5CCB7</strong> · Cream <strong>#F4EFE6</strong> · Ink <strong>#1B1F1A</strong> · Cocoa accent <strong>#5C3A24</strong></dd>
+    <dt>Type</dt><dd><strong>Fraunces</strong> display + <strong>Manrope</strong> body + <strong>JetBrains Mono</strong> labels</dd>
+    <dt>Product mode</dt><dd>Pedestal hero — single serum bottle on sage flood with mono caption tag.</dd>
+    <dt>Logo</dt><dd>Monogram seal "H&amp;R" inside circular badge, bottom-right of museum-label rule.</dd>
+    <dt>Detail</dt><dd>Italic accent "<em>actually</em>" with sage highlight bar; museum-label glossary footer.</dd>
+  </dl>
+</section>
+
+<!-- TEMPLATE 02 — TUTORIAL · Coffee ================================ -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">02</span> · Tutorial</span>
+    <span class="industry">Coffee · Volta Roasters</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t02">
+      <div class="marquee">
+        <span>WHOLE BEAN</span>·<span>SLOW POUR</span>·<span>SINGLE ORIGIN</span>·<span>WHOLE BEAN</span>·<span>SLOW POUR</span>·<span>SINGLE ORIGIN</span>
+      </div>
+      <div class="copy">
+        <div class="label">Tutorial · 03 min · 22g in / 360g out</div>
+        <h1>How to brew our <em>Etiopia</em>, in three steps.</h1>
+      </div>
+      <div class="steps">
+        <div class="step">
+          <div class="img"></div>
+          <div class="num">01 / GRIND</div>
+          <div class="name">Medium-fine, like table salt.</div>
+          <div class="body">22g of beans, ground just before you start the kettle.</div>
+        </div>
+        <div class="step">
+          <div class="img"></div>
+          <div class="num">02 / BLOOM</div>
+          <div class="name">2× the weight, in water.</div>
+          <div class="body">Pour 44g, swirl, wait 30 seconds. The bed should rise and breathe.</div>
+        </div>
+        <div class="step">
+          <div class="img"></div>
+          <div class="num">03 / POUR</div>
+          <div class="name">Two slow concentric pours.</div>
+          <div class="body">Reach 360g total by 2:30. Drawdown ends near 3:00.</div>
+        </div>
+      </div>
+      <div class="footer">
+        <span class="logo">Volta Roasters</span>
+        <span>voltaroasters.co · ☕ ·  guide N°04</span>
+      </div>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Documentary cocoa — craft, archival, instructional.</dd>
+    <dt>Palette</dt><dd>Cocoa <strong>#3B2718</strong> · Cream <strong>#EFE6D8</strong> · Ochre <strong>#C18230</strong></dd>
+    <dt>Type</dt><dd><strong>Bricolage Grotesque</strong> display + <strong>Manrope</strong> body + <strong>DM Mono</strong> labels</dd>
+    <dt>Product mode</dt><dd>Process photography — three horizontal frames (grind / pour / brewed cup).</dd>
+    <dt>Logo</dt><dd>Footer rule with brand wordmark + URL, broadsheet style.</dd>
+    <dt>Detail</dt><dd>Mono marquee top stripe; numbered steps with mono section tags.</dd>
+  </dl>
+</section>
+
+<!-- TEMPLATE 03 — MYTH × FACT · Supplements ======================== -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">03</span> · Myth × Fact</span>
+    <span class="industry">Supplements · Strata</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t03">
+      <div class="head">
+        <div class="lockup">
+          <span class="mono">S</span>
+          <span class="word">STRATA</span>
+        </div>
+        <div class="vol">FILE · CREATINE · 04</div>
+      </div>
+      <div class="grid">
+        <div class="side myth">
+          <span class="tag">MYTH</span>
+          <h2>Creatine bloats.</h2>
+          <p class="body">Whatever you saw on a forum, it's wrong. The "puffiness" some people notice is a different mechanism.</p>
+        </div>
+        <div class="side fact">
+          <span class="tag">FACT</span>
+          <h2>Intracellular hydration — not bloat.</h2>
+          <p class="body">Creatine pulls water into muscle cells, not under the skin. That's the point: hydrated cells contract harder.</p>
+        </div>
+      </div>
+      <div class="product"></div>
+      <div class="stamp">
+        <div>
+          <div class="top">PEER</div>
+          <div class="mid">REVIEWED</div>
+          <div class="bot">2024</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Caution poster — high-contrast, big-claim, almost pharmaceutical.</dd>
+    <dt>Palette</dt><dd>Yellow <strong>#F2CB05</strong> · Ink <strong>#0E0E0E</strong> · Bone <strong>#FBF7EC</strong></dd>
+    <dt>Type</dt><dd><strong>Archivo Black</strong> display + <strong>Manrope</strong> body + <strong>JetBrains Mono</strong> labels</dd>
+    <dt>Product mode</dt><dd>Pedestal — supplement bottle floating centre with hard offset shadow.</dd>
+    <dt>Logo</dt><dd>Top-left lockup with monogram "S" tile + STRATA wordmark.</dd>
+    <dt>Detail</dt><dd>Diagonal black bar splits MYTH/FACT; "PEER REVIEWED" stamp rotated 8°.</dd>
+  </dl>
+</section>
+
+<!-- TEMPLATE 04 — DID YOU KNOW · Hot Sauce ========================= -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">04</span> · Did you know?</span>
+    <span class="industry">Food · Cabra &amp; Co.</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t04">
+      <div class="photo"></div>
+      <div class="scrim"></div>
+      <div class="watermark">C</div>
+      <div class="inner">
+        <div class="top">
+          <span class="eyebrow">Did you know? · 05</span>
+          <span class="iss">ISS. 11 · APR '26</span>
+        </div>
+        <div class="copy">
+          <h1>Heat is <em>fat-soluble</em>, not water-soluble.</h1>
+          <p class="body">
+            Capsaicin — the compound in chillies — won't wash off with water.
+            That's why milk and yoghurt put a fire out and a glass of water just spreads it.
+          </p>
+        </div>
+        <div class="footer">
+          <span>Cabra · No. 11 · stories from the smokehouse</span>
+          <span class="brand">Cabra &amp; Co.</span>
+        </div>
+      </div>
+      <div class="scribble s1">smoked, not roasted</div>
+      <div class="scribble s2">try with whole milk →</div>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Vibrant retail magazine — bold display italic on tinted photo.</dd>
+    <dt>Palette</dt><dd>Brick <strong>#C44531</strong> · Cream <strong>#F2EBDB</strong> · Mustard <strong>#E2A02D</strong> · Ink <strong>#181210</strong></dd>
+    <dt>Type</dt><dd><strong>Instrument Serif</strong> display italic + <strong>Manrope</strong> body + <strong>Caveat</strong> hand-notes</dd>
+    <dt>Product mode</dt><dd>Flat-lay overhead — chillies + bottle + linen, scrimmed for legibility.</dd>
+    <dt>Logo</dt><dd>Watermark large + low-opacity initial "C" centred behind copy.</dd>
+    <dt>Detail</dt><dd>Caveat hand-noted scribbles with arrowheads annotating ingredients.</dd>
+  </dl>
+</section>
+
+<!-- TEMPLATE 05 — SIDE BY SIDE · Hair care ========================= -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">05</span> · Side by side</span>
+    <span class="industry">Hair care · Luma Coil</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t05">
+      <div class="head">
+        <span class="label">EDUCATION · 06 · PATTERN STUDY</span>
+        <span class="iss">ISS. 03 · LUMA · 2026</span>
+      </div>
+      <div class="copy">
+        <h1>Coil pattern, <em>defined</em> — not flattened.</h1>
+        <p class="sub">A two-week before-and-after of the curl-defining cream, applied once daily, no heat between sessions.</p>
+      </div>
+      <div class="split">
+        <div class="col before">
+          <span class="when">Day 01 · before</span>
+          <div class="img"></div>
+          <span class="caption">dry pattern</span>
+        </div>
+        <div class="rule"></div>
+        <div class="col after">
+          <span class="when">Day 14 · after</span>
+          <div class="img"></div>
+          <span class="caption">defined coil</span>
+        </div>
+      </div>
+      <div class="footer">
+        <p class="body-tag">Single application morning, scrunched dry, no heat. Photographs unretouched. Same model, same lighting.</p>
+        <div class="retail-tag">
+          Luma Coil
+          <span class="tagline">since 2023 · made in lagos</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Mocha mousse editorial — warm, considered, photographic.</dd>
+    <dt>Palette</dt><dd>Mocha <strong>#6F4E37</strong> · Blush <strong>#E8D2C2</strong> · Cream <strong>#F6EEE3</strong> · Ink <strong>#2A1B12</strong></dd>
+    <dt>Type</dt><dd><strong>DM Serif Display</strong> + <strong>Manrope</strong> + <strong>DM Mono</strong></dd>
+    <dt>Product mode</dt><dd>Side-by-side portraits, hairline rule between, mono caption labels.</dd>
+    <dt>Logo</dt><dd>Embedded in retail-tag bottom-right with kraft-string detail.</dd>
+    <dt>Detail</dt><dd>Hairline rule between Day 01 and Day 14; italic serif captions.</dd>
+  </dl>
+</section>
+
+<!-- TEMPLATE 06 — FOUNDER'S NOTES · Slow fashion =================== -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">06</span> · Founder's notes</span>
+    <span class="industry">Fashion · Aoki Studios</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t06">
+      <div class="watermark">A</div>
+      <div class="inner">
+        <div class="head">
+          <span class="label">FROM THE STUDIO · ESSAY 04</span>
+          <span class="stamp">FROM KEIKO'S DESK</span>
+        </div>
+        <div class="copy">
+          <h1>Why we knit our seams instead of cutting them.</h1>
+          <p class="body">
+            A cut seam frays. A knit seam holds. We started with one
+            jumper from my mother's archive — turned inside-out, traced
+            a hundred times — and built the rest of the line around it.
+          </p>
+          <div class="signature">— Keiko Aoki</div>
+          <div class="role">Founder &amp; head pattern</div>
+        </div>
+        <div class="polaroids">
+          <div class="pola p1"><div class="img"></div><div class="cap">studio · march '26</div></div>
+          <div class="pola p2"><div class="img"></div><div class="cap">cardigan N°2</div></div>
+        </div>
+        <div class="footer">
+          <span class="col">Aoki Studios · slow knits · since 2019</span>
+          <div class="monogram">
+            <div>
+              <div class="mark">A</div>
+              <div class="name">AOKI</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Bone editorial intimate — sepia polaroids, hand-noted, archival.</dd>
+    <dt>Palette</dt><dd>Bone <strong>#ECE5D5</strong> · Ink <strong>#1A1814</strong> · Brick <strong>#B85042</strong></dd>
+    <dt>Type</dt><dd><strong>Cormorant Garamond</strong> italic + <strong>Caveat</strong> hand-notes + <strong>Manrope</strong> body + <strong>JetBrains Mono</strong> labels</dd>
+    <dt>Product mode</dt><dd>Polaroid stack — founder portrait + product detail crop, slightly rotated, sepia treatment.</dd>
+    <dt>Logo</dt><dd>Watermark large + low-opacity "A" + monogram badge bottom-right.</dd>
+    <dt>Detail</dt><dd>Caveat handwritten signature; "FROM KEIKO'S DESK" stamp rotated -2°.</dd>
+  </dl>
+</section>
+
+<!-- TEMPLATE 07 — GLOSSARY · Tech accessory ======================== -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">07</span> · Glossary</span>
+    <span class="industry">Tech · Vector Lab</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t07">
+      <div class="head">
+        <span class="label">GLOSSARY · ENTRY 18 · GAN</span>
+        <span class="iss">vectorlab.io · 2026</span>
+      </div>
+      <div class="term">
+        <h1>GaN</h1>
+        <div class="ipa">/ˈɡal.ɪ.əm ˈnaɪ.traɪd/</div>
+        <div class="pos"><em>noun</em> · semiconductor material</div>
+        <p class="def">
+          A wide-bandgap semiconductor that lets a charger move power through
+          a much smaller silicon die — <strong>~3× more efficient</strong>
+          than the silicon equivalent. Less heat, less plastic, same wattage.
+        </p>
+        <p class="ety">
+          From <em>gallium</em> (Ga, the element) + <em>nitrogen</em>. First
+          commercial use in chargers: 2018. Standard in fast-charge bricks
+          since '22.
+        </p>
+      </div>
+      <div class="product-side">
+        <div class="img"></div>
+        <span class="callout c1">100W · USB-C</span>
+        <span class="callout c2">38mm housing</span>
+      </div>
+      <div class="footer">
+        <span class="logo">Vector Lab</span>
+        <span>vectorlab.io · entry 18/64</span>
+      </div>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Industrial minimalism — dictionary editorial + technical drawing.</dd>
+    <dt>Palette</dt><dd>Bone <strong>#E9E4DA</strong> · Ink <strong>#0F0F10</strong> · Electric blue <strong>#2353F2</strong></dd>
+    <dt>Type</dt><dd><strong>JetBrains Mono</strong> display + <strong>Manrope</strong> body</dd>
+    <dt>Product mode</dt><dd>Single hero exploded view — cable detail, multiply-blended on bone.</dd>
+    <dt>Logo</dt><dd>Footer rule with brand wordmark + URL, electric-blue square mark.</dd>
+    <dt>Detail</dt><dd>IPA pronunciation, italic etymology with blue rule; technical callouts with leader lines.</dd>
+  </dl>
+</section>
+
+<!-- TEMPLATE 08 — QUICK TIP · Activewear =========================== -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">08</span> · Quick tip</span>
+    <span class="industry">Fitness · Forge Athletic</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t08">
+      <div class="photo"></div>
+      <div class="scrim"></div>
+      <div class="ticker">QUICK TIP · QUICK TIP · QUICK TIP · QUICK TIP · QUICK TIP · QUICK TIP</div>
+      <div class="inner">
+        <div class="lockup">FORGE / ATHLETIC</div>
+        <div class="center">
+          <div class="num">0<span>1</span></div>
+          <h1>Lift cold? <em>wear a sleeve,</em> not a jacket.</h1>
+          <p class="body">
+            Compression keeps the joint warm without trapping heat across
+            the whole arm. You stay loose, you stay cool, the elbow stays
+            primed. Take it off between sets if you need to.
+          </p>
+        </div>
+        <div class="footer">
+          <span>tip 01 / 30 · forgeathletic.co</span>
+          <span>winter '26 · drop 03</span>
+        </div>
+      </div>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Athletic bold monochrome — performance-first, motion-blurred.</dd>
+    <dt>Palette</dt><dd>Ink <strong>#0A0A0A</strong> · Off-white <strong>#F1F1F0</strong> · Signal red <strong>#E63946</strong></dd>
+    <dt>Type</dt><dd><strong>Archivo Black</strong> + <strong>Familjen Grotesk</strong> + <strong>Manrope</strong> + <strong>JetBrains Mono</strong></dd>
+    <dt>Product mode</dt><dd>Lifestyle in-use — gym athlete pulling on a compression sleeve, contrast-pushed.</dd>
+    <dt>Logo</dt><dd>Top-left lockup "FORGE / ATHLETIC" with diamond mark.</dd>
+    <dt>Detail</dt><dd>Huge Archivo Black "01" with split colour; signal-red ticker stripe across top.</dd>
+  </dl>
+</section>
+
+<!-- TEMPLATE 09 — HOW IT'S MADE · Cocoa ============================ -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">09</span> · How it's made</span>
+    <span class="industry">Cocoa · Mole &amp; Crow</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t09">
+      <div class="layout">
+        <div class="left">
+          <div class="head">
+            <span class="lot">LOT 24 · ORIGIN: ONDO</span>
+            <span class="est">EST. 2019 · LAGOS</span>
+          </div>
+          <h1>From pod to bar, in <em>nine</em> days.</h1>
+          <div class="timeline">
+            <div class="stage">
+              <div class="day">DAY 01 — 03</div>
+              <div class="name">Ferment</div>
+              <div class="note">Banana-leaf-wrapped, turned twice daily.</div>
+            </div>
+            <div class="stage">
+              <div class="day">DAY 04 — 06</div>
+              <div class="name">Sun-dry</div>
+              <div class="note">Patio drying. No heat. Hand-raked.</div>
+            </div>
+            <div class="stage">
+              <div class="day">DAY 07 — 09</div>
+              <div class="name">Stone-grind</div>
+              <div class="note">Cool grind, refined for 36 hrs.</div>
+            </div>
+          </div>
+          <p class="body">
+            Single-origin cocoa from a 4-acre farm outside Akure. Fermented
+            on the farm, sun-dried on the patio, ground in a stone melanger
+            in our Lagos kitchen. No vanilla, no lecithin — just cocoa,
+            sugar, and time.
+          </p>
+        </div>
+        <div class="right">
+          <div class="torn"></div>
+          <div class="stamp">
+            <div>
+              <div class="top">MOLE &amp; CROW</div>
+              <div class="mid">M&amp;C</div>
+              <div class="bot">LOT 24 · '26</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Kraft documentary — archival, single-origin, process-led.</dd>
+    <dt>Palette</dt><dd>Kraft <strong>#B89977</strong> · Ink <strong>#1F140C</strong> · Cream <strong>#F2EBDB</strong></dd>
+    <dt>Type</dt><dd><strong>DM Serif Display</strong> + <strong>Manrope</strong> + <strong>DM Mono</strong></dd>
+    <dt>Product mode</dt><dd>Detail crop — extreme close-up of cocoa beans, full-bleed right column.</dd>
+    <dt>Logo</dt><dd>Circular kraft stamp "M&amp;C" rotated -6°, embedded over photo.</dd>
+    <dt>Detail</dt><dd>Torn-paper edge between text + photo columns; archival lot stamp with date.</dd>
+  </dl>
+</section>
+
+<!-- TEMPLATE 10 — COMMON MISTAKE · Sunscreen ======================= -->
+<section class="template">
+  <div class="template-eyebrow">
+    <span><span class="num">10</span> · Common mistake</span>
+    <span class="industry">Skincare · Solbright</span>
+  </div>
+  <div class="frame-wrap">
+    <div class="frame t10">
+      <div class="head">
+        <span class="label">COMMON MISTAKE · 03</span>
+        <span class="iss">SOLBRIGHT · ESSAY · 2026</span>
+      </div>
+      <div class="copy">
+        <h1>
+          Most people use <span class="cross">a pea-sized amount</span> —
+          you need <em>a quarter-teaspoon</em> for the face alone.
+        </h1>
+        <p class="body">
+          Sunscreen testing assumes 2&nbsp;mg per cm² of skin. For a face,
+          that's roughly a quarter-teaspoon — about three times what most
+          people apply. Anything less and the SPF on the label isn't the
+          SPF on your face.
+        </p>
+        <dl class="museum">
+          <div><dt>Spec</dt><dd>SPF 50 · PA++++ · UVA/UVB</dd></div>
+          <div><dt>Dose</dt><dd>¼ teaspoon · face only</dd></div>
+          <div><dt>Re-apply</dt><dd>Every 2 hours · sun</dd></div>
+        </dl>
+      </div>
+      <div class="product">
+        <span class="ix">FIG. 03</span>
+        <div class="img"></div>
+        <div class="pedestal"></div>
+      </div>
+      <div class="footer">
+        <div class="signature">
+          <div class="rule"></div>
+          <div class="name">Solbright</div>
+          <div class="meta">solbright.co · sunscreen, in earnest</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <dl class="spec-card">
+    <dt>Mood</dt><dd>Bone editorial museum — refined, factual, considered.</dd>
+    <dt>Palette</dt><dd>Bone <strong>#EFEAE0</strong> · Ink <strong>#0E0E0E</strong> · Cocoa <strong>#6B3F1D</strong> · Ash <strong>#B5AD9D</strong></dd>
+    <dt>Type</dt><dd><strong>Fraunces</strong> + <strong>Manrope</strong> + <strong>JetBrains Mono</strong></dd>
+    <dt>Product mode</dt><dd>Pedestal hero — sunscreen tube on bone gradient with directional shadow.</dd>
+    <dt>Logo</dt><dd>Bottom-center signature with hairline rule and italic Fraunces wordmark.</dd>
+    <dt>Detail</dt><dd>Strikethrough on "a pea-sized amount" + italic accent "a quarter-teaspoon"; museum-label spec block.</dd>
+  </dl>
+</section>
+
+</body>
+</html>
