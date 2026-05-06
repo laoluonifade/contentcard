@@ -12,6 +12,7 @@ from app.seed.template_designs.v2_archetype_library import (
     CAROUSEL_VDS,
     CONTENT_TYPES,
     SINGLE_VDS,
+    VD_TO_CONTENT_TYPE,
     build_v2_seed_rows,
     template_count,
     upsert_v2,
@@ -20,16 +21,34 @@ from app.services.template_design.slot_contract import validate_contract
 
 
 class V2SeedShapeTests(unittest.TestCase):
-    def test_template_count_is_100(self):
-        self.assertEqual(template_count(), 100)
+    def test_template_count_is_10(self):
+        # 10 archetypes (VD01–VD10) mapped 1:1 to 10 content types.
+        # A template design for one content_type cannot be duplicated
+        # for another, so the library is exactly 10 templates.
+        self.assertEqual(template_count(), 10)
         self.assertEqual(len(CONTENT_TYPES), 10)
         self.assertEqual(len(ALL_VDS), 10)
+        self.assertEqual(len(VD_TO_CONTENT_TYPE), 10)
+        # Every VD is mapped, and every content_type is covered exactly once.
+        self.assertEqual(set(VD_TO_CONTENT_TYPE), set(ALL_VDS))
+        self.assertEqual(set(VD_TO_CONTENT_TYPE.values()), set(CONTENT_TYPES))
 
-    def test_seed_covers_every_content_type_x_vd(self):
+    def test_seed_has_one_vd_per_content_type(self):
         rows = build_v2_seed_rows()
-        # Distinct (content_type, vd) pairs (across post_type + slide rows).
+        # Distinct (content_type, vd) pairs across all rows. Carousel
+        # slides share the same (content_type, vd) so 10 unique pairs.
         pairs = {(r["content_type"], r["art_direction_variant"]) for r in rows}
-        self.assertEqual(len(pairs), 100)
+        self.assertEqual(len(pairs), 10)
+        # Each content_type appears under exactly one VD, and vice versa.
+        cts_per_vd = {}
+        vds_per_ct = {}
+        for r in rows:
+            cts_per_vd.setdefault(r["art_direction_variant"], set()).add(r["content_type"])
+            vds_per_ct.setdefault(r["content_type"], set()).add(r["art_direction_variant"])
+        for vd, cts in cts_per_vd.items():
+            self.assertEqual(len(cts), 1, f"VD {vd} duplicated across {cts}")
+        for ct, vds in vds_per_ct.items():
+            self.assertEqual(len(vds), 1, f"content_type {ct} duplicated across {vds}")
 
     def test_singles_use_single_vds_only(self):
         rows = build_v2_seed_rows()
@@ -123,16 +142,53 @@ class V2UpsertTests(unittest.IsolatedAsyncioTestCase):
     async def test_upsert_creates_then_is_idempotent(self):
         async with self.SessionLocal() as db:
             r1 = await upsert_v2(db)
-        self.assertEqual(r1["templates_in_seed"], 100)
+        self.assertEqual(r1["templates_in_seed"], 10)
         self.assertEqual(r1["created"], r1["rows_in_seed"])
         self.assertEqual(r1["updated"], 0)
         self.assertEqual(r1["unchanged"], 0)
+        self.assertEqual(r1.get("legacy_v2_rows_deleted", 0), 0)
 
         async with self.SessionLocal() as db:
             r2 = await upsert_v2(db)
         self.assertEqual(r2["created"], 0)
         self.assertEqual(r2["updated"], 0)
         self.assertEqual(r2["unchanged"], r2["rows_in_seed"])
+
+    async def test_upsert_prunes_legacy_off_mapping_rows(self):
+        # Seed a row whose VD points at the wrong content_type for the new
+        # 1:1 mapping (VD01 → objection_crusher; here we attach VD01 to
+        # how_it_works, which used to be valid under the old 10×10 layout).
+        from datetime import datetime, timezone
+        async with self.SessionLocal() as db:
+            db.add(ContentTemplateDesign(
+                design_id="legacy-vd01-on-how-it-works",
+                intent_family="content",
+                content_type="how_it_works",
+                sub_industry=None,
+                industry_key=None,
+                post_type="single",
+                art_direction_variant="VD01",
+                bannerbear_uid="v2_how_it_works_VD01_single_legacy",
+                slot_contract={"slots": ["headline"]},
+                art_direction={},
+                premium_score=4,
+                is_active=True,
+                coverage_status="pass",
+                canvas="1080x1080",
+                version=1,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            ))
+            await db.commit()
+            r = await upsert_v2(db)
+        self.assertGreaterEqual(r["legacy_v2_rows_deleted"], 1)
+        async with self.SessionLocal() as db:
+            still_there = (await db.execute(
+                sa.select(ContentTemplateDesign).where(
+                    ContentTemplateDesign.design_id == "legacy-vd01-on-how-it-works"
+                )
+            )).scalar_one_or_none()
+        self.assertIsNone(still_there)
 
     async def test_upsert_clears_v1_generic_rows(self):
         # Seed a fake v1 generic row first (content_type NULL, sub_industry NULL).

@@ -10,11 +10,12 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Filter, Layers, RefreshCw, Sparkles, Grid, BarChart2 } from 'lucide-react'
+import { Filter, Layers, RefreshCw, Sparkles, Grid, BarChart2, Briefcase } from 'lucide-react'
 import AdminLayout from '../components/layout/AdminLayout'
 import TemplateDesignDrawer from '../components/admin/TemplateDesignDrawer'
 import TemplateDesignCoverage from '../components/admin/TemplateDesignCoverage'
 import TemplateArchetype, { ARCHETYPE_LABELS } from '../components/admin/TemplateArchetypes'
+import { INDUSTRIES } from '../lib/industryTaxonomy'
 import { adminApi } from '../api'
 
 const CONTENT_TYPES = [
@@ -25,6 +26,10 @@ const CONTENT_TYPES = [
 const VDS = ['VD01', 'VD02', 'VD03', 'VD04', 'VD05', 'VD06', 'VD07', 'VD08', 'VD09', 'VD10']
 const POST_TYPES = ['single', 'carousel']
 const COVERAGE_STATUSES = ['pass', 'degraded', 'missing']
+
+// Sentinel used in the Map below for rows whose `industry_key` is NULL —
+// the generic library that is shared across every industry section.
+const GENERIC_INDUSTRY_KEY = '__generic__'
 
 const COVERAGE_STYLE = {
   pass:     'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
@@ -118,6 +123,7 @@ export default function AdminTemplateDesignsPage() {
   const [demoMode, setDemoMode] = useState(true)
 
   const [filters, setFilters] = useState({
+    industry: '',
     content_type: '',
     art_direction_variant: '',
     post_type: '',
@@ -205,27 +211,50 @@ export default function AdminTemplateDesignsPage() {
     return () => { alive = false }
   }, [filters])
 
-  // Group by content_type for the grid view (10 content types from PRD §7.1).
-  // Within each group, sort rows by VD code so VD01–VD10 read left-to-right.
+  // Group by INDUSTRY first, then by content_type within each industry.
+  // 8 industry buckets (from `INDUSTRY_TAXONOMY`) + a "Generic" bucket for
+  // rows with `industry_key === null` that apply to all industries.
+  // Within each (industry, content_type) sub-group rows sort by VD code so
+  // VD01–VD10 read left-to-right.
   const grouped = useMemo(() => {
-    const buckets = new Map()
+    const industryBuckets = new Map()
     for (const row of rows) {
-      const key = row.content_type || 'unclassified'
-      if (!buckets.has(key)) buckets.set(key, [])
-      buckets.get(key).push(row)
+      const industryKey = row.industry_key || GENERIC_INDUSTRY_KEY
+      if (!industryBuckets.has(industryKey)) {
+        industryBuckets.set(industryKey, new Map())
+      }
+      const ctBuckets = industryBuckets.get(industryKey)
+      const ctKey = row.content_type || 'unclassified'
+      if (!ctBuckets.has(ctKey)) ctBuckets.set(ctKey, [])
+      ctBuckets.get(ctKey).push(row)
     }
-    for (const [, list] of buckets) {
-      list.sort((a, b) => {
-        const v = String(a.art_direction_variant || '').localeCompare(b.art_direction_variant || '')
-        if (v !== 0) return v
-        return String(a.post_type || '').localeCompare(b.post_type || '')
-      })
+    for (const [, ctBuckets] of industryBuckets) {
+      for (const [, list] of ctBuckets) {
+        list.sort((a, b) => {
+          const v = String(a.art_direction_variant || '').localeCompare(b.art_direction_variant || '')
+          if (v !== 0) return v
+          return String(a.post_type || '').localeCompare(b.post_type || '')
+        })
+      }
     }
-    return Array.from(buckets.entries()).sort(([a], [b]) => {
-      if (a === 'unclassified') return 1
-      if (b === 'unclassified') return -1
+    // Industry section order: known taxonomy first (taxonomy order), then
+    // any unknown industry_key values, then the generic bucket last.
+    const industryOrder = [...INDUSTRIES, GENERIC_INDUSTRY_KEY]
+    return Array.from(industryBuckets.entries()).sort(([a], [b]) => {
+      const ai = industryOrder.indexOf(a)
+      const bi = industryOrder.indexOf(b)
+      if (ai !== -1 && bi !== -1) return ai - bi
+      if (ai !== -1) return -1
+      if (bi !== -1) return 1
       return a.localeCompare(b)
-    })
+    }).map(([industryKey, ctBuckets]) => [
+      industryKey,
+      Array.from(ctBuckets.entries()).sort(([a], [b]) => {
+        if (a === 'unclassified') return 1
+        if (b === 'unclassified') return -1
+        return a.localeCompare(b)
+      }),
+    ])
   }, [rows])
 
   // Pretty labels for content_type bucket headers.
@@ -243,13 +272,40 @@ export default function AdminTemplateDesignsPage() {
     unclassified:       'Unclassified (legacy)',
   }
 
+  const industryLabel = (key) => key === GENERIC_INDUSTRY_KEY
+    ? 'Generic · all industries'
+    : key
+
+  // Canonical 1:1 mapping (mirrors backend `VD_TO_CONTENT_TYPE` in
+  // v2_archetype_library.py). A row whose (VD, content_type) pair
+  // doesn't match is considered legacy — re-seeding deletes those.
+  const VD_TO_CONTENT_TYPE = {
+    VD01: 'objection_crusher',
+    VD02: 'offer_cta',
+    VD03: 'proof_trust',
+    VD04: 'use_case',
+    VD05: 'benefits_snapshot',
+    VD06: 'problem_solution',
+    VD07: 'how_it_works',
+    VD08: 'myth_fact',
+    VD09: 'before_after',
+    VD10: 'quick_tips',
+  }
+
   // Detect rows that pre-date the v2 archetype seed: variant is A/B/C
-  // (not a VD code) OR content_type is null. The /seed-v1 endpoint
-  // (which now invokes upsert_v2) deletes these and inserts the v2 set.
+  // (not a VD code) OR content_type is null OR the (VD, content_type)
+  // pair violates the canonical 1:1 mapping (i.e. the same archetype
+  // is duplicated across content_types). The /seed-v1 endpoint (which
+  // now invokes upsert_v2) deletes these and inserts the v2 set.
   const legacyRowCount = useMemo(() => {
     return rows.filter(r => {
       const v = String(r.art_direction_variant || '')
-      return !r.content_type || !v.startsWith('VD')
+      if (!r.content_type || !v.startsWith('VD')) return true
+      const expectedCt = VD_TO_CONTENT_TYPE[v]
+      // Only flag generic rows (no industry override) for the 1:1 check
+      // — industry-specific rows are out of scope for this dashboard.
+      const isGeneric = !r.industry_key && !r.sub_industry
+      return isGeneric && expectedCt && r.content_type !== expectedCt
     }).length
   }, [rows])
 
@@ -262,7 +318,9 @@ export default function AdminTemplateDesignsPage() {
             Template designs
           </h1>
           <p className="text-white/40 text-sm mt-0.5">
-            {loading ? 'Loading…' : `${total} designs · 10 archetypes × 10 content types · grouped by content type`}
+            {loading
+              ? 'Loading…'
+              : `${total} designs · 10 archetypes (1:1 with content types) · sectioned by industry`}
           </p>
           <div className="flex items-center gap-2 mt-2 text-xs">
             {migratingState.head && (
@@ -345,13 +403,14 @@ export default function AdminTemplateDesignsPage() {
           <Sparkles size={18} className="text-yellow-300 flex-none" />
           <div className="flex-1">
             <div className="text-yellow-300 text-sm font-semibold mb-0.5">
-              Legacy v1 templates detected ({legacyRowCount} rows)
+              Legacy or duplicated templates detected ({legacyRowCount} rows)
             </div>
             <div className="text-white/55 text-xs">
-              The previous A/B/C-variant templates are still in the database
-              and showing as "Unclassified (legacy)" with "not implemented" cards.
-              Click Re-seed library to delete them and install the v2 archetype
-              library (10 archetypes × 10 content types = 100 templates).
+              Either A/B/C-variant rows are still around, or an archetype is
+              duplicated across multiple content types (e.g. VD01 attached to
+              more than one content_type). Click Re-seed library to delete
+              them and install the canonical v2 archetype library —
+              10 archetypes mapped 1:1 with the 10 content types.
             </div>
           </div>
           <button
@@ -369,7 +428,12 @@ export default function AdminTemplateDesignsPage() {
           <Filter size={13} className="text-white/35" />
           <span className="text-white/40 text-xs font-bold uppercase tracking-widest">Filters</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+          <select className={inp} value={filters.industry}
+                  onChange={e => setFilters(f => ({ ...f, industry: e.target.value }))}>
+            <option value="">all industries</option>
+            {INDUSTRIES.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
           <select className={inp} value={filters.content_type}
                   onChange={e => setFilters(f => ({ ...f, content_type: e.target.value }))}>
             <option value="">all content types</option>
@@ -409,8 +473,8 @@ export default function AdminTemplateDesignsPage() {
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-10 text-center">
           <p className="text-white/55 text-sm mb-4">
             No template designs yet. Click below to seed the v2 archetype
-            library — 10 archetypes × 10 content types — and render the
-            McDonald's demo previews.
+            library — 10 archetypes mapped 1:1 to the 10 content types —
+            and render the McDonald's demo previews.
           </p>
           <button
             onClick={handleSeedV1}
@@ -437,27 +501,47 @@ export default function AdminTemplateDesignsPage() {
         <TemplateDesignDrawer designId={openDesignId} onClose={() => setOpenDesignId(null)} />
       )}
 
-      <div className="space-y-6">
-        {grouped.map(([groupName, groupRows]) => (
-          <div key={groupName}>
-            <h2 className="text-white/85 text-base font-bold mb-3">
-              {CONTENT_TYPE_LABELS[groupName] || groupName}
-              <span className="text-white/30 ml-3 text-xs font-medium uppercase tracking-widest">
-                {groupRows.length} designs
-              </span>
-            </h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
-              {groupRows.map(row => (
-                <DesignCard
-                  key={row.design_id}
-                  row={row}
-                  demoMode={demoMode}
-                  onOpen={setOpenDesignId}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
+      <div className="space-y-10">
+        {grouped.map(([industryKey, contentTypeGroups]) => {
+          const designCount = contentTypeGroups.reduce(
+            (acc, [, list]) => acc + list.length, 0,
+          )
+          return (
+            <section key={industryKey} className="space-y-5">
+              <div className="flex items-baseline gap-3 border-b border-white/[0.08] pb-2">
+                <Briefcase size={16} className="text-brand-300 self-center" />
+                <h2 className="text-white text-lg font-bold">
+                  {industryLabel(industryKey)}
+                </h2>
+                <span className="text-white/30 text-xs font-medium uppercase tracking-widest">
+                  {designCount} designs · {contentTypeGroups.length} content types
+                </span>
+              </div>
+              <div className="space-y-6 pl-1">
+                {contentTypeGroups.map(([contentTypeKey, ctRows]) => (
+                  <div key={contentTypeKey}>
+                    <h3 className="text-white/85 text-sm font-bold mb-3">
+                      {CONTENT_TYPE_LABELS[contentTypeKey] || contentTypeKey}
+                      <span className="text-white/30 ml-3 text-xs font-medium uppercase tracking-widest">
+                        {ctRows.length} {ctRows.length === 1 ? 'design' : 'designs'}
+                      </span>
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
+                      {ctRows.map(row => (
+                        <DesignCard
+                          key={row.design_id}
+                          row={row}
+                          demoMode={demoMode}
+                          onOpen={setOpenDesignId}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )
+        })}
       </div>
       </>)}
     </AdminLayout>
