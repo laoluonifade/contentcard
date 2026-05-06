@@ -14,10 +14,15 @@ import { Filter, Layers, RefreshCw, Sparkles, Grid, BarChart2 } from 'lucide-rea
 import AdminLayout from '../components/layout/AdminLayout'
 import TemplateDesignDrawer from '../components/admin/TemplateDesignDrawer'
 import TemplateDesignCoverage from '../components/admin/TemplateDesignCoverage'
-import TemplateLayout from '../components/admin/TemplateLayouts'
+import TemplateArchetype, { ARCHETYPE_LABELS } from '../components/admin/TemplateArchetypes'
 import { adminApi } from '../api'
 
-const INTENT_FAMILIES = ['promo', 'edu', 'testimonial', 'hiring', 'content', 'hook', 'quote']
+const CONTENT_TYPES = [
+  'problem_solution', 'how_it_works', 'benefits_snapshot', 'proof_trust',
+  'myth_fact', 'before_after', 'use_case', 'objection_crusher',
+  'quick_tips', 'offer_cta',
+]
+const VDS = ['VD01', 'VD02', 'VD03', 'VD04', 'VD05', 'VD06', 'VD07', 'VD08', 'VD09', 'VD10']
 const POST_TYPES = ['single', 'carousel']
 const COVERAGE_STATUSES = ['pass', 'degraded', 'missing']
 
@@ -25,16 +30,6 @@ const COVERAGE_STYLE = {
   pass:     'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
   degraded: 'bg-yellow-500/10 text-yellow-300 border-yellow-500/20',
   missing:  'bg-red-500/10 text-red-300 border-red-500/20',
-}
-
-const INTENT_STYLE = {
-  promo:       'bg-orange-500/10 text-orange-300 border-orange-500/20',
-  edu:         'bg-sky-500/10 text-sky-300 border-sky-500/20',
-  testimonial: 'bg-violet-500/10 text-violet-300 border-violet-500/20',
-  hiring:      'bg-emerald-500/10 text-emerald-300 border-emerald-500/20',
-  content:     'bg-white/5 text-white/55 border-white/10',
-  hook:        'bg-pink-500/10 text-pink-300 border-pink-500/20',
-  quote:       'bg-indigo-500/10 text-indigo-300 border-indigo-500/20',
 }
 
 const inp = "bg-white/[0.04] border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-brand-500/40"
@@ -48,18 +43,15 @@ function Chip({ children, className = '' }) {
 }
 
 function PreviewTile({ row, demoMode }) {
-  // Demo mode: paint client-side from the rendered slot payload
-  // (PR 1.7 demo render job). Brand-neutral mode: fall back to
-  // preview_image_url string when one exists, else neutral placeholder
-  // (server-side renderer is a future PR).
+  // Demo mode: paint client-side from the rendered slot payload using
+  // the archetype dispatch (variant is a VD code: VD01–VD10).
   if (demoMode) {
     const slides = row.demo_render_payload?.slides || []
     const cover = slides[0]
     if (cover?.used_slots) {
       return (
         <div className="aspect-square w-full">
-          <TemplateLayout
-            intentFamily={row.intent_family}
+          <TemplateArchetype
             variant={row.art_direction_variant}
             slotValues={cover.used_slots}
             brandTokens={row.demo_render_payload?.brand_tokens}
@@ -83,6 +75,7 @@ function PreviewTile({ row, demoMode }) {
 }
 
 function DesignCard({ row, demoMode, onOpen }) {
+  const archetypeLabel = ARCHETYPE_LABELS[row.art_direction_variant] || row.art_direction_variant
   return (
     <button
       onClick={() => onOpen(row.design_id)}
@@ -91,14 +84,11 @@ function DesignCard({ row, demoMode, onOpen }) {
       <PreviewTile row={row} demoMode={demoMode} />
       <div className="mt-3 space-y-1.5">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <Chip className={INTENT_STYLE[row.intent_family] || 'bg-white/5 text-white/55 border-white/10'}>
-            {row.intent_family}
+          <Chip className="bg-white/5 text-white/55 border-white/10">
+            {row.art_direction_variant}
           </Chip>
           <Chip className="bg-white/5 text-white/55 border-white/10">
             {row.post_type}
-          </Chip>
-          <Chip className="bg-white/5 text-white/55 border-white/10">
-            {row.art_direction_variant}
           </Chip>
           {row.coverage_status && (
             <Chip className={COVERAGE_STYLE[row.coverage_status] || ''}>
@@ -106,9 +96,8 @@ function DesignCard({ row, demoMode, onOpen }) {
             </Chip>
           )}
         </div>
-        <div className="text-white/85 text-sm font-medium truncate" title={row.bannerbear_uid}>
-          {row.sub_industry || row.industry_key || 'generic'}
-          {row.content_type ? ` · ${row.content_type}` : ''}
+        <div className="text-white/85 text-sm font-medium truncate" title={archetypeLabel}>
+          {archetypeLabel}
         </div>
         <div className="flex items-center justify-between text-xs">
           <span className="text-white/40">v{row.version} · score {row.premium_score}</span>
@@ -129,10 +118,10 @@ export default function AdminTemplateDesignsPage() {
   const [demoMode, setDemoMode] = useState(true)
 
   const [filters, setFilters] = useState({
-    intent_family: '',
+    content_type: '',
+    art_direction_variant: '',
     post_type: '',
     coverage_status: '',
-    sub_industry: '',
     is_active: '',
   })
 
@@ -201,7 +190,7 @@ export default function AdminTemplateDesignsPage() {
     setLoading(true)
     const params = {}
     Object.entries(filters).forEach(([k, v]) => { if (v !== '') params[k] = v })
-    adminApi.templateDesigns({ ...params, limit: 200 })
+    adminApi.templateDesigns({ ...params, limit: 400 })
       .then((data) => {
         if (!alive) return
         setRows(data?.rows || [])
@@ -216,21 +205,43 @@ export default function AdminTemplateDesignsPage() {
     return () => { alive = false }
   }, [filters])
 
-  // Group by sub_industry (NULL = generic) for the grid view.
+  // Group by content_type for the grid view (10 content types from PRD §7.1).
+  // Within each group, sort rows by VD code so VD01–VD10 read left-to-right.
   const grouped = useMemo(() => {
     const buckets = new Map()
     for (const row of rows) {
-      const key = row.sub_industry || 'Generic premium (v1 fallback)'
+      const key = row.content_type || 'unclassified'
       if (!buckets.has(key)) buckets.set(key, [])
       buckets.get(key).push(row)
     }
+    for (const [, list] of buckets) {
+      list.sort((a, b) => {
+        const v = String(a.art_direction_variant || '').localeCompare(b.art_direction_variant || '')
+        if (v !== 0) return v
+        return String(a.post_type || '').localeCompare(b.post_type || '')
+      })
+    }
     return Array.from(buckets.entries()).sort(([a], [b]) => {
-      // generic last
-      if (a.startsWith('Generic')) return 1
-      if (b.startsWith('Generic')) return -1
+      if (a === 'unclassified') return 1
+      if (b === 'unclassified') return -1
       return a.localeCompare(b)
     })
   }, [rows])
+
+  // Pretty labels for content_type bucket headers.
+  const CONTENT_TYPE_LABELS = {
+    problem_solution:   'Problem → Solution',
+    how_it_works:       'How It Works',
+    benefits_snapshot:  'Benefits Snapshot',
+    proof_trust:        'Proof & Trust',
+    myth_fact:          'Myth vs Fact',
+    before_after:       'Before / After',
+    use_case:           'Use-Case Spotlight',
+    objection_crusher:  'Objection Crusher',
+    quick_tips:         'Quick Tips / Checklist',
+    offer_cta:          'Offer / CTA Campaign',
+    unclassified:       'Unclassified (legacy)',
+  }
 
   return (
     <AdminLayout>
@@ -241,7 +252,7 @@ export default function AdminTemplateDesignsPage() {
             Template designs
           </h1>
           <p className="text-white/40 text-sm mt-0.5">
-            {loading ? 'Loading…' : `${total} designs · grouped by sub-industry`}
+            {loading ? 'Loading…' : `${total} designs · 10 archetypes × 10 content types · grouped by content type`}
           </p>
           <div className="flex items-center gap-2 mt-2 text-xs">
             {migratingState.head && (
@@ -316,10 +327,15 @@ export default function AdminTemplateDesignsPage() {
           <span className="text-white/40 text-xs font-bold uppercase tracking-widest">Filters</span>
         </div>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-          <select className={inp} value={filters.intent_family}
-                  onChange={e => setFilters(f => ({ ...f, intent_family: e.target.value }))}>
-            <option value="">all intents</option>
-            {INTENT_FAMILIES.map(v => <option key={v} value={v}>{v}</option>)}
+          <select className={inp} value={filters.content_type}
+                  onChange={e => setFilters(f => ({ ...f, content_type: e.target.value }))}>
+            <option value="">all content types</option>
+            {CONTENT_TYPES.map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+          <select className={inp} value={filters.art_direction_variant}
+                  onChange={e => setFilters(f => ({ ...f, art_direction_variant: e.target.value }))}>
+            <option value="">all archetypes</option>
+            {VDS.map(v => <option key={v} value={v}>{v}</option>)}
           </select>
           <select className={inp} value={filters.post_type}
                   onChange={e => setFilters(f => ({ ...f, post_type: e.target.value }))}>
@@ -331,9 +347,6 @@ export default function AdminTemplateDesignsPage() {
             <option value="">all coverage</option>
             {COVERAGE_STATUSES.map(v => <option key={v} value={v}>{v}</option>)}
           </select>
-          <input className={inp} placeholder="sub_industry"
-                 value={filters.sub_industry}
-                 onChange={e => setFilters(f => ({ ...f, sub_industry: e.target.value }))} />
           <select className={inp} value={filters.is_active}
                   onChange={e => setFilters(f => ({ ...f, is_active: e.target.value }))}>
             <option value="">active or not</option>
@@ -352,8 +365,9 @@ export default function AdminTemplateDesignsPage() {
       {!loading && rows.length === 0 && (
         <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-10 text-center">
           <p className="text-white/55 text-sm mb-4">
-            No template designs yet. Click below to seed the 42-row generic
-            premium library and render the McDonald's demo previews.
+            No template designs yet. Click below to seed the v2 archetype
+            library — 10 archetypes × 10 content types — and render the
+            McDonald's demo previews.
           </p>
           <button
             onClick={handleSeedV1}
@@ -383,8 +397,11 @@ export default function AdminTemplateDesignsPage() {
       <div className="space-y-6">
         {grouped.map(([groupName, groupRows]) => (
           <div key={groupName}>
-            <h2 className="text-white/55 text-xs font-bold uppercase tracking-widest mb-3">
-              {groupName} <span className="text-white/30 ml-2 normal-case font-medium">{groupRows.length} designs</span>
+            <h2 className="text-white/85 text-base font-bold mb-3">
+              {CONTENT_TYPE_LABELS[groupName] || groupName}
+              <span className="text-white/30 ml-3 text-xs font-medium uppercase tracking-widest">
+                {groupRows.length} designs
+              </span>
             </h2>
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
               {groupRows.map(row => (

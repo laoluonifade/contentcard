@@ -93,42 +93,44 @@ _SLOT_CASES = {
 }
 
 
+_VD_CODES = ("VD01", "VD02", "VD03", "VD04", "VD05",
+             "VD06", "VD07", "VD08", "VD09", "VD10")
+
+
 class CompositorTests(unittest.TestCase):
-    def test_renders_every_intent_against_synthetic_background(self):
+    def test_renders_every_archetype_against_synthetic_background(self):
         bg = _synthetic_background_png()
-        for intent, slots in _SLOT_CASES.items():
-            for variant in ("A", "B", "C"):
-                with self.subTest(intent=intent, variant=variant):
-                    png = composite_template_image(
-                        background_bytes=bg,
-                        intent_family=intent,
-                        art_direction_variant=variant,
-                        slot_values=slots,
-                        brand_kit=_BRAND_KIT,
-                    )
-                    self.assertTrue(png.startswith(b"\x89PNG"),
-                                    f"not a PNG for {intent}/{variant}")
-                    img = Image.open(io.BytesIO(png))
-                    self.assertEqual(img.size, CANVAS_SIZE)
+        # Use a fat slot dict that any archetype can pull from
+        slots = {**_SLOT_CASES["promo"], **_SLOT_CASES["testimonial"],
+                 **_SLOT_CASES["quote"], **_SLOT_CASES["edu"]}
+        for vd in _VD_CODES:
+            with self.subTest(vd=vd):
+                png = composite_template_image(
+                    background_bytes=bg,
+                    art_direction_variant=vd,
+                    slot_values=slots,
+                    brand_kit=_BRAND_KIT,
+                )
+                self.assertTrue(png.startswith(b"\x89PNG"),
+                                f"not a PNG for {vd}")
+                img = Image.open(io.BytesIO(png))
+                self.assertEqual(img.size, CANVAS_SIZE)
 
     def test_falls_back_to_color_block_when_no_background(self):
         png = composite_template_image(
             background_bytes=None,
-            intent_family="promo",
-            art_direction_variant="A",
+            art_direction_variant="VD01",
             slot_values={"headline": "Test", "cta": "Buy"},
             brand_kit=_BRAND_KIT,
         )
         img = Image.open(io.BytesIO(png))
         self.assertEqual(img.size, CANVAS_SIZE)
 
-    def test_unknown_intent_uses_content_layout(self):
-        # Unknown intents shouldn't crash — they fall through to the
-        # 'content' layout per the dispatch table.
+    def test_unknown_variant_uses_vd01(self):
+        # Unknown VD codes fall through to VD01 per the dispatch table.
         png = composite_template_image(
             background_bytes=None,
-            intent_family="not_a_real_intent",
-            art_direction_variant="A",
+            art_direction_variant="VD99",
             slot_values={"headline": "Hi", "cta": "Go"},
             brand_kit=_BRAND_KIT,
         )
@@ -140,9 +142,19 @@ class CompositorTests(unittest.TestCase):
                          "and ever and never look back at lesser meals")
         png = composite_template_image(
             background_bytes=_synthetic_background_png(),
-            intent_family="promo",
-            art_direction_variant="A",
+            art_direction_variant="VD02",
             slot_values={"headline": long_headline, "cta": "Order", "brand_name": "Acme"},
+            brand_kit=_BRAND_KIT,
+        )
+        img = Image.open(io.BytesIO(png))
+        self.assertEqual(img.size, CANVAS_SIZE)
+
+    def test_carousel_body_slide_drops_to_quieter_layout(self):
+        png = composite_template_image(
+            background_bytes=None,
+            art_direction_variant="VD06",
+            slot_values={"headline": "Body slide", "body": "supporting copy",
+                         "brand_name": "Acme"},
             brand_kit=_BRAND_KIT,
         )
         img = Image.open(io.BytesIO(png))
@@ -156,11 +168,15 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(_hex_to_rgb(None), (255, 199, 44))  # default
         self.assertEqual(_hex_to_rgb("nonsense"), (255, 199, 44))
 
-    def test_contrast_text_yellow_gets_black(self):
-        self.assertEqual(_contrast_text((255, 199, 44)), (0, 0, 0))
+    def test_contrast_text_yellow_gets_dark(self):
+        # Returns the archetype's `dark` token (not pure black) so the
+        # text reads "ink" on cream rather than printer-black on white.
+        out = _contrast_text((255, 199, 44))
+        self.assertLess(sum(out), 60)  # near-black
 
-    def test_contrast_text_red_gets_white(self):
-        self.assertEqual(_contrast_text((218, 41, 28)), (255, 255, 255))
+    def test_contrast_text_red_gets_light(self):
+        out = _contrast_text((218, 41, 28))
+        self.assertGreater(sum(out), 700)  # near-white
 
     def test_wrap_text_single_word_passes_through(self):
         font = _load_font("regular", 24)

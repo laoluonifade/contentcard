@@ -20,7 +20,7 @@ import {
   Eye, EyeOff, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { adminApi } from '../../api'
-import TemplateLayout from './TemplateLayouts'
+import TemplateArchetype from './TemplateArchetypes'
 
 const TAB_DEFS = [
   { key: 'preview',  label: 'Preview',       icon: ImageIcon },
@@ -30,9 +30,9 @@ const TAB_DEFS = [
   { key: 'versions', label: 'Versions',      icon: GitBranch },
 ]
 
-function PreviewCanvas({ slide, brandTokens, intentFamily, variant }) {
-  // Dispatches to a per-(intent, variant) designed layout. See
-  // TemplateLayouts.jsx for the 21 layout components.
+function PreviewCanvas({ slide, brandTokens, variant }) {
+  // Dispatches to a VD-coded archetype layout. See TemplateArchetypes.jsx
+  // for the 10 archetype components.
   if (!slide || !slide.used_slots) {
     return (
       <div className="aspect-square bg-white/[0.03] border border-white/5 rounded-xl flex items-center justify-center text-white/30 text-sm">
@@ -41,8 +41,7 @@ function PreviewCanvas({ slide, brandTokens, intentFamily, variant }) {
     )
   }
   return (
-    <TemplateLayout
-      intentFamily={intentFamily}
+    <TemplateArchetype
       variant={variant}
       slotValues={slide.used_slots}
       brandTokens={brandTokens}
@@ -271,7 +270,6 @@ export default function TemplateDesignDrawer({ designId, onClose }) {
                       <PreviewCanvas
                         slide={slides[slide]}
                         brandTokens={detail.row.demo_render_payload?.brand_tokens}
-                        intentFamily={detail.row.intent_family}
                         variant={detail.row.art_direction_variant}
                       />
                       <div className="text-white/35 text-xs">

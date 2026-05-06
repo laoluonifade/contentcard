@@ -1,11 +1,9 @@
 /**
- * v1 coverage matrix for the Premium Social Template Library.
+ * v2 coverage matrix for the Premium Social Template Library.
  *
- * Renders a 7x2x3 grid (intent_family x post_type x art_direction_variant)
- * = 42 cells colored pass / degraded / missing. Header strip shows the
- * counts so the admin can read coverage health at a glance.
- *
- * PR 1.9 of docs/PR-plan-premium-social-template-library.md.
+ * Renders a 10×10 grid: content_type (rows) × archetype VD code
+ * (columns). Each cell is pass / degraded / missing. Header strip
+ * shows the counts so admin can read coverage health at a glance.
  */
 
 import { useEffect, useState } from 'react'
@@ -57,9 +55,24 @@ function MetricsStrip() {
   )
 }
 
-const INTENTS = ['promo', 'edu', 'testimonial', 'hiring', 'content', 'hook', 'quote']
-const POST_TYPES = ['single', 'carousel']
-const VARIANTS = ['A', 'B', 'C']
+const CONTENT_TYPES = [
+  'problem_solution', 'how_it_works', 'benefits_snapshot', 'proof_trust',
+  'myth_fact', 'before_after', 'use_case', 'objection_crusher',
+  'quick_tips', 'offer_cta',
+]
+const VDS = ['VD01', 'VD02', 'VD03', 'VD04', 'VD05', 'VD06', 'VD07', 'VD08', 'VD09', 'VD10']
+const CONTENT_TYPE_LABEL = {
+  problem_solution: 'Problem → Solution',
+  how_it_works: 'How It Works',
+  benefits_snapshot: 'Benefits',
+  proof_trust: 'Proof & Trust',
+  myth_fact: 'Myth vs Fact',
+  before_after: 'Before / After',
+  use_case: 'Use-Case',
+  objection_crusher: 'Objection',
+  quick_tips: 'Quick Tips',
+  offer_cta: 'Offer / CTA',
+}
 
 const STATUS_STYLE = {
   pass:     'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -97,7 +110,7 @@ export default function TemplateDesignCoverage({ onOpenDesign }) {
 
   const lookup = new Map()
   for (const cell of data.cells) {
-    lookup.set(`${cell.intent_family}|${cell.post_type}|${cell.art_direction_variant}`, cell)
+    lookup.set(`${cell.content_type}|${cell.art_direction_variant}`, cell)
   }
 
   return (
@@ -114,39 +127,45 @@ export default function TemplateDesignCoverage({ onOpenDesign }) {
         <table className="w-full">
           <thead>
             <tr className="border-b border-white/5">
-              <th className="text-left text-white/30 text-[10px] font-bold uppercase tracking-widest px-3 py-2">Intent</th>
-              {POST_TYPES.flatMap(pt =>
-                VARIANTS.map(v => (
-                  <th key={`${pt}-${v}`} className="text-center text-white/30 text-[10px] font-bold uppercase tracking-widest px-2 py-2">
-                    {pt[0].toUpperCase()} · {v}
-                  </th>
-                ))
-              )}
+              <th className="text-left text-white/30 text-[10px] font-bold uppercase tracking-widest px-3 py-2">Content type</th>
+              {VDS.map(v => (
+                <th key={v} className="text-center text-white/30 text-[10px] font-bold uppercase tracking-widest px-1 py-2">
+                  {v}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {INTENTS.map(intent => (
-              <tr key={intent} className="border-b border-white/[0.04]">
-                <td className="px-3 py-2 text-white/85 text-sm font-medium">{intent}</td>
-                {POST_TYPES.flatMap(pt =>
-                  VARIANTS.map(v => {
-                    const cell = lookup.get(`${intent}|${pt}|${v}`)
-                    if (!cell) return <td key={`${intent}-${pt}-${v}`} />
-                    const id = cell.design_ids[0]
+            {CONTENT_TYPES.map(ct => (
+              <tr key={ct} className="border-b border-white/[0.04]">
+                <td className="px-3 py-2 text-white/85 text-xs font-medium whitespace-nowrap">
+                  {CONTENT_TYPE_LABEL[ct] || ct}
+                </td>
+                {VDS.map(v => {
+                  const cell = lookup.get(`${ct}|${v}`)
+                  if (!cell) {
                     return (
-                      <td key={`${intent}-${pt}-${v}`} className="px-1 py-1 text-center">
-                        <button
-                          onClick={() => id && onOpenDesign && onOpenDesign(id)}
-                          disabled={!id}
-                          className={`w-full text-[10px] font-bold uppercase tracking-widest px-1 py-2 rounded-lg border ${STATUS_STYLE[cell.status]} ${id ? 'hover:opacity-80 cursor-pointer' : 'opacity-60 cursor-default'}`}
-                          title={`${cell.design_count} design(s)`}
-                        >
-                          {cell.status[0]}
-                        </button>
+                      <td key={`${ct}-${v}`} className="px-0.5 py-1 text-center">
+                        <span className={`block text-[10px] font-bold uppercase tracking-widest px-1 py-2 rounded-lg border ${STATUS_STYLE.missing} opacity-60`}>
+                          M
+                        </span>
                       </td>
                     )
-                  })
-                )}
+                  }
+                  const id = cell.design_ids[0]
+                  return (
+                    <td key={`${ct}-${v}`} className="px-0.5 py-1 text-center">
+                      <button
+                        onClick={() => id && onOpenDesign && onOpenDesign(id)}
+                        disabled={!id}
+                        className={`w-full text-[10px] font-bold uppercase tracking-widest px-1 py-2 rounded-lg border ${STATUS_STYLE[cell.status]} ${id ? 'hover:opacity-80 cursor-pointer' : 'opacity-60 cursor-default'}`}
+                        title={`${cell.design_count} design(s)`}
+                      >
+                        {cell.status[0]}
+                      </button>
+                    </td>
+                  )
+                })}
               </tr>
             ))}
           </tbody>
@@ -154,9 +173,9 @@ export default function TemplateDesignCoverage({ onOpenDesign }) {
       </div>
 
       <p className="text-white/35 text-xs">
-        Expected cells: 7 intents × 2 post types × 3 variants = {data.expected_cells}.
-        Click a cell to open the first matching design (when present). Sub-industry
-        coverage is deferred to v2 (PRD §15.1).
+        Expected cells: 10 content types × 10 archetypes (VD01–VD10) ={' '}
+        {data.expected_cells}. Click a cell to open the first matching
+        design (when present).
       </p>
     </div>
   )

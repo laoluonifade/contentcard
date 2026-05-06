@@ -71,11 +71,12 @@ async def list_template_designs(
     sub_industry: str | None = Query(None),
     intent_family: str | None = Query(None),
     content_type: str | None = Query(None),
+    art_direction_variant: str | None = Query(None, description="Filter by VD code"),
     post_type: str | None = Query(None),
     coverage_status: str | None = Query(None),
     premium_score_gte: int | None = Query(None, ge=0, le=5),
     is_active: bool | None = Query(None),
-    limit: int = Query(200, ge=1, le=1000),
+    limit: int = Query(400, ge=1, le=1000),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
     """List template designs with optional filters.
@@ -94,6 +95,8 @@ async def list_template_designs(
         q = q.where(ContentTemplateDesign.intent_family == intent_family)
     if content_type:
         q = q.where(ContentTemplateDesign.content_type == content_type)
+    if art_direction_variant:
+        q = q.where(ContentTemplateDesign.art_direction_variant == art_direction_variant)
     if post_type:
         q = q.where(ContentTemplateDesign.post_type == post_type)
     if coverage_status:
@@ -215,11 +218,13 @@ async def lookup_metrics(
     }
 
 
-_V1_INTENT_FAMILIES = (
-    "promo", "edu", "testimonial", "hiring", "content", "hook", "quote",
+_V2_CONTENT_TYPES = (
+    "problem_solution", "how_it_works", "benefits_snapshot", "proof_trust",
+    "myth_fact", "before_after", "use_case", "objection_crusher",
+    "quick_tips", "offer_cta",
 )
-_V1_POST_TYPES = ("single", "carousel")
-_V1_VARIANTS = ("A", "B", "C")
+_V2_VDS = ("VD01", "VD02", "VD03", "VD04", "VD05",
+           "VD06", "VD07", "VD08", "VD09", "VD10")
 
 
 @router.get("/coverage")
@@ -227,46 +232,47 @@ async def coverage_report(
     _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """v1 coverage report: 7 intent_families x 2 post_types x 3 variants
-    = 42 expected cells (PRD §15). Each cell rolls up to one of:
+    """v2 coverage report: 10 content_types x 10 archetypes (VD01–VD10)
+    = 100 expected cells. Each cell rolls up to one of:
 
       pass     — at least one active row with premium_score >= 4 exists
       degraded — row exists but inactive or premium_score < 4
       missing  — no row exists for that cell
 
-    Also returns per-axis totals so the admin UI can render summary
-    cards without re-aggregating.
+    Cells aggregate single + carousel post-types — both share an
+    archetype, so a content_type/VD combo is "covered" if either
+    post_type has a passing row.
     """
     rows = (
         await db.execute(select(ContentTemplateDesign))
     ).scalars().all()
 
-    by_cell: dict[tuple[str, str, str], list[ContentTemplateDesign]] = {}
+    by_cell: dict[tuple[str, str], list[ContentTemplateDesign]] = {}
     for row in rows:
-        key = (row.intent_family, row.post_type, row.art_direction_variant)
+        if not row.content_type:
+            continue
+        key = (row.content_type, row.art_direction_variant)
         by_cell.setdefault(key, []).append(row)
 
     cells: list[dict[str, Any]] = []
-    for intent in _V1_INTENT_FAMILIES:
-        for pt in _V1_POST_TYPES:
-            for variant in _V1_VARIANTS:
-                bucket = by_cell.get((intent, pt, variant), [])
-                status = _cell_status(bucket)
-                cells.append({
-                    "intent_family": intent,
-                    "post_type": pt,
-                    "art_direction_variant": variant,
-                    "status": status,
-                    "design_count": len(bucket),
-                    "design_ids": [r.design_id for r in bucket],
-                })
+    for ct in _V2_CONTENT_TYPES:
+        for vd in _V2_VDS:
+            bucket = by_cell.get((ct, vd), [])
+            status = _cell_status(bucket)
+            cells.append({
+                "content_type": ct,
+                "art_direction_variant": vd,
+                "status": status,
+                "design_count": len(bucket),
+                "design_ids": [r.design_id for r in bucket],
+            })
 
     counts = {"pass": 0, "degraded": 0, "missing": 0}
     for c in cells:
         counts[c["status"]] += 1
 
     return {
-        "expected_cells": len(_V1_INTENT_FAMILIES) * len(_V1_POST_TYPES) * len(_V1_VARIANTS),
+        "expected_cells": len(_V2_CONTENT_TYPES) * len(_V2_VDS),
         "counts": counts,
         "cells": cells,
     }
@@ -512,23 +518,21 @@ async def rerender_demo_all(
 
 
 @router.post("/seed-v1")
-async def seed_v1_library(
+async def seed_v2_library(
     _: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Idempotent seed of the v1 generic premium library (42 templates).
+    """Idempotent seed of the v2 archetype library (10 content_types ×
+    10 archetypes = 100 templates; ~250 rows including carousel slides).
 
-    Equivalent to running `python scripts/seed_template_designs_v1.py
-    --rerender-demos` from the Render shell, but reachable through the
-    admin UI for environments where shell access is unavailable.
-
-    Re-running is safe: the upsert keys on
-    `(intent_family, post_type, art_direction_variant, bannerbear_uid)`
-    so existing rows aren't duplicated. Demo renders are also idempotent
-    against the McDonald's fixture.
+    Endpoint URL kept as `/seed-v1` for backward compat with the admin
+    button shipped earlier; the body now seeds v2. Re-running is safe:
+    the upsert deletes the old v1 generic-premium rows and re-inserts
+    the v2 set keyed on (content_type, vd, post_type, bannerbear_uid).
+    Demo renders are idempotent against the McDonald's fixture.
     """
-    from app.seed.template_designs.v1_generic_premium import upsert_v1
-    seed_result = await upsert_v1(db)
+    from app.seed.template_designs.v2_archetype_library import upsert_v2
+    seed_result = await upsert_v2(db)
     processed, with_payload = await render_demo_for_all_active(db)
     return {
         "seed": seed_result,

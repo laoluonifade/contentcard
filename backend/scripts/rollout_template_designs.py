@@ -5,8 +5,9 @@ output and a clear final verdict so the operator can read one screen and
 know the rollout is healthy.
 
 Step 1 — `alembic upgrade head` (idempotent; no-op if already at head).
-Step 2 — `python scripts/seed_template_designs_v1.py --rerender-demos`
-        equivalent (idempotent; no-op if already seeded).
+Step 2 — seed the v2 archetype library (idempotent; equivalent to the
+        admin "Seed library" button; deletes legacy v1 generic rows on
+        first run, then upserts the 100-template archetype set).
 Step 4 — poll lookup-health metrics for `--watch-minutes` minutes
         (default 5), printing one line per poll so the operator can
         see the resolved-rate climb after step 3 (env-var flip) is
@@ -40,9 +41,9 @@ from sqlalchemy import func, select
 from app.db.database import AsyncSessionLocal
 from app.models.content import ContentItem
 from app.models.content_template_design import ContentTemplateDesign
-from app.seed.template_designs.v1_generic_premium import (
+from app.seed.template_designs.v2_archetype_library import (
     template_count,
-    upsert_v1,
+    upsert_v2,
 )
 from app.services.template_design.demo_render_job import render_demo_for_all_active
 
@@ -60,11 +61,12 @@ async def step1_migrations() -> None:
 
 
 async def step2_seed() -> None:
-    _step(2, "seed v1 generic premium library")
+    _step(2, "seed v2 archetype library (10 content_types × 10 archetypes)")
     async with AsyncSessionLocal() as db:
-        result = await upsert_v1(db)
+        result = await upsert_v2(db)
         print(f"  templates_in_seed:  {result['templates_in_seed']}")
         print(f"  rows_in_seed:       {result['rows_in_seed']}")
+        print(f"  v1_rows_deleted:    {result['v1_rows_deleted']}")
         print(f"  created:            {result['created']}")
         print(f"  updated:            {result['updated']}")
         print(f"  unchanged:          {result['unchanged']}")
@@ -124,7 +126,7 @@ def _design_inventory_summary() -> None:
             )).scalar() or 0
             print(f"\nactive content_template_design rows: {n}")
             print(
-                f"expected for v1 generic premium: ~{template_count()} templates "
+                f"expected for v2 archetype library: {template_count()} templates "
                 f"(carousels expand to multiple slide rows; ~63 rows total is normal)"
             )
     asyncio.run(_check())
